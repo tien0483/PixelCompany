@@ -1,0 +1,18 @@
+Phase,Step,Task,Description,Priority,Depends On,Effort,Key Tech,Success Metric
+0 Foundation,1,Render an IFC in the browser,"Load a small IFC and show its geometry; orbit/pan/zoom works",High,-,S,web-ifc + three.js,Model visible and navigable
+0 Foundation,2,Semantic tree + click-to-data,"Build spatial hierarchy tree (Project>Site>Building>Storey>Space>Element); click element shows its property sets",High,1,M,web-ifc API,Clicking a wall shows its properties
+1 Make it BIM,3,Query / filter / aggregate layer,"Filter by property; count/sum/group-by across elements",High,2,M,JS data store,"Query 'count fire doors on L3' returns a number"
+1 Make it BIM,4,Dashboards & schedules,"Charts, quantity takeoffs, schedules derived from queries",Medium,3,M,charting lib / BI templates,Quantity dashboard renders from model data
+2 Perf: draw calls,5,Instancing + geometry merging,"Dedupe repeated elements (windows, bolts) into one geometry + transforms",High,1,M,three.js InstancedMesh,Draw calls drop 10-100x
+2 Perf: draw calls,6,Frustum culling,"Skip drawing elements outside the view frustum",High,5,S,three.js built-in,Off-screen elements not drawn
+2 Perf: draw calls,7,Occlusion culling,"Skip drawing elements hidden behind others (facade hides interior)",Medium,6,L,GPU occlusion query / custom,Interior culled when viewed from outside
+3 Perf: scale,8,LOD chain + coarse proxies,"Generate bounding-box + decimated LOD levels per element (server-side)",High,5,L,meshoptimizer,Zoom-out overview stays ~60 FPS
+3 Perf: scale,9,Screen-space-error LOD selection,"Pick which LOD to draw/load each frame based on on-screen size",High,8,M,custom,LOD swaps smoothly with zoom
+3 Perf: scale,10,Server-side tessellation,"Pre-process IFC/RVT into optimized streamable chunks so the browser never parses raw IFC",High,2,L,IfcOpenShell / web-ifc server,Browser loads chunks not raw IFC
+3 Perf: scale,11,Spatial streaming + LRU eviction,"Load only visible/near tiles; evict off-screen geometry",High,10,L,3D Tiles / custom octree,Resident working set stays ~1-2 GB
+4 Robustness,12,RTC / double-precision rendering,"Fix float32 jitter at real-world survey coordinates",High,1,M,relative-to-center transforms,No wobble at real coordinates
+4 Robustness,13,Decoupled loader (workers + budgeted upload),"Parse/decode in Web Workers; time-budget GPU uploads so the frame never stalls",High,10,M,Web Workers + queue.writeBuffer,Camera stays smooth while loading
+4 Robustness,14,Local cache,"Cache downloaded chunks for fast re-load / offline",Low,11,S,OPFS / IndexedDB,Second load is near-instant
+4 Robustness,15,Benchmark harness,"Instrument draw calls, tris/frame, frame-time 1% lows, VRAM, parse time; test full-model zoom-out",Medium,6,M,custom counters,Metrics visible; zoom-out case measured
+5 Differentiators,16,Natural-language / LLM query,"Ask the building in plain English (like Frame); route to the query layer",Low,3,M,local LLM (Ollama),NL question returns a data answer
+Cross-cutting,17,Prefer WebGPU over WebGL,"Use WebGPU throughout for lower draw-call overhead (the real bottleneck)",High,1,S,WebGPU,Lower CPU time per frame vs WebGL

@@ -1,0 +1,215 @@
+// Copyright (C) 2026 Akselos
+@use '../../themes/tokens' as *;
+// Footer composer: input shell, attach menu, mic/cancel/send buttons.
+// Base = light /ai-chat page; `.chat-sidebar &` / `.chat-popup &` = the static
+// navy dock pane / popup scopes (see thread.scss note).
+@use "../../themes/variables" as *;
+@use "../../themes/chat" as *;
+
+// composer
+.chat-composer {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  border-radius: 24px;
+  border: 1px solid $token-color-border;
+  background: $light-text-color;
+  padding: 0.375rem 0.625rem 0.375rem;
+  transition: border-color 0.15s, box-shadow 0.15s;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+
+  &:focus-within {
+    border-color: $token-color-border-focus;
+    box-shadow: 0 2px 12px rgba(11, 87, 208, 0.1);
+  }
+
+  .chat-sidebar &,
+  .chat-popup & {
+    background: $chat-surface;
+    border-color: $chat-border;
+  }
+}
+.chat-composer__input {
+  min-height: 2.5rem;
+  width: 100%;
+  resize: none;
+  // strip native textarea chrome so it blends into the rounded shell.
+  appearance: none;
+  border: 0;
+  background: transparent;
+  padding: 0.5rem 0.5rem 0.375rem;
+  font: inherit;
+  font-size: 15px;
+  line-height: 1.45;
+  color: $chat-ink;
+  outline: none;
+
+  &::placeholder {
+    color: $token-color-text-muted;
+  }
+
+  .chat-sidebar &,
+  .chat-popup & {
+    color: $chat-text;
+
+    &::placeholder {
+      color: $chat-text-dim;
+    }
+  }
+}
+.chat-composer__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0 0.125rem;
+}
+.chat-composer__bar-side {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+// mic + plus share the borderless circular icon-button look; send is filled chatbot-blue.
+.chat-composer__mic {
+  display: flex;
+  width: 2rem;
+  height: 2rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  border: 0;
+  background: transparent;
+  color: $token-color-text-muted;
+  transition: background-color 0.15s, color 0.15s;
+  cursor: pointer;
+
+  &:hover {
+    background: $token-color-bg-muted;
+    color: $token-color-text;
+  }
+
+  .chat-sidebar &,
+  .chat-popup & {
+    color: $chat-text;
+
+    &:hover {
+      background: $chatbot-blue;
+      color: $chat-text;
+    }
+  }
+}
+.chat-composer__cancel-btn {
+  display: flex;
+  width: 2rem;
+  height: 2rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  border: 0;
+  background: $token-color-bg-muted;
+  color: $token-color-text;
+  cursor: pointer;
+
+  &:hover {
+    background: $token-color-border;
+  }
+}
+.chat-composer__send-btn {
+  display: flex;
+  width: 2rem;
+  height: 2rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  border: 0;
+  background: $chatbot-blue;
+  // Icon is the "AI spark": neon accent on the assistant-side send action,
+  // not a surface color (neon marks a facet of the logo, never a fill).
+  color: $chatbot-neon;
+  transition: background-color 0.15s;
+  cursor: pointer;
+
+  &:hover {
+    background: $chatbot-blue-hover;
+  }
+  &:disabled {
+    background: $token-color-bg-focus;
+    // Neon-on-light-blue-gray is too low-contrast to read; fall back to the
+    // original white icon for the disabled state only.
+    color: $light-text-color;
+  }
+}
+
+// addMenu
+.chat-add-menu__item {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+  font-size: 15px;
+  color: $chat-ink;
+  transition: background-color 0.15s;
+  cursor: pointer;
+
+  &:hover {
+    background: $chat-surface-muted;
+  }
+}
+.chat-add-menu__button {
+  display: flex;
+  width: 2rem;
+  height: 2rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  border: 0;
+  background: transparent;
+  color: $token-color-text-muted;
+  transition: background-color 0.15s, color 0.15s;
+  cursor: pointer;
+
+  &:hover {
+    background: $token-color-bg-muted;
+    color: $token-color-text;
+  }
+
+  .chat-sidebar &,
+  .chat-popup & {
+    color: $chat-text;
+
+    &:hover {
+      background: $chatbot-blue;
+      color: $chat-text;
+    }
+  }
+}
+.chat-add-menu__click-away {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+}
+.chat-add-menu {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  z-index: 20;
+  margin-bottom: 0.5rem;
+  width: 18rem;
+  overflow: hidden;
+  border-radius: 20px;
+  border: 1px solid $token-color-border-light;
+  background: $light-text-color;
+  padding-top: 0.5rem;
+  padding-bottom: 0.5rem;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.12);
+}
+
+// add-menu anchor (positions the popup) + muted item icon.
+.chat-add-menu__anchor {
+  position: relative;
+}
+.chat-add-menu__item-icon {
+  color: $token-color-text-light;
+}

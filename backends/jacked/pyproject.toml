@@ -1,0 +1,103 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "claude-jacked"
+dynamic = ["version"]
+description = "Multi-account manager + skills suite for Claude Code (and Codex) — live usage tracking, auto account-switching, menu-bar pill, 30 slash commands, web dashboard"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [
+    { name = "Jack Neil", email = "jack@jackmd.com" }
+]
+keywords = ["claude", "claude-code", "codex", "account-management", "usage-tracking", "skills"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+dependencies = [
+    "click>=8.0,<9",
+    "python-dotenv>=1.2.2,<2",
+    "rich>=13.0,<16",
+    "fastapi>=0.100,<1",
+    # Explicit floor: status.HTTP_422_UNPROCESSABLE_CONTENT (RFC9110 names)
+    # first appeared in starlette 0.48.0; the fastapi range alone permits
+    # far older starlette in shared envs.
+    "starlette>=0.48",
+    "uvicorn[standard]>=0.20,<1",
+    "httpx>=0.24,<1",
+    "aiohttp>=3.9,<4",
+    "packaging>=23.0,<27",
+    "anthropic>=0.40,<1",
+    # Tray icon is ON by default — pystray/Pillow are core so a bare
+    # `uv tool install claude-jacked` lights up the tray with no extra needed.
+    # Opt out of the icon at runtime with `jacked install --no-tray`. Headless
+    # CI/servers still pull these but the tray degrades gracefully (the service
+    # runs; the icon is skipped when there's no display).
+    "pystray>=0.19,<1",
+    "Pillow>=9.0,<13",
+    # macOS menu-bar app (darwin-ONLY): rumps status item + PyObjC NSPopover/
+    # NSPanel hosting WKWebViews at /panel. Windows/Linux keep the existing
+    # pystray tray and never resolve or install these (the marker gates them).
+    "rumps>=0.4,<1; sys_platform == 'darwin'",
+    "pyobjc-framework-Cocoa>=10,<13; sys_platform == 'darwin'",
+    "pyobjc-framework-WebKit>=10,<13; sys_platform == 'darwin'",
+]
+
+[project.optional-dependencies]
+# All former extras are retired or folded into core deps. Kept as empty
+# aliases so `uv tool install "claude-jacked[search|security|web|tray|all]"`
+# from old docs/scripts still resolves instead of erroring.
+search = []  # retired in 0.70.0 — Qdrant session search was removed
+security = []  # retired in 0.70.0 — the gatekeeper was removed
+web = []
+tray = []  # backwards compat — pystray/Pillow are now CORE deps (tray on by default)
+all = []
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3,<10",
+    "pytest-cov>=4.0,<8",
+    "websockets>=12.0,<17",
+    # Tray extra — without these the entire tray test suite skips (and the
+    # @patch(...pystray) tests fail before reaching their skip guard).
+    "pystray>=0.19,<1",
+    "Pillow>=9.0,<13",
+    # Pinned ruff so the pre-push hook uses ONE deterministic version from
+    # .venv instead of whatever stray conda env sorts first on PATH.
+    # <0.16: ruff 0.16 broadens the default rule set (~1,250 new findings on
+    # this tree). Raise the cap only together with that migration.
+    "ruff>=0.6,<0.16",
+]
+
+[project.scripts]
+jacked = "jacked.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/jackneil/claude-jacked"
+Repository = "https://github.com/jackneil/claude-jacked"
+Issues = "https://github.com/jackneil/claude-jacked/issues"
+
+[tool.hatch.version]
+path = "jacked/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["jacked"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+
+# Supply-chain hardening: uv resolves only versions uploaded before this date.
+# Defends against smash-and-grab attacks (axios 1.14.1, Shai-Hulud, etc.) — gives
+# the community time to flag a poisoned release before it lands in our build.
+# Bump as part of intentional dep refreshes (≥ 7 days ago is the minimum standard).
+[tool.uv]
+exclude-newer = "2026-05-13T00:00:00Z"

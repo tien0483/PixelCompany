@@ -1,0 +1,238 @@
+{
+  "ast": {
+    "imports": [
+      {
+        "file": "frontends/pixel_office/src/App.tsx",
+        "line": 61,
+        "mod": "@/jacked/jacked-accounts-view"
+      },
+      {
+        "file": "frontends/pixel_office/src/components/home-sidebar-jacked.tsx",
+        "line": 4,
+        "mod": "@/components/jacked-sidebar-section"
+      },
+      {
+        "file": "frontends/pixel_office/src/office/office-e2e-harness.tsx",
+        "line": 7,
+        "mod": "@/jacked/jacked-accounts-view"
+      }
+    ],
+    "jsx": [
+      {
+        "file": "frontends/pixel_office/src/App.tsx",
+        "line": 1000,
+        "tag": "JackedAccountsView"
+      },
+      {
+        "file": "frontends/pixel_office/src/components/home-sidebar-jacked.tsx",
+        "line": 47,
+        "tag": "JackedSidebarSection"
+      },
+      {
+        "file": "frontends/pixel_office/src/jacked/jacked-settings-view.tsx",
+        "line": 190,
+        "tag": "ExternalLink"
+      },
+      {
+        "file": "frontends/pixel_office/src/office/office-e2e-harness.tsx",
+        "line": 413,
+        "tag": "JackedAccountsView"
+      }
+    ],
+    "calls": [
+      {
+        "file": "frontends/pixel_office/src/components/jacked-sidebar-section.tsx",
+        "line": 109,
+        "callee": "response.ok",
+        "args": ""
+      },
+      {
+        "file": "frontends/pixel_office/src/jacked/jacked-accounts-view.tsx",
+        "line": 267,
+        "callee": "getRuntimeTrpcClient(null).jacked.startClaudeOAuth.mutate",
+        "args": "remote ? { remote: true } : {}"
+      },
+      {
+        "file": "frontends/pixel_office/src/jacked/jacked-accounts-view.tsx",
+        "line": 289,
+        "callee": "window.open",
+        "args": "start.authUrl, \"_blank\", \"noopener,noreferrer\""
+      },
+      {
+        "file": "frontends/pixel_office/src/jacked/jacked-accounts-view.tsx",
+        "line": 309,
+        "callee": "getRuntimeTrpcClient(null).jacked.submitOAuthCode.mutate",
+        "args": "{\n\t\t\t\tflowId: oauthFlowId,\n\t\t\t\tcode: oauthCode.trim(),\n\t\t\t}"
+      },
+      {
+        "file": "frontends/pixel_office/src/jacked/jacked-accounts-view.tsx",
+        "line": 532,
+        "callee": "EQ_activeAccountId",
+        "args": "account.id === jacked?.activeAccountId"
+      },
+      {
+        "file": "frontends/pixel_office/src/jacked/jacked-accounts-view.tsx",
+        "line": 537,
+        "callee": "getRuntimeTrpcClient(null).jacked.useAccount.mutate",
+        "args": "{\n\t\t\t\t\t\t\t\t\t\t\taccountId: account.id,\n\t\t\t\t\t\t\t\t\t\t}"
+      },
+      {
+        "file": "frontends/pixel_office/src/jacked/jacked-accounts-view.tsx",
+        "line": 544,
+        "callee": "getRuntimeTrpcClient(null).jacked.refreshAccount.mutate",
+        "args": "{\n\t\t\t\t\t\t\t\t\t\t\taccountId: account.id,\n\t\t\t\t\t\t\t\t\t\t}"
+      },
+      {
+        "file": "backends/runtime/src/trpc/jacked-api.ts",
+        "line": 71,
+        "callee": "refuseNonClaudeAccount",
+        "args": "input.accountId"
+      },
+      {
+        "file": "backends/runtime/src/trpc/jacked-api.ts",
+        "line": 75,
+        "callee": "deps.client.useAccount",
+        "args": "input.accountId"
+      },
+      {
+        "file": "backends/runtime/src/trpc/jacked-api.ts",
+        "line": 78,
+        "callee": "refuseNonClaudeAccount",
+        "args": "input.accountId"
+      },
+      {
+        "file": "backends/runtime/src/trpc/jacked-api.ts",
+        "line": 82,
+        "callee": "deps.client.refreshAccount",
+        "args": "input.accountId"
+      },
+      {
+        "file": "backends/runtime/src/trpc/jacked-api.ts",
+        "line": 103,
+        "callee": "deps.client.startClaudeOAuth",
+        "args": "input?.remote === true"
+      },
+      {
+        "file": "backends/runtime/src/trpc/jacked-api.ts",
+        "line": 117,
+        "callee": "deps.client.submitOAuthCode",
+        "args": "input.flowId, input.code"
+      },
+      {
+        "file": "backends/runtime/src/jacked/jacked-client.ts",
+        "line": 322,
+        "callee": "response.ok",
+        "args": ""
+      },
+      {
+        "file": "backends/runtime/src/jacked/jacked-client.ts",
+        "line": 370,
+        "callee": "EQ_activeAccountId",
+        "args": "account.id === activeAccountId"
+      },
+      {
+        "file": "backends/runtime/src/jacked/jacked-client.ts",
+        "line": 410,
+        "callee": "response.ok",
+        "args": ""
+      },
+      {
+        "file": "backends/runtime/src/jacked/jacked-client.ts",
+        "line": 650,
+        "callee": "response.ok",
+        "args": ""
+      },
+      {
+        "file": "backends/runtime/src/jacked/jacked-client.ts",
+        "line": 729,
+        "callee": "response.ok",
+        "args": ""
+      }
+    ],
+    "routeIds": [
+      {
+        "file": "frontends/pixel_office/src/components/jacked-sidebar-section.tsx",
+        "line": 38,
+        "id": "installations"
+      },
+      {
+        "file": "frontends/pixel_office/src/components/jacked-sidebar-section.tsx",
+        "line": 39,
+        "id": "settings"
+      },
+      {
+        "file": "frontends/pixel_office/src/components/jacked-sidebar-section.tsx",
+        "line": 40,
+        "id": "logs"
+      },
+      {
+        "file": "frontends/pixel_office/src/components/jacked-sidebar-section.tsx",
+        "line": 41,
+        "id": "analytics"
+      },
+      {
+        "file": "frontends/pixel_office/src/components/jacked-sidebar-section.tsx",
+        "line": 42,
+        "id": "panel"
+      }
+    ],
+    "interestingStrings": [
+      {
+        "file": "frontends/pixel_office/src/components/jacked-sidebar-section.tsx",
+        "line": 21,
+        "v": "http://127.0.0.1:8321"
+      },
+      {
+        "file": "backends/runtime/src/trpc/jacked-api.ts",
+        "line": 52,
+        "v": "Only Claude accounts can be used from PixelOffice."
+      },
+      {
+        "file": "backends/runtime/src/jacked/jacked-client.ts",
+        "line": 23,
+        "v": "http://127.0.0.1:8321"
+      }
+    ],
+    "missingFiles": []
+  },
+  "startStack": {
+    "waitHits": [
+      {
+        "match": "waitForPort(port, timeoutMs = 20000)",
+        "index": 2705,
+        "line": 101
+      },
+      {
+        "match": "waitForPort(RUNTIME_PORT)",
+        "index": 5539,
+        "line": 227
+      },
+      {
+        "match": "waitForPort(JACKED_PORT, 20000)",
+        "index": 6524,
+        "line": 265
+      },
+      {
+        "match": "waitForPort(WEB_UI_PORT, 30000)",
+        "index": 6965,
+        "line": 277
+      }
+    ],
+    "installHints": [
+      {
+        "match": "pip install -e .",
+        "line": 268
+      },
+      {
+        "match": "uv sync",
+        "line": 269
+      }
+    ]
+  },
+  "sidePanelExists": false,
+  "staleQaClaims": {
+    "mentionsSidePanelStillInTree": true,
+    "mentionsDashInConfig": true,
+    "mentionsJackedUserWatch": true
+  }
+}

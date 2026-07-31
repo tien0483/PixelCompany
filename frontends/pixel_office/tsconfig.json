@@ -1,0 +1,30 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"],
+      "@runtime-agent-catalog": ["../../backends/runtime/src/core/agent-catalog.ts"],
+      "@runtime-cline-tool-call-display": ["../../backends/runtime/src/cline-sdk/cline-tool-call-display.ts"],
+      "@runtime-contract": ["../../backends/runtime/src/core/api-contract.ts"],
+      "@runtime-home-agent-session": ["../../backends/runtime/src/core/home-agent-session.ts"],
+      "@runtime-trpc": ["../../backends/runtime/src/trpc/app-router.ts"],
+      "@runtime-shortcuts": ["../../backends/runtime/src/config/shortcut-utils.ts"],
+      "@runtime-task-id": ["../../backends/runtime/src/core/task-id.ts"],
+      "@runtime-task-title": ["../../backends/runtime/src/core/task-title.ts"],
+      "@runtime-task-worktree-path": ["../../backends/runtime/src/workspace/task-worktree-path.ts"],
+      "@runtime-task-state": ["../../backends/runtime/src/core/task-board-mutations.ts"]
+    },
+    "types": ["vitest/globals"]
+  },
+  "include": ["src", "vite.config.ts", "vitest.config.ts", "playwright.config.ts"]
+}

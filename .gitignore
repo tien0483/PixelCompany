@@ -1,0 +1,7 @@
+# Dependencies
+node_modules/
+
+# WARP artifacts
+.warp/
+.cocoindex_code/
+graphify-out/

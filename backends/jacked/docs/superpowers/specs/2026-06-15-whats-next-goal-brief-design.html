@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>/whats-next → decisive, coverage-led /goal brief — Design Spec</title>
+
+<meta name="jacked:type" content="spec">
+<meta name="jacked:status" content="complete">
+<meta name="jacked:branch" content="feat/whats-next-goal-brief">
+<meta name="jacked:date" content="2026-06-15">
+<meta name="jacked:project" content="claude-jacked">
+
+<style>
+  :root {
+    --fg: #1a1a1a; --fg-muted: #555; --bg: #fafaf7; --bg-card: #fff;
+    --accent: #2266aa; --accent-bg: #e7f0fa; --warn: #b3681c; --warn-bg: #fcf3e7;
+    --danger: #b32424; --danger-bg: #fbe9e7; --ok: #1f7a3f; --ok-bg: #e8f4ec;
+    --border: #d8d4cc; --code-bg: #f3efe8; --shadow: 0 1px 3px rgba(0,0,0,.06);
+    --radius: 6px;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --fg: #e8e6e1; --fg-muted: #a8a5a0; --bg: #161616; --bg-card: #1f1f1f;
+      --accent: #6aa8e8; --accent-bg: #1a2935; --warn: #e0a85b; --warn-bg: #3a2d18;
+      --danger: #ea7670; --danger-bg: #3a1f1c; --ok: #6acd8e; --ok-bg: #1c3327;
+      --border: #2e2e2e; --code-bg: #232323; --shadow: 0 1px 3px rgba(0,0,0,.3);
+    }
+  }
+  * { box-sizing: border-box; }
+  body { font-family: var(--sans); font-size: 16px; line-height: 1.6; color: var(--fg); background: var(--bg); margin: 0; padding: 2rem 1rem; }
+  .wrap { max-width: 880px; margin: 0 auto; }
+  h1 { font-size: 2rem; margin: 0 0 .25rem; line-height: 1.2; }
+  h2 { font-size: 1.4rem; margin: 2.5rem 0 .75rem; padding-bottom: .35rem; border-bottom: 1px solid var(--border); }
+  h3 { font-size: 1.1rem; margin: 1.5rem 0 .5rem; color: var(--fg-muted); }
+  p { margin: .5rem 0 1rem; }
+  a { color: var(--accent); } a:hover { text-decoration: underline; }
+  .meta { display: flex; flex-wrap: wrap; gap: .5rem 1rem; margin: .5rem 0 2rem; padding: .75rem 1rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); font-size: .9rem; }
+  .meta .kv { display: flex; gap: .35rem; }
+  .meta .k { color: var(--fg-muted); }
+  .meta .v { font-family: var(--mono); }
+  .badge { display: inline-block; padding: .15rem .6rem; border-radius: 99px; font-size: .8rem; font-weight: 500; line-height: 1.4; }
+  .badge.ok { background: var(--ok-bg); color: var(--ok); }
+  .badge.info { background: var(--accent-bg); color: var(--accent); }
+  nav.toc { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem 1.25rem; margin-bottom: 2rem; box-shadow: var(--shadow); }
+  nav.toc h2 { margin: 0 0 .5rem; font-size: .9rem; text-transform: uppercase; letter-spacing: .05em; color: var(--fg-muted); border: none; padding: 0; }
+  nav.toc ol { margin: 0; padding-left: 1.5rem; }
+  nav.toc li { margin: .15rem 0; }
+  aside.callout { margin: 1rem 0; padding: .9rem 1.1rem; border-left: 4px solid var(--accent); background: var(--accent-bg); border-radius: 0 var(--radius) var(--radius) 0; }
+  aside.callout > :first-child { margin-top: 0; }
+  aside.callout > :last-child { margin-bottom: 0; }
+  code { font-family: var(--mono); font-size: .92em; background: var(--code-bg); padding: .12em .35em; border-radius: 3px; }
+  pre { font-family: var(--mono); font-size: .86rem; background: var(--code-bg); border: 1px solid var(--border); border-radius: var(--radius); padding: .9rem 1rem; overflow-x: auto; line-height: 1.45; }
+  pre code { background: transparent; padding: 0; }
+  table { width: 100%; border-collapse: collapse; margin: 1rem 0; background: var(--bg-card); border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow); }
+  th, td { text-align: left; padding: .55rem .8rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { background: var(--code-bg); font-weight: 600; font-size: .9rem; }
+  tr:last-child td { border-bottom: none; }
+  .diagram { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem; margin: 1rem 0; text-align: center; overflow-x: auto; }
+  .diagram pre.mermaid-source { text-align: left; display: none; }
+  .diagram.failed pre.mermaid-source { display: block; }
+  .diagram.failed svg { display: none; }
+  hr { border: none; border-top: 1px solid var(--border); margin: 2.5rem 0; }
+  @media print {
+    body { background: white; color: black; padding: 0; }
+    .wrap { max-width: none; }
+    nav.toc, h2, h3 { break-after: avoid; break-inside: avoid; }
+    pre, table, aside.callout, .diagram { break-inside: avoid; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>/whats-next → decisive, coverage-led /goal brief</h1>
+
+<div class="meta">
+  <div class="kv"><span class="k">Status:</span><span class="v"><span class="badge ok">complete (as-built)</span></span></div>
+  <div class="kv"><span class="k">Date:</span><span class="v">2026-06-15</span></div>
+  <div class="kv"><span class="k">Branch:</span><span class="v">feat/whats-next-goal-brief</span></div>
+  <div class="kv"><span class="k">Type:</span><span class="v">spec</span></div>
+</div>
+
+<nav class="toc">
+  <h2>Contents</h2>
+  <ol>
+    <li><a href="#goal">Goal</a></li>
+    <li><a href="#evolution">Evolution (v1 → v2)</a></li>
+    <li><a href="#background">Background — how /goal works</a></li>
+    <li><a href="#architecture">Architecture &amp; flow</a></li>
+    <li><a href="#brief">The Goal-Brief template</a></li>
+    <li><a href="#decisions">Design decisions</a></li>
+    <li><a href="#files">File structure</a></li>
+    <li><a href="#testing">Testing</a></li>
+    <li><a href="#review">Review outcomes</a></li>
+  </ol>
+</nav>
+
+<h2 id="goal">Goal</h2>
+<p>Make the shipped <code>/whats-next</code> skill culminate in a decisive, hands-off action. It weighs everything —
+a <strong>coverage-matrix read</strong> of how far the product is from best-in-class (10/10 across who-uses-it ×
+what-contexts, on both capability and lived experience), plus plans, issues, TODOs, commits, and lifecycle — and
+then uses its own judgment to <strong>commit to ONE ambitious, high-leverage initiative</strong> rather than handing
+back a menu. It forges that initiative into a ready-to-paste, ≤3600-char <code>/goal</code> brief engineered for
+autonomous, tested, iterated delivery.</p>
+
+<aside class="callout info">
+  <strong>Why coverage-matrix as the lead lens:</strong> the highest-yield next move is usually a
+  <em>cross-cutting lever</em> — one initiative that lifts many personas across many contexts at once (a work-queue,
+  a lifecycle/status backbone, an onboarding flow, a design-system pass). That is precisely "a combination of a lot of
+  things that drives progress," and the opposite of nitpicky one-offs.
+</aside>
+
+<h2 id="evolution">Evolution (v1 → v2)</h2>
+<p>This feature shipped in two iterations within the same branch:</p>
+<ul>
+  <li><strong>v1 (0.47.0)</strong> — <code>/whats-next</code> presented a ranked options menu; on the user's pick it
+  forged a hardened <code>/goal</code> brief (objective DONE condition, transcript-checkable verification,
+  injection-safe refs, scope guardrails).</li>
+  <li><strong>v2 (this spec, as-built)</strong> — at the user's direction, the menu is replaced by a
+  <strong>decisive, coverage-matrix-led single recommendation</strong>: weigh everything, commit to one ambitious
+  multi-part initiative, and forge its brief directly. The v1 brief hardening is preserved and extended (milestones,
+  convergence sizing).</li>
+  <li><strong>v2.1 (0.49.0)</strong> — brief char target lowered to <strong>≤3600</strong> (buffer under <code>/goal</code>’s hard 4,000 cap), a <strong>file-backed pointer-goal</strong> fallback for briefs too big to fit inline (self-bootstrapping so the tool-less evaluator can judge it; gitignored and never committed; mutually exclusive with the inline brief), and an optional <strong>turn/time backstop</strong> for unattended runs (a non-success halt, not a DONE branch).</li>
+  <li><strong>v2.2 (0.49.1)</strong> — the size limit is now <strong>measured, not estimated</strong>: the drafted brief is written to a scratch file and <code>wc -c</code>-checked ≤3600 bytes before it can be emitted (a soft target was overshooting to 4,100–4,400 chars). The <code>Next phases:</code> line counts toward the total and is never trimmed — if it pushes the brief over, tighten prose or file-back instead.</li>
+</ul>
+
+<h2 id="background">Background — how <code>/goal</code> works</h2>
+<p>Per the <a href="https://docs.anthropic.com/en/docs/claude-code/hooks">Claude Code hooks reference</a>,
+<code>/goal &lt;text&gt;</code> is a built-in shortcut for a <strong>session-scoped, prompt-based Stop hook</strong>.
+The text becomes a standing completion condition: at the end of every turn a tool-less LLM judge re-reads it and the
+transcript, and only lets Claude stop when it judges the condition met. Consequences that shape every brief: the DONE
+condition must rest on signals visible in the transcript (a named test command that exited clean; a real-run command +
+output); evidence over claims; and the work must be <em>sized to converge</em> in one run. Hook I/O caps at 10k chars;
+the condition has a hard <strong>4,000-char cap</strong>, so the brief targets ≤3600 for buffer and falls back to a <strong>file-backed pointer-goal</strong> (a short condition that tells Claude to read+execute a brief file) when even one phase won't fit. The evaluator can't read files, so the pointer-goal is self-bootstrapping: Claude pastes the milestone+Verify list into the transcript first. Claude can't self-invoke <code>/goal</code>, so the deliverable is a copy-paste block.</p>
+
+<h2 id="architecture">Architecture &amp; flow</h2>
+<p>All logic lives in one source-of-truth file, <code>jacked/data/commands/whats-next.md</code>, embedded verbatim
+into per-repo standalone configs by <code>/jacked-setup</code>. Steps 1–4 (orient, plans, signals, lifecycle) are
+unchanged but demoted to supporting input. The redesign reworks Step 5 (coverage assessment), Step 6 (decide), and
+Step 8 (forge), and adjusts Step 7 (close).</p>
+
+<div class="diagram">
+  <pre class="mermaid">
+flowchart TD
+    A["/whats-next invoked"] --> B["Steps 1-4: orient, plans,<br/>issues/TODOs/commits, lifecycle"]
+    B --> C["Step 5: Strategic Coverage Assessment<br/>(hybrid: reuse matrix doc / fast inline / offer full skill)"]
+    C --> D["Step 6: DECIDE — commit to ONE<br/>ambitious initiative (calibrated to confidence)"]
+    D --> E["Step 8: forge the /goal brief directly<br/>(ordered milestones, sized to converge)"]
+    E --> F["Step 7 close: paste-and-run, /jack-it-up,<br/>or redirect (incl. something smaller)"]
+    D -. "in-flight checkpoint" .-> R["Resume-first callout → /checkpoint resume"]
+  </pre>
+  <pre class="mermaid-source">
+flowchart TD
+    A["/whats-next invoked"] --> B["Steps 1-4: orient, plans, issues/TODOs/commits, lifecycle"]
+    B --> C["Step 5: Strategic Coverage Assessment (hybrid sourcing)"]
+    C --> D["Step 6: DECIDE - commit to ONE ambitious initiative (calibrated)"]
+    D --> E["Step 8: forge the /goal brief directly (milestones, sized to converge)"]
+    E --> F["Step 7 close: paste-and-run / jack-it-up / redirect"]
+    D -. in-flight checkpoint .-> R["Resume-first callout -> /checkpoint resume"]
+  </pre>
+</div>
+
+<h2 id="brief">The Goal-Brief template</h2>
+<p>Step 8 fills this from the decided initiative (its bundled deliverables, the cross-cutting lever, the personas/contexts
+it lifts, cited evidence) plus the repo's project type and real test command. Bracketed <code>[…]</code>-tagged lines are
+conditional (kept-and-untagged or dropped whole; never emit literal brackets). For XL initiatives, the brief is forged for
+the first shippable phase with a <code>Next phases:</code> tail. Skeleton ≈ 2,300 chars (≈1,300 headroom under the 3,600 target). For an unattended run the DONE line can carry a turn/time backstop (“stop after &lt;N&gt; turns”) framed as a non-success halt, not a DONE branch.</p>
+
+<pre><code>Deliver: &lt;the initiative — one line, the shippable best-in-class outcome it drives toward&gt;.
+
+Why now: &lt;1-2 lines — the cross-cutting lever this is, and the personas/contexts it
+lifts toward 10/10&gt;. Lives in &lt;key files/paths&gt;. Refs: &lt;identifiers + a short neutral
+paraphrase — matrix cells, issue #s, file:line, doc sections&gt;.
+
+Build the complete scope of this brief as ordered milestones — no MVP, no stubs, no
+TODO-for-later. Finish and verify each milestone before starting the next:
+1. &lt;milestone 1&gt;   2. &lt;milestone 2&gt;   3. &lt;milestone 3&gt;
+
+Approach: plan first (write it down). TDD where it fits. Match existing patterns. Build
+cleanly: no silent failures, no swallowed errors, no arbitrary caps; follow CLAUDE.md.
+Work only on this initiative's feature branch, committing each green milestone so an
+interrupted run is resumable — no force-push, history rewrite, data deletion, or untrusted
+install/network scripts. If a step looks destructive or out of scope, stop and ask.
+
+Verify — run each and show the output; ALL must pass before you stop:
+- &lt;repo's real test command&gt; exits clean, with NEW tests covering every milestone's behavior
+- Each milestone works when run for real — paste the proof: &lt;command + expected output / flow&gt;
+- [UI work only] Browser-QA via available browser tools (or /qa,/ux): flows work, console clean
+- [security-sensitive only] /cso runs, reports no high/critical findings
+- [if /dcr available] /dcr runs and reports a clean pass
+
+DONE when: every milestone is built, the test command and per-milestone real-run proofs pass
+in the transcript, applicable review gates report clean, and the work is committed on a feature
+branch. Do NOT stop while any milestone is unmet or unproven. Never report success without output.</code></pre>
+
+<h2 id="decisions">Design decisions</h2>
+<table>
+  <thead><tr><th>Decision</th><th>Choice &amp; rationale</th></tr></thead>
+  <tbody>
+    <tr><td>Output shape</td><td><strong>Decide, don't enumerate.</strong> Commit to one ambitious initiative and forge its brief in the same turn; a short "Also weighed" appendix (with effort, switchable) preserves transparency without being a menu. An up-front line tells the user it chose one (not a menu) and how to redirect — including to something smaller.</td></tr>
+    <tr><td>Lead lens</td><td><strong>Coverage-matrix.</strong> Roles × domains/stages, capability AND experience, hunt cross-cutting levers toward 10/10. Hybrid sourcing: reuse an existing <code>COVERAGE_MATRIX</code> doc → fast inline read → offer the full <code>/coverage-matrix</code> when stale/missing.</td></tr>
+    <tr><td>Anti-fabrication</td><td>The inline path is feature-inventory only — a <strong>capability</strong> read that can't claim near-10 experience without a walkthrough. Tie every persona/domain/gap to a concrete codebase signal; flag inferred-only; "absence of signal is a finding," never invent. 1×N fallback for single-user/library products.</td></tr>
+    <tr><td>Calibration</td><td>Decisiveness is gated on confidence: thin signal → say so, prefer the smallest high-certainty move, recommend <code>/coverage-matrix</code> before betting weeks. Stated in the intro and as a Step 6 principle so it isn't buried.</td></tr>
+    <tr><td>Convergence sizing</td><td>A big initiative is expressed as ordered, independently-verifiable milestones; M/L → full initiative, XL → first shippable phase + <code>Next phases:</code> (sequenced, not deferred) so the <code>/goal</code> loop can't spin on sheer size.</td></tr>
+    <tr><td>Verification</td><td>Hybrid gate, transcript-checkable: run-and-show-output; conditional browser-QA &amp; <code>/cso</code>; <code>/dcr</code> "runs and reports clean." Non-falsifiable negatives moved to build-constraints, not stop-gates.</td></tr>
+    <tr><td>Security of inputs</td><td>Step-1 DATA-only rule carried into the brief: <code>Refs:</code> cite by identifier + neutral paraphrase; instruction-like text → <code>[text omitted]</code>. Closes the one channel that could carry a payload into the autonomous loop.</td></tr>
+    <tr><td>Resume-first</td><td>An in-progress checkpoint becomes a top-of-output Resume callout (in the Step 6 template skeleton, not just prose) → <code>/checkpoint resume</code>; Step 8 never forges a cold brief for it.</td></tr>
+    <tr><td>Config contract</td><td><code>/jacked-setup</code> emits <code>## Strategic Emphasis</code> (a lifecycle-lean hint), matching the engine; the legacy <code>Tier Weights</code> key is still read as an emphasis hint for back-compat. Tiers 2–5 are gone; only "Tier-1 blocker" survives as a priority caveat.</td></tr>
+  </tbody>
+</table>
+
+<h2 id="files">File structure</h2>
+<table>
+  <thead><tr><th>File</th><th>Action</th></tr></thead>
+  <tbody>
+    <tr><td><code>jacked/data/commands/whats-next.md</code></td><td>Engine — reworked Steps 5/6/8, intro, Step 7; embedded verbatim into standalone configs.</td></tr>
+    <tr><td><code>jacked/data/commands/jacked-setup.md</code></td><td><code>## Tier Weights</code> → <code>## Strategic Emphasis</code> in the whats-next template; help text + generated local-skill description updated to the decisive framing.</td></tr>
+    <tr><td><code>jacked/data/skills/whats-next/SKILL.md</code></td><td>Redirect description updated to decisive/coverage framing (triggers preserved).</td></tr>
+    <tr><td><code>tests/unit/test_command_whats_next_goal.py</code></td><td>30 content-presence tests (mutation-verified), incl. the cross-file config-contract guard.</td></tr>
+    <tr><td><code>README.md</code></td><td><code>/whats-next</code> row mentions the goal brief.</td></tr>
+  </tbody>
+</table>
+
+<h2 id="testing">Testing</h2>
+<p>LLM instruction docs aren't executable, so tests are <strong>content-presence</strong> guards anchored on once-only
+strings (mutation-verified to redden on deletion). As built: <strong>30 tests</strong> covering the decisive intro,
+coverage assessment (incl. anti-fabrication, capability cap, 1×N fallback, hybrid sourcing), the commit-to-one decision
+(incl. calibration, not-a-menu, leverage bias, resume-first), the milestone brief (incl. convergence sizing, DONE
+condition, verify-with-evidence, scope guardrail, injection-safe refs, /goal fallback), and the jacked-setup config
+contract. Full unit suite green (2201 passed).</p>
+
+<h2 id="review">Review outcomes</h2>
+<p>The v1 brief mechanics passed a two-wave <code>/dcr</code>. The v2 decisive redesign then went through its own
+<code>/dcr</code> (Logic, Coverage-fidelity, UX, Guardrails + pre-mortem) over two waves; all findings were fixed and
+re-verified:</p>
+<ul>
+  <li><strong>CRITICAL — config contract:</strong> jacked-setup emitted old tier-weight vocab into an engine that
+  deleted the tiers → switched to <code>## Strategic Emphasis</code> end to end (incl. help text + generated skill desc).</li>
+  <li><strong>CRITICAL — spin on size:</strong> a big multi-milestone brief could exceed one <code>/goal</code> run →
+  added convergence sizing (XL → first phase + <code>Next phases:</code>).</li>
+  <li><strong>CRITICAL — fabrication on thin repos:</strong> inline coverage read could invent personas/gaps → added
+  the feature-inventory capability cap, "absence of signal is a finding," 1×N fallback, and confidence calibration.</li>
+  <li><strong>MEDIUM — entry-point copy &amp; redirect:</strong> descriptions updated to the decisive framing; an up-front
+  "not a menu" line + "something smaller" redirect; "Also weighed" made switchable but capped.</li>
+  <li><strong>MEDIUM — intro whiplash:</strong> the calibration gate is now signalled in the intro, not buried.</li>
+</ul>
+<p>Wave-2 verdict: UX/Guardrails APPROVE; Logic/Coverage confirmed all three CRITICAL fixes correct and complete.
+No open blocking questions.</p>
+
+<hr>
+<p style="color: var(--fg-muted); font-size: .85rem; text-align: center;">
+  Generated with the <a href="https://github.com/jackneill/claude-jacked">jacked</a> HTML artifact template.
+</p>
+
+</div>
+
+<script type="module">
+  try {
+    const mermaid = (await import("https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs")).default;
+    mermaid.initialize({ startOnLoad: true, theme: window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "default", flowchart: { curve: "basis" }, securityLevel: "loose" });
+  } catch (err) {
+    document.querySelectorAll(".diagram").forEach(d => d.classList.add("failed"));
+    console.warn("mermaid load failed, diagrams shown as source:", err);
+  }
+</script>
+
+</body>
+</html>

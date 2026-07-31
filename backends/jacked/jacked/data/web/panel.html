@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- Apply the saved color theme before first paint (no flash of the wrong
+     scheme). Unset defaults to America 250; only explicit 'classic' opts out.
+     Key mirrors settings.js / index.html. -->
+<script>
+    (function () {
+        try {
+            if (localStorage.getItem('jacked_color_theme') !== 'classic') {
+                document.documentElement.classList.add('theme-america250');
+            }
+        } catch (e) {}
+    })();
+</script>
+<title>jacked — usage</title>
+<!-- Empty data-URI icon: the panel is a chromeless popover/panel with no
+     favicon; this stops the browser's automatic /favicon.ico request (a 404). -->
+<link rel="icon" href="data:,">
+<link rel="apple-touch-icon" href="data:,">
+
+<!-- The dropdown must open INSTANTLY and work offline, so it does NOT load the
+     Tailwind CDN (a network fetch + runtime JIT on every open). renderUsageBar()
+     emits a small, fixed set of Tailwind utility classes; we vendor exactly
+     those below so the bars stay pixel-identical to the dashboard. -->
+<style>
+    /* ---- Vendored Tailwind utilities used by renderUsageBar / providerGlyph ---- */
+    .flex { display: flex; }
+    .flex-1 { flex: 1 1 0%; }
+    .items-center { align-items: center; }
+    .gap-2 { gap: 0.5rem; }
+    .gap-3 { gap: 0.75rem; }
+    .mb-0\.5 { margin-bottom: 0.125rem; }
+    .mb-1 { margin-bottom: 0.25rem; }
+    .shrink-0 { flex-shrink: 0; }
+    .whitespace-nowrap { white-space: nowrap; }
+    .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .text-right { text-align: right; }
+    .w-5 { width: 1.25rem; }
+    .w-9 { width: 2.25rem; }
+    .w-10 { width: 2.5rem; }
+    .w-14 { width: 3.5rem; }
+    .w-28 { width: 7rem; }
+    .text-\[10px\] { font-size: 10px; }
+    .text-\[11px\] { font-size: 11px; }
+    .text-xs { font-size: 0.75rem; line-height: 1rem; }
+    .font-mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+    .tabular-nums { font-variant-numeric: tabular-nums; }
+    .text-slate-100 { color: #f1f5f9; }
+    .text-slate-300 { color: #cbd5e1; }
+    .text-slate-400 { color: #94a3b8; }
+    .text-slate-500 { color: #64748b; }
+    .text-red-400 { color: #f87171; }
+    .text-yellow-400 { color: #facc15; }
+</style>
+
+<style>
+    /* ---- Compact dark-glass theme (purpose-built, not a shrunk dashboard) ---- */
+    :root {
+        --glass-bg: rgba(17, 20, 26, 0.92);
+        --glass-panel: rgba(30, 35, 45, 0.72);
+        --glass-border: rgba(255, 255, 255, 0.08);
+        --rail: rgba(120, 130, 150, 0.35);
+        --txt: #e8eaed;
+        --txt-muted: #9aa1ad;
+        --txt-dim: #6b7280;
+        --accent: #2dd4bf;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+        margin: 0;
+        padding: 0;
+        background: transparent;
+        color: var(--txt);
+        font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+        font-size: 13px;
+        -webkit-font-smoothing: antialiased;
+        text-rendering: optimizeLegibility;
+    }
+    body {
+        background: var(--glass-bg);
+        min-height: 100vh;
+        padding: 10px 12px 14px;
+        /* subtle top sheen for the "glass" feel */
+        background-image: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0) 120px);
+    }
+    .panel-title {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--txt-dim);
+        margin: 2px 2px 10px;
+    }
+    .panel-title-label { display: flex; align-items: center; gap: 8px; min-width: 0; }
+    .panel-title .dot {
+        width: 7px; height: 7px; border-radius: 50%;
+        background: var(--accent);
+        box-shadow: 0 0 6px var(--accent);
+    }
+    /* Header action buttons: "⟳" (refresh all now) + "⋯" (native actions menu,
+       right-click equivalent). The ⋯ is hidden unless the native webview bridge
+       is present (so a plain browser / dashboard never shows a dead button). */
+    .panel-title-actions { display: flex; align-items: center; gap: 2px; }
+    .panel-icon-btn {
+        display: flex; align-items: center; justify-content: center;
+        width: 26px; height: 22px; padding: 0;
+        font-size: 15px; line-height: 1; font-weight: 700;
+        color: var(--txt-muted); background: transparent;
+        border: 1px solid transparent; border-radius: 6px;
+        cursor: pointer;
+        transition: background 0.12s ease, color 0.12s ease, scale 0.08s ease;
+    }
+    .panel-icon-btn:hover { color: var(--txt); background: rgba(255,255,255,0.08); }
+    .panel-icon-btn:active { scale: 0.92; }
+    .panel-icon-btn[hidden] { display: none; }
+    .panel-icon-btn:disabled { opacity: 0.4; cursor: default; }
+    .panel-icon-btn:disabled:hover { color: var(--txt-muted); background: transparent; }
+    /* Spin the ⟳ while a refresh is in flight. */
+    .panel-icon-btn.spinning { animation: panel-spin 0.7s linear infinite; }
+
+    /* ---- Account card (single-org) + login group (multi-org) ---- */
+    .acct, .login-group {
+        background: var(--glass-panel);
+        border: 1px solid var(--glass-border);
+        border-radius: 10px;
+        padding: 7px 10px;
+        margin-bottom: 6px;
+        position: relative;
+    }
+    .acct.is-active, .login-group.has-active {
+        background: rgba(45, 212, 191, 0.07);
+        border-color: rgba(45, 212, 191, 0.22);
+    }
+
+    /* Provider identity (Claude vs Codex) — shared glyph from js/util/provider.js.
+       The brand-colored glyph before the email/org-name is the primary cue; a
+       subtle left-edge bar on single-org cards adds an at-a-glance "backdrop"
+       (pseudo-element, no layout shift; .acct is position:relative). */
+    .provider-glyph {
+        display: inline-flex; align-items: center; justify-content: center;
+        width: 12px; height: 12px; flex: 0 0 auto;
+    }
+    /* Provider badge (glyph + CODEX/CLAUDE label) — makes the account's provider
+       unmistakable at a glance, not just a hover-only glyph. */
+    .provider-badge {
+        display: inline-flex; align-items: center; gap: 3px; flex: 0 0 auto;
+        padding: 1px 5px 1px 4px; border-radius: 5px;
+    }
+    .provider-badge .provider-glyph { width: 11px; height: 11px; }
+    .provider-badge.provider-claude { background: rgba(167, 139, 250, 0.15); border: 1px solid rgba(167, 139, 250, 0.35); }
+    .provider-badge.provider-codex  { background: rgba(96, 165, 250, 0.15); border: 1px solid rgba(96, 165, 250, 0.35); }
+    .provider-badge.provider-cursor { background: rgba(148, 163, 184, 0.15); border: 1px solid rgba(148, 163, 184, 0.35); }
+    .provider-badge.provider-antigravity { background: rgba(45, 212, 191, 0.15); border: 1px solid rgba(45, 212, 191, 0.35); }
+    .provider-label {
+        font-size: 9px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+    }
+    .acct.provider-claude::before, .acct.provider-codex::before,
+    .acct.provider-cursor::before, .acct.provider-antigravity::before {
+        content: ""; position: absolute; left: 0; top: 7px; bottom: 7px;
+        width: 2px; border-radius: 2px;
+    }
+    .acct.provider-claude::before { background: rgba(167, 139, 250, 0.7); }
+    .acct.provider-codex::before { background: rgba(96, 165, 250, 0.7); }
+    .acct.provider-cursor::before { background: rgba(148, 163, 184, 0.7); }
+    .acct.provider-antigravity::before { background: rgba(45, 212, 191, 0.7); }
+
+    /* Identity line — shared by the single-account head, multi-org header, and
+       per-org rows so columns line up across every account type. */
+    .acct-head, .login-header, .org-row-head {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-bottom: 4px;
+        min-width: 0;
+    }
+    .acct-email, .login-name {
+        font-weight: 600;
+        font-size: 12px;
+        color: var(--txt);
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        flex: 0 1 auto; min-width: 0; max-width: 210px;
+    }
+    .org-name {
+        font-size: 12px; color: var(--txt);
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        flex: 0 1 auto; min-width: 0; max-width: 150px;
+    }
+    .org-tag {
+        font-size: 10px; color: var(--txt-muted);
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        flex: 0 1 auto; min-width: 0; max-width: 90px;
+    }
+    .org-chip {
+        font-size: 10px; font-weight: 600; color: var(--accent);
+        background: rgba(45, 212, 191, 0.12);
+        border: 1px solid rgba(45, 212, 191, 0.25);
+        border-radius: 999px; padding: 0 6px; line-height: 1.5; flex: none;
+    }
+    .plan-badge {
+        font-size: 10px; color: var(--txt-muted);
+        background: rgba(255,255,255,0.06);
+        border-radius: 4px; padding: 0 5px; flex: none; white-space: nowrap;
+    }
+    .active-badge {
+        font-size: 9px; font-weight: 700; letter-spacing: .03em; text-transform: uppercase;
+        color: #0b1f1c; background: var(--accent);
+        border-radius: 4px; padding: 1px 5px; flex: none;
+    }
+    /* Pushes the freshness age to the right edge so all ages align in a column. */
+    .meta-spacer { flex: 1 1 0; }
+    .acct-age {
+        font-size: 10px; color: var(--txt-dim);
+        font-variant-numeric: tabular-nums; flex: none;
+    }
+    /* "next 4m" countdown on the active account — a touch brighter than the
+       "ago" age, with a dot separator so the two read as: updated · next. */
+    .next-refresh {
+        font-size: 10px; color: var(--txt-muted);
+        font-variant-numeric: tabular-nums; flex: none;
+    }
+    .next-refresh::before {
+        content: "·"; color: var(--txt-dim); margin: 0 4px;
+    }
+
+    /* Connecting rail for multi-org logins */
+    .login-group.has-rail .org-rows { margin-left: 6px; padding-left: 10px; border-left: 2px solid var(--rail); }
+    .org-row { padding: 5px 0 2px; }
+    .org-row + .org-row { border-top: 1px solid rgba(255,255,255,0.05); }
+    .org-row.is-active { margin: 0 -6px; padding: 5px 6px 3px; border-radius: 7px; background: rgba(45, 212, 191, 0.06); }
+
+    .org-bars { display: flex; flex-direction: column; gap: 2px; }
+
+    /* ---- Usage bar — copied verbatim from css/style.css so the bars render
+         identically here without pulling the whole dashboard stylesheet. ---- */
+    .usage-bar {
+        position: relative;
+        height: 10px;
+        border-radius: 5px;
+        background-color: #334155;
+        overflow: visible;
+        width: 100%;
+    }
+    .usage-bar .fill {
+        height: 100%;
+        border-radius: 6px;
+        transition: width 0.4s ease, background-color 0.4s ease;
+        min-width: 2px;
+    }
+    .usage-bar .fill.green  { background: linear-gradient(90deg, #16a34a, #22c55e); }
+    .usage-bar .fill.yellow { background: linear-gradient(90deg, #ca8a04, #eab308); }
+    .usage-bar .fill.red    { background: linear-gradient(90deg, #dc2626, #ef4444); }
+    .usage-bar .elapsed-marker {
+        position: absolute;
+        top: -2px;
+        bottom: -2px;
+        width: 2px;
+        background-color: #ffffff;
+        border-radius: 1px;
+        opacity: 0.8;
+        z-index: 2;
+        pointer-events: none;
+    }
+    /* America 250 theme — mirrors css/style.css so the panel bars restyle in
+       lockstep with the dashboard (green=blue, yellow=white, red=red). The white
+       warning bar would swallow the white marker, so darken it + add a ring. */
+    html.theme-america250 .usage-bar .fill.green  { background: linear-gradient(90deg, #1d4ed8, #3b82f6); }
+    html.theme-america250 .usage-bar .fill.yellow { background: linear-gradient(90deg, #e2e8f0, #ffffff); }
+    html.theme-america250 .usage-bar .fill.red    { background: linear-gradient(90deg, #b91c1c, #ef4444); }
+    html.theme-america250 .usage-bar .elapsed-marker {
+        background-color: #0f172a;
+        box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.9);
+    }
+
+    /* ---- States ---- */
+    .panel-loading, .panel-empty, .panel-error {
+        text-align: center;
+        padding: 32px 16px;
+        color: var(--txt-muted);
+    }
+    .panel-empty-title, .panel-error-title { font-weight: 600; color: var(--txt); margin-bottom: 4px; }
+    .panel-empty-sub, .panel-error-sub { font-size: 12px; color: var(--txt-dim); }
+    .panel-error-title { color: #f87171; }
+    .panel-retry {
+        margin-top: 12px;
+        font-size: 12px;
+        color: var(--accent);
+        background: rgba(45, 212, 191, 0.10);
+        border: 1px solid rgba(45, 212, 191, 0.30);
+        border-radius: 7px;
+        padding: 5px 14px;
+        cursor: pointer;
+        transition: background 0.15s ease;
+    }
+    .panel-retry:hover { background: rgba(45, 212, 191, 0.20); }
+    .spinner {
+        width: 20px; height: 20px; margin: 0 auto 10px;
+        border: 2px solid rgba(255,255,255,0.15);
+        border-top-color: var(--accent);
+        border-radius: 50%;
+        animation: panel-spin 0.7s linear infinite;
+    }
+    @keyframes panel-spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+    <div class="panel-title">
+        <span class="panel-title-label"><span class="dot"></span>jacked usage</span>
+        <span class="panel-title-actions">
+            <button id="panel-refresh-btn" class="panel-icon-btn" type="button" title="Refresh all accounts now" aria-label="Refresh all accounts now">⟳</button>
+            <button id="panel-menu-btn" class="panel-icon-btn" type="button" title="Menu" aria-label="Open menu" hidden>⋯</button>
+        </span>
+    </div>
+    <div id="panel-root">
+        <div class="panel-loading">
+            <div class="spinner"></div>
+            Loading usage…
+        </div>
+    </div>
+
+    <!-- Order matters: helpers → bar component → grouping util → panel renderer -->
+    <script src="/js/utils.js"></script>
+    <script src="/js/util/provider.js"></script>
+    <script src="/js/components/usage.js"></script>
+    <script src="/js/util/account-grouping.js"></script>
+    <script src="/js/components/panel.js"></script>
+</body>
+</html>

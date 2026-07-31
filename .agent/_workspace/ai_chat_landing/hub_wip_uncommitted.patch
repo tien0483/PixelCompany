@@ -1,0 +1,51 @@
+diff --git a/dashboard/papps/frontends/src/assets/sass/components/ask_ai_button.module.scss b/dashboard/papps/frontends/src/assets/sass/components/ask_ai_button.module.scss
+index dc71154b48..4403af5c9a 100644
+--- a/dashboard/papps/frontends/src/assets/sass/components/ask_ai_button.module.scss
++++ b/dashboard/papps/frontends/src/assets/sass/components/ask_ai_button.module.scss
+@@ -7,7 +7,7 @@
+   @include flex-center;
+   justify-content: center;
+   position: fixed;
+-  left: 24px;
++  right: 24px;
+   bottom: 24px;
+   z-index: 1000;
+   height: 56px;
+diff --git a/dashboard/papps/frontends/src/library/components/chat/ChatDockPane.tsx b/dashboard/papps/frontends/src/library/components/chat/ChatDockPane.tsx
+index 1486a95b11..2957190e10 100644
+--- a/dashboard/papps/frontends/src/library/components/chat/ChatDockPane.tsx
++++ b/dashboard/papps/frontends/src/library/components/chat/ChatDockPane.tsx
+@@ -3,11 +3,7 @@
+ import { useState, type FC } from "react";
+ import { IconLayoutSidebarRightCollapse, IconLink, IconPencilPlus, IconShieldCheck } from "@tabler/icons-react";
+ import chatbotFullLogo from "../../../assets/images/chatbot/chatbot-full-logo.png";
+-import chatbotMark from "../../../assets/images/chatbot/chatbot-fav.png";
+-// Animated reveal: facets bloom in from transparent (counter-clockwise from the neon
+-// facet), then the crisp mark fades in on top. Autoplays on load, so mounting it on
+-// hover replays the reveal; idle shows the static crisp mark (chatbotMark).
+-import chatbotReveal from "../../../assets/images/chatbot/chatbot-fav-reveal.svg";
++import { AskAiButton } from "../AskAiButton/AskAiButton";
+ import { Thread } from "./Thread";
+ import { useResizableSidebar } from "@library/hooks/useResizableSidebar";
+ import { cls } from "./styles";
+@@ -18,19 +14,7 @@ export const ChatDockPane: FC = () => {
+   const [hovered, setHovered] = useState(false);
+ 
+   if (!open) {
+-    return (
+-      <button 
+-        onClick={() => setOpen(true)} 
+-        onMouseEnter={() => setHovered(true)}
+-        onMouseLeave={() => setHovered(false)}
+-        title="Ask ASKEE" 
+-        aria-label="Ask ASKEE"
+-        className={cls.launcher.button}
+-      >
+-        <img src={hovered ? chatbotReveal : chatbotMark} alt="ASKEE" className={cls.launcher.mark} />
+-        Ask ASKEE
+-      </button>
+-    );
++    return <AskAiButton onClick={() => setOpen(true)} />;
+   }
+ 
+   return <ChatDockPaneControlled onClose={() => setOpen(false)} />;

@@ -1,0 +1,7 @@
+// Copyright (C) 2026 Akselos
+// Chat chrome styles, split into sibling partials. One class per cls.<group>.<part> in styles.ts.
+@use "./thread";
+@use "./message";
+@use "./composer";
+@use "./sidebar";
+@use "./popup";

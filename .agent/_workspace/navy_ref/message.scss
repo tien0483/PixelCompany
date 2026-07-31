@@ -1,0 +1,201 @@
+// Copyright (C) 2026 Akselos
+@use '../../themes/tokens' as *;
+// Message bubbles: user/assistant variants, edit composer, action bars.
+// Base = light /ai-chat page; `.chat-sidebar &` / `.chat-popup &` = the static
+// navy dock pane / popup scopes (see thread.scss note).
+@use "../../themes/variables" as *;
+@use "../../themes/chat" as *;
+
+// user message
+.chat-user-msg {
+  position: relative;
+  margin-left: auto;
+  margin-right: auto;
+  display: flex;
+  width: 100%;
+  max-width: 48rem;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.25rem;
+}
+.chat-user-msg__group {
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+}
+.chat-user-msg__action-bar {
+  margin-top: 0.5rem;
+  opacity: 0;
+  transition: opacity 0.15s;
+
+  // group-hover: reveal on hover of the enclosing .chat-user-msg__group
+  .chat-user-msg__group:hover & {
+    opacity: 1;
+  }
+}
+.chat-user-msg__bubble {
+  background: $chat-surface-muted;
+  color: $chat-ink;
+  border-radius: 18px;
+  padding: 10px 1.25rem;
+  font-size: 17px;
+  line-height: 1.47;
+  letter-spacing: -0.374px;
+
+  // On the navy ground a near-black bubble (#2b2b2b) had almost no contrast;
+  // use the bright chatbot blue so the "you" turn reads clearly.
+  .chat-sidebar &,
+  .chat-popup & {
+    background: $chat-user-bubble;
+    color: $chat-text;
+  }
+}
+
+// edit composer
+.chat-edit-composer {
+  margin-left: auto;
+  margin-right: auto;
+  display: flex;
+  width: 100%;
+  max-width: 48rem;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 0.25rem;
+  border-radius: 18px;
+  background: $chat-surface-muted;
+
+  .chat-sidebar &,
+  .chat-popup & {
+    background: $chat-surface;
+  }
+}
+.chat-edit-composer__input {
+  display: flex;
+  height: 2rem;
+  width: 100%;
+  resize: none;
+  border: 0;
+  background: transparent;
+  padding: 1.25rem;
+  padding-bottom: 0;
+  font-size: 17px;
+  line-height: 1.47;
+  letter-spacing: -0.374px;
+  color: $chat-ink;
+  outline: none;
+
+  .chat-sidebar &,
+  .chat-popup & {
+    color: $chat-text;
+  }
+}
+.chat-edit-composer__actions {
+  margin: 0.75rem;
+  margin-top: 0.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  align-self: flex-end;
+}
+.chat-edit-composer__cancel {
+  border-radius: 9999px;
+  border: 0;
+  background: $light-text-color;
+  padding: 0.5rem 0.75rem;
+  font-weight: 600;
+  color: $token-color-text-dark;
+  font-size: $text-sm;
+  cursor: pointer;
+
+  &:hover {
+    background: $token-color-bg-light;
+  }
+}
+.chat-edit-composer__send {
+  border-radius: 9999px;
+  border: 0;
+  background: $token-color-text-dark;
+  padding: 0.5rem 0.75rem;
+  font-weight: 600;
+  color: $light-text-color;
+  font-size: $text-sm;
+  cursor: pointer;
+
+  &:hover {
+    background: rgba(13, 13, 13, 0.9);
+  }
+}
+
+// assistant message
+.chat-assistant-msg__action-btn {
+  display: flex;
+  width: 2rem;
+  height: 2rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: $theme-radius;
+  border: 0;
+  background: $light-text-color;
+  color: $token-color-text-secondary;
+  transition: background-color 0.15s, color 0.15s;
+  cursor: pointer;
+
+  &:hover {
+    background: $token-color-bg-secondary;
+    color: $token-color-text-dark;
+  }
+
+  // Navy chat: white-silhouette icon, chatbot-blue on hover — same treatment as
+  // the header (New Thread / Collapse) buttons, so the copy/like/dislike/retry
+  // row reads as one consistent icon-button family (no light-mode white boxes).
+  .chat-sidebar &,
+  .chat-popup & {
+    background: transparent;
+    color: $chat-text;
+
+    &:hover {
+      background: $chatbot-blue;
+      color: $chat-text;
+    }
+  }
+}
+.chat-assistant-msg {
+  position: relative;
+  margin-left: auto;
+  margin-right: auto;
+  display: flex;
+  width: 100%;
+  max-width: 48rem;
+  flex-direction: column;
+}
+.chat-assistant-msg__parts {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  color: $chat-ink;
+  font-size: 17px;
+  line-height: 1.47;
+  letter-spacing: -0.374px;
+
+  .chat-sidebar &,
+  .chat-popup & {
+    color: $chat-text;
+  }
+}
+.chat-assistant-msg__bar {
+  margin-left: -0.5rem;
+  display: flex;
+  align-items: center;
+  padding-top: 0.25rem;
+}
+.chat-assistant-msg__action-group {
+  display: flex;
+  align-items: center;
+  gap: 0.125rem;
+}
+
+// branch picker
+.chat-branch-picker__arrow {
+  color: $token-color-text-muted-light;
+}

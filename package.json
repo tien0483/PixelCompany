@@ -1,0 +1,22 @@
+{
+  "name": "pixel-office",
+  "private": true,
+  "description": "Pixel Office unified stack — React UI + Node runtime + Jacked Python",
+  "workspaces": [
+    "frontends/pixel_office",
+    "backends/runtime"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node scripts/start-stack.mjs",
+    "dev": "node scripts/start-stack.mjs",
+    "restart": "node scripts/start-stack.mjs --restart",
+    "solo": "node scripts/solo.mjs",
+    "test:web": "npm --prefix frontends/pixel_office run test",
+    "test:runtime": "npm --prefix backends/runtime run test:fast",
+    "test:e2e": "npm --prefix frontends/pixel_office run e2e",
+    "test:e2e:solo": "npm --prefix frontends/pixel_office run e2e:solo"
+  }
+}

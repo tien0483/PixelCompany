@@ -1,0 +1,342 @@
+/**
+ * Start the Pixel Office dev stack: runtime (Node) + Vite UI.
+ *
+ * The runtime supervises jacked itself (`backends/runtime/src/jacked/jacked-process.ts`),
+ * so this script no longer spawns Python — it only frees jacked's port on --restart
+ * so a stale service does not shadow the one the runtime would start.
+ *
+ * For a single-URL launch with no Vite, use `npm run solo`.
+ * Windows-safe — avoids spawn EINVAL from spawning .cmd shims without a shell.
+ *
+ * Usage (from repo root):
+ *   node scripts/start-stack.mjs
+ *   node scripts/start-stack.mjs --restart
+ *   npm start
+ */
+import { connect } from "node:net";
+import { existsSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { spawn, spawnSync } from "node:child_process";
+
+const MIN_NODE_MAJOR = 22;
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+function nodeMajor(version = process.version) {
+	return Number(version.slice(1).split(".")[0]);
+}
+
+function probeNodeBinary(nodePath) {
+	if (!existsSync(nodePath)) {
+		return null;
+	}
+	const result = spawnSync(nodePath, ["-p", "process.versions.node"], {
+		encoding: "utf8",
+		windowsHide: true,
+	});
+	if (result.status !== 0) {
+		return null;
+	}
+	const version = String(result.stdout ?? "").trim();
+	if (nodeMajor(`v${version}`) >= MIN_NODE_MAJOR) {
+		return nodePath;
+	}
+	return null;
+}
+
+function resolveNode22Candidates() {
+	const fromEnv = process.env.PIXELOFFICE_NODE?.trim() || process.env.KANBAN_NODE?.trim();
+	const candidates = [];
+	if (fromEnv) {
+		candidates.push(fromEnv);
+	}
+	if (process.platform === "win32") {
+		const localApp = process.env.LOCALAPPDATA ?? "";
+		candidates.push(
+			join(localApp, "Programs", "cursor", "resources", "app", "resources", "helpers", "node.exe"),
+			"C:\\Program Files\\nodejs\\node.exe",
+		);
+		const nvmHome = process.env.NVM_HOME ?? join(process.env.APPDATA ?? "", "nvm");
+		for (const version of ["22.22.1", "22.12.0", "22.11.0", "22.10.0", "22.9.0", "22.0.0"]) {
+			candidates.push(join(nvmHome, `v${version}`, "node.exe"));
+		}
+	} else {
+		candidates.push("/usr/local/bin/node", join(homedir(), ".nvm/versions/node/v22.22.1/bin/node"));
+	}
+	return candidates;
+}
+
+function ensureNode22() {
+	if (nodeMajor() >= MIN_NODE_MAJOR) {
+		return;
+	}
+	for (const candidate of resolveNode22Candidates()) {
+		const node22 = probeNodeBinary(candidate);
+		if (node22) {
+			console.warn(`PixelOffice requires Node >= ${MIN_NODE_MAJOR} (found ${process.version}).`);
+			console.warn(`Re-launching with ${node22}`);
+			const result = spawnSync(node22, [__filename, ...process.argv.slice(2)], {
+				stdio: "inherit",
+				env: process.env,
+			});
+			process.exit(result.status ?? 1);
+		}
+	}
+	console.error(`PixelOffice requires Node.js >= ${MIN_NODE_MAJOR} (current: ${process.version}).`);
+	console.error("Install Node 22 (nvm install 22 && nvm use 22) or set PIXELOFFICE_NODE to a Node 22 binary.");
+	process.exit(1);
+}
+
+ensureNode22();
+
+const isWindows = process.platform === "win32";
+const repoRoot = join(__dirname, "..");
+const runtimeRoot = join(repoRoot, "backends", "runtime");
+const webUiRoot = join(repoRoot, "frontends", "pixel_office");
+
+/**
+ * Resolves a dependency entrypoint from either the package's own node_modules or
+ * the hoisted root one — a workspace install puts shared deps at the root.
+ */
+function resolveDependencyEntry(packageRoot, ...segments) {
+	for (const base of [packageRoot, repoRoot]) {
+		const candidate = join(base, "node_modules", ...segments);
+		if (existsSync(candidate)) {
+			return candidate;
+		}
+	}
+	return null;
+}
+
+const tsxCli = resolveDependencyEntry(runtimeRoot, "tsx", "dist", "cli.mjs");
+const viteCli = resolveDependencyEntry(webUiRoot, "vite", "bin", "vite.js");
+
+const RUNTIME_PORT = 3484;
+const WEB_UI_PORT = 5173;
+const JACKED_PORT = 8321;
+/** Freed by --restart: a stale jacked would stop the runtime from starting its own. */
+const RESTART_PORTS = [RUNTIME_PORT, WEB_UI_PORT, JACKED_PORT];
+/** Must be free to start: an already-running jacked is reused, not an error. */
+const REQUIRED_FREE_PORTS = [RUNTIME_PORT, WEB_UI_PORT];
+
+const restart = process.argv.includes("--restart");
+
+function freePort(port) {
+	if (isWindows) {
+		const script = [
+			`$conns = Get-NetTCPConnection -LocalPort ${port} -State Listen -ErrorAction SilentlyContinue`,
+			"if ($conns) {",
+			"  $conns | ForEach-Object {",
+			"    Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue",
+			"  }",
+			"}",
+		].join("; ");
+		spawnSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], {
+			stdio: "ignore",
+			windowsHide: true,
+		});
+		return;
+	}
+
+	const lsof = spawnSync("sh", ["-c", `lsof -tiTCP:${port} -sTCP:LISTEN`], {
+		encoding: "utf8",
+	});
+	const pids = (lsof.stdout || "")
+		.split(/\s+/)
+		.map((s) => s.trim())
+		.filter((s) => /^\d+$/.test(s));
+	for (const pid of pids) {
+		try {
+			process.kill(Number(pid), "SIGKILL");
+		} catch {
+			// already gone
+		}
+	}
+}
+
+function freeStackPorts() {
+	console.log(`Freeing ports ${RESTART_PORTS.join(", ")}...`);
+	for (const port of RESTART_PORTS) {
+		freePort(port);
+	}
+}
+
+function portIsListening(port) {
+	return new Promise((resolve) => {
+		const sock = connect(port, "127.0.0.1");
+		sock.on("connect", () => {
+			sock.destroy();
+			resolve(true);
+		});
+		sock.on("error", () => {
+			sock.destroy();
+			resolve(false);
+		});
+	});
+}
+
+async function assertPortsFree() {
+	const busy = [];
+	for (const port of REQUIRED_FREE_PORTS) {
+		if (await portIsListening(port)) {
+			busy.push(port);
+		}
+	}
+	if (busy.length > 0) {
+		console.error(`Ports already in use: ${busy.join(", ")}`);
+		console.error("Run: npm run restart");
+		process.exit(1);
+	}
+}
+
+function waitForPort(port, timeoutMs = 20000) {
+	const started = Date.now();
+	return new Promise((resolve, reject) => {
+		const attempt = () => {
+			const sock = connect(port, "127.0.0.1");
+			sock.on("connect", () => {
+				sock.destroy();
+				resolve();
+			});
+			sock.on("error", () => {
+				sock.destroy();
+				if (Date.now() - started > timeoutMs) {
+					reject(new Error(`Port ${port} did not open within ${timeoutMs}ms`));
+				} else {
+					setTimeout(attempt, 250);
+				}
+			});
+		};
+		attempt();
+	});
+}
+
+function spawnNode(jsEntry, args, options) {
+	return spawn(process.execPath, [jsEntry, ...args], {
+		stdio: "inherit",
+		...options,
+		shell: false,
+	});
+}
+
+async function main() {
+	if (restart) {
+		freeStackPorts();
+		await new Promise((r) => setTimeout(r, 500));
+	} else {
+		await assertPortsFree();
+	}
+
+	if (!tsxCli) {
+		console.error("tsx not found (backends/runtime or repo root). Run: npm install --install-links");
+		process.exit(1);
+	}
+	if (!viteCli) {
+		console.error("vite not found (frontends/pixel_office or repo root). Run: npm install --install-links");
+		process.exit(1);
+	}
+
+	const children = [];
+	let exiting = false;
+
+	const cleanup = async (code = 0) => {
+		if (exiting) return;
+		exiting = true;
+		for (const child of children) {
+			if (!child.pid) continue;
+			try {
+				if (isWindows) {
+					spawnSync("taskkill", ["/pid", String(child.pid), "/T", "/F"], {
+						stdio: "ignore",
+						windowsHide: true,
+					});
+				} else {
+					try {
+						process.kill(-child.pid, "SIGTERM");
+					} catch {
+						child.kill("SIGTERM");
+					}
+				}
+			} catch {
+				// ignore
+			}
+		}
+		process.exit(code);
+	};
+
+	process.on("SIGINT", () => cleanup(0));
+	process.on("SIGTERM", () => cleanup(0));
+
+	const runtimeEnv = {
+		...process.env,
+		NODE_ENV: "development",
+		KANBAN_RUNTIME_PORT: String(RUNTIME_PORT),
+		KANBAN_WEB_UI_PORT: String(WEB_UI_PORT),
+	};
+
+	console.log("");
+	console.log("  Starting Pixel Office stack...");
+	console.log(`  UI:       http://127.0.0.1:${WEB_UI_PORT}`);
+	console.log(`  Runtime:  http://127.0.0.1:${RUNTIME_PORT}`);
+	console.log(`  Jacked:   http://127.0.0.1:${JACKED_PORT} (started by the runtime)`);
+	console.log("");
+
+	const runtime = spawnNode(
+		tsxCli,
+		["src/cli.ts", "--port", String(RUNTIME_PORT), "--no-open", "--skip-shutdown-cleanup"],
+		{ cwd: runtimeRoot, env: runtimeEnv },
+	);
+	children.push(runtime);
+	runtime.on("exit", (code) => {
+		if (!exiting) {
+			console.error(`Runtime exited (code ${code ?? "?"})`);
+			cleanup(code ?? 1);
+		}
+	});
+
+	try {
+		await waitForPort(RUNTIME_PORT, 90000);
+	} catch (error) {
+		console.error(error instanceof Error ? error.message : String(error));
+		await cleanup(1);
+		return;
+	}
+
+	const vite = spawnNode(
+		viteCli,
+		["--host", "127.0.0.1", "--port", String(WEB_UI_PORT)],
+		{ cwd: webUiRoot, env: runtimeEnv },
+	);
+	children.push(vite);
+	vite.on("exit", (code) => {
+		if (!exiting) {
+			console.error(`Vite exited (code ${code ?? "?"})`);
+			cleanup(code ?? 1);
+		}
+	});
+
+	// Jacked is started and stopped by the runtime process itself; nothing to do here.
+
+	try {
+		await waitForPort(WEB_UI_PORT, 30000);
+	} catch (error) {
+		console.error(error instanceof Error ? error.message : String(error));
+		await cleanup(1);
+		return;
+	}
+
+	console.log("");
+	console.log("  Stack is up:");
+	console.log(`    UI       http://127.0.0.1:${WEB_UI_PORT}`);
+	console.log(`    Runtime  http://127.0.0.1:${RUNTIME_PORT}`);
+	console.log(`    Jacked   http://127.0.0.1:${JACKED_PORT} (runtime-supervised, headless)`);
+	console.log("  Ctrl+C to stop.");
+	console.log("");
+}
+
+main().catch((error) => {
+	console.error(error);
+	process.exit(1);
+});
