@@ -1,7 +1,7 @@
 import * as Collapsible from "@radix-ui/react-collapsible";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
-import { ChevronDown, ChevronUp, Ellipsis, ExternalLink, Info, Lightbulb, Plus, X } from "lucide-react";
-import { type MouseEvent as ReactMouseEvent, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { ChevronDown, ChevronUp, Ellipsis, ExternalLink, Info, Plus } from "lucide-react";
+import { type MouseEvent as ReactMouseEvent, useCallback, useEffect, useRef, useState } from "react";
 import { canShowFeaturebaseFeedbackButton } from "@/components/featurebase-feedback-button";
 import { HomeSidebarJackedPanel, HomeSidebarJackedTab } from "@/components/home-sidebar-jacked";
 import { Button } from "@/components/ui/button";
@@ -23,12 +23,6 @@ import { Spinner } from "@/components/ui/spinner";
 import type { FeaturebaseFeedbackState } from "@/hooks/use-featurebase-feedback-widget";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import type { RuntimeAgentId, RuntimeClineProviderSettings, RuntimeJackedSnapshot, RuntimeProjectSummary } from "@/runtime/types";
-import {
-	LocalStorageKey,
-	readLocalStorageItem,
-	removeLocalStorageItem,
-	writeLocalStorageItem,
-} from "@/storage/local-storage-store";
 import { formatPathForDisplay } from "@/utils/path-display";
 import { isMacPlatform, modifierKeyLabel } from "@/utils/platform";
 import { useUnmount, useWindowEvent } from "@/utils/react-use";
@@ -54,8 +48,6 @@ export function ProjectNavigationPanel({
 	removingProjectId,
 	activeSection,
 	onActiveSectionChange,
-	canShowAgentSection,
-	agentSectionContent,
 	jackedOnline = false,
 	jackedState = null,
 	selectedAgentId,
@@ -75,10 +67,8 @@ export function ProjectNavigationPanel({
 	isLoadingProjects?: boolean;
 	currentProjectId: string | null;
 	removingProjectId: string | null;
-	activeSection: "projects" | "agent" | "jacked";
-	onActiveSectionChange: (section: "projects" | "agent" | "jacked") => void;
-	canShowAgentSection: boolean;
-	agentSectionContent?: ReactNode;
+	activeSection: "projects" | "jacked";
+	onActiveSectionChange: (section: "projects" | "jacked") => void;
 	/** When true, Jacked tab treats the companion as reachable for mutations. */
 	jackedOnline?: boolean;
 	/** Latest jacked snapshot from the runtime stream (may be stale when offline). */
@@ -328,7 +318,7 @@ export function ProjectNavigationPanel({
 					) : null}
 				</div>
 				<div className="mt-2 rounded-md bg-surface-2 border border-border p-1">
-					<div className="grid grid-cols-3 gap-1">
+					<div className="grid grid-cols-2 gap-1">
 						<button
 							type="button"
 							onClick={() => onActiveSectionChange("projects")}
@@ -340,20 +330,6 @@ export function ProjectNavigationPanel({
 							)}
 						>
 							Projects
-						</button>
-						<button
-							type="button"
-							onClick={() => onActiveSectionChange("agent")}
-							disabled={!canShowAgentSection}
-							className={cn(
-								"cursor-pointer rounded-sm px-1.5 py-1 text-[11px] font-medium",
-								activeSection === "agent"
-									? "bg-surface-4 text-text-primary border border-border"
-									: "text-text-secondary hover:text-text-primary border border-transparent",
-								!canShowAgentSection ? "cursor-not-allowed opacity-50" : null,
-							)}
-						>
-							Agent
 						</button>
 						<HomeSidebarJackedTab
 							active={activeSection === "jacked"}
@@ -418,23 +394,12 @@ export function ProjectNavigationPanel({
 						featurebaseFeedbackState={featurebaseFeedbackState}
 					/>
 				</>
-			) : activeSection === "jacked" ? (
+			) : (
 				<HomeSidebarJackedPanel
 					online={jackedOnline}
 					jacked={jackedState}
 					settingsFocusToken={jackedSettingsFocusToken}
 				/>
-			) : (
-				<div className="flex flex-1 min-h-0 flex-col">
-					{selectedAgentId && selectedAgentId !== "cline" ? <TerminalAgentHints /> : null}
-					<div className="flex flex-1 min-h-0 overflow-hidden bg-surface-1 px-2 pb-2 pt-1">
-						{agentSectionContent ?? (
-							<div className="flex w-full items-center justify-center rounded-md border border-border bg-surface-2 px-3 text-center text-sm text-text-secondary">
-								Select a project to use the agent.
-							</div>
-						)}
-					</div>
-				</div>
 			)}
 			<JackedSidebarConfig
 				onOpenJackedSettings={() => {
@@ -506,71 +471,6 @@ export function ProjectNavigationPanel({
 				</AlertDialogFooter>
 			</AlertDialog>
 		</aside>
-	);
-}
-
-const TERMINAL_AGENT_HINTS: readonly { label: string; hint: string }[] = [
-	{ label: "Create tasks", hint: "Ask your agent to add tasks, link them, and start working" },
-	{ label: "Break down work", hint: "Ask to decompose a complex feature into linked subtasks" },
-	{ label: "Import issues", hint: "Pull issues into task cards via GitHub CLI or Linear MCP" },
-];
-
-function TerminalAgentHints(): React.ReactElement {
-	const [isDismissed, setIsDismissed] = useState(
-		() => readLocalStorageItem(LocalStorageKey.AgentTipsDismissed) === "true",
-	);
-
-	const dismiss = useCallback(() => {
-		setIsDismissed(true);
-		writeLocalStorageItem(LocalStorageKey.AgentTipsDismissed, "true");
-	}, []);
-
-	const restore = useCallback(() => {
-		setIsDismissed(false);
-		removeLocalStorageItem(LocalStorageKey.AgentTipsDismissed);
-	}, []);
-
-	if (isDismissed) {
-		return (
-			<div className="shrink-0 px-3 pt-1">
-				<button
-					type="button"
-					onClick={restore}
-					className="flex cursor-pointer items-center gap-1 border-none bg-transparent p-0 text-[11px] text-text-tertiary hover:text-text-secondary"
-				>
-					<Lightbulb size={11} />
-					Show tips
-				</button>
-			</div>
-		);
-	}
-	return (
-		<div className="shrink-0 mx-2 mt-1 mb-1 rounded-md border border-border bg-surface-2/60 px-3 py-2">
-			<div className="flex items-center justify-between mb-1.5">
-				<span className="text-[11px] font-medium text-status-gold flex items-center gap-1">
-					<Lightbulb size={11} />
-					Tips
-				</span>
-				<button
-					type="button"
-					onClick={dismiss}
-					aria-label="Dismiss tips"
-					className="cursor-pointer border-none bg-transparent p-0 text-text-tertiary hover:text-text-secondary"
-				>
-					<X size={12} />
-				</button>
-			</div>
-			<ul className="m-0 list-none space-y-1 pl-0">
-				{TERMINAL_AGENT_HINTS.map((item) => (
-					<li key={item.label} className="flex items-start gap-1.5 text-[11px] text-text-primary">
-						<span className="mt-[5px] block h-1 w-1 shrink-0 rounded-full bg-text-tertiary" />
-						<span>
-							<span className="font-medium">{item.label}.</span> {item.hint}
-						</span>
-					</li>
-				))}
-			</ul>
-		</div>
 	);
 }
 
