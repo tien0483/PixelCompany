@@ -14,6 +14,8 @@ import type {
 export interface ProviderMeter {
 	provider: RuntimeJackedAccount["provider"];
 	label: string;
+	/** Active account's display name or email — the primary heading, not the provider brand. */
+	accountLabel: string | null;
 	pressure: number;
 	activeEmail: string | null;
 	canAutoSwap: boolean;
@@ -85,11 +87,11 @@ export function deriveOfficeJackedSemantics(jacked: RuntimeJackedState): OfficeJ
 			continue;
 		}
 		const active = accounts.find((account) => account.id === jacked.activeAccountId) ?? accounts[0];
-		const pressure = accounts.reduce((worst, account) => Math.max(worst, account.pressure), 0);
 		meters.push({
 			provider,
 			label: PROVIDER_LABELS[provider],
-			pressure,
+			accountLabel: active?.displayName ?? active?.email ?? null,
+			pressure: active?.pressure ?? 0,
 			activeEmail: active?.email ?? null,
 			canAutoSwap: active?.canAutoSwap ?? false,
 			accountCount: accounts.length,

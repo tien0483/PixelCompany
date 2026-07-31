@@ -85,11 +85,14 @@ export function OfficeMeterWall({
 				{meters.map((meter) => (
 					<div key={meter.provider} className="flex min-w-[7rem] flex-col gap-1">
 						<div className="flex items-center justify-between gap-2">
-							<span className="font-medium text-text-primary">{meter.label}</span>
+							<span className="truncate font-medium text-text-primary">
+								{meter.accountLabel ?? meter.activeEmail ?? meter.label}
+							</span>
 							{meter.canAutoSwap ? null : (
 								<span className="text-[10px] uppercase tracking-wide text-text-tertiary">manual</span>
 							)}
 						</div>
+						<span className="text-[10px] uppercase tracking-wide text-text-tertiary">{meter.label}</span>
 						<div className="h-1.5 overflow-hidden rounded bg-surface-2">
 							<div
 								className="h-full transition-[width] duration-500"
@@ -99,9 +102,13 @@ export function OfficeMeterWall({
 								}}
 							/>
 						</div>
-						<span className="truncate text-[11px] text-text-tertiary">
-							{meter.activeEmail ?? `${meter.accountCount} account(s)`}
-						</span>
+						{meter.activeEmail && meter.accountLabel && meter.accountLabel !== meter.activeEmail ? (
+							<span className="truncate text-[11px] text-text-tertiary">{meter.activeEmail}</span>
+						) : !meter.activeEmail ? (
+							<span className="truncate text-[11px] text-text-tertiary">
+								{meter.accountCount} account(s)
+							</span>
+						) : null}
 					</div>
 				))}
 				{semantics.latestSwap ? (

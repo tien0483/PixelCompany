@@ -88,4 +88,46 @@ describe("deriveOfficeJackedSemantics", () => {
 		expect(semantics.memoryVault.enabled).toBe(true);
 		expect(semantics.memoryVault.lessonsActive).toBe(4);
 	});
+
+	it("meters the active account, not the worst pressure across all accounts", () => {
+		const semantics = deriveOfficeJackedSemantics(
+			snapshot({
+				activeAccountId: 1,
+				accounts: [
+					{
+						id: 1,
+						provider: "claude",
+						email: "trongphuoc.huynh@akselos.com",
+						displayName: "Trong Phuoc",
+						organizationName: null,
+						isActive: true,
+						fiveHourPercent: 10,
+						sevenDayPercent: 5,
+						pressure: 0.1,
+						nextRefreshAt: null,
+						canAutoSwap: true,
+						canTrackUsage: true,
+					},
+					{
+						id: 2,
+						provider: "claude",
+						email: "hoangtien.nguyen@akselos.com",
+						displayName: null,
+						organizationName: null,
+						isActive: true,
+						fiveHourPercent: 95,
+						sevenDayPercent: 90,
+						pressure: 0.95,
+						nextRefreshAt: null,
+						canAutoSwap: true,
+						canTrackUsage: true,
+					},
+				],
+			}),
+		);
+		expect(semantics.meters).toHaveLength(1);
+		expect(semantics.meters[0]?.pressure).toBe(0.1);
+		expect(semantics.meters[0]?.accountLabel).toBe("Trong Phuoc");
+		expect(semantics.meters[0]?.activeEmail).toBe("trongphuoc.huynh@akselos.com");
+	});
 });
