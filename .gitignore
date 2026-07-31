@@ -5,3 +5,6 @@ node_modules/
 .warp/
 .cocoindex_code/
 graphify-out/
+
+# Build output
+frontends/pixel_office/dist/
