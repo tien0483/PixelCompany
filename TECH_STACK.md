@@ -102,6 +102,21 @@ macOS caveat: Claude Code reads the Keychain before the config-dir file, and jac
 `prepare_account_dir` writes both, so on darwin preparing a pin also moves the global identity.
 Windows/Linux are fully isolated per account.
 
+## WSL development
+
+Run this repo from the Linux native filesystem (e.g. `~/work/PixelCompany`), never from
+`/mnt/<drive>/...`. Node/tsx/Vite open thousands of small files in `node_modules` on startup; each
+crosses the 9p WSL↔Windows boundary at ms latency instead of µs, so `npm run solo` / `npm start`
+appear to hang forever (`main()` never reaches `listen()`, port stays refused even from inside WSL).
+Clone or `rsync --exclude node_modules --exclude .git` onto the ext4 filesystem instead — startup
+drops from "never finishes" to seconds.
+
+If `npm install` on Linux fails building the UI with `Cannot find module
+@rollup/rollup-linux-x64-gnu` (or an equivalent native optional-dep for esbuild/swc), the
+`package-lock.json` was generated on a different OS. Delete `package-lock.json` and all
+`node_modules` and reinstall — see the npm optional-deps bug
+[npm/cli#4828](https://github.com/npm/cli/issues/4828).
+
 ## Jacked install (once)
 
 ```bash
