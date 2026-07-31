@@ -1,6 +1,7 @@
 import type { ReactElement, ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
-import { Pause, Play, Plus, RefreshCw, X } from "lucide-react";
+import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
+import { ChevronDown, Mail, Pause, Play, Plus, RefreshCw, X } from "lucide-react";
 
 import type {
 	RuntimeJackedAccount,
@@ -12,6 +13,10 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
 import { JackedAccountActions } from "@/jacked/jacked-account-actions";
 import { formatPercent, pressureBarColor } from "@/jacked/jacked-format";
+import {
+	buildClaudeOAuthInviteEmail,
+	type ClaudeOAuthInviteEmail,
+} from "@/jacked/jacked-oauth-invite-email";
 import { MANAGER_LABELS } from "@/jacked/manager-labels";
 import { useJackedSessions } from "@/jacked/use-jacked-sessions";
 import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
@@ -179,6 +184,8 @@ export function JackedAccountsView({ online, jacked }: JackedAccountsViewProps):
 	const [oauthFlowId, setOauthFlowId] = useState<string | null>(null);
 	const [oauthCode, setOauthCode] = useState("");
 	const [oauthSubmitError, setOauthSubmitError] = useState<string | null>(null);
+	const [oauthInviteEmail, setOauthInviteEmail] = useState<ClaudeOAuthInviteEmail | null>(null);
+	const [oauthEmailCopied, setOauthEmailCopied] = useState(false);
 	const oauthGenerationRef = useRef(0);
 	// Proves concurrent multi-account work: each pinned task reports a session under
 	// its own account instead of all of them sharing the active credential.
@@ -241,6 +248,8 @@ export function JackedAccountsView({ online, jacked }: JackedAccountsViewProps):
 		setOauthFlowId(null);
 		setOauthCode("");
 		setOauthSubmitError(null);
+		setOauthInviteEmail(null);
+		setOauthEmailCopied(false);
 	};
 
 	/**
@@ -281,6 +290,7 @@ export function JackedAccountsView({ online, jacked }: JackedAccountsViewProps):
 					setOauthAuthUrl(null);
 					setOauthFlowId(null);
 					setOauthManual(false);
+					setOauthInviteEmail(null);
 					setBusyId(null);
 					return;
 				}
@@ -328,6 +338,8 @@ export function JackedAccountsView({ online, jacked }: JackedAccountsViewProps):
 		setOauthManual(false);
 		setOauthFlowId(null);
 		setOauthCode("");
+		setOauthInviteEmail(null);
+		setOauthEmailCopied(false);
 		try {
 			const start = await startFlow();
 			if (oauthGenerationRef.current !== generation) {
@@ -343,17 +355,16 @@ export function JackedAccountsView({ online, jacked }: JackedAccountsViewProps):
 			setOauthManual(manual);
 			setOauthFlowId(start.flowId);
 			setOauthAuthUrl(start.authUrl ?? null);
-			setOauthStatus(
-				manual
-					? "Approve in the browser, then paste the authorization code below."
-					: "Approve in the browser window. Waiting for Claude OAuth…",
-			);
-			if (start.authUrl) {
-				window.open(start.authUrl, "_blank", "noopener,noreferrer");
+			if (remote && start.authUrl) {
+				setOauthInviteEmail(buildClaudeOAuthInviteEmail(start.authUrl));
+				setOauthStatus(
+					"Send the invite email to your colleague, then paste their authorization code below.",
+				);
+			} else {
+				setOauthStatus(
+					"A browser tab should open automatically. If it didn't, use the link below.",
+				);
 			}
-			// The flow is now waiting on the browser (or on a pasted code), which can take
-			// minutes. Release the busy lock so the rest of the pane stays usable; the
-			// generation guard invalidates this poll if another flow starts meanwhile.
 			setBusyId(null);
 			void pollOauthFlow(start.flowId, manual, generation);
 		} catch (err) {
@@ -371,9 +382,21 @@ export function JackedAccountsView({ online, jacked }: JackedAccountsViewProps):
 			async () =>
 				await getRuntimeTrpcClient(null).jacked.startClaudeOAuth.mutate(remote ? { remote: true } : {}),
 			remote,
-			remote ? "Starting paste-code OAuth…" : "Starting Claude OAuth…",
+			remote ? "Preparing invite email…" : "Starting Claude OAuth…",
 			"Could not start Claude OAuth",
 		);
+	};
+
+	const copyInviteEmail = async () => {
+		if (!oauthInviteEmail) {
+			return;
+		}
+		try {
+			await navigator.clipboard.writeText(oauthInviteEmail.body);
+			setOauthEmailCopied(true);
+		} catch {
+			setOauthSubmitError("Could not copy email to clipboard.");
+		}
 	};
 
 	const startAccountReauth = async (accountId: number, remote = false) => {
@@ -417,6 +440,7 @@ export function JackedAccountsView({ online, jacked }: JackedAccountsViewProps):
 				setOauthAuthUrl(null);
 				setOauthFlowId(null);
 				setOauthManual(false);
+				setOauthInviteEmail(null);
 				setOauthCode("");
 				setBusyId(null);
 				return;
@@ -491,31 +515,52 @@ export function JackedAccountsView({ online, jacked }: JackedAccountsViewProps):
 					>
 						Refresh All
 					</Button>
-					<Button
-						variant="ghost"
-						size="sm"
-						disabled={!online || busyId !== null}
-						icon={<Plus size={12} />}
-						aria-label="Add Claude account with OAuth"
-						className="h-7 px-2 text-[10px]"
-						onClick={() => {
-							void startClaudeOauth(false);
-						}}
-					>
-						Add Account
-					</Button>
-					<Button
-						variant="ghost"
-						size="sm"
-						disabled={!online || busyId !== null}
-						aria-label="Paste Claude OAuth authorization code"
-						className="h-7 px-2 text-[10px]"
-						onClick={() => {
-							void startClaudeOauth(true);
-						}}
-					>
-						Paste code
-					</Button>
+					<DropdownMenu.Root>
+						<DropdownMenu.Trigger asChild>
+							<Button
+								variant="ghost"
+								size="sm"
+								disabled={!online || busyId !== null}
+								icon={<Plus size={12} />}
+								iconRight={<ChevronDown size={10} aria-hidden />}
+								aria-label="Add Claude account"
+								className="h-7 px-2 text-[10px]"
+								data-testid="jacked-add-account-trigger"
+							>
+								Add Account
+							</Button>
+						</DropdownMenu.Trigger>
+						<DropdownMenu.Portal>
+							<DropdownMenu.Content
+								side="bottom"
+								align="start"
+								sideOffset={4}
+								className="z-50 min-w-[11rem] rounded-md border border-border-bright bg-surface-1 p-1 shadow-lg"
+								onCloseAutoFocus={(event) => event.preventDefault()}
+							>
+								<DropdownMenu.Item
+									className="cursor-pointer rounded-sm px-2 py-1.5 text-[11px] text-text-primary outline-none data-[highlighted]:bg-surface-3"
+									data-testid="jacked-add-account-oauth"
+									onSelect={() => {
+										void startClaudeOauth(false);
+									}}
+								>
+									<p className="font-medium">OAuth</p>
+									<p className="text-[10px] text-text-tertiary">Sign in on this computer</p>
+								</DropdownMenu.Item>
+								<DropdownMenu.Item
+									className="cursor-pointer rounded-sm px-2 py-1.5 text-[11px] text-text-primary outline-none data-[highlighted]:bg-surface-3"
+									data-testid="jacked-add-account-paste-code"
+									onSelect={() => {
+										void startClaudeOauth(true);
+									}}
+								>
+									<p className="font-medium">Paste code</p>
+									<p className="text-[10px] text-text-tertiary">Invite a colleague by email</p>
+								</DropdownMenu.Item>
+							</DropdownMenu.Content>
+						</DropdownMenu.Portal>
+					</DropdownMenu.Root>
 					{paused ? (
 						<Button
 							variant="ghost"
@@ -578,7 +623,42 @@ export function JackedAccountsView({ online, jacked }: JackedAccountsViewProps):
 							onClick={cancelOauthFlow}
 						/>
 					</div>
-					{oauthAuthUrl ? (
+					{oauthInviteEmail ? (
+						<div
+							className="mt-1.5 rounded border border-border bg-surface-2 p-2"
+							data-testid="jacked-oauth-invite-email"
+						>
+							<p className="text-[10px] font-medium text-text-primary">{oauthInviteEmail.subject}</p>
+							<pre className="mt-1 max-h-28 overflow-y-auto whitespace-pre-wrap break-all text-[10px] text-text-secondary">
+								{oauthInviteEmail.body}
+							</pre>
+							<div className="mt-1.5 flex flex-wrap gap-1">
+								<Button
+									variant="ghost"
+									size="sm"
+									className="h-6 px-2 text-[10px]"
+									data-testid="jacked-oauth-copy-email"
+									onClick={() => {
+										void copyInviteEmail();
+									}}
+								>
+									{oauthEmailCopied ? "Copied" : "Copy email"}
+								</Button>
+								<Button
+									variant="ghost"
+									size="sm"
+									icon={<Mail size={10} />}
+									className="h-6 px-2 text-[10px]"
+									data-testid="jacked-oauth-open-mail"
+									onClick={() => {
+										window.location.href = oauthInviteEmail.mailto;
+									}}
+								>
+									Open in mail app
+								</Button>
+							</div>
+						</div>
+					) : oauthAuthUrl ? (
 						<a
 							href={oauthAuthUrl}
 							target="_blank"

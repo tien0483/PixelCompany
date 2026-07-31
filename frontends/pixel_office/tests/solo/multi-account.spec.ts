@@ -151,14 +151,19 @@ test("concurrent sessions are attributed per account", async ({ page }) => {
 test("a pending paste-code flow can be dismissed and leaves the pane usable", async ({ page }) => {
 	const stub = await stubTrpc(page, {
 		// Manual mode is the flow that waits on a human-pasted code — up to 10 minutes.
-		"jacked.startClaudeOAuth": () => ({ ok: true, flowId: "flow-1", mode: "manual" }),
+		"jacked.startClaudeOAuth": () => ({
+			ok: true,
+			flowId: "flow-1",
+			mode: "manual",
+			authUrl: "https://claude.com/cai/oauth/authorize?example=1",
+		}),
 		"jacked.oauthFlowStatus": () => ({
 			status: "pending",
 			flowId: "flow-1",
 			accountId: null,
 			email: null,
 			error: null,
-			authUrl: null,
+			authUrl: "https://claude.com/cai/oauth/authorize?example=1",
 			mode: "manual",
 			submitError: null,
 		}),
@@ -168,9 +173,10 @@ test("a pending paste-code flow can be dismissed and leaves the pane usable", as
 	});
 	await openAccountsPane(page);
 
-	// aria-label wins over the button text for the accessible name.
-	await page.getByRole("button", { name: "Paste Claude OAuth authorization code" }).click();
+	await page.getByTestId("jacked-add-account-trigger").click();
+	await page.getByTestId("jacked-add-account-paste-code").click();
 	await expect(page.getByTestId("jacked-oauth-status")).toBeVisible();
+	await expect(page.getByTestId("jacked-oauth-invite-email")).toBeVisible();
 	await expect(page.getByPlaceholder("Paste authorization code")).toBeVisible();
 
 	// The rest of the pane must not be frozen while the flow waits for input.
@@ -180,7 +186,7 @@ test("a pending paste-code flow can be dismissed and leaves the pane usable", as
 
 	await page.getByTestId("jacked-oauth-dismiss").click();
 	await expect(page.getByTestId("jacked-oauth-status")).toHaveCount(0);
-	await expect(page.getByRole("button", { name: "Add Claude account with OAuth" })).toBeEnabled();
+	await expect(page.getByTestId("jacked-add-account-trigger")).toBeEnabled();
 });
 
 test("auto-swap can be paused and resumed from the pane", async ({ page }) => {
