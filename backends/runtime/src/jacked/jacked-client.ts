@@ -76,6 +76,8 @@ export interface JackedClient {
 	reorderAccounts: (accountIds: number[]) => Promise<{ ok: boolean; error?: string }>;
 	/** Re-run OAuth against an existing account row instead of adding a duplicate. */
 	startAccountReauth: (accountId: number, remote?: boolean) => Promise<RuntimeJackedOAuthStartResponse>;
+	/** Authorize independent Claude Code tokens on an existing account (no primary re-auth). */
+	startAccountAuthorizeCc: (accountId: number, remote?: boolean) => Promise<RuntimeJackedOAuthStartResponse>;
 	/** Live Claude Code sessions grouped per account. */
 	fetchActiveSessions: () => Promise<RuntimeJackedSessions | null>;
 	/** Curated skill packs with per-pack install counts. */
@@ -190,6 +192,7 @@ function parseAccount(raw: unknown): RuntimeJackedAccount | null {
 		nextRefreshAt: readNumber(raw, "next_refresh_at"),
 		canAutoSwap,
 		canTrackUsage,
+		hasCcToken: readBoolean(raw, "has_cc_token"),
 	};
 }
 
@@ -843,6 +846,10 @@ export function createJackedClient(deps: CreateJackedClientDependencies): Jacked
 		startAccountReauth: async (accountId, remote = false) =>
 			await startOAuthFlow(
 				`/api/auth/accounts/${String(accountId)}/reauth${remote ? "?remote=true" : ""}`,
+			),
+		startAccountAuthorizeCc: async (accountId, remote = false) =>
+			await startOAuthFlow(
+				`/api/auth/accounts/${String(accountId)}/authorize-cc${remote ? "?remote=true" : ""}`,
 			),
 		getOAuthFlowStatus: async (flowId) => {
 			const raw = await request(`/api/auth/flow/${encodeURIComponent(flowId)}`, undefined, LONG_REQUEST_TIMEOUT_MS);

@@ -411,6 +411,18 @@ export function JackedAccountsView({ online, jacked }: JackedAccountsViewProps):
 		);
 	};
 
+	const startAccountAuthorizeCc = async (accountId: number, remote = false) => {
+		await beginOAuthFlow(
+			async () =>
+				await getRuntimeTrpcClient(null).jacked.startAccountAuthorizeCc.mutate(
+					remote ? { accountId, remote: true } : { accountId },
+				),
+			remote,
+			"Starting Claude Code authorization…",
+			"Could not authorize Claude Code",
+		);
+	};
+
 	const submitOauthCode = async () => {
 		if (!oauthFlowId || oauthCode.trim().length === 0) {
 			return;
@@ -746,6 +758,15 @@ export function JackedAccountsView({ online, jacked }: JackedAccountsViewProps):
 										isLast={index === accounts.length - 1}
 										onReauth={() => {
 											void startAccountReauth(account.id);
+										}}
+										onReauthRemote={() => {
+											void startAccountReauth(account.id, true);
+										}}
+										onAuthorizeCc={() => {
+											void startAccountAuthorizeCc(account.id);
+										}}
+										onAuthorizeCcRemote={() => {
+											void startAccountAuthorizeCc(account.id, true);
 										}}
 										onValidate={() => {
 											void run(account.id, () =>

@@ -499,6 +499,9 @@ export const runtimeJackedAccountSchema = z.object({
 	nextRefreshAt: z.number().nullable(),
 	canAutoSwap: z.boolean(),
 	canTrackUsage: z.boolean(),
+	/** False means Claude Code tokens were never authorized (or expired unrecovered) — the
+	 * account can't be switched to until `startAccountAuthorizeCc` completes for it. */
+	hasCcToken: z.boolean(),
 });
 export type RuntimeJackedAccount = z.infer<typeof runtimeJackedAccountSchema>;
 
@@ -633,6 +636,19 @@ export const runtimeJackedAccountReauthRequestSchema = z.object({
 	remote: z.boolean().optional(),
 });
 export type RuntimeJackedAccountReauthRequest = z.infer<typeof runtimeJackedAccountReauthRequestSchema>;
+
+/**
+ * Authorize independent Claude Code tokens on an existing account without
+ * touching its primary credentials (jacked POST /api/auth/accounts/{id}/authorize-cc).
+ */
+export const runtimeJackedAccountAuthorizeCcRequestSchema = z.object({
+	accountId: z.number().int().positive(),
+	/** True when the browser cannot reach jacked's loopback callback (paste-code mode). */
+	remote: z.boolean().optional(),
+});
+export type RuntimeJackedAccountAuthorizeCcRequest = z.infer<
+	typeof runtimeJackedAccountAuthorizeCcRequestSchema
+>;
 
 /** Auto-swap priority order, first entry highest (jacked POST /api/auth/accounts/reorder). */
 export const runtimeJackedAccountReorderRequestSchema = z.object({

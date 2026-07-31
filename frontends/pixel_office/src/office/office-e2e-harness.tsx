@@ -181,6 +181,7 @@ function buildFixtureJacked(pressure: number): RuntimeJackedSnapshot {
 		nextRefreshAt: null as number | null,
 		canAutoSwap,
 		canTrackUsage: true,
+		hasCcToken: true,
 	});
 	return {
 		version: "e2e",

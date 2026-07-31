@@ -1,6 +1,7 @@
 import type { ReactElement } from "react";
 import { useState } from "react";
-import { ArrowDown, ArrowUp, BadgeCheck, KeyRound, Power, Trash2 } from "lucide-react";
+import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
+import { ArrowDown, ArrowUp, BadgeCheck, ChevronDown, KeyRound, Power, ShieldAlert, Trash2 } from "lucide-react";
 
 import type { RuntimeJackedAccount } from "@/runtime/types";
 
@@ -25,11 +26,77 @@ export interface JackedAccountActionsProps {
 	isFirst: boolean;
 	isLast: boolean;
 	onReauth: () => void;
+	/** Re-auth on this computer failed to reach jacked's loopback callback — paste the code instead. */
+	onReauthRemote: () => void;
+	/** Re-run just the Claude Code sub-flow (`has_cc_token` was false or its refresh died). */
+	onAuthorizeCc: () => void;
+	onAuthorizeCcRemote: () => void;
 	onValidate: () => void;
 	onToggleEnabled: () => void;
 	onDelete: () => void;
 	onMoveUp: () => void;
 	onMoveDown: () => void;
+}
+
+/** Split OAuth/paste-code trigger shared by re-auth and CC-authorize. */
+function OAuthDropdownButton({
+	icon,
+	label,
+	disabled,
+	highlighted,
+	onOAuth,
+	onPasteCode,
+}: {
+	icon: ReactElement;
+	label: string;
+	disabled: boolean;
+	highlighted?: boolean;
+	onOAuth: () => void;
+	onPasteCode: () => void;
+}): ReactElement {
+	return (
+		<DropdownMenu.Root>
+			<DropdownMenu.Trigger asChild>
+				<Button
+					variant="ghost"
+					size="sm"
+					disabled={disabled}
+					icon={icon}
+					iconRight={<ChevronDown size={8} aria-hidden />}
+					className={
+						highlighted
+							? "h-6 rounded border border-status-orange/30 bg-status-orange/10 px-1.5 text-[10px] text-status-orange"
+							: "h-6 px-1.5 text-[10px]"
+					}
+					aria-label={label}
+				/>
+			</DropdownMenu.Trigger>
+			<DropdownMenu.Portal>
+				<DropdownMenu.Content
+					side="bottom"
+					align="start"
+					sideOffset={4}
+					className="z-50 min-w-[11rem] rounded-md border border-border-bright bg-surface-1 p-1 shadow-lg"
+					onCloseAutoFocus={(event) => event.preventDefault()}
+				>
+					<DropdownMenu.Item
+						className="cursor-pointer rounded-sm px-2 py-1.5 text-[11px] text-text-primary outline-none data-[highlighted]:bg-surface-3"
+						onSelect={onOAuth}
+					>
+						<p className="font-medium">OAuth</p>
+						<p className="text-[10px] text-text-tertiary">Sign in on this computer</p>
+					</DropdownMenu.Item>
+					<DropdownMenu.Item
+						className="cursor-pointer rounded-sm px-2 py-1.5 text-[11px] text-text-primary outline-none data-[highlighted]:bg-surface-3"
+						onSelect={onPasteCode}
+					>
+						<p className="font-medium">Paste code</p>
+						<p className="text-[10px] text-text-tertiary">Invite a colleague by email</p>
+					</DropdownMenu.Item>
+				</DropdownMenu.Content>
+			</DropdownMenu.Portal>
+		</DropdownMenu.Root>
+	);
 }
 
 /**
@@ -48,6 +115,9 @@ export function JackedAccountActions({
 	isFirst,
 	isLast,
 	onReauth,
+	onReauthRemote,
+	onAuthorizeCc,
+	onAuthorizeCcRemote,
 	onValidate,
 	onToggleEnabled,
 	onDelete,
@@ -61,15 +131,33 @@ export function JackedAccountActions({
 	return (
 		<div className="mt-1 flex items-center gap-0.5" data-testid={`jacked-account-actions-${account.id}`}>
 			<Tooltip content="Re-run Claude OAuth for this account">
-				<Button
-					variant="ghost"
-					size="sm"
-					disabled={disabled}
-					onClick={onReauth}
-					icon={<KeyRound size={10} />}
-					className="h-6 px-1.5 text-[10px]"
-					aria-label={`Re-authenticate ${label}`}
-				/>
+				<span>
+					<OAuthDropdownButton
+						icon={<KeyRound size={10} />}
+						label={`Re-authenticate ${label}`}
+						disabled={disabled}
+						onOAuth={onReauth}
+						onPasteCode={onReauthRemote}
+					/>
+				</span>
+			</Tooltip>
+			<Tooltip
+				content={
+					account.hasCcToken
+						? "Re-run Claude Code token authorization for this account"
+						: "Claude Code tokens missing — authorize now or credentials expire in ~8 hours with no way to renew"
+				}
+			>
+				<span>
+					<OAuthDropdownButton
+						icon={<ShieldAlert size={10} />}
+						label={`Authorize Claude Code tokens for ${label}`}
+						disabled={disabled}
+						highlighted={!account.hasCcToken}
+						onOAuth={onAuthorizeCc}
+						onPasteCode={onAuthorizeCcRemote}
+					/>
+				</span>
 			</Tooltip>
 			<Tooltip content="Check the stored credential without switching to it">
 				<Button

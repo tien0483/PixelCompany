@@ -53,6 +53,7 @@ import type {
 	RuntimeGitSyncResponse,
 	RuntimeHookIngestRequest,
 	RuntimeHookIngestResponse,
+	RuntimeJackedAccountAuthorizeCcRequest,
 	RuntimeJackedAccountIdRequest,
 	RuntimeJackedAccountLaunchDir,
 	RuntimeJackedAccountReauthRequest,
@@ -166,6 +167,7 @@ import {
 	runtimeGitSyncResponseSchema,
 	runtimeHookIngestRequestSchema,
 	runtimeHookIngestResponseSchema,
+	runtimeJackedAccountAuthorizeCcRequestSchema,
 	runtimeJackedAccountIdRequestSchema,
 	runtimeJackedAccountLaunchDirSchema,
 	runtimeJackedAccountReauthRequestSchema,
@@ -427,6 +429,9 @@ export interface RuntimeTrpcContext {
 		validateAccount: (input: RuntimeJackedAccountIdRequest) => Promise<RuntimeJackedMutationResponse>;
 		reorderAccounts: (input: RuntimeJackedAccountReorderRequest) => Promise<RuntimeJackedMutationResponse>;
 		startAccountReauth: (input: RuntimeJackedAccountReauthRequest) => Promise<RuntimeJackedOAuthStartResponse>;
+		startAccountAuthorizeCc: (
+			input: RuntimeJackedAccountAuthorizeCcRequest,
+		) => Promise<RuntimeJackedOAuthStartResponse>;
 		getActiveSessions: () => Promise<RuntimeJackedSessions | null>;
 		getPacks: () => Promise<RuntimeJackedPacks | null>;
 		setPackEnabled: (input: RuntimeJackedPackToggleRequest) => Promise<RuntimeJackedMutationResponse>;
@@ -857,6 +862,12 @@ export const runtimeAppRouter = t.router({
 			.output(runtimeJackedOAuthStartResponseSchema)
 			.mutation(async ({ ctx, input }) => {
 				return await ctx.jackedApi.startAccountReauth(input);
+			}),
+		startAccountAuthorizeCc: t.procedure
+			.input(runtimeJackedAccountAuthorizeCcRequestSchema)
+			.output(runtimeJackedOAuthStartResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.jackedApi.startAccountAuthorizeCc(input);
 			}),
 		activeSessions: t.procedure.output(runtimeJackedSessionsSchema.nullable()).query(async ({ ctx }) => {
 			return await ctx.jackedApi.getActiveSessions();

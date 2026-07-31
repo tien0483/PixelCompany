@@ -1,4 +1,5 @@
 import type {
+	RuntimeJackedAccountAuthorizeCcRequest,
 	RuntimeJackedAccountIdRequest,
 	RuntimeJackedAccountLaunchDir,
 	RuntimeJackedAccountReauthRequest,
@@ -137,6 +138,15 @@ export function createJackedApi(deps: CreateJackedApiDependencies): RuntimeTrpcC
 				return { ok: false, error: refused.error ?? "Only Claude accounts can be used from PixelOffice." };
 			}
 			return await deps.client.startAccountReauth(input.accountId, input.remote === true);
+		},
+		startAccountAuthorizeCc: async (
+			input: RuntimeJackedAccountAuthorizeCcRequest,
+		): Promise<RuntimeJackedOAuthStartResponse> => {
+			const refused = await refuseNonClaudeAccount(input.accountId);
+			if (refused !== null) {
+				return { ok: false, error: refused.error ?? "Only Claude accounts can be used from PixelOffice." };
+			}
+			return await deps.client.startAccountAuthorizeCc(input.accountId, input.remote === true);
 		},
 		getActiveSessions: async (): Promise<RuntimeJackedSessions | null> => {
 			return await deps.client.fetchActiveSessions();

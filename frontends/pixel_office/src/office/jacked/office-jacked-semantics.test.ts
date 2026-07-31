@@ -44,6 +44,7 @@ describe("deriveOfficeJackedSemantics", () => {
 						nextRefreshAt: null,
 						canAutoSwap: true,
 						canTrackUsage: true,
+						hasCcToken: true,
 					},
 					{
 						id: 2,
@@ -58,6 +59,7 @@ describe("deriveOfficeJackedSemantics", () => {
 						nextRefreshAt: null,
 						canAutoSwap: false,
 						canTrackUsage: true,
+						hasCcToken: true,
 					},
 				],
 				features: [
