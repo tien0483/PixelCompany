@@ -5,7 +5,7 @@ import type { RuntimeJackedState } from "@/runtime/types";
 /** Below this, usage is not worth showing on the floor at all. */
 const DIM_START_PRESSURE = 0.5;
 /** Darkest the office ever gets, so the canvas stays readable at 100% usage. */
-const MAX_DIM_ALPHA = 0.45;
+const MAX_DIM_ALPHA = 0.25;
 
 /**
  * Turns claude-jacked's usage pressure into ambient light.
