@@ -437,8 +437,6 @@ export function ProjectNavigationPanel({
 				</div>
 			)}
 			<JackedSidebarConfig
-				online={jackedOnline}
-				jacked={jackedState}
 				onOpenJackedSettings={() => {
 					onActiveSectionChange("jacked");
 					onOpenJackedSettings?.();
