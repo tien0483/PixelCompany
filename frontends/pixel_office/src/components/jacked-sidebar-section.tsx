@@ -12,7 +12,8 @@ import {
 
 import type { RuntimeJackedSnapshot } from "@/runtime/types";
 import { cn } from "@/components/ui/cn";
-import { FEATURE_SHELF_SELECTORS, FeatureShelfView } from "@/jacked/feature-shelf-view";
+import { FeatureShelfView } from "@/jacked/feature-shelf-view";
+import { FEATURE_SHELF_SELECTORS } from "@/jacked/feature-shelf-selectors";
 import { JackedAnalyticsView } from "@/jacked/jacked-analytics-view";
 import { JackedInstallationsView } from "@/jacked/jacked-installations-view";
 import { JackedLogsView } from "@/jacked/jacked-logs-view";

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { RuntimeJackedSnapshot } from "@/runtime/types";
+import { MANAGER_LABELS } from "@/jacked/manager-labels";
 import { deriveOfficeJackedSemantics } from "./office-jacked-semantics";
 
 function snapshot(partial: Partial<RuntimeJackedSnapshot> = {}): RuntimeJackedSnapshot {
@@ -129,5 +130,57 @@ describe("deriveOfficeJackedSemantics", () => {
 		expect(semantics.meters[0]?.pressure).toBe(0.1);
 		expect(semantics.meters[0]?.accountLabel).toBe("Trong Phuoc");
 		expect(semantics.meters[0]?.activeEmail).toBe("trongphuoc.huynh@akselos.com");
+	});
+
+	it("groups library shelves into playbooks/training/handbook sections and drops empty ones", () => {
+		const semantics = deriveOfficeJackedSemantics(
+			snapshot({
+				features: [
+					{
+						category: "commands",
+						name: "audit-rules",
+						displayName: "/audit-rules",
+						description: "",
+						installed: false,
+					},
+					{
+						category: "knowledge",
+						name: "skill_graphify",
+						displayName: "Graphify",
+						description: "",
+						installed: true,
+					},
+					{
+						category: "knowledge",
+						name: "house-rules",
+						displayName: "House Rules",
+						description: "",
+						installed: false,
+					},
+					{
+						category: "agents",
+						name: "security-reviewer",
+						displayName: "Security",
+						description: "",
+						installed: true,
+					},
+				],
+			}),
+		);
+		expect(semantics.librarySections.map((section) => section.key)).toEqual([
+			"playbooks",
+			"training",
+			"handbook",
+		]);
+		const byKey = Object.fromEntries(semantics.librarySections.map((section) => [section.key, section]));
+		expect(byKey.playbooks?.label).toBe(MANAGER_LABELS.routes.playbooks);
+		expect(byKey.playbooks?.shelves.map((shelf) => shelf.name)).toEqual(["audit-rules"]);
+		expect(byKey.training?.shelves.map((shelf) => shelf.name)).toEqual(["skill_graphify"]);
+		expect(byKey.handbook?.shelves.map((shelf) => shelf.name)).toEqual(["house-rules"]);
+	});
+
+	it("omits empty library sections", () => {
+		const semantics = deriveOfficeJackedSemantics(snapshot({ features: [] }));
+		expect(semantics.librarySections).toEqual([]);
 	});
 });

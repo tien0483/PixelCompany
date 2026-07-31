@@ -5,8 +5,8 @@ import { Search } from "lucide-react";
 
 import type { RuntimeJackedFeature, RuntimeJackedSnapshot } from "@/runtime/types";
 
-import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
+import { FeatureToggleButton } from "@/jacked/feature-toggle-button";
 import { MANAGER_LABELS } from "@/jacked/manager-labels";
 import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
 
@@ -166,21 +166,15 @@ export function FeatureShelfView({
 												</p>
 											) : null}
 										</div>
-										<Button
-											variant="ghost"
-											size="sm"
-											disabled={!online || busy}
-											onClick={() => {
+										<FeatureToggleButton
+											installed={feature.installed}
+											busy={busy}
+											disabled={!online}
+											onToggle={() => {
 												void toggle(feature);
 											}}
-											aria-label={`${feature.installed ? "Remove" : "Install"} ${feature.displayName}`}
-											className={cn(
-												"h-6 shrink-0 px-2 text-[10px]",
-												feature.installed ? "text-status-green" : "text-text-tertiary",
-											)}
-										>
-											{busy ? "…" : feature.installed ? "ON" : "OFF"}
-										</Button>
+											subjectLabel={feature.displayName}
+										/>
 									</div>
 								</li>
 							);
@@ -194,15 +188,3 @@ export function FeatureShelfView({
 		</div>
 	);
 }
-
-/** Shelf membership rules over the flat feature list the runtime streams. */
-export const FEATURE_SHELF_SELECTORS = {
-	staff: (feature: RuntimeJackedFeature) => feature.category === "agents",
-	playbooks: (feature: RuntimeJackedFeature) => feature.category === "commands",
-	// jacked returns skills inside `knowledge`, prefixed `skill_`; the rest of that
-	// category is house rules and reference material.
-	training: (feature: RuntimeJackedFeature) =>
-		feature.category === "knowledge" && feature.name.startsWith("skill_"),
-	handbook: (feature: RuntimeJackedFeature) =>
-		feature.category === "knowledge" && !feature.name.startsWith("skill_"),
-} as const;

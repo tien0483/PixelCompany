@@ -203,7 +203,7 @@ export function OfficeView({
 					</div>
 				</div>
 				<OfficeLibraryPanel
-					shelves={semantics.libraryShelves}
+					sections={semantics.librarySections}
 					workspaceId={workspaceId}
 					jackedOnline={jackedReachable}
 				/>
