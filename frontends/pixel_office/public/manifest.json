@@ -1,6 +1,6 @@
 {
-	"name": "Cline",
-	"short_name": "Cline",
+	"name": "Askee",
+	"short_name": "Askee",
 	"start_url": "/",
 	"display": "standalone",
 	"display_override": ["window-controls-overlay"],

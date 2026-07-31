@@ -4,8 +4,8 @@ import { ChevronDown, ChevronUp, Ellipsis, ExternalLink, Info, Plus } from "luci
 import { type MouseEvent as ReactMouseEvent, useCallback, useEffect, useRef, useState } from "react";
 import { canShowFeaturebaseFeedbackButton } from "@/components/featurebase-feedback-button";
 import { HomeSidebarJackedPanel, HomeSidebarJackedTab } from "@/components/home-sidebar-jacked";
+import askeeLogo from "@/assets/images/askee-logo.png";
 import { Button } from "@/components/ui/button";
-import { ClineIcon } from "@/components/ui/cline-icon";
 import { cn } from "@/components/ui/cn";
 import { JackedSidebarConfig } from "@/jacked/jacked-sidebar-config";
 import {
@@ -302,9 +302,9 @@ export function ProjectNavigationPanel({
 			)}
 			<div style={{ padding: "12px 12px 8px" }}>
 				<div className="flex items-center justify-between">
-					<div className="font-semibold text-base flex items-baseline gap-1.5">
-						<ClineIcon size={18} className="text-text-primary shrink-0 self-center" />
-						Cline <span className="text-text-secondary font-normal text-xs">v{__APP_VERSION__}</span>
+					<div className="font-semibold text-base flex items-center gap-1.5">
+						<img src={askeeLogo} alt="Askee" className="h-5 w-auto shrink-0" />
+						<span className="text-text-secondary font-normal text-xs">v{__APP_VERSION__}</span>
 					</div>
 					{isMobile ? (
 						<Button
