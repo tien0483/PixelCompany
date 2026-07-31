@@ -21,3 +21,9 @@
 | 2026-07-31 | WSL dev-setup docs | Docs | Run from native Linux fs, not `/mnt/<drive>`; 9p I/O makes `npm run solo` hang forever on `node_modules` resolution |
 | 2026-07-31 | Jacked venv auto-detect | Runtime | `resolvePythonBinary` prefers `backends/jacked/.venv/bin/python` over bare `python3`; fixes silent auth-router ImportError → 405 on OAuth |
 | 2026-07-31 | UI dist auto-rebuild hooks | Root + docs | `.githooks/post-merge`/`post-checkout` rebuild `frontends/pixel_office/dist` when it drifts from HEAD; `core.hooksPath` set via `prepare` script |
+| 2026-07-31 | No AI attribution in commits/PRs | Docs | User preference — strip Co-Authored-By and Generated-with footers for this repo |
+
+## Commit & PR message style
+- Do not add `Co-Authored-By: Claude ...` trailer to commits in this repo.
+- Do not add "🤖 Generated with Claude Code" (or any AI-attribution) line to PR descriptions in this repo.
+- Everything else (Conventional Commits format, PR Summary/Test plan structure) stays as-is.
