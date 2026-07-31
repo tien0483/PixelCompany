@@ -129,6 +129,7 @@ export default function App(): ReactElement {
 		handleAddProject,
 		handleAddProjectSuccess,
 		handleRemoveProject,
+		handleClearProjectSelection,
 		isAddProjectDialogOpen,
 		setIsAddProjectDialogOpen,
 		pendingNativeGitInitPath,
@@ -946,8 +947,11 @@ export default function App(): ReactElement {
 							style={selectedCard ? { visibility: "hidden" } : undefined}
 						>
 							{shouldShowProjectLoadingState ? (
-								<div className="flex flex-1 min-h-0 items-center justify-center bg-surface-0">
+								<div className="flex flex-1 min-h-0 flex-col items-center justify-center gap-4 bg-surface-0">
 									<Spinner size={30} />
+									<Button variant="default" size="sm" onClick={handleClearProjectSelection}>
+										Clear stuck project
+									</Button>
 								</div>
 							) : hasNoProjects ? (
 								<div className="flex flex-1 min-h-0 items-center justify-center bg-surface-0 p-6">

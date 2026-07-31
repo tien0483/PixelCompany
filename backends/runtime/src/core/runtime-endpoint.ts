@@ -106,6 +106,29 @@ export function getKanbanRuntimeOrigin(): string {
 	return `${scheme}://${getKanbanRuntimeHost()}:${getKanbanRuntimePort()}`;
 }
 
+/**
+ * Origins accepted by the CORS gate. Mirrors {@link getAllowedHostHeaders}: on
+ * localhost, `localhost` and `127.0.0.1` are interchangeable, so a page opened
+ * at either hostname must be allowed to fetch its own assets.
+ */
+export function getAllowedOriginHeaders(): ReadonlySet<string> {
+	const scheme = isKanbanRuntimeHttps() ? "https" : "http";
+	const port = getKanbanRuntimePort();
+	const allowed = new Set<string>();
+	const addOrigin = (host: string) => {
+		allowed.add(`${scheme}://${host}:${port}`);
+	};
+
+	if (isKanbanRemoteHost()) {
+		addOrigin(getKanbanRuntimeHost().toLowerCase());
+		return allowed;
+	}
+
+	addOrigin("localhost");
+	addOrigin("127.0.0.1");
+	return allowed;
+}
+
 export function getKanbanRuntimeWsOrigin(): string {
 	const scheme = isKanbanRuntimeHttps() ? "wss" : "ws";
 	return `${scheme}://${getKanbanRuntimeHost()}:${getKanbanRuntimePort()}`;

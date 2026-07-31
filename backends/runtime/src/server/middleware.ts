@@ -1,8 +1,8 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Duplex } from "node:stream";
 import {
+	getAllowedOriginHeaders,
 	getKanbanRuntimeHost,
-	getKanbanRuntimeOrigin,
 	getKanbanRuntimePort,
 	isKanbanRemoteHost,
 } from "../core/runtime-endpoint";
@@ -15,7 +15,7 @@ export type CorsDecision =
 export interface CorsGateInput {
 	method: string | undefined;
 	originHeader: string | undefined;
-	allowedOrigin: string;
+	allowedOrigins: ReadonlySet<string>;
 }
 
 const isDev = process.env.NODE_ENV === "development";
@@ -30,7 +30,7 @@ export function evaluateCors(input: CorsGateInput): CorsDecision {
 
 	const isDevServer = isDev && (origin === "http://localhost:4173" || origin === "http://127.0.0.1:4173");
 
-	if (origin !== input.allowedOrigin && !isDevServer) {
+	if (!input.allowedOrigins.has(origin) && !isDevServer) {
 		return { kind: "reject", origin };
 	}
 
@@ -120,7 +120,7 @@ export function handleHttpRequest(req: IncomingMessage, res: ServerResponse): { 
 	const corsDecision = evaluateCors({
 		method: req.method,
 		originHeader: req.headers.origin,
-		allowedOrigin: getKanbanRuntimeOrigin(),
+		allowedOrigins: getAllowedOriginHeaders(),
 	});
 
 	switch (corsDecision.kind) {
@@ -157,7 +157,7 @@ export function handleSocketUpgrade(request: IncomingMessage, socket: Duplex): {
 	const corsDecision = evaluateCors({
 		method: request.method,
 		originHeader: request.headers.origin,
-		allowedOrigin: getKanbanRuntimeOrigin(),
+		allowedOrigins: getAllowedOriginHeaders(),
 	});
 	if (corsDecision.kind === "reject") {
 		return rejectSocket(socket);

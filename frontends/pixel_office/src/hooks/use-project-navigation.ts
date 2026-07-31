@@ -45,6 +45,7 @@ export interface UseProjectNavigationResult {
 	handleAddProject: () => void;
 	handleAddProjectSuccess: (projectId: string) => void;
 	handleRemoveProject: (projectId: string) => Promise<boolean>;
+	handleClearProjectSelection: () => void;
 	resetProjectNavigationState: () => void;
 }
 
@@ -204,6 +205,19 @@ export function useProjectNavigation({ onProjectSwitchStart }: UseProjectNavigat
 		setPendingGitInitPath(null);
 	}, []);
 
+	// Lets the user bail out of a project that never finishes loading (e.g. a
+	// stuck workspace over a slow filesystem) without waiting on the backend.
+	const handleClearProjectSelection = useCallback(() => {
+		if (typeof window !== "undefined") {
+			const nextUrl = new URL(window.location.href);
+			if (nextUrl.pathname !== "/") {
+				window.history.replaceState({}, "", `/${nextUrl.search}${nextUrl.hash}`);
+			}
+		}
+		onProjectSwitchStart();
+		setRequestedProjectId(null);
+	}, [onProjectSwitchStart]);
+
 	return {
 		requestedProjectId,
 		navigationCurrentProjectId,
@@ -230,6 +244,7 @@ export function useProjectNavigation({ onProjectSwitchStart }: UseProjectNavigat
 		handleAddProject,
 		handleAddProjectSuccess,
 		handleRemoveProject,
+		handleClearProjectSelection,
 		resetProjectNavigationState,
 	};
 }

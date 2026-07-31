@@ -112,12 +112,29 @@ async function waitForPort(
 	return false;
 }
 
-function resolvePythonBinary(): string {
+/**
+ * The bare `python3` (or `python`) on PATH is frequently a system interpreter
+ * without jacked's deps (aiohttp, fastapi, ...) installed — `uv sync` /
+ * `pip install -e .` puts them in `backends/jacked/.venv` instead. Missing
+ * deps make the FastAPI auth router's import silently fail (caught by a
+ * broad `except ImportError` in `jacked/api/main.py`), so every OAuth call
+ * 405s against the SPA catch-all instead of erroring clearly. Prefer the
+ * venv when one exists so a fresh `uv sync` is picked up with no extra config.
+ */
+function resolveVenvPythonPath(jackedRoot: string): string | null {
+	const venvPython =
+		process.platform === "win32"
+			? join(jackedRoot, ".venv", "Scripts", "python.exe")
+			: join(jackedRoot, ".venv", "bin", "python");
+	return existsSync(venvPython) ? venvPython : null;
+}
+
+function resolvePythonBinary(jackedRoot: string): string {
 	const configured = process.env.JACKED_PYTHON?.trim();
 	if (configured) {
 		return configured;
 	}
-	return process.platform === "win32" ? "python" : "python3";
+	return resolveVenvPythonPath(jackedRoot) ?? (process.platform === "win32" ? "python" : "python3");
 }
 
 function createNoopProcess(isAlreadyUp: boolean): JackedProcess {
@@ -149,7 +166,8 @@ export async function startJackedProcess(deps: StartJackedProcessDependencies): 
 		return createNoopProcess(false);
 	}
 
-	const python = resolvePythonBinary();
+	const python = resolvePythonBinary(jackedRoot);
+	log(`Starting jacked with interpreter: ${python}`);
 	let child: ChildProcess;
 	try {
 		child = spawn(

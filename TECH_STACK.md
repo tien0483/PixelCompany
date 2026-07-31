@@ -117,6 +117,17 @@ If `npm install` on Linux fails building the UI with `Cannot find module
 `node_modules` and reinstall — see the npm optional-deps bug
 [npm/cli#4828](https://github.com/npm/cli/issues/4828).
 
+If OAuth (Add Account / re-auth) fails with **"claude-jacked returned HTTP 405"**, jacked's Python
+interpreter is missing a dependency (usually `aiohttp`). The runtime spawns bare `python3` on PATH
+by default, which on a fresh WSL box is the system interpreter, not the `uv sync`/`pip install -e .`
+venv under `backends/jacked/.venv`. A missing import makes jacked's auth router fail to load
+(swallowed by a broad `except ImportError` in `jacked/api/main.py`), so every `/api/auth/*` call
+falls through to the SPA static catch-all and 405s instead of erroring clearly. The runtime now
+auto-detects `backends/jacked/.venv/bin/python` (`.venv\Scripts\python.exe` on Windows) when
+`JACKED_PYTHON` isn't set — see `resolvePythonBinary` in
+`backends/runtime/src/jacked/jacked-process.ts`. Run `cd backends/jacked && uv sync` once so that
+venv exists; only set `JACKED_PYTHON` yourself to override with a different interpreter.
+
 ## Jacked install (once)
 
 ```bash
