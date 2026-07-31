@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# Rebuilds the UI dist after switching branches brings in frontend changes.
+# Skips single-file checkouts (`git checkout -- path`) — only full branch/ref
+# switches touch the working tree widely enough to matter here.
+set -euo pipefail
+prev_head="$1"
+new_head="$2"
+is_branch_checkout="$3"
+
+if [ "$is_branch_checkout" != "1" ]; then
+	exit 0
+fi
+
+dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+"$dir/../scripts/rebuild-ui-if-changed.sh" "$prev_head" "$new_head"

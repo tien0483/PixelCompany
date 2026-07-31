@@ -10,6 +10,7 @@
     "node": ">=22"
   },
   "scripts": {
+    "prepare": "git config core.hooksPath .githooks || true",
     "start": "node scripts/start-stack.mjs",
     "dev": "node scripts/start-stack.mjs",
     "restart": "node scripts/start-stack.mjs --restart",

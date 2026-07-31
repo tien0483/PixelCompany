@@ -20,3 +20,4 @@
 | 2026-07-31 | Skills + packs UI | Runtime + UI | Four feature shelves in the sidebar; `/api/packs` bridged for curated skill bundles |
 | 2026-07-31 | WSL dev-setup docs | Docs | Run from native Linux fs, not `/mnt/<drive>`; 9p I/O makes `npm run solo` hang forever on `node_modules` resolution |
 | 2026-07-31 | Jacked venv auto-detect | Runtime | `resolvePythonBinary` prefers `backends/jacked/.venv/bin/python` over bare `python3`; fixes silent auth-router ImportError → 405 on OAuth |
+| 2026-07-31 | UI dist auto-rebuild hooks | Root + docs | `.githooks/post-merge`/`post-checkout` rebuild `frontends/pixel_office/dist` when it drifts from HEAD; `core.hooksPath` set via `prepare` script |

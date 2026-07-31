@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Rebuilds the UI dist after a merge/pull brings in frontend changes.
+# Requires `git config core.hooksPath .githooks` (set automatically by the root
+# package.json "prepare" script on `npm install`).
+set -euo pipefail
+dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+"$dir/../scripts/rebuild-ui-if-changed.sh" ORIG_HEAD HEAD

@@ -117,6 +117,23 @@ If `npm install` on Linux fails building the UI with `Cannot find module
 `node_modules` and reinstall — see the npm optional-deps bug
 [npm/cli#4828](https://github.com/npm/cli/issues/4828).
 
+## UI dist auto-rebuild
+
+`frontends/pixel_office/dist` is gitignored, and the runtime falls back to serving whatever's
+physically on disk when hit directly (`:3484` in solo mode) — so after a `git pull`/merge/checkout
+brings in frontend changes, the dist on disk silently goes stale until something rebuilds it. Two
+git hooks under `.githooks/` (`post-merge`, `post-checkout`) call
+`scripts/rebuild-ui-if-changed.sh`, which rebuilds only when `frontends/pixel_office/{src,package.json,
+vite.config.ts,index.html}` actually changed between the old and new ref (or `dist/index.html` is
+missing) — a no-op the rest of the time. It calls `vite build` directly, not the `build` npm script,
+because that script also runs `tsc --noEmit`, which can fail on pre-existing baseline type errors
+unrelated to the change that triggered the hook (`scripts/solo.mjs`'s own `buildUi()` makes the same
+choice). It also sources `~/.nvm/nvm.sh` itself when present, since git hooks run in a minimal
+non-login shell where nvm-managed Node isn't on `PATH` otherwise.
+
+`core.hooksPath .githooks` is set automatically by the root `prepare` npm script on `npm install` —
+nothing to configure by hand.
+
 If OAuth (Add Account / re-auth) fails with **"claude-jacked returned HTTP 405"**, jacked's Python
 interpreter is missing a dependency (usually `aiohttp`). The runtime spawns bare `python3` on PATH
 by default, which on a fresh WSL box is the system interpreter, not the `uv sync`/`pip install -e .`
