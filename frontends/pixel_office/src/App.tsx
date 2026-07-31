@@ -862,10 +862,6 @@ export default function App(): ReactElement {
 						isCollapsed={sidebarLayout.isCollapsed}
 						setSidebarCollapsed={sidebarLayout.setSidebarCollapsed}
 						jackedSettingsFocusToken={jackedSettingsFocusToken}
-						onOpenJackedSettings={() => {
-							setHomeSidebarSection("jacked");
-							setJackedSettingsFocusToken((token) => token + 1);
-						}}
 					/>
 				) : null}
 				<div className="flex flex-col flex-1 min-w-0 overflow-hidden">

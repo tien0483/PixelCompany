@@ -7,7 +7,6 @@ import { HomeSidebarJackedPanel, HomeSidebarJackedTab } from "@/components/home-
 import askeeLogo from "@/assets/images/askee-logo.png";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
-import { JackedSidebarConfig } from "@/jacked/jacked-sidebar-config";
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -60,7 +59,6 @@ export function ProjectNavigationPanel({
 	setExpandedSidebarWidth,
 	isCollapsed,
 	setSidebarCollapsed,
-	onOpenJackedSettings,
 	jackedSettingsFocusToken = 0,
 }: {
 	projects: RuntimeProjectSummary[];
@@ -83,8 +81,6 @@ export function ProjectNavigationPanel({
 	setExpandedSidebarWidth: (width: number) => void;
 	isCollapsed: boolean;
 	setSidebarCollapsed: (collapsed: boolean, persist?: boolean) => void;
-	/** Opens the Jacked sidebar Settings route (Accounts live upper-right only). */
-	onOpenJackedSettings?: () => void;
 	/** Incremented when Settings is requested so the Jacked panel focuses Settings. */
 	jackedSettingsFocusToken?: number;
 }): React.ReactElement {
@@ -401,12 +397,6 @@ export function ProjectNavigationPanel({
 					settingsFocusToken={jackedSettingsFocusToken}
 				/>
 			)}
-			<JackedSidebarConfig
-				onOpenJackedSettings={() => {
-					onActiveSectionChange("jacked");
-					onOpenJackedSettings?.();
-				}}
-			/>
 			<AlertDialog
 				open={pendingProjectRemoval !== null}
 				onOpenChange={(open) => {

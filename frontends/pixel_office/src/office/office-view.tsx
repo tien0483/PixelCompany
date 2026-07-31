@@ -12,7 +12,6 @@ import { EditorState } from "./editor/editorState.js";
 import { OfficeState } from "./engine/officeState.js";
 import { OfficeAtmosphere } from "./jacked/office-atmosphere.js";
 import { deriveOfficeJackedSemantics } from "./jacked/office-jacked-semantics.js";
-import { OfficeLibraryPanel } from "./jacked/office-library-panel.js";
 import { OfficeMeterWall } from "./jacked/office-meter-wall.js";
 import { reconcileReviewerNpcs } from "./jacked/reconcile-reviewer-npcs.js";
 import { useOfficeSync } from "./use-office-sync.js";
@@ -202,11 +201,6 @@ export function OfficeView({
 						/>
 					</div>
 				</div>
-				<OfficeLibraryPanel
-					sections={semantics.librarySections}
-					workspaceId={workspaceId}
-					jackedOnline={jackedReachable}
-				/>
 				{staffedCount === 0 ? (
 					<div
 						data-testid="office-empty-hint"

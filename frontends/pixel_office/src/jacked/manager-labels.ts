@@ -22,7 +22,6 @@ export const MANAGER_LABELS = {
 	installationsOfflineHint: "Installations require the Manager companion.",
 	metersStale: "Manager unreachable (cached)",
 	refreshAllUsage: "Refresh all usage",
-	openSettings: "Open Manager settings",
 	routes: {
 		staff: "Staff",
 		playbooks: "Playbooks",

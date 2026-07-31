@@ -4,14 +4,7 @@
  * Pressure (0-1) drives atmosphere; accounts become the meter wall; features become
  * library shelves; review agents become review-room NPCs; lessons become the vault.
  */
-import type {
-	RuntimeJackedAccount,
-	RuntimeJackedFeature,
-	RuntimeJackedSnapshot,
-	RuntimeJackedState,
-} from "@/runtime/types";
-import { FEATURE_SHELF_SELECTORS } from "@/jacked/feature-shelf-selectors";
-import { MANAGER_LABELS } from "@/jacked/manager-labels";
+import type { RuntimeJackedAccount, RuntimeJackedSnapshot, RuntimeJackedState } from "@/runtime/types";
 
 export interface ProviderMeter {
 	provider: RuntimeJackedAccount["provider"];
@@ -22,20 +15,6 @@ export interface ProviderMeter {
 	activeEmail: string | null;
 	canAutoSwap: boolean;
 	accountCount: number;
-}
-
-export interface LibraryShelf {
-	category: RuntimeJackedFeature["category"];
-	name: string;
-	displayName: string;
-	description: string;
-	installed: boolean;
-}
-
-export interface LibrarySection {
-	key: "playbooks" | "training" | "handbook";
-	label: string;
-	shelves: LibraryShelf[];
 }
 
 export interface ReviewerNpc {
@@ -52,7 +31,6 @@ export interface MemoryVaultState {
 export interface OfficeJackedSemantics {
 	pressure: number;
 	meters: ProviderMeter[];
-	librarySections: LibrarySection[];
 	reviewers: ReviewerNpc[];
 	memoryVault: MemoryVaultState;
 	latestSwap: RuntimeJackedSnapshot["latestSwap"];
@@ -74,7 +52,6 @@ export function emptyOfficeJackedSemantics(): OfficeJackedSemantics {
 	return {
 		pressure: 0,
 		meters: [],
-		librarySections: [],
 		reviewers: [],
 		memoryVault: { enabled: false, lessonsActive: null },
 		latestSwap: null,
@@ -106,22 +83,6 @@ export function deriveOfficeJackedSemantics(jacked: RuntimeJackedState): OfficeJ
 		});
 	}
 
-	const toLibraryShelf = (feature: RuntimeJackedFeature): LibraryShelf => ({
-		category: feature.category,
-		name: feature.name,
-		displayName: feature.displayName,
-		description: feature.description,
-		installed: feature.installed,
-	});
-
-	const librarySections: LibrarySection[] = (["playbooks", "training", "handbook"] as const)
-		.map((key) => ({
-			key,
-			label: MANAGER_LABELS.routes[key],
-			shelves: jacked.features.filter(FEATURE_SHELF_SELECTORS[key]).map(toLibraryShelf),
-		}))
-		.filter((section) => section.shelves.length > 0);
-
 	const reviewers: ReviewerNpc[] = jacked.features
 		.filter((feature) => feature.category === "agents")
 		.map((feature) => ({
@@ -140,7 +101,6 @@ export function deriveOfficeJackedSemantics(jacked: RuntimeJackedState): OfficeJ
 	return {
 		pressure: jacked.pressure,
 		meters,
-		librarySections,
 		reviewers,
 		memoryVault: {
 			enabled: memoryHook?.installed ?? false,
