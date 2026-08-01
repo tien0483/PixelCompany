@@ -559,6 +559,7 @@ export function BoardCard({
 						onMouseLeave={() => setIsHovered(false)}
 					>
 						<div
+							title={card.prompt}
 							className={cn(
 								"relative rounded-md border border-border-bright bg-surface-2 p-2.5",
 								isCardInteractive && "cursor-pointer hover:bg-surface-3 hover:border-border-bright",
