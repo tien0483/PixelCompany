@@ -3,7 +3,12 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { TaskAccountPicker, filterJackedAccountsForAgent, jackedProviderForAgent } from "@/jacked/task-account-picker";
+import {
+	TaskAccountPicker,
+	autoFallbackAccount,
+	filterJackedAccountsForAgent,
+	jackedProviderForAgent,
+} from "@/jacked/task-account-picker";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import type { RuntimeJackedAccount } from "@/runtime/types";
 
@@ -21,6 +26,11 @@ function account(
 		isActive: true,
 		fiveHourPercent: 10,
 		sevenDayPercent: 5,
+		fiveHourResetsAt: null,
+		sevenDayResetsAt: null,
+		usageCachedAt: null,
+		subscriptionType: null,
+		donateLimitPercent: 100,
 		pressure: 0.1,
 		nextRefreshAt: null,
 		canAutoSwap: provider === "claude",
@@ -87,6 +97,26 @@ describe("filterJackedAccountsForAgent", () => {
 		const filtered = filterJackedAccountsForAgent(fleet, "claude");
 		expect(filtered).toHaveLength(2);
 		expect(filtered.every((entry) => entry.provider === "claude")).toBe(true);
+	});
+});
+
+describe("autoFallbackAccount", () => {
+	it("prefers under-donate seats for Claude Auto", () => {
+		const exhausted = account(1, "claude", "hot@example.com");
+		exhausted.fiveHourPercent = 90;
+		exhausted.donateLimitPercent = 70;
+		exhausted.pressure = 0.9;
+		const cool = account(2, "claude", "cool@example.com");
+		cool.donateLimitPercent = 70;
+		const picked = autoFallbackAccount([exhausted, cool], 1, "claude");
+		expect(picked?.id).toBe(2);
+	});
+
+	it("still returns an exhausted seat when every seat is over the limit", () => {
+		const only = account(1, "claude", "hot@example.com");
+		only.fiveHourPercent = 95;
+		only.donateLimitPercent = 70;
+		expect(autoFallbackAccount([only], 1, "claude")?.id).toBe(1);
 	});
 });
 

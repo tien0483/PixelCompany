@@ -493,6 +493,18 @@ export const runtimeJackedAccountSchema = z.object({
 	/** Percentages 0-100 as reported by the provider, or null when it exposes no window. */
 	fiveHourPercent: z.number().nullable(),
 	sevenDayPercent: z.number().nullable(),
+	/** ISO reset timestamps for the provider windows (when jacked caches them). */
+	fiveHourResetsAt: z.string().nullable(),
+	sevenDayResetsAt: z.string().nullable(),
+	/** Unix seconds when usage was last fetched successfully. */
+	usageCachedAt: z.number().nullable(),
+	/** Provider plan label when known (e.g. pro / max / business). */
+	subscriptionType: z.string().nullable(),
+	/**
+	 * Soft usage donate cap (0-100). Auto pick / auto-swap skip this seat when
+	 * max(5h%, 7d%) >= this value. Explicit task pins still work.
+	 */
+	donateLimitPercent: z.number().int().min(0).max(100),
 	/** Normalized 0-1 usage pressure across every window the provider reports. */
 	pressure: z.number().min(0).max(1),
 	/** Unix seconds until the tightest window resets. */
@@ -627,11 +639,12 @@ export const runtimeJackedAccountIdRequestSchema = z.object({
 });
 export type RuntimeJackedAccountIdRequest = z.infer<typeof runtimeJackedAccountIdRequestSchema>;
 
-/** Enable/disable an account or relabel it (jacked PATCH /api/auth/accounts/{id}). */
+/** Enable/disable an account, relabel it, or set donate limit (jacked PATCH /api/auth/accounts/{id}). */
 export const runtimeJackedAccountUpdateRequestSchema = z.object({
 	accountId: z.number().int().positive(),
 	isActive: z.boolean().optional(),
 	displayName: z.string().max(200).nullable().optional(),
+	donateLimitPercent: z.number().int().min(0).max(100).optional(),
 });
 export type RuntimeJackedAccountUpdateRequest = z.infer<typeof runtimeJackedAccountUpdateRequestSchema>;
 

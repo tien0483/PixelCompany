@@ -139,6 +139,9 @@ export function createJackedApi(deps: CreateJackedApiDependencies): RuntimeTrpcC
 					accountId: input.accountId,
 					...(input.isActive === undefined ? {} : { isActive: input.isActive }),
 					...(input.displayName === undefined ? {} : { displayName: input.displayName }),
+					...(input.donateLimitPercent === undefined
+						? {}
+						: { donateLimitPercent: input.donateLimitPercent }),
 				}),
 			);
 		},

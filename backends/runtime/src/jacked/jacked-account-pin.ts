@@ -37,6 +37,28 @@ export interface JackedAccountPin {
 
 const UNPINNED: JackedAccountPin = { env: {}, accountId: null, warning: null };
 
+export interface JackedDonateAccountLike {
+	id: number;
+	provider: string;
+	isActiveForProvider?: boolean;
+	fiveHourPercent?: number | null;
+	sevenDayPercent?: number | null;
+	pressure?: number;
+	donateLimitPercent?: number;
+}
+
+/**
+ * True when max(5h%, 7d%) meets/exceeds the seat's donate cap.
+ * Used to Auto-exclude the seat from Auto pick / auto-swap (pins still allowed).
+ */
+export function isJackedAccountDonateExhausted(account: JackedDonateAccountLike): boolean {
+	const limit = account.donateLimitPercent ?? 100;
+	if (account.fiveHourPercent == null && account.sevenDayPercent == null) {
+		return (account.pressure ?? 0) * 100 >= limit;
+	}
+	return Math.max(account.fiveHourPercent ?? 0, account.sevenDayPercent ?? 0) >= limit;
+}
+
 function expectedProviderForAgent(agentId: RuntimeAgentId): RuntimeJackedProvider | null {
 	if (agentId === "claude") {
 		return "claude";
@@ -59,26 +81,32 @@ function providerMismatchWarning(
  * Prefer the Cursor fleet's own active seat (`isActiveForProvider`), else the
  * first Cursor account. Never treat Claude's global `activeAccountId` as a
  * Cursor default unless that id is itself a Cursor row.
+ *
+ * Over-donate seats are skipped for Auto selection; if every Cursor seat is
+ * exhausted we fall back to the previous unfiltered order so launch still has
+ * a credential target when an explicit pin fails.
  */
 export function pickDefaultCursorAccountId(input: {
-	accounts: ReadonlyArray<{ id: number; provider: string; isActiveForProvider?: boolean }>;
+	accounts: ReadonlyArray<JackedDonateAccountLike>;
 	activeAccountId: number | null;
 }): number | null {
 	const cursorAccounts = input.accounts.filter((account) => account.provider === "cursor");
 	if (cursorAccounts.length === 0) {
 		return null;
 	}
-	const activeForProvider = cursorAccounts.find((account) => account.isActiveForProvider === true);
+	const underLimit = cursorAccounts.filter((account) => !isJackedAccountDonateExhausted(account));
+	const pool = underLimit.length > 0 ? underLimit : cursorAccounts;
+	const activeForProvider = pool.find((account) => account.isActiveForProvider === true);
 	if (activeForProvider) {
 		return activeForProvider.id;
 	}
 	if (
 		input.activeAccountId !== null &&
-		cursorAccounts.some((account) => account.id === input.activeAccountId)
+		pool.some((account) => account.id === input.activeAccountId)
 	) {
 		return input.activeAccountId;
 	}
-	return cursorAccounts[0]?.id ?? null;
+	return pool[0]?.id ?? null;
 }
 
 async function resolveCursorCredentialPin(

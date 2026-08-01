@@ -3,9 +3,33 @@ import { describe, expect, it, vi } from "vitest";
 import {
 	CLAUDE_CONFIG_DIR_ENV,
 	CURSOR_API_KEY_ENV,
+	isJackedAccountDonateExhausted,
 	pickDefaultCursorAccountId,
 	resolveJackedAccountPin,
 } from "./jacked-account-pin";
+
+describe("isJackedAccountDonateExhausted", () => {
+	it("uses max(5h, 7d) against the donate limit", () => {
+		expect(
+			isJackedAccountDonateExhausted({
+				id: 1,
+				provider: "cursor",
+				fiveHourPercent: 80,
+				sevenDayPercent: 40,
+				donateLimitPercent: 70,
+			}),
+		).toBe(true);
+		expect(
+			isJackedAccountDonateExhausted({
+				id: 1,
+				provider: "cursor",
+				fiveHourPercent: 60,
+				sevenDayPercent: 40,
+				donateLimitPercent: 70,
+			}),
+		).toBe(false);
+	});
+});
 
 describe("pickDefaultCursorAccountId", () => {
 	it("prefers the Cursor fleet active seat over Claude's global active id", () => {
@@ -32,6 +56,32 @@ describe("pickDefaultCursorAccountId", () => {
 				activeAccountId: 1,
 			}),
 		).toBe(2);
+	});
+
+	it("skips over-donate Cursor seats for Auto pick", () => {
+		expect(
+			pickDefaultCursorAccountId({
+				accounts: [
+					{
+						id: 2,
+						provider: "cursor",
+						isActiveForProvider: true,
+						fiveHourPercent: 90,
+						sevenDayPercent: 10,
+						donateLimitPercent: 70,
+					},
+					{
+						id: 3,
+						provider: "cursor",
+						isActiveForProvider: false,
+						fiveHourPercent: 20,
+						sevenDayPercent: 10,
+						donateLimitPercent: 70,
+					},
+				],
+				activeAccountId: null,
+			}),
+		).toBe(3);
 	});
 
 	it("returns null when no Cursor accounts exist", () => {

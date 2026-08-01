@@ -174,9 +174,10 @@ def pick_best_target(
 
     Inputs read from each account: ``id``, ``is_active``, ``is_deleted``,
     ``consecutive_failures``, ``validation_status``, ``cc_access_token``,
-    ``auto_swap_enabled``, ``cached_5h_resets_at``, ``cached_7d_resets_at``,
-    ``cached_usage_5h``, ``cached_usage_7d``. Nothing else is consulted —
-    do NOT add fields here without updating callers and tests.
+    ``auto_swap_enabled``, ``donate_limit_percent``, ``cached_5h_resets_at``,
+    ``cached_7d_resets_at``, ``cached_usage_5h``, ``cached_usage_7d``.
+    Nothing else is consulted — do NOT add fields here without updating
+    callers and tests.
     """
     now = _resolve_now(now)
     prev_tiers = prev_tiers or {}
@@ -200,6 +201,21 @@ def pick_best_target(
         if not _has_swappable_credential(a):
             continue
         if a.get("auto_swap_enabled") == 0:
+            continue
+        # Soft donate cap: Auto-swap skips seats whose usage pressure already
+        # meets/exceeds the shared-seat donate limit. Explicit pins still work.
+        donate_limit = a.get("donate_limit_percent")
+        if donate_limit is None:
+            donate_limit = 100
+        try:
+            donate_limit_f = float(donate_limit)
+        except (TypeError, ValueError):
+            donate_limit_f = 100.0
+        pressure = max(
+            float(a.get("cached_usage_5h") or 0),
+            float(a.get("cached_usage_7d") or 0),
+        )
+        if pressure >= donate_limit_f:
             continue
 
         tier = tier_for(a, now=now, prev_tier=prev_tiers.get(a["id"]))

@@ -1,7 +1,8 @@
 """Cursor usage via api2.cursor.sh/auth/usage.
 
-Reads the access token from the live state.vscdb (read-only) and normalizes
-the response onto jacked's five_hour / seven_day cache columns:
+Prefers the per-seat slot snapshot token, then falls back to the live
+state.vscdb session, and normalizes the response onto jacked's five_hour /
+seven_day cache columns:
 
 * ``five_hour``  ← start-of-month / fast-request / premium short window
 * ``seven_day``  ← billing-cycle / slow-request / monthly window
@@ -17,12 +18,32 @@ from typing import Mapping, Optional
 
 import httpx
 
+from .accounts import read_cursor_slot_auth
 from .credentials import cursor_state_db_path, read_cursor_auth
 
 logger = logging.getLogger(__name__)
 
 _USAGE_URL = "https://api2.cursor.sh/auth/usage"
 _USER_AGENT = "Cursor/0.50.0"
+
+
+def _cursor_access_token(
+    account_id: int,
+    db_path=None,
+    env: Optional[Mapping[str, str]] = None,
+) -> Optional[str]:
+    """Return a non-empty access token, preferring the seat slot over live IDE."""
+    slot_auth = read_cursor_slot_auth(account_id, env)
+    if isinstance(slot_auth, dict):
+        slot_token = slot_auth.get("access_token")
+        if isinstance(slot_token, str) and len(slot_token.strip()) > 0:
+            return slot_token.strip()
+    live = read_cursor_auth(db_path or cursor_state_db_path(env), env)
+    if isinstance(live, dict):
+        live_token = live.get("access_token")
+        if isinstance(live_token, str) and len(live_token.strip()) > 0:
+            return live_token.strip()
+    return None
 
 
 class CursorUsageError(Exception):
@@ -109,14 +130,16 @@ async def fetch_cursor_usage(
     env: Optional[Mapping[str, str]] = None,
 ) -> Optional[dict]:
     """Fetch + normalize + cache Cursor usage for ``account_id``."""
-    auth = read_cursor_auth(db_path or cursor_state_db_path(env), env)
-    if auth is None or not isinstance(auth.get("access_token"), str):
+    token = _cursor_access_token(account_id, db_path=db_path, env=env)
+    if token is None:
         try:
-            db.record_account_error(account_id, "no Cursor access token in state.vscdb")
+            db.record_account_error(
+                account_id,
+                "no Cursor access token in seat slot or state.vscdb",
+            )
         except Exception:
             logger.debug("record_account_error failed", exc_info=True)
         return None
-    token = auth["access_token"]
     try:
         async with httpx.AsyncClient(timeout=20.0) as client:
             resp = await client.get(

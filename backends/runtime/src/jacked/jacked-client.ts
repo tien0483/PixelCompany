@@ -63,11 +63,12 @@ export interface JackedClient {
 	useAccount: (accountId: number) => Promise<{ ok: boolean; error?: string }>;
 	refreshAccount: (accountId: number) => Promise<{ ok: boolean; error?: string }>;
 	refreshAllUsage: () => Promise<{ ok: boolean; error?: string }>;
-	/** Enable/disable or relabel an account. */
+	/** Enable/disable, relabel, or set donate limit on an account. */
 	updateAccount: (input: {
 		accountId: number;
 		isActive?: boolean;
 		displayName?: string | null;
+		donateLimitPercent?: number;
 	}) => Promise<{ ok: boolean; error?: string }>;
 	/** Soft-delete an account; jacked refuses to remove the primary while others are active. */
 	deleteAccount: (accountId: number) => Promise<{ ok: boolean; error?: string }>;
@@ -181,6 +182,15 @@ function parseAccount(raw: unknown): RuntimeJackedAccount | null {
 	const usage = isRecord(raw.usage) ? raw.usage : null;
 	const fiveHourPercent = usage ? readNumber(usage, "five_hour") : readNumber(raw, "cached_usage_5h");
 	const sevenDayPercent = usage ? readNumber(usage, "seven_day") : readNumber(raw, "cached_usage_7d");
+	const fiveHourResetsAt = usage
+		? readString(usage, "five_hour_resets_at")
+		: readString(raw, "cached_5h_resets_at");
+	const sevenDayResetsAt = usage
+		? readString(usage, "seven_day_resets_at")
+		: readString(raw, "cached_7d_resets_at");
+	const donateRaw = readNumber(raw, "donate_limit_percent");
+	const donateLimitPercent =
+		donateRaw === null ? 100 : Math.max(0, Math.min(100, Math.round(donateRaw)));
 	// Prefer jacked's registry flags from the API; local table is offline fallback only.
 	const canAutoSwap = typeof raw.can_auto_swap === "boolean" ? raw.can_auto_swap : fallback.canAutoSwap;
 	const canTrackUsage =
@@ -195,6 +205,11 @@ function parseAccount(raw: unknown): RuntimeJackedAccount | null {
 		isActive: readBoolean(raw, "is_active"),
 		fiveHourPercent,
 		sevenDayPercent,
+		fiveHourResetsAt,
+		sevenDayResetsAt,
+		usageCachedAt: readNumber(raw, "usage_cached_at"),
+		subscriptionType: readString(raw, "subscription_type"),
+		donateLimitPercent,
 		pressure: toPressure([fiveHourPercent, sevenDayPercent]),
 		nextRefreshAt: readNumber(raw, "next_refresh_at"),
 		canAutoSwap,
@@ -619,7 +634,7 @@ export function createJackedClient(deps: CreateJackedClientDependencies): Jacked
 			await mutate(`/api/auth/accounts/${String(accountId)}/refresh`, { method: "POST" }, LONG_REQUEST_TIMEOUT_MS),
 		refreshAllUsage: async () =>
 			await mutate("/api/auth/accounts/refresh-all-usage", { method: "POST" }, LONG_REQUEST_TIMEOUT_MS),
-		updateAccount: async ({ accountId, isActive, displayName }) => {
+		updateAccount: async ({ accountId, isActive, displayName, donateLimitPercent }) => {
 			// jacked rejects an empty patch, and `display_name` is keyed off presence
 			// (not null-ness), so only send what the caller actually set.
 			const body: Record<string, unknown> = {};
@@ -628,6 +643,9 @@ export function createJackedClient(deps: CreateJackedClientDependencies): Jacked
 			}
 			if (displayName !== undefined) {
 				body.display_name = displayName;
+			}
+			if (donateLimitPercent !== undefined) {
+				body.donate_limit_percent = donateLimitPercent;
 			}
 			if (Object.keys(body).length === 0) {
 				return { ok: false, error: "Nothing to update." };

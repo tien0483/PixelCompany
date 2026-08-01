@@ -1,6 +1,30 @@
 import { describe, expect, it } from "vitest";
-import type { RuntimeJackedSnapshot } from "@/runtime/types";
+import type { RuntimeJackedAccount, RuntimeJackedSnapshot } from "@/runtime/types";
 import { deriveOfficeJackedSemantics } from "./office-jacked-semantics";
+
+function account(partial: Partial<RuntimeJackedAccount> & Pick<RuntimeJackedAccount, "id" | "provider" | "email">): RuntimeJackedAccount {
+	return {
+		displayName: null,
+		organizationName: null,
+		isActive: true,
+		fiveHourPercent: 0,
+		sevenDayPercent: 0,
+		fiveHourResetsAt: null,
+		sevenDayResetsAt: null,
+		usageCachedAt: null,
+		subscriptionType: null,
+		donateLimitPercent: 100,
+		pressure: 0,
+		nextRefreshAt: null,
+		canAutoSwap: true,
+		canTrackUsage: true,
+		hasCcToken: true,
+		isActiveForProvider: false,
+		validationStatus: "valid",
+		lastError: null,
+		...partial,
+	};
+}
 
 function snapshot(partial: Partial<RuntimeJackedSnapshot> = {}): RuntimeJackedSnapshot {
 	return {
@@ -31,42 +55,24 @@ describe("deriveOfficeJackedSemantics", () => {
 				pressure: 0.8,
 				activeAccountId: 1,
 				accounts: [
-					{
+					account({
 						id: 1,
 						provider: "claude",
 						email: "c@x.com",
-						displayName: null,
-						organizationName: null,
-						isActive: true,
 						fiveHourPercent: 80,
 						sevenDayPercent: 20,
 						pressure: 0.8,
-						nextRefreshAt: null,
-						canAutoSwap: true,
-						canTrackUsage: true,
-						hasCcToken: true,
 						isActiveForProvider: true,
-						validationStatus: "valid",
-						lastError: null,
-					},
-					{
+					}),
+					account({
 						id: 2,
 						provider: "cursor",
 						email: "u@cursor.com",
-						displayName: null,
-						organizationName: null,
-						isActive: true,
 						fiveHourPercent: 10,
 						sevenDayPercent: null,
 						pressure: 0.1,
-						nextRefreshAt: null,
 						canAutoSwap: false,
-						canTrackUsage: true,
-						hasCcToken: true,
-						isActiveForProvider: false,
-						validationStatus: "valid",
-						lastError: null,
-					},
+					}),
 				],
 				features: [
 					{
@@ -102,42 +108,24 @@ describe("deriveOfficeJackedSemantics", () => {
 			snapshot({
 				activeAccountId: 1,
 				accounts: [
-					{
+					account({
 						id: 1,
 						provider: "claude",
 						email: "trongphuoc.huynh@akselos.com",
 						displayName: "Trong Phuoc",
-						organizationName: null,
-						isActive: true,
 						fiveHourPercent: 10,
 						sevenDayPercent: 5,
 						pressure: 0.1,
-						nextRefreshAt: null,
-						canAutoSwap: true,
-						canTrackUsage: true,
-						hasCcToken: true,
 						isActiveForProvider: true,
-						validationStatus: "valid",
-						lastError: null,
-					},
-					{
+					}),
+					account({
 						id: 2,
 						provider: "claude",
 						email: "hoangtien.nguyen@akselos.com",
-						displayName: null,
-						organizationName: null,
-						isActive: true,
 						fiveHourPercent: 95,
 						sevenDayPercent: 90,
 						pressure: 0.95,
-						nextRefreshAt: null,
-						canAutoSwap: true,
-						canTrackUsage: true,
-						hasCcToken: true,
-						isActiveForProvider: false,
-						validationStatus: "valid",
-						lastError: null,
-					},
+					}),
 				],
 			}),
 		);

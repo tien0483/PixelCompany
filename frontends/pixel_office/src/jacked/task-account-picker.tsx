@@ -3,7 +3,7 @@ import type { ReactElement } from "react";
 import type { RuntimeAgentId, RuntimeJackedAccount } from "@/runtime/types";
 
 import { NativeSelect } from "@/components/ui/native-select";
-import { formatPercent } from "@/jacked/jacked-format";
+import { formatPercent, isDonateExhausted } from "@/jacked/jacked-format";
 
 const AUTO_VALUE = "auto";
 
@@ -20,7 +20,8 @@ function accountLabel(account: RuntimeJackedAccount): string {
 	const name = account.displayName ?? account.email;
 	const usage = account.canTrackUsage ? ` · 5h ${formatPercent(account.fiveHourPercent)}` : "";
 	const disabled = account.isActive ? "" : " · disabled";
-	return `${name}${usage}${disabled}`;
+	const donate = isDonateExhausted(account) ? " · donate exhausted" : "";
+	return `${name}${usage}${disabled}${donate}`;
 }
 
 function agentAccountLabel(agentId: RuntimeAgentId | null): string {
@@ -30,15 +31,21 @@ function agentAccountLabel(agentId: RuntimeAgentId | null): string {
 	return "Claude account for this task";
 }
 
-function autoFallbackAccount(
+/**
+ * Label for the Auto option — prefer under-donate seats so Auto does not advertise
+ * an exhausted seat as the fallback. Explicit pins still list every account.
+ */
+export function autoFallbackAccount(
 	accounts: RuntimeJackedAccount[],
 	activeAccountId: number | null,
 	agentId: RuntimeAgentId | null,
 ): RuntimeJackedAccount | null {
+	const underLimit = accounts.filter((account) => !isDonateExhausted(account));
+	const pool = underLimit.length > 0 ? underLimit : accounts;
 	if (agentId === "cursor") {
-		return accounts.find((account) => account.isActiveForProvider) ?? accounts[0] ?? null;
+		return pool.find((account) => account.isActiveForProvider) ?? pool[0] ?? null;
 	}
-	return accounts.find((account) => account.id === activeAccountId) ?? accounts[0] ?? null;
+	return pool.find((account) => account.id === activeAccountId) ?? pool[0] ?? null;
 }
 
 /**

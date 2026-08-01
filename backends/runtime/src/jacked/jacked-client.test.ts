@@ -331,6 +331,92 @@ describe("createJackedClient", () => {
 		vi.unstubAllGlobals();
 	});
 
+	it("patches donate_limit_percent when set", async () => {
+		const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => ({
+			ok: true,
+			json: async () => ({ id: 4 }),
+		}));
+		vi.stubGlobal("fetch", fetchMock);
+
+		const client = createJackedClient({ baseUrl: "http://127.0.0.1:8321", warn: vi.fn() });
+		const result = await client.updateAccount({ accountId: 4, donateLimitPercent: 70 });
+
+		expect(result.ok).toBe(true);
+		expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
+			donate_limit_percent: 70,
+		});
+		client.close();
+		vi.unstubAllGlobals();
+	});
+
+	it("parses usage resets, cache age, subscription, and donate limit", async () => {
+		const fetchMock = vi.fn(async (url: string) => {
+			const path = String(url);
+			if (path.endsWith("/api/health")) {
+				return { ok: true, json: async () => ({ status: "ok", db: true }) };
+			}
+			if (path.includes("/api/auth/accounts")) {
+				return {
+					ok: true,
+					json: async () => [
+						{
+							id: 1,
+							provider: "cursor",
+							email: "c@example.com",
+							is_active: true,
+							subscription_type: "pro",
+							usage_cached_at: 1_700_000_000,
+							donate_limit_percent: 70,
+							usage: {
+								five_hour: 40,
+								seven_day: 20,
+								five_hour_resets_at: "2099-01-01T12:00:00Z",
+								seven_day_resets_at: "2099-01-08T12:00:00Z",
+							},
+						},
+					],
+				};
+			}
+			if (path.includes("/api/menubar-summary")) {
+				return { ok: true, json: async () => ({ active_account_id: 1 }) };
+			}
+			if (path.includes("/api/settings/swap-settings")) {
+				return {
+					ok: true,
+					json: async () => ({ auto_swap_enabled: true, auto_swap_paused_until: null }),
+				};
+			}
+			if (path.includes("/api/features")) {
+				return { ok: true, json: async () => ({ agents: [], commands: [], hooks: [], knowledge: [] }) };
+			}
+			if (path.includes("/api/settings/swap-log")) {
+				return { ok: true, json: async () => ({ swaps: [] }) };
+			}
+			if (path.includes("/api/analytics/lessons")) {
+				return { ok: true, json: async () => ({ active: 0 }) };
+			}
+			if (path.includes("/api/version")) {
+				return { ok: true, json: async () => ({ current: "1.0.0" }) };
+			}
+			return { ok: false, json: async () => ({}) };
+		});
+		vi.stubGlobal("fetch", fetchMock);
+
+		const client = createJackedClient({ baseUrl: "http://127.0.0.1:8321", warn: vi.fn() });
+		const snapshot = await client.fetchSnapshot();
+		expect(snapshot?.accounts[0]).toMatchObject({
+			fiveHourPercent: 40,
+			sevenDayPercent: 20,
+			fiveHourResetsAt: "2099-01-01T12:00:00Z",
+			sevenDayResetsAt: "2099-01-08T12:00:00Z",
+			usageCachedAt: 1_700_000_000,
+			subscriptionType: "pro",
+			donateLimitPercent: 70,
+		});
+		client.close();
+		vi.unstubAllGlobals();
+	});
+
 	it("refuses an empty account patch without calling jacked", async () => {
 		const fetchMock = vi.fn();
 		vi.stubGlobal("fetch", fetchMock);

@@ -712,6 +712,28 @@ class TestPickBestTargetTierStrict:
                                   current_id=99, now=now)
         assert target["id"] == 2
 
+    def test_excludes_over_donate_limit(self):
+        from jacked.web.auto_swap import pick_best_target
+        now = datetime(2026, 5, 4, 12, 0, tzinfo=timezone.utc)
+        active = _acct(99, resets_7d=_iso(now + timedelta(days=3)))
+        donated_out = _acct(
+            1,
+            usage_5h=80,
+            usage_7d=50,
+            resets_7d=_iso(now + timedelta(hours=12)),
+        )
+        donated_out["donate_limit_percent"] = 70
+        under = _acct(
+            2,
+            usage_5h=20,
+            usage_7d=50,
+            resets_7d=_iso(now + timedelta(hours=36)),
+        )
+        under["donate_limit_percent"] = 70
+        target = pick_best_target([active, donated_out, under],
+                                  current_id=99, now=now)
+        assert target["id"] == 2
+
     def test_excludes_invalid_account(self):
         from jacked.web.auto_swap import pick_best_target
         now = datetime(2026, 5, 4, 12, 0, tzinfo=timezone.utc)

@@ -217,6 +217,7 @@ CREATE TABLE IF NOT EXISTS accounts (
     cc_access_token TEXT,
     cc_refresh_token TEXT,
     cc_expires_at INTEGER,
+    donate_limit_percent INTEGER NOT NULL DEFAULT 100,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(provider, email, organization_uuid)
@@ -595,6 +596,16 @@ class Database:
                     )
                 except sqlite3.OperationalError:
                     pass
+            # Migration: per-seat usage donate cap (Auto-exclude when pressure >= limit).
+            cursor = conn.execute("PRAGMA table_info(accounts)")
+            acct_cols_donate = {row[1] for row in cursor.fetchall()}
+            if "donate_limit_percent" not in acct_cols_donate:
+                try:
+                    conn.execute(
+                        "ALTER TABLE accounts ADD COLUMN donate_limit_percent INTEGER NOT NULL DEFAULT 100"
+                    )
+                except sqlite3.OperationalError:
+                    pass
             # Migration: add circuit breaker columns to accounts
             cursor = conn.execute("PRAGMA table_info(accounts)")
             acct_cols_cb = {row[1] for row in cursor.fetchall()}
@@ -958,6 +969,7 @@ class Database:
             "organization_uuid",
             "refresh_last_failed_at",
             "refresh_failure_type",
+            "donate_limit_percent",
         }
     )
 

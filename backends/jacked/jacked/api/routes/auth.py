@@ -196,11 +196,14 @@ class AccountResponse(BaseModel):
     auto_swap_block_reason: Optional[str] = None
     manual_switch_warning: Optional[str] = None
     is_active_for_provider: bool = False
+    # Soft usage donate cap (0-100). Auto-swap / Auto pick skip when pressure >= this.
+    donate_limit_percent: int = 100
 
 
 class AccountPatchRequest(BaseModel):
     display_name: Optional[str] = Field(None, max_length=50)
     is_active: Optional[bool] = None
+    donate_limit_percent: Optional[int] = Field(None, ge=0, le=100)
 
 
 class ReorderRequest(BaseModel):
@@ -514,6 +517,7 @@ def _account_to_response(row: dict, db=None) -> AccountResponse:
         auto_swap_block_reason=caps.auto_swap_block_reason,
         manual_switch_warning=caps.manual_switch_warning,
         is_active_for_provider=active_for_provider,
+        donate_limit_percent=max(0, min(100, int(row.get("donate_limit_percent") or 100))),
     )
 
 
@@ -748,7 +752,7 @@ async def list_accounts(request: Request, include_inactive: bool = False):
 
 @router.patch("/accounts/{account_id}")
 async def update_account(account_id: int, body: AccountPatchRequest, request: Request):
-    """Update display_name and/or is_active for an account."""
+    """Update display_name, is_active, and/or donate_limit_percent for an account."""
     db = _get_db(request)
     if db is None:
         return _db_unavailable()
@@ -759,8 +763,9 @@ async def update_account(account_id: int, body: AccountPatchRequest, request: Re
 
     has_label = "display_name" in body.model_fields_set
     has_active = body.is_active is not None
+    has_donate = body.donate_limit_percent is not None
 
-    if not has_label and not has_active:
+    if not has_label and not has_active and not has_donate:
         return JSONResponse(
             status_code=status.HTTP_400_BAD_REQUEST,
             content={
@@ -781,8 +786,13 @@ async def update_account(account_id: int, body: AccountPatchRequest, request: Re
         )
         db.set_account_label(account_id, label)
 
+    patch_fields: dict = {}
     if has_active:
-        if not db.update_account(account_id, is_active=body.is_active):
+        patch_fields["is_active"] = body.is_active
+    if has_donate:
+        patch_fields["donate_limit_percent"] = int(body.donate_limit_percent)
+    if len(patch_fields) > 0:
+        if not db.update_account(account_id, **patch_fields):
             return _not_found(f"Account {account_id} was deleted during update")
 
     updated = db.get_account(account_id)

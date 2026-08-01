@@ -12,7 +12,13 @@ import type {
 import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
 import { JackedAccountActions } from "@/jacked/jacked-account-actions";
-import { formatPercent, pressureBarColor } from "@/jacked/jacked-format";
+import {
+	formatPercent,
+	formatResetHint,
+	formatUsageCacheAge,
+	isDonateExhausted,
+	pressureBarColor,
+} from "@/jacked/jacked-format";
 import {
 	buildClaudeOAuthInviteEmail,
 	type ClaudeOAuthInviteEmail,
@@ -24,6 +30,43 @@ import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
 const OAUTH_POLL_MS = 1000;
 const OAUTH_BROWSER_MAX_POLLS = 120;
 const OAUTH_MANUAL_MAX_POLLS = 600;
+/** Default donate cap offered when inviting a colleague via paste-code. */
+const DEFAULT_INVITE_DONATE_PERCENT = 70;
+const DONATE_PATCH_DEBOUNCE_MS = 400;
+
+function UsageWindowBar({
+	label,
+	percent,
+	resetsAt,
+	canAutoSwap,
+}: {
+	label: string;
+	percent: number | null;
+	resetsAt: string | null;
+	canAutoSwap: boolean;
+}): ReactElement {
+	const width = percent === null ? 0 : Math.max(0, Math.min(100, Math.round(percent)));
+	const resetHint = formatResetHint(resetsAt);
+	return (
+		<div className="flex flex-col gap-0.5">
+			<div className="flex items-center justify-between gap-2 text-[10px] text-text-tertiary">
+				<span>
+					{label} {formatPercent(percent)}
+				</span>
+				{resetHint ? <span className="truncate">{resetHint}</span> : null}
+			</div>
+			<div className="h-1 overflow-hidden rounded bg-surface-2">
+				<div
+					className="h-full transition-[width] duration-300"
+					style={{
+						width: `${width}%`,
+						background: pressureBarColor(width / 100, canAutoSwap),
+					}}
+				/>
+			</div>
+		</div>
+	);
+}
 
 type AddAccountMenuStep = "provider" | "claude" | "cursor";
 
@@ -102,6 +145,7 @@ function AccountRow({
 	sessionCount,
 	onUse,
 	onRefresh,
+	onDonateChange,
 	actions,
 }: {
 	account: RuntimeJackedAccount;
@@ -112,10 +156,37 @@ function AccountRow({
 	sessionCount: number;
 	onUse: () => void;
 	onRefresh: () => void;
+	onDonateChange: (percent: number) => void;
 	actions: ReactNode;
 }): ReactElement {
 	const isCursorAccount = account.provider === "cursor";
 	const useAccountLabel = isCursorAccount ? "Switch in IDE" : "Use Account";
+	const donateExhausted = isDonateExhausted(account);
+	const [donateDraft, setDonateDraft] = useState(account.donateLimitPercent);
+	const donateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+	useEffect(() => {
+		setDonateDraft(account.donateLimitPercent);
+	}, [account.donateLimitPercent]);
+
+	useEffect(() => {
+		return () => {
+			if (donateTimerRef.current !== null) {
+				clearTimeout(donateTimerRef.current);
+			}
+		};
+	}, []);
+
+	const scheduleDonatePatch = (percent: number) => {
+		setDonateDraft(percent);
+		if (donateTimerRef.current !== null) {
+			clearTimeout(donateTimerRef.current);
+		}
+		donateTimerRef.current = setTimeout(() => {
+			onDonateChange(percent);
+		}, DONATE_PATCH_DEBOUNCE_MS);
+	};
+
 	return (
 		<div
 			data-testid={`jacked-account-${account.id}`}
@@ -150,6 +221,20 @@ function AccountRow({
 						{!account.canAutoSwap ? (
 							<span className="shrink-0 text-[9px] uppercase tracking-wide text-text-tertiary">manual</span>
 						) : null}
+						{donateExhausted ? (
+							<span
+								data-testid={`jacked-account-donate-exhausted-${account.id}`}
+								className="shrink-0 rounded bg-status-orange/15 px-1 py-0.5 text-[9px] uppercase tracking-wide text-status-orange"
+								title="Usage is at or above the donate limit. Auto pick skips this seat; pinned tasks may still use it."
+							>
+								donate exhausted
+							</span>
+						) : null}
+						{account.subscriptionType ? (
+							<span className="shrink-0 rounded bg-surface-2 px-1 py-0.5 text-[9px] uppercase tracking-wide text-text-tertiary">
+								{account.subscriptionType}
+							</span>
+						) : null}
 						{sessionCount > 0 ? (
 							<span
 								data-testid={`jacked-account-sessions-${account.id}`}
@@ -170,24 +255,45 @@ function AccountRow({
 				</div>
 			</div>
 			{account.canTrackUsage ? (
-				<div className="mt-2 flex flex-col gap-1">
-					<div className="flex justify-between text-[10px] text-text-tertiary">
-						<span>5h {formatPercent(account.fiveHourPercent)}</span>
-						<span>7d {formatPercent(account.sevenDayPercent)}</span>
-					</div>
-					<div className="h-1 overflow-hidden rounded bg-surface-2">
-						<div
-							className="h-full transition-[width] duration-300"
-							style={{
-								width: `${Math.round(account.pressure * 100)}%`,
-								background: pressureBarColor(account.pressure, account.canAutoSwap),
-							}}
-						/>
-					</div>
+				<div className="mt-2 flex flex-col gap-1.5" data-testid={`jacked-account-usage-${account.id}`}>
+					<UsageWindowBar
+						label="5h"
+						percent={account.fiveHourPercent}
+						resetsAt={account.fiveHourResetsAt}
+						canAutoSwap={account.canAutoSwap}
+					/>
+					<UsageWindowBar
+						label="7d"
+						percent={account.sevenDayPercent}
+						resetsAt={account.sevenDayResetsAt}
+						canAutoSwap={account.canAutoSwap}
+					/>
+					<p className="text-[10px] text-text-tertiary">
+						Usage updated {formatUsageCacheAge(account.usageCachedAt)}
+					</p>
 				</div>
 			) : (
 				<p className="mt-1 text-[10px] text-text-tertiary">Usage not tracked</p>
 			)}
+			<label className="mt-2 flex flex-col gap-0.5" data-testid={`jacked-account-donate-${account.id}`}>
+				<span className="text-[10px] text-text-tertiary">Donate up to {donateDraft}%</span>
+				<input
+					type="range"
+					min={0}
+					max={100}
+					step={1}
+					value={donateDraft}
+					disabled={!online || busy}
+					aria-label={`Donate up to percent for ${account.email}`}
+					className="w-full accent-[var(--color-accent)]"
+					onChange={(event) => {
+						scheduleDonatePatch(Number(event.target.value));
+					}}
+				/>
+				<span className="text-[9px] text-text-tertiary">
+					Auto skips this seat at the limit; pinned tasks still work.
+				</span>
+			</label>
 			{isCursorAccount ? (
 				<p className="mt-1 text-[10px] text-text-tertiary">
 					Kanban: pin this account on a Cursor task — no IDE switch needed.
@@ -249,6 +355,8 @@ export function JackedAccountsView({ online, jacked }: JackedAccountsViewProps):
 	const [oauthSubmitError, setOauthSubmitError] = useState<string | null>(null);
 	const [oauthInviteEmail, setOauthInviteEmail] = useState<ClaudeOAuthInviteEmail | null>(null);
 	const [oauthEmailCopied, setOauthEmailCopied] = useState(false);
+	const [inviteDonatePercent, setInviteDonatePercent] = useState(DEFAULT_INVITE_DONATE_PERCENT);
+	const pendingInviteDonateRef = useRef<Map<string, number>>(new Map());
 	const oauthGenerationRef = useRef(0);
 	// Proves concurrent multi-account work: each pinned task reports a session under
 	// its own account instead of all of them sharing the active credential.
@@ -319,6 +427,27 @@ export function JackedAccountsView({ online, jacked }: JackedAccountsViewProps):
 		setOauthEmailCopied(false);
 	};
 
+	const applyPendingInviteDonate = async (flowId: string, accountId: number | null | undefined) => {
+		const donateLimitPercent = pendingInviteDonateRef.current.get(flowId);
+		pendingInviteDonateRef.current.delete(flowId);
+		if (donateLimitPercent === undefined || accountId === null || accountId === undefined) {
+			return;
+		}
+		try {
+			await getRuntimeTrpcClient(null).jacked.updateAccount.mutate({
+				accountId,
+				donateLimitPercent,
+			});
+		} catch {
+			// Seat still lands; donate can be adjusted manually in Seats.
+		}
+	};
+
+	const rebuildInviteEmail = (authUrl: string, donateLimitPercent: number) => {
+		setOauthInviteEmail(buildClaudeOAuthInviteEmail(authUrl, { donateLimitPercent }));
+		setOauthEmailCopied(false);
+	};
+
 	/**
 	 * Abandons an in-flight OAuth flow: the generation bump makes the running poll a
 	 * no-op, so the pane returns to normal without waiting out the timeout.
@@ -351,6 +480,7 @@ export function JackedAccountsView({ online, jacked }: JackedAccountsViewProps):
 					continue;
 				}
 				if (poll.status === "completed") {
+					await applyPendingInviteDonate(flowId, poll.accountId);
 					setOauthStatus(
 						poll.email ? `Claude account authorized: ${poll.email}` : "Claude account authorized.",
 					);
@@ -423,9 +553,11 @@ export function JackedAccountsView({ online, jacked }: JackedAccountsViewProps):
 			setOauthFlowId(start.flowId);
 			setOauthAuthUrl(start.authUrl ?? null);
 			if (remote && start.authUrl) {
-				setOauthInviteEmail(buildClaudeOAuthInviteEmail(start.authUrl));
+				const donate = inviteDonatePercent;
+				pendingInviteDonateRef.current.set(start.flowId, donate);
+				rebuildInviteEmail(start.authUrl, donate);
 				setOauthStatus(
-					"Send the invite email to your colleague, then paste their authorization code below.",
+					"Adjust donate %, send the invite email, then paste their authorization code below.",
 				);
 			} else {
 				setOauthStatus(
@@ -513,6 +645,7 @@ export function JackedAccountsView({ online, jacked }: JackedAccountsViewProps):
 			}
 			if (result.status === "completed") {
 				oauthGenerationRef.current += 1;
+				await applyPendingInviteDonate(oauthFlowId, result.accountId);
 				setOauthStatus(
 					result.email ? `Claude account authorized: ${result.email}` : "Claude account authorized.",
 				);
@@ -802,6 +935,33 @@ export function JackedAccountsView({ online, jacked }: JackedAccountsViewProps):
 							className="mt-1.5 rounded border border-border bg-surface-2 p-2"
 							data-testid="jacked-oauth-invite-email"
 						>
+							<label
+								className="mb-1.5 flex flex-col gap-0.5"
+								data-testid="jacked-oauth-invite-donate"
+							>
+								<span className="text-[10px] text-text-tertiary">
+									Donate up to {inviteDonatePercent}%
+								</span>
+								<input
+									type="range"
+									min={0}
+									max={100}
+									step={1}
+									value={inviteDonatePercent}
+									aria-label="Invite donate up to percent"
+									className="w-full accent-[var(--color-accent)]"
+									onChange={(event) => {
+										const next = Number(event.target.value);
+										setInviteDonatePercent(next);
+										if (oauthFlowId) {
+											pendingInviteDonateRef.current.set(oauthFlowId, next);
+										}
+										if (oauthAuthUrl) {
+											rebuildInviteEmail(oauthAuthUrl, next);
+										}
+									}}
+								/>
+							</label>
 							<p className="text-[10px] font-medium text-text-primary">{oauthInviteEmail.subject}</p>
 							<pre className="mt-1 max-h-28 overflow-y-auto whitespace-pre-wrap break-all text-[10px] text-text-secondary">
 								{oauthInviteEmail.body}
@@ -930,6 +1090,12 @@ export function JackedAccountsView({ online, jacked }: JackedAccountsViewProps):
 											}),
 										"Usage refreshed.",
 									);
+								}}
+								onDonateChange={(percent) => {
+									void getRuntimeTrpcClient(null).jacked.updateAccount.mutate({
+										accountId: account.id,
+										donateLimitPercent: percent,
+									});
 								}}
 								actions={
 									<JackedAccountActions
