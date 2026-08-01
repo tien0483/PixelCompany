@@ -168,6 +168,12 @@ export async function startJackedProcess(deps: StartJackedProcessDependencies): 
 
 	const python = resolvePythonBinary(jackedRoot);
 	log(`Starting jacked with interpreter: ${python}`);
+	const repoRoot = resolve(jackedRoot, "../..");
+	const agentCatalog = join(repoRoot, ".agent", "jacked", "data");
+	const catalogEnv =
+		existsSync(join(agentCatalog, "skills")) || existsSync(join(agentCatalog, "packs.json"))
+			? { PIXELOFFICE_AGENT_JACKED_DATA: agentCatalog }
+			: {};
 	let child: ChildProcess;
 	try {
 		child = spawn(
@@ -177,7 +183,7 @@ export async function startJackedProcess(deps: StartJackedProcessDependencies): 
 				cwd: jackedRoot,
 				// An explicit --host plus loopback keeps the remote-access setting out of
 				// play: an embedded jacked is only ever reachable from this machine.
-				env: { ...process.env, PYTHONPATH: jackedRoot },
+				env: { ...process.env, PYTHONPATH: jackedRoot, ...catalogEnv },
 				stdio: "ignore",
 				// Windows resolves `python` through shims that need a shell.
 				shell: process.platform === "win32",

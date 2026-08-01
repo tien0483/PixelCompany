@@ -47,6 +47,8 @@ function normalizeTaskLaunchSettings(raw: unknown): RuntimeTaskLaunchSettings | 
 		modelId?: unknown;
 		effort?: unknown;
 		skillIds?: unknown;
+		agentIds?: unknown;
+		commandIds?: unknown;
 		mcpServerIds?: unknown;
 	};
 	const modelId = typeof settings.modelId === "string" ? settings.modelId.trim() : "";
@@ -54,36 +56,35 @@ function normalizeTaskLaunchSettings(raw: unknown): RuntimeTaskLaunchSettings | 
 		typeof settings.effort === "string" && TASK_LAUNCH_EFFORTS.has(settings.effort as RuntimeTaskLaunchEffort)
 			? (settings.effort as RuntimeTaskLaunchEffort)
 			: undefined;
-	const skillIds = Array.isArray(settings.skillIds)
-		? [
-				...new Set(
-					settings.skillIds
-						.filter((id): id is string => typeof id === "string")
-						.map((id) => id.trim())
-						.filter((id) => id.length > 0),
-				),
-			]
-		: undefined;
-	const mcpServerIds = Array.isArray(settings.mcpServerIds)
-		? [
-				...new Set(
-					settings.mcpServerIds
-						.filter((id): id is string => typeof id === "string")
-						.map((id) => id.trim())
-						.filter((id) => id.length > 0),
-				),
-			]
-		: undefined;
+	const normalizeIds = (rawIds: unknown): string[] | undefined =>
+		Array.isArray(rawIds)
+			? [
+					...new Set(
+						rawIds
+							.filter((id): id is string => typeof id === "string")
+							.map((id) => id.trim())
+							.filter((id) => id.length > 0),
+					),
+				]
+			: undefined;
+	const skillIds = normalizeIds(settings.skillIds);
+	const agentIds = normalizeIds(settings.agentIds);
+	const commandIds = normalizeIds(settings.commandIds);
+	const mcpServerIds = normalizeIds(settings.mcpServerIds);
 	const next: RuntimeTaskLaunchSettings = {
 		...(modelId ? { modelId } : {}),
 		...(effort ? { effort } : {}),
 		...(skillIds && skillIds.length > 0 ? { skillIds } : {}),
+		...(agentIds && agentIds.length > 0 ? { agentIds } : {}),
+		...(commandIds && commandIds.length > 0 ? { commandIds } : {}),
 		...(mcpServerIds && mcpServerIds.length > 0 ? { mcpServerIds } : {}),
 	};
 	if (
 		next.modelId === undefined &&
 		next.effort === undefined &&
 		next.skillIds === undefined &&
+		next.agentIds === undefined &&
+		next.commandIds === undefined &&
 		next.mcpServerIds === undefined
 	) {
 		return undefined;
@@ -648,6 +649,48 @@ export function updateTask(board: BoardData, taskId: string, draft: TaskDraft): 
 		return { board, updated: false };
 	}
 	return { board: withUpdatedColumns(board, columns), updated: true };
+}
+
+function indexBoardCards(board: BoardData): Map<string, BoardCard> {
+	const byId = new Map<string, BoardCard>();
+	for (const column of board.columns) {
+		for (const card of column.cards) {
+			byId.set(card.id, card);
+		}
+	}
+	return byId;
+}
+
+/**
+ * True when `local` has card edits newer than `remote` and remote has nothing newer.
+ * Used to keep in-progress UI edits (e.g. adding a second skill tag) when a
+ * workspace save-echo or refresh would otherwise clobber them.
+ */
+export function shouldPreferLocalBoard(local: BoardData, remote: BoardData): boolean {
+	const localById = indexBoardCards(local);
+	const remoteById = indexBoardCards(remote);
+	let localHasNewer = false;
+	let remoteHasNewer = false;
+
+	for (const [cardId, localCard] of localById) {
+		const remoteCard = remoteById.get(cardId);
+		if (!remoteCard) {
+			localHasNewer = true;
+			continue;
+		}
+		if (localCard.updatedAt > remoteCard.updatedAt) {
+			localHasNewer = true;
+		} else if (remoteCard.updatedAt > localCard.updatedAt) {
+			remoteHasNewer = true;
+		}
+	}
+	for (const cardId of remoteById.keys()) {
+		if (!localById.has(cardId)) {
+			remoteHasNewer = true;
+		}
+	}
+
+	return localHasNewer && !remoteHasNewer;
 }
 
 /**

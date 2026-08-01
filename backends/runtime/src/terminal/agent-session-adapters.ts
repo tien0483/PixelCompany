@@ -33,6 +33,9 @@ import { prepareTaskPromptWithImages } from "./task-image-prompt";
 import {
 	applyModelAndEffortArgs,
 	buildCursorLaunchTagPreface,
+	hasAgentAllowlist,
+	hasClaudeScopedConfigAllowlist,
+	hasCommandAllowlist,
 	hasMcpAllowlist,
 	hasSkillAllowlist,
 	prepareClaudeMcpAllowlistConfig,
@@ -694,14 +697,19 @@ const claudeAdapter: AgentSessionAdapter = {
 		}
 
 		const skillAllowlist = hasSkillAllowlist(launchSettings);
+		const agentAllowlist = hasAgentAllowlist(launchSettings);
+		const commandAllowlist = hasCommandAllowlist(launchSettings);
 		const mcpAllowlist = hasMcpAllowlist(launchSettings);
 		// Any allowlist needs a task-scoped CLAUDE_CONFIG_DIR so we can keep CC
-		// credentials/onboarding while filtering skills and stripping mcpServers
-		// from settings.json (otherwise Claude still discovers every global MCP).
-		if (skillAllowlist || mcpAllowlist) {
+		// credentials/onboarding while filtering skills/agents/commands and
+		// stripping mcpServers from settings.json (otherwise Claude still
+		// discovers every global Manager install / MCP).
+		if (hasClaudeScopedConfigAllowlist(launchSettings)) {
 			const scoped = await prepareClaudeSkillScopedConfigDir({
 				taskId: input.taskId,
 				skillIds: skillAllowlist ? launchSettings?.skillIds : undefined,
+				agentIds: agentAllowlist ? launchSettings?.agentIds : undefined,
+				commandIds: commandAllowlist ? launchSettings?.commandIds : undefined,
 				mcpServerIds: mcpAllowlist ? launchSettings?.mcpServerIds : undefined,
 				baseConfigDir: input.env?.[CLAUDE_CONFIG_DIR_ENV] ?? null,
 			});

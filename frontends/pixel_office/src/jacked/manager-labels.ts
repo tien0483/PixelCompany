@@ -61,4 +61,10 @@ export const MANAGER_LABELS = {
 		description: "Curated skill bundles installed from upstream repositories.",
 		npxRequired: "Packs need Node's npx on PATH to install.",
 	},
+	diskSkills: {
+		title: "Installed on disk",
+		description:
+			"Skills already in ~/.claude/skills (and ~/.agents/skills). These appear on card Training tags automatically.",
+		empty: "No skills installed on disk yet. Enable Training or a Pack above.",
+	},
 } as const;

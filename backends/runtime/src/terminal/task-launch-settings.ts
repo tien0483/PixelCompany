@@ -17,7 +17,10 @@ import type {
 } from "../core/api-contract";
 import { getRuntimeHomePath } from "../state/workspace-state";
 
-const SHARED_SYMLINK_NAMES = ["CLAUDE.md", "plugins", "agents", "commands", "projects"] as const;
+export { buildCursorLaunchTagPreface, buildLaunchTagAllowlistUpdateNotice } from "./task-launch-tag-messages";
+
+/** Always shared into scoped config. agents/commands/skills are allowlist-filtered. */
+const SHARED_SYMLINK_NAMES = ["CLAUDE.md", "plugins", "projects"] as const;
 const SAFE_CLAUDE_JSON_KEYS = [
 	"autoUpdates",
 	"autoUpdatesProtectedForNative",
@@ -45,17 +48,23 @@ export function cloneTaskLaunchSettings(
 	}
 	const modelId = settings.modelId?.trim();
 	const skillIds = normalizeIdList(settings.skillIds);
+	const agentIds = normalizeIdList(settings.agentIds);
+	const commandIds = normalizeIdList(settings.commandIds);
 	const mcpServerIds = normalizeIdList(settings.mcpServerIds);
 	const next: RuntimeTaskLaunchSettings = {
 		...(modelId ? { modelId } : {}),
 		...(settings.effort ? { effort: settings.effort } : {}),
 		...(skillIds ? { skillIds } : {}),
+		...(agentIds ? { agentIds } : {}),
+		...(commandIds ? { commandIds } : {}),
 		...(mcpServerIds ? { mcpServerIds } : {}),
 	};
 	if (
 		next.modelId === undefined &&
 		next.effort === undefined &&
 		next.skillIds === undefined &&
+		next.agentIds === undefined &&
+		next.commandIds === undefined &&
 		next.mcpServerIds === undefined
 	) {
 		return undefined;
@@ -81,27 +90,26 @@ export function hasSkillAllowlist(settings?: RuntimeTaskLaunchSettings | null): 
 	return (settings?.skillIds?.length ?? 0) > 0;
 }
 
+export function hasAgentAllowlist(settings?: RuntimeTaskLaunchSettings | null): boolean {
+	return (settings?.agentIds?.length ?? 0) > 0;
+}
+
+export function hasCommandAllowlist(settings?: RuntimeTaskLaunchSettings | null): boolean {
+	return (settings?.commandIds?.length ?? 0) > 0;
+}
+
 export function hasMcpAllowlist(settings?: RuntimeTaskLaunchSettings | null): boolean {
 	return (settings?.mcpServerIds?.length ?? 0) > 0;
 }
 
-export function buildCursorLaunchTagPreface(settings?: RuntimeTaskLaunchSettings | null): string | null {
-	const skillIds = settings?.skillIds?.filter((id) => id.trim().length > 0) ?? [];
-	const mcpServerIds = settings?.mcpServerIds?.filter((id) => id.trim().length > 0) ?? [];
-	if (skillIds.length === 0 && mcpServerIds.length === 0) {
-		return null;
-	}
-	const parts: string[] = [
-		"Task launch tags (PixelOffice): use only the following allowlisted resources for this session.",
-	];
-	if (skillIds.length > 0) {
-		parts.push(`Skills: ${skillIds.join(", ")}.`);
-	}
-	if (mcpServerIds.length > 0) {
-		parts.push(`MCP servers: ${mcpServerIds.join(", ")}.`);
-	}
-	parts.push("Do not rely on other installed skills or MCP servers for this task.");
-	return parts.join(" ");
+/** True when Claude needs a task-scoped CLAUDE_CONFIG_DIR for any resource allowlist. */
+export function hasClaudeScopedConfigAllowlist(settings?: RuntimeTaskLaunchSettings | null): boolean {
+	return (
+		hasSkillAllowlist(settings) ||
+		hasAgentAllowlist(settings) ||
+		hasCommandAllowlist(settings) ||
+		hasMcpAllowlist(settings)
+	);
 }
 
 export function applyModelAndEffortArgs(
@@ -335,9 +343,36 @@ async function writeScopedSettingsJson(
  * Build a short-lived CLAUDE_CONFIG_DIR that inherits pin/global credentials and
  * shared resources, optionally limiting skills and stripping MCP from settings.
  */
+async function linkAllowlistedMarkdownFiles(input: {
+	globalDir: string;
+	configDir: string;
+	subdir: "agents" | "commands";
+	allowlist: string[];
+}): Promise<void> {
+	const globalSubdir = join(input.globalDir, input.subdir);
+	const scopedSubdir = join(input.configDir, input.subdir);
+	if (input.allowlist.length === 0) {
+		await ensureLinkedPath(globalSubdir, scopedSubdir, { isDirectory: true });
+		return;
+	}
+	await mkdir(scopedSubdir, { recursive: true });
+	for (const rawId of input.allowlist) {
+		const id = rawId.trim();
+		if (!id) {
+			continue;
+		}
+		const fileName = id.endsWith(".md") ? id : `${id}.md`;
+		await ensureLinkedPath(join(globalSubdir, fileName), join(scopedSubdir, fileName), {
+			isDirectory: false,
+		});
+	}
+}
+
 export async function prepareClaudeSkillScopedConfigDir(input: {
 	taskId: string;
 	skillIds?: string[];
+	agentIds?: string[];
+	commandIds?: string[];
 	mcpServerIds?: string[];
 	/** Existing pin / active-account CLAUDE_CONFIG_DIR, if any. */
 	baseConfigDir?: string | null;
@@ -388,11 +423,28 @@ export async function prepareClaudeSkillScopedConfigDir(input: {
 			if (!folderName) {
 				continue;
 			}
+			const skillMd = join(globalSkills, folderName, "SKILL.md");
+			if (!(await pathExists(skillMd))) {
+				continue;
+			}
 			await ensureLinkedPath(join(globalSkills, folderName), join(skillsDir, folderName), {
 				isDirectory: true,
 			});
 		}
 	}
+
+	await linkAllowlistedMarkdownFiles({
+		globalDir,
+		configDir,
+		subdir: "agents",
+		allowlist: (input.agentIds ?? []).map((id) => id.trim()).filter((id) => id.length > 0),
+	});
+	await linkAllowlistedMarkdownFiles({
+		globalDir,
+		configDir,
+		subdir: "commands",
+		allowlist: (input.commandIds ?? []).map((id) => id.trim()).filter((id) => id.length > 0),
+	});
 
 	return {
 		configDir,
@@ -439,8 +491,83 @@ export async function prepareClaudeMcpAllowlistConfig(input: {
 	};
 }
 
-export async function listClaudeSkillInventory(): Promise<RuntimeSkillInventory> {
-	const skillsRoot = join(globalClaudeDir(), "skills");
+function parseSkillMarkdownMeta(raw: string): { displayName?: string; description?: string } {
+	const trimmed = raw.trimStart();
+	if (!trimmed.startsWith("---")) {
+		return {};
+	}
+	const end = trimmed.indexOf("\n---", 3);
+	if (end < 0) {
+		return {};
+	}
+	const frontmatter = trimmed.slice(3, end).trim();
+	let displayName: string | undefined;
+	let description: string | undefined;
+	for (const line of frontmatter.split(/\r?\n/)) {
+		const match = /^(name|description)\s*:\s*(.+)\s*$/.exec(line);
+		if (!match) {
+			continue;
+		}
+		const key = match[1];
+		const value = (match[2] ?? "").trim().replace(/^["']|["']$/g, "");
+		if (!value) {
+			continue;
+		}
+		if (key === "name") {
+			displayName = value;
+		} else if (key === "description") {
+			description = value;
+		}
+	}
+	return {
+		...(displayName ? { displayName } : {}),
+		...(description ? { description } : {}),
+	};
+}
+
+function describeMcpServerConfig(config: unknown): string | undefined {
+	if (!config || typeof config !== "object" || Array.isArray(config)) {
+		return undefined;
+	}
+	const record = config as Record<string, unknown>;
+	const command = typeof record.command === "string" ? record.command.trim() : "";
+	const url = typeof record.url === "string" ? record.url.trim() : "";
+	const args = Array.isArray(record.args)
+		? record.args.filter((arg): arg is string => typeof arg === "string" && arg.trim().length > 0)
+		: [];
+	if (command) {
+		return args.length > 0 ? `${command} ${args.join(" ")}` : command;
+	}
+	if (url) {
+		return url;
+	}
+	const type = typeof record.type === "string" ? record.type.trim() : "";
+	return type || undefined;
+}
+
+/** Dev fixtures written during PixelOffice manual QA — hide from card/Manager pickers. */
+const DEV_TEST_INVENTORY_ID_PREFIX = "pixeloffice-manual-";
+
+function isDevTestInventoryId(id: string): boolean {
+	return id.startsWith(DEV_TEST_INVENTORY_ID_PREFIX);
+}
+
+function isDevTestSkillItem(item: { id: string; description?: string }): boolean {
+	if (isDevTestInventoryId(item.id)) {
+		return true;
+	}
+	const description = item.description?.trim().toLowerCase() ?? "";
+	return description.includes("harmless pixeloffice manual-test skill");
+}
+
+function dropDevTestSkillItems<T extends { id: string; description?: string }>(items: T[]): T[] {
+	return items.filter((item) => !isDevTestSkillItem(item));
+}
+
+async function readSkillsFromRoot(
+	skillsRoot: string,
+	source: RuntimeSkillInventory["skills"][number]["source"],
+): Promise<RuntimeSkillInventory["skills"]> {
 	const skills: RuntimeSkillInventory["skills"] = [];
 	try {
 		const entries = await readdir(skillsRoot, { withFileTypes: true });
@@ -452,17 +579,110 @@ export async function listClaudeSkillInventory(): Promise<RuntimeSkillInventory>
 			if (!id || id.startsWith(".")) {
 				continue;
 			}
+			const skillMdPath = join(skillsRoot, id, "SKILL.md");
+			// Manager toggle-off used to leave empty skill folders; require SKILL.md.
+			if (!(await pathExists(skillMdPath))) {
+				continue;
+			}
+			let displayName = id;
+			let description: string | undefined;
+			try {
+				const skillMd = await readFile(skillMdPath, "utf8");
+				const meta = parseSkillMarkdownMeta(skillMd);
+				if (meta.displayName) {
+					displayName = meta.displayName;
+				}
+				description = meta.description;
+			} catch {
+				// Unreadable SKILL.md — still list by folder id.
+			}
 			skills.push({
 				id,
-				displayName: id,
-				source: "disk",
+				displayName,
+				...(description ? { description } : {}),
+				source,
 			});
 		}
 	} catch {
-		// No skills dir yet.
+		// Root missing — skip.
 	}
-	skills.sort((left, right) => left.displayName.localeCompare(right.displayName));
-	return { skills };
+	return skills;
+}
+
+async function readMarkdownInventory(
+	root: string,
+	source: RuntimeSkillInventory["skills"][number]["source"],
+): Promise<RuntimeSkillInventory["skills"]> {
+	const items: RuntimeSkillInventory["skills"] = [];
+	try {
+		const entries = await readdir(root, { withFileTypes: true });
+		for (const entry of entries) {
+			if (!entry.isFile() && !entry.isSymbolicLink()) {
+				continue;
+			}
+			const name = entry.name.trim();
+			if (!name.toLowerCase().endsWith(".md") || name.startsWith(".")) {
+				continue;
+			}
+			const id = name.slice(0, -".md".length);
+			if (!id) {
+				continue;
+			}
+			let displayName = id;
+			let description: string | undefined;
+			try {
+				const raw = await readFile(join(root, name), "utf8");
+				const meta = parseSkillMarkdownMeta(raw);
+				if (meta.displayName) {
+					displayName = meta.displayName;
+				}
+				description = meta.description;
+			} catch {
+				// Keep id-only.
+			}
+			items.push({
+				id,
+				displayName,
+				...(description ? { description } : {}),
+				source,
+			});
+		}
+	} catch {
+		// Root missing.
+	}
+	return items.sort((left, right) => left.displayName.localeCompare(right.displayName));
+}
+
+/**
+ * Real Manager resources for card tags:
+ * - Training skills: ~/.claude/skills (+ ~/.agents/skills)
+ * - Staff agents: ~/.claude/agents
+ * - Playbook commands: ~/.claude/commands
+ */
+export async function listClaudeSkillInventory(): Promise<RuntimeSkillInventory> {
+	const roots: Array<{ path: string; source: RuntimeSkillInventory["skills"][number]["source"] }> = [
+		{ path: join(globalClaudeDir(), "skills"), source: "disk" },
+		{ path: join(homedir(), ".agents", "skills"), source: "pack" },
+	];
+	const byId = new Map<string, RuntimeSkillInventory["skills"][number]>();
+	for (const root of roots) {
+		const found = await readSkillsFromRoot(root.path, root.source);
+		for (const skill of found) {
+			const existing = byId.get(skill.id);
+			// Prefer ~/.claude/skills (disk) over agents/pack duplicates.
+			if (!existing || (existing.source !== "disk" && skill.source === "disk")) {
+				byId.set(skill.id, skill);
+			}
+		}
+	}
+	const skills = dropDevTestSkillItems(
+		[...byId.values()].sort((left, right) => left.displayName.localeCompare(right.displayName)),
+	);
+	const agents = dropDevTestSkillItems(await readMarkdownInventory(join(globalClaudeDir(), "agents"), "disk"));
+	const commands = dropDevTestSkillItems(
+		await readMarkdownInventory(join(globalClaudeDir(), "commands"), "disk"),
+	);
+	return { skills, agents, commands };
 }
 
 export async function listClaudeMcpInventory(): Promise<RuntimeMcpInventory> {
@@ -475,14 +695,16 @@ export async function listClaudeMcpInventory(): Promise<RuntimeMcpInventory> {
 				? (parsed as { mcpServers?: unknown }).mcpServers
 				: undefined;
 		if (mcpServers && typeof mcpServers === "object" && !Array.isArray(mcpServers)) {
-			for (const id of Object.keys(mcpServers as Record<string, unknown>)) {
+			for (const [id, config] of Object.entries(mcpServers as Record<string, unknown>)) {
 				const trimmed = id.trim();
-				if (!trimmed) {
+				if (!trimmed || isDevTestInventoryId(trimmed)) {
 					continue;
 				}
+				const description = describeMcpServerConfig(config);
 				servers.push({
 					id: trimmed,
 					displayName: trimmed,
+					...(description ? { description } : {}),
 					provider: "claude",
 				});
 			}

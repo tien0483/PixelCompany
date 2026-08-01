@@ -7,6 +7,7 @@ import {
 	findCardSelection,
 	normalizeBoardData,
 	setTaskLaunchSettings,
+	shouldPreferLocalBoard,
 	updateTask,
 	updateTaskTitle,
 } from "@/state/board-state";
@@ -22,6 +23,18 @@ function boardWithOneTask(): { board: ReturnType<typeof createInitialBoardData>;
 	}
 	return { board, taskId };
 }
+
+describe("shouldPreferLocalBoard", () => {
+	it("keeps local board when a card was edited more recently than the remote echo", () => {
+		const { board, taskId } = boardWithOneTask();
+		const withAlpha = setTaskLaunchSettings(board, taskId, { skillIds: ["alpha"] }).board;
+		const remoteEcho = withAlpha;
+		const withBeta = setTaskLaunchSettings(withAlpha, taskId, { skillIds: ["alpha", "beta"] }).board;
+
+		expect(shouldPreferLocalBoard(withBeta, remoteEcho)).toBe(true);
+		expect(shouldPreferLocalBoard(remoteEcho, withBeta)).toBe(false);
+	});
+});
 
 describe("setTaskLaunchSettings", () => {
 	it("stores model/effort/skill/mcp tags on the card", () => {

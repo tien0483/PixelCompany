@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
 	applyModelAndEffortArgs,
 	buildCursorLaunchTagPreface,
+	buildLaunchTagAllowlistUpdateNotice,
 	cloneTaskLaunchSettings,
 	ensureLinkedPath,
 	hasMcpAllowlist,
@@ -104,6 +105,40 @@ describe("buildCursorLaunchTagPreface", () => {
 		expect(preface).toContain("Skills: chain-of-command.");
 		expect(preface).toContain("MCP servers: filesystem.");
 	});
+
+	it("lists agents and slash commands", () => {
+		const preface = buildCursorLaunchTagPreface({
+			agentIds: ["code-reviewer"],
+			commandIds: ["pr"],
+		});
+		expect(preface).toContain("Agents: code-reviewer.");
+		expect(preface).toContain("Slash commands: pr.");
+	});
+});
+
+describe("buildLaunchTagAllowlistUpdateNotice", () => {
+	it("returns null when skill/mcp lists are unchanged", () => {
+		expect(
+			buildLaunchTagAllowlistUpdateNotice(
+				{ skillIds: ["alpha"], modelId: "sonnet" },
+				{ skillIds: ["alpha"], modelId: "opus" },
+			),
+		).toBeNull();
+	});
+
+	it("names removed skills when the allowlist shrinks", () => {
+		const notice = buildLaunchTagAllowlistUpdateNotice(
+			{ skillIds: ["pixeloffice-manual-alpha", "pixeloffice-manual-beta"] },
+			{ skillIds: ["pixeloffice-manual-beta"] },
+		);
+		expect(notice).toContain("Skills allowlist (current): pixeloffice-manual-beta.");
+		expect(notice).toContain("No longer allowed skills: pixeloffice-manual-alpha.");
+	});
+
+	it("clears allowlists when tags are removed", () => {
+		const notice = buildLaunchTagAllowlistUpdateNotice({ skillIds: ["alpha"] }, null);
+		expect(notice).toContain("All resource allowlists cleared");
+	});
 });
 
 describe("resolveHostPath", () => {
@@ -160,8 +195,74 @@ describe("Claude inventory + scoped launch config", () => {
 		expect(homedir()).toBe(home);
 		mkdirSync(join(home, ".claude", "skills", "review"), { recursive: true });
 		mkdirSync(join(home, ".claude", "skills", "plan"), { recursive: true });
+		// Empty leftover dir (Manager toggle-off before rmtree fix) must be ignored.
+		mkdirSync(join(home, ".claude", "skills", "ghost"), { recursive: true });
+		mkdirSync(join(home, ".claude", "skills", "pixeloffice-manual-alpha"), { recursive: true });
+		writeFileSync(
+			join(home, ".claude", "skills", "review", "SKILL.md"),
+			["---", "name: review", "description: Review pull requests carefully.", "---", "", "# Review"].join("\n"),
+			"utf8",
+		);
+		writeFileSync(
+			join(home, ".claude", "skills", "plan", "SKILL.md"),
+			["---", "name: plan", "description: Plan before coding.", "---"].join("\n"),
+			"utf8",
+		);
+		writeFileSync(
+			join(home, ".claude", "skills", "pixeloffice-manual-alpha", "SKILL.md"),
+			[
+				"---",
+				"name: pixeloffice-manual-alpha",
+				"description: Harmless PixelOffice manual-test skill (alpha). Safe to ignore.",
+				"---",
+			].join("\n"),
+			"utf8",
+		);
+		mkdirSync(join(home, ".claude", "agents"), { recursive: true });
+		mkdirSync(join(home, ".claude", "commands"), { recursive: true });
+		writeFileSync(
+			join(home, ".claude", "agents", "code-reviewer.md"),
+			["---", "name: code-reviewer", "description: Reviews PRs.", "---"].join("\n"),
+			"utf8",
+		);
+		writeFileSync(
+			join(home, ".claude", "commands", "pr.md"),
+			["---", "name: pr", "description: Open a pull request.", "---"].join("\n"),
+			"utf8",
+		);
 		const inventory = await listClaudeSkillInventory();
 		expect(inventory.skills.map((skill) => skill.id).sort()).toEqual(["plan", "review"]);
+		expect(inventory.skills.find((skill) => skill.id === "review")?.description).toBe(
+			"Review pull requests carefully.",
+		);
+		expect(inventory.agents.map((agent) => agent.id)).toEqual(["code-reviewer"]);
+		expect(inventory.commands.map((command) => command.id)).toEqual(["pr"]);
+	});
+
+	it("merges ~/.agents/skills and prefers ~/.claude/skills duplicates", async () => {
+		const home = setupTempHome();
+		mkdirSync(join(home, ".claude", "skills", "shared"), { recursive: true });
+		mkdirSync(join(home, ".agents", "skills", "shared"), { recursive: true });
+		mkdirSync(join(home, ".agents", "skills", "pack-only"), { recursive: true });
+		writeFileSync(
+			join(home, ".claude", "skills", "shared", "SKILL.md"),
+			["---", "name: shared", "description: From Claude home.", "---"].join("\n"),
+			"utf8",
+		);
+		writeFileSync(
+			join(home, ".agents", "skills", "shared", "SKILL.md"),
+			["---", "name: shared", "description: From agents home.", "---"].join("\n"),
+			"utf8",
+		);
+		writeFileSync(
+			join(home, ".agents", "skills", "pack-only", "SKILL.md"),
+			["---", "name: pack-only", "description: Pack skill.", "---"].join("\n"),
+			"utf8",
+		);
+		const inventory = await listClaudeSkillInventory();
+		expect(inventory.skills.map((skill) => skill.id).sort()).toEqual(["pack-only", "shared"]);
+		expect(inventory.skills.find((skill) => skill.id === "shared")?.description).toBe("From Claude home.");
+		expect(inventory.skills.find((skill) => skill.id === "pack-only")?.source).toBe("pack");
 	});
 
 	it("lists mcp servers from settings.json", async () => {
@@ -169,17 +270,28 @@ describe("Claude inventory + scoped launch config", () => {
 		mkdirSync(join(home, ".claude"), { recursive: true });
 		writeFileSync(
 			join(home, ".claude", "settings.json"),
-			JSON.stringify({ mcpServers: { filesystem: {}, github: {} } }),
+			JSON.stringify({
+				mcpServers: {
+					filesystem: { command: "npx", args: ["-y", "@modelcontextprotocol/server-filesystem"] },
+					github: {},
+					"pixeloffice-manual-test-mcp": { command: "node", args: ["-e", "0"] },
+				},
+			}),
 			"utf8",
 		);
 		const inventory = await listClaudeMcpInventory();
 		expect(inventory.servers.map((server) => server.id).sort()).toEqual(["filesystem", "github"]);
+		expect(inventory.servers.find((server) => server.id === "filesystem")?.description).toBe(
+			"npx -y @modelcontextprotocol/server-filesystem",
+		);
 	});
 
 	it("scopes skills into a task CLAUDE_CONFIG_DIR", async () => {
 		const home = setupTempHome();
 		mkdirSync(join(home, ".claude", "skills", "keep"), { recursive: true });
 		mkdirSync(join(home, ".claude", "skills", "drop"), { recursive: true });
+		writeFileSync(join(home, ".claude", "skills", "keep", "SKILL.md"), "# keep\n", "utf8");
+		writeFileSync(join(home, ".claude", "skills", "drop", "SKILL.md"), "# drop\n", "utf8");
 		writeFileSync(join(home, ".claude", "settings.json"), "{}", "utf8");
 		writeFileSync(
 			join(home, ".claude.json"),
@@ -212,6 +324,31 @@ describe("Claude inventory + scoped launch config", () => {
 		};
 		expect(seeded.hasCompletedOnboarding).toBe(true);
 		expect(seeded.oauthAccount?.emailAddress).toBe("tester@example.com");
+		await scoped.cleanup();
+	});
+
+	it("scopes staff agents and playbook commands", async () => {
+		const home = setupTempHome();
+		mkdirSync(join(home, ".claude", "agents"), { recursive: true });
+		mkdirSync(join(home, ".claude", "commands"), { recursive: true });
+		writeFileSync(join(home, ".claude", "agents", "keep.md"), "# keep agent\n", "utf8");
+		writeFileSync(join(home, ".claude", "agents", "drop.md"), "# drop agent\n", "utf8");
+		writeFileSync(join(home, ".claude", "commands", "ship.md"), "# ship\n", "utf8");
+		writeFileSync(join(home, ".claude", "commands", "skip.md"), "# skip\n", "utf8");
+		writeFileSync(join(home, ".claude", "settings.json"), "{}", "utf8");
+		writeFileSync(join(home, ".claude.json"), JSON.stringify({ hasCompletedOnboarding: true }), "utf8");
+
+		const scoped = await prepareClaudeSkillScopedConfigDir({
+			taskId: "task-scope-staff",
+			agentIds: ["keep"],
+			commandIds: ["ship"],
+		});
+		const agents = await import("node:fs/promises").then((fs) => fs.readdir(join(scoped.configDir, "agents")));
+		const commands = await import("node:fs/promises").then((fs) =>
+			fs.readdir(join(scoped.configDir, "commands")),
+		);
+		expect(agents).toEqual(["keep.md"]);
+		expect(commands).toEqual(["ship.md"]);
 		await scoped.cleanup();
 	});
 
@@ -272,6 +409,8 @@ describe("Claude inventory + scoped launch config", () => {
 		mkdirSync(pinDir, { recursive: true });
 		mkdirSync(join(home, ".claude", "skills", "keep"), { recursive: true });
 		mkdirSync(join(home, ".claude", "skills", "drop"), { recursive: true });
+		writeFileSync(join(home, ".claude", "skills", "keep", "SKILL.md"), "# keep\n", "utf8");
+		writeFileSync(join(home, ".claude", "skills", "drop", "SKILL.md"), "# drop\n", "utf8");
 		writeFileSync(join(pinDir, ".credentials.json"), JSON.stringify({ claudeAiOauth: { accessToken: "pin-token" } }), "utf8");
 		writeFileSync(
 			join(pinDir, ".claude.json"),

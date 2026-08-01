@@ -912,6 +912,9 @@ export function CardDetailView({
 									agentId={selection.card.agentId}
 									defaultAgentId={selectedAgentId}
 									value={selection.card.taskLaunchSettings}
+									sessionAppliesOnRestart={
+										sessionSummary?.state === "running" || sessionSummary?.state === "awaiting_review"
+									}
 									onChange={(next) => {
 										onTaskLaunchSettingsChanged(selection.card.id, next ?? null);
 									}}

@@ -75,6 +75,14 @@ function cloneTaskLaunchSettings(
 		settings.skillIds === undefined
 			? undefined
 			: [...new Set(settings.skillIds.map((id) => id.trim()).filter((id) => id.length > 0))];
+	const agentIds =
+		settings.agentIds === undefined
+			? undefined
+			: [...new Set(settings.agentIds.map((id) => id.trim()).filter((id) => id.length > 0))];
+	const commandIds =
+		settings.commandIds === undefined
+			? undefined
+			: [...new Set(settings.commandIds.map((id) => id.trim()).filter((id) => id.length > 0))];
 	const mcpServerIds =
 		settings.mcpServerIds === undefined
 			? undefined
@@ -83,12 +91,16 @@ function cloneTaskLaunchSettings(
 		...(modelId ? { modelId } : {}),
 		...(settings.effort ? { effort: settings.effort } : {}),
 		...(skillIds && skillIds.length > 0 ? { skillIds } : {}),
+		...(agentIds && agentIds.length > 0 ? { agentIds } : {}),
+		...(commandIds && commandIds.length > 0 ? { commandIds } : {}),
 		...(mcpServerIds && mcpServerIds.length > 0 ? { mcpServerIds } : {}),
 	};
 	if (
 		next.modelId === undefined &&
 		next.effort === undefined &&
 		next.skillIds === undefined &&
+		next.agentIds === undefined &&
+		next.commandIds === undefined &&
 		next.mcpServerIds === undefined
 	) {
 		return undefined;

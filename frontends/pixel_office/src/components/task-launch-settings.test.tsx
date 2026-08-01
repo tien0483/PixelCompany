@@ -7,12 +7,14 @@ import type { RuntimeTaskLaunchSettings } from "@/runtime/types";
 
 const listSkillInventoryQuery = vi.hoisted(() => vi.fn());
 const listMcpInventoryQuery = vi.hoisted(() => vi.fn());
+const listAgentModelsQuery = vi.hoisted(() => vi.fn());
 
 vi.mock("@/runtime/trpc-client", () => ({
 	getRuntimeTrpcClient: () => ({
 		runtime: {
 			listSkillInventory: { query: listSkillInventoryQuery },
 			listMcpInventory: { query: listMcpInventoryQuery },
+			listAgentModels: { query: listAgentModelsQuery },
 		},
 	}),
 }));
@@ -26,12 +28,29 @@ beforeEach(() => {
 	root = createRoot(container);
 	listSkillInventoryQuery.mockResolvedValue({
 		skills: [
-			{ id: "review", displayName: "review", source: "disk" },
-			{ id: "plan", displayName: "plan", source: "disk" },
+			{ id: "review", displayName: "review", description: "Review pull requests carefully.", source: "disk" },
+			{ id: "plan", displayName: "plan", description: "Plan before coding.", source: "disk" },
 		],
+		agents: [{ id: "code-reviewer", displayName: "code-reviewer", description: "Reviews PRs.", source: "disk" }],
+		commands: [{ id: "pr", displayName: "pr", description: "Open a pull request.", source: "disk" }],
 	});
 	listMcpInventoryQuery.mockResolvedValue({
-		servers: [{ id: "filesystem", displayName: "filesystem", provider: "claude" }],
+		servers: [
+			{
+				id: "filesystem",
+				displayName: "filesystem",
+				description: "npx -y @modelcontextprotocol/server-filesystem",
+				provider: "claude",
+			},
+		],
+	});
+	listAgentModelsQuery.mockResolvedValue({
+		agentId: "claude",
+		models: [
+			{ id: "sonnet", label: "Sonnet (latest alias)" },
+			{ id: "opus", label: "Opus (latest alias)" },
+		],
+		source: "catalog",
 	});
 });
 
@@ -97,7 +116,51 @@ describe("TaskLaunchSettingsPicker", () => {
 		expect(onChange).toHaveBeenCalledWith(undefined);
 	});
 
-	it("sets model and effort for Claude", async () => {
+	it("exposes skill description on attached chips for hover", async () => {
+		const onChange = vi.fn();
+		await act(async () => {
+			root.render(
+				<TaskLaunchSettingsPicker
+					active
+					agentId="claude"
+					value={{ skillIds: ["review"] }}
+					onChange={onChange}
+				/>,
+			);
+		});
+		await act(async () => {
+			await Promise.resolve();
+		});
+
+		const chip = container.querySelector('[title="Review pull requests carefully."]');
+		expect(chip).toBeTruthy();
+	});
+
+	it("removes a skill chip while a description tooltip is present", async () => {
+		const onChange = vi.fn();
+		await act(async () => {
+			root.render(
+				<TaskLaunchSettingsPicker
+					active
+					agentId="claude"
+					value={{ skillIds: ["review", "plan"] }}
+					onChange={onChange}
+				/>,
+			);
+		});
+		await act(async () => {
+			await Promise.resolve();
+		});
+
+		const removeButton = container.querySelector('button[aria-label="Remove review"]');
+		expect(removeButton).toBeTruthy();
+		await act(async () => {
+			removeButton!.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+		});
+		expect(onChange).toHaveBeenCalledWith({ skillIds: ["plan"] });
+	});
+
+	it("attaches agent and slash command tags from inventory", async () => {
 		const onChange = vi.fn();
 		await act(async () => {
 			root.render(
@@ -108,23 +171,74 @@ describe("TaskLaunchSettingsPicker", () => {
 			await Promise.resolve();
 		});
 
-		const selects = Array.from(container.querySelectorAll("select"));
-		const modelSelect = selects.find((select) =>
-			Array.from(select.options).some((option) => option.textContent === "Sonnet"),
+		const agentSelect = Array.from(container.querySelectorAll("select")).find((select) =>
+			Array.from(select.options).some((option) => option.textContent === "Add agent…"),
 		);
-		const effortSelect = selects.find((select) =>
-			Array.from(select.options).some((option) => option.textContent === "High"),
+		const commandSelect = Array.from(container.querySelectorAll("select")).find((select) =>
+			Array.from(select.options).some((option) => option.textContent === "Add slash command…"),
 		);
-		expect(modelSelect).toBeTruthy();
-		expect(effortSelect).toBeTruthy();
+		expect(agentSelect).toBeTruthy();
+		expect(commandSelect).toBeTruthy();
 
 		await act(async () => {
-			modelSelect!.value = "sonnet";
-			modelSelect!.dispatchEvent(new Event("change", { bubbles: true }));
+			agentSelect!.value = "code-reviewer";
+			agentSelect!.dispatchEvent(new Event("change", { bubbles: true }));
 		});
-		expect(onChange).toHaveBeenCalledWith({ modelId: "sonnet" });
+		expect(onChange).toHaveBeenCalledWith({ agentIds: ["code-reviewer"] });
 
 		onChange.mockClear();
+		await act(async () => {
+			commandSelect!.value = "pr";
+			commandSelect!.dispatchEvent(new Event("change", { bubbles: true }));
+		});
+		// Optimistic draft may already include agentIds from the previous add.
+		expect(onChange).toHaveBeenCalled();
+		const last = onChange.mock.calls.at(-1)?.[0] as RuntimeTaskLaunchSettings;
+		expect(last.commandIds).toEqual(["pr"]);
+	});
+
+	it("accumulates multiple skill adds before parent value catches up", async () => {
+		const onChange = vi.fn();
+		await act(async () => {
+			root.render(
+				<TaskLaunchSettingsPicker active agentId="claude" value={undefined} onChange={onChange} />,
+			);
+		});
+		await act(async () => {
+			await Promise.resolve();
+		});
+
+		const skillSelect = Array.from(container.querySelectorAll("select")).find((select) =>
+			Array.from(select.options).some((option) => option.textContent === "Add skill…"),
+		);
+		expect(skillSelect).toBeTruthy();
+
+		await act(async () => {
+			skillSelect!.value = "review";
+			skillSelect!.dispatchEvent(new Event("change", { bubbles: true }));
+		});
+		await act(async () => {
+			skillSelect!.value = "plan";
+			skillSelect!.dispatchEvent(new Event("change", { bubbles: true }));
+		});
+
+		expect(onChange).toHaveBeenLastCalledWith({ skillIds: ["review", "plan"] });
+		expect(container.querySelector('button[aria-label="Remove review"]')).toBeTruthy();
+		expect(container.querySelector('button[aria-label="Remove plan"]')).toBeTruthy();
+	});
+
+	it("loads live models and sets effort for Claude", async () => {
+		const onChange = vi.fn();
+		await act(async () => {
+			root.render(
+				<TaskLaunchSettingsPicker active agentId="claude" value={undefined} onChange={onChange} />,
+			);
+		});
+		await act(async () => {
+			await Promise.resolve();
+		});
+		expect(listAgentModelsQuery).toHaveBeenCalledWith({ agentId: "claude" });
+
 		await act(async () => {
 			root.render(
 				<TaskLaunchSettingsPicker
@@ -138,6 +252,7 @@ describe("TaskLaunchSettingsPicker", () => {
 		const effort = Array.from(container.querySelectorAll("select")).find((select) =>
 			Array.from(select.options).some((option) => option.textContent === "High"),
 		);
+		expect(effort).toBeTruthy();
 		await act(async () => {
 			effort!.value = "high";
 			effort!.dispatchEvent(new Event("change", { bubbles: true }));

@@ -34,7 +34,9 @@ router = APIRouter()
 
 # --- Constants ---
 
-DATA_ROOT = Path(__file__).parent.parent.parent / "data"
+from jacked.data_paths import get_catalog_data_root
+
+DATA_ROOT = get_catalog_data_root()
 
 
 def _home() -> Path:

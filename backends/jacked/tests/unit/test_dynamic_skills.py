@@ -141,12 +141,15 @@ class TestToggleKnowledgeSkillBranch:
     def test_disable_removes_skill_md(self, skill_env):
         # First enable
         _run(_toggle_knowledge("skill_dcr", True))
-        dst = skill_env["claude_dir"] / "skills" / "dcr" / "SKILL.md"
+        skill_dir = skill_env["claude_dir"] / "skills" / "dcr"
+        dst = skill_dir / "SKILL.md"
         assert dst.exists()
 
-        # Then disable
+        # Then disable — remove the whole skill directory so card pickers
+        # do not keep listing empty leftover folders.
         result = _run(_toggle_knowledge("skill_dcr", False))
         assert not dst.exists()
+        assert not skill_dir.exists()
         assert result == {"name": "skill_dcr", "category": "knowledge", "enabled": False}
 
     def test_invalid_skill_name_returns_422(self, skill_env):

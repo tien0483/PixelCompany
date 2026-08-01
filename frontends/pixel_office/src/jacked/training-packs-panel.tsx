@@ -3,9 +3,10 @@ import { useCallback, useEffect, useState } from "react";
 
 import type { RuntimeJackedPack } from "@/runtime/types";
 
-import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
+import { FeatureToggleButton } from "@/jacked/feature-toggle-button";
 import { MANAGER_LABELS } from "@/jacked/manager-labels";
+import { notifySkillInventoryChanged } from "@/runtime/skill-inventory-events";
 import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
 
 /**
@@ -54,6 +55,7 @@ export function TrainingPacksPanel({ online }: { online: boolean }): ReactElemen
 				}
 				// jacked installs off-thread, so re-read rather than trusting the ack.
 				await load();
+				notifySkillInventoryChanged();
 			} catch (err) {
 				setError(err instanceof Error ? err.message : "Could not change that pack.");
 			} finally {
@@ -116,21 +118,15 @@ export function TrainingPacksPanel({ online }: { online: boolean }): ReactElemen
 										</a>
 									) : null}
 								</div>
-								<Button
-									variant="ghost"
-									size="sm"
-									disabled={!online || busy || !npxAvailable}
-									onClick={() => {
+								<FeatureToggleButton
+									installed={pack.enabled}
+									busy={busy}
+									disabled={!online || !npxAvailable}
+									subjectLabel={pack.displayName}
+									onToggle={() => {
 										void toggle(pack);
 									}}
-									aria-label={`${pack.enabled ? "Remove" : "Install"} ${pack.displayName}`}
-									className={cn(
-										"h-6 shrink-0 px-2 text-[10px]",
-										pack.enabled ? "text-status-green" : "text-text-tertiary",
-									)}
-								>
-									{busy ? "…" : pack.enabled ? "ON" : "OFF"}
-								</Button>
+								/>
 							</div>
 						</li>
 					);

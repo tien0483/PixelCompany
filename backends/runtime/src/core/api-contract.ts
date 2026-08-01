@@ -111,13 +111,17 @@ export const runtimeTaskLaunchEffortSchema = z.enum(["low", "medium", "high", "x
 export type RuntimeTaskLaunchEffort = z.infer<typeof runtimeTaskLaunchEffortSchema>;
 
 /**
- * Per-task launch allowlist. Empty skill/MCP arrays (or omit) inherit Manager/global installs.
+ * Per-task launch allowlist. Empty arrays (or omit) inherit Manager/global installs.
  * Non-empty arrays restrict the session to those ids.
+ *
+ * Maps to Manager shelves: Training→skills, Staff→agents, Playbooks→commands.
  */
 export const runtimeTaskLaunchSettingsSchema = z.object({
 	modelId: z.string().min(1).optional(),
 	effort: runtimeTaskLaunchEffortSchema.optional(),
 	skillIds: z.array(z.string().min(1)).optional(),
+	agentIds: z.array(z.string().min(1)).optional(),
+	commandIds: z.array(z.string().min(1)).optional(),
 	mcpServerIds: z.array(z.string().min(1)).optional(),
 });
 export type RuntimeTaskLaunchSettings = z.infer<typeof runtimeTaskLaunchSettingsSchema>;
@@ -1393,16 +1397,22 @@ export const runtimeTaskSessionStartRequestSchema = z.object({
 });
 export type RuntimeTaskSessionStartRequest = z.infer<typeof runtimeTaskSessionStartRequestSchema>;
 
-/** Installed Training skills available for per-task tags (from Manager / ~/.claude). */
+/** Installed Manager resources available for per-task tags (from ~/.claude). */
 export const runtimeSkillInventoryItemSchema = z.object({
 	id: z.string().min(1),
 	displayName: z.string(),
+	/** From SKILL.md / frontmatter `description`, when present. */
+	description: z.string().optional(),
 	source: z.enum(["feature", "pack", "disk"]),
 });
 export type RuntimeSkillInventoryItem = z.infer<typeof runtimeSkillInventoryItemSchema>;
 
 export const runtimeSkillInventorySchema = z.object({
 	skills: z.array(runtimeSkillInventoryItemSchema),
+	/** Staff — ~/.claude/agents/*.md */
+	agents: z.array(runtimeSkillInventoryItemSchema).default([]),
+	/** Playbooks — ~/.claude/commands/*.md */
+	commands: z.array(runtimeSkillInventoryItemSchema).default([]),
 });
 export type RuntimeSkillInventory = z.infer<typeof runtimeSkillInventorySchema>;
 
@@ -1410,6 +1420,8 @@ export type RuntimeSkillInventory = z.infer<typeof runtimeSkillInventorySchema>;
 export const runtimeMcpInventoryItemSchema = z.object({
 	id: z.string().min(1),
 	displayName: z.string(),
+	/** Short summary of how the server is configured (command/url). */
+	description: z.string().optional(),
 	provider: z.enum(["claude", "cursor"]),
 });
 export type RuntimeMcpInventoryItem = z.infer<typeof runtimeMcpInventoryItemSchema>;
@@ -1418,6 +1430,25 @@ export const runtimeMcpInventorySchema = z.object({
 	servers: z.array(runtimeMcpInventoryItemSchema),
 });
 export type RuntimeMcpInventory = z.infer<typeof runtimeMcpInventorySchema>;
+
+/** Models available for Claude/Cursor launch tags (CLI query or curated catalog). */
+export const runtimeAgentModelInventoryItemSchema = z.object({
+	id: z.string().min(1),
+	label: z.string(),
+});
+export type RuntimeAgentModelInventoryItem = z.infer<typeof runtimeAgentModelInventoryItemSchema>;
+
+export const runtimeAgentModelInventorySchema = z.object({
+	agentId: runtimeAgentIdSchema,
+	models: z.array(runtimeAgentModelInventoryItemSchema),
+	source: z.enum(["cli", "catalog", "fallback"]),
+});
+export type RuntimeAgentModelInventory = z.infer<typeof runtimeAgentModelInventorySchema>;
+
+export const runtimeListAgentModelsRequestSchema = z.object({
+	agentId: runtimeAgentIdSchema,
+});
+export type RuntimeListAgentModelsRequest = z.infer<typeof runtimeListAgentModelsRequestSchema>;
 
 export const runtimeTaskSessionStartResponseSchema = z.object({
 	ok: z.boolean(),

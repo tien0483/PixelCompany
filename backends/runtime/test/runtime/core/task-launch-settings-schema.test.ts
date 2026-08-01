@@ -21,6 +21,8 @@ describe("taskLaunchSettings schema", () => {
 				modelId: "sonnet",
 				effort: "high",
 				skillIds: ["review"],
+				agentIds: ["code-reviewer"],
+				commandIds: ["pr"],
 				mcpServerIds: ["filesystem"],
 			},
 		});
@@ -28,6 +30,8 @@ describe("taskLaunchSettings schema", () => {
 			modelId: "sonnet",
 			effort: "high",
 			skillIds: ["review"],
+			agentIds: ["code-reviewer"],
+			commandIds: ["pr"],
 			mcpServerIds: ["filesystem"],
 		});
 	});

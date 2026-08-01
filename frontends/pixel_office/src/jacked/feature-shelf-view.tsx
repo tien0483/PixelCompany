@@ -8,6 +8,7 @@ import type { RuntimeJackedFeature, RuntimeJackedSnapshot } from "@/runtime/type
 import { cn } from "@/components/ui/cn";
 import { FeatureToggleButton } from "@/jacked/feature-toggle-button";
 import { MANAGER_LABELS } from "@/jacked/manager-labels";
+import { notifySkillInventoryChanged } from "@/runtime/skill-inventory-events";
 import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
 
 export interface FeatureShelfCopy {
@@ -86,6 +87,8 @@ export function FeatureShelfView({
 				});
 				if (!result.ok) {
 					setError(result.error ?? "Could not change that.");
+				} else {
+					notifySkillInventoryChanged();
 				}
 			} catch (err) {
 				setError(err instanceof Error ? err.message : "Could not change that.");

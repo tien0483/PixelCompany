@@ -87,6 +87,8 @@ import type {
 	RuntimeProjectRemoveResponse,
 	RuntimeProjectsResponse,
 	RuntimeRunUpdateResponse,
+	RuntimeAgentModelInventory,
+	RuntimeListAgentModelsRequest,
 	RuntimeMcpInventory,
 	RuntimeShellSessionStartRequest,
 	RuntimeShellSessionStartResponse,
@@ -205,6 +207,8 @@ import {
 	runtimeProjectRemoveResponseSchema,
 	runtimeProjectsResponseSchema,
 	runtimeRunUpdateResponseSchema,
+	runtimeAgentModelInventorySchema,
+	runtimeListAgentModelsRequestSchema,
 	runtimeMcpInventorySchema,
 	runtimeShellSessionStartRequestSchema,
 	runtimeShellSessionStartResponseSchema,
@@ -287,6 +291,7 @@ export interface RuntimeTrpcContext {
 		getClineSlashCommands: (scope: RuntimeTrpcWorkspaceScope | null) => Promise<RuntimeSlashCommandsResponse>;
 		listSkillInventory: () => Promise<RuntimeSkillInventory>;
 		listMcpInventory: () => Promise<RuntimeMcpInventory>;
+		listAgentModels: (input: RuntimeListAgentModelsRequest) => Promise<RuntimeAgentModelInventory>;
 		sendTaskChatMessage: (
 			scope: RuntimeTrpcWorkspaceScope,
 			input: RuntimeTaskChatSendRequest,
@@ -581,6 +586,12 @@ export const runtimeAppRouter = t.router({
 		listMcpInventory: t.procedure.output(runtimeMcpInventorySchema).query(async ({ ctx }) => {
 			return await ctx.runtimeApi.listMcpInventory();
 		}),
+		listAgentModels: t.procedure
+			.input(runtimeListAgentModelsRequestSchema)
+			.output(runtimeAgentModelInventorySchema)
+			.query(async ({ ctx, input }) => {
+				return await ctx.runtimeApi.listAgentModels(input);
+			}),
 		reloadTaskChatSession: workspaceProcedure
 			.input(runtimeTaskChatReloadRequestSchema)
 			.output(runtimeTaskChatReloadResponseSchema)

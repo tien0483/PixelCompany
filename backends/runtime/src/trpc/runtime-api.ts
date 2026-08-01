@@ -51,9 +51,9 @@ import {
 import { openInBrowser } from "../server/browser";
 import { buildRuntimeConfigResponse, resolveAgentCommand } from "../terminal/agent-registry";
 import type { TerminalSessionManager } from "../terminal/session-manager";
+import { listAgentModelInventory } from "../terminal/agent-model-inventory";
 import {
-	hasMcpAllowlist,
-	hasSkillAllowlist,
+	hasClaudeScopedConfigAllowlist,
 	listClaudeMcpInventory,
 	listClaudeSkillInventory,
 } from "../terminal/task-launch-settings";
@@ -321,8 +321,7 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 					resolveDefaultCursorAccountId: deps.resolveDefaultCursorJackedAccountId,
 					resolveActiveClaudeAccountId: deps.resolveActiveClaudeJackedAccountId,
 					needsClaudeConfigDirForLaunchTags:
-						resolved.agentId === "claude" &&
-						(hasSkillAllowlist(body.taskLaunchSettings) || hasMcpAllowlist(body.taskLaunchSettings)),
+						resolved.agentId === "claude" && hasClaudeScopedConfigAllowlist(body.taskLaunchSettings),
 				});
 				// Cursor Auto: no CURSOR_API_KEY injection — same auth as interactive
 				// `agent` (`agent login`). Explicit seat pins still inject a key.
@@ -472,6 +471,7 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 		},
 		listSkillInventory: async () => listClaudeSkillInventory(),
 		listMcpInventory: async () => listClaudeMcpInventory(),
+		listAgentModels: async (input) => listAgentModelInventory(input.agentId),
 		reloadTaskChatSession: async (workspaceScope, input) => {
 			try {
 				const body = parseTaskChatReloadRequest(input);

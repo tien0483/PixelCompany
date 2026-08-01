@@ -168,6 +168,12 @@ function cloneStartTaskSessionRequest(request: StartTaskSessionRequest): StartTa
 					skillIds: request.taskLaunchSettings.skillIds
 						? [...request.taskLaunchSettings.skillIds]
 						: undefined,
+					agentIds: request.taskLaunchSettings.agentIds
+						? [...request.taskLaunchSettings.agentIds]
+						: undefined,
+					commandIds: request.taskLaunchSettings.commandIds
+						? [...request.taskLaunchSettings.commandIds]
+						: undefined,
 					mcpServerIds: request.taskLaunchSettings.mcpServerIds
 						? [...request.taskLaunchSettings.mcpServerIds]
 						: undefined,

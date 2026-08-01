@@ -82,6 +82,7 @@ import {
 	setTaskJackedAccount,
 	setTaskLaunchSettings,
 } from "@/state/board-state";
+import { buildLaunchTagAllowlistUpdateNotice } from "@runtime-task-launch-tag-messages";
 import {
 	getTaskWorkspaceInfo,
 	getTaskWorkspaceSnapshot,
@@ -798,12 +799,47 @@ export default function App(): ReactElement {
 
 	const handleTaskLaunchSettingsChanged = useCallback(
 		(taskId: string, nextLaunchSettings: RuntimeTaskLaunchSettings | null) => {
+			let previousSettings: RuntimeTaskLaunchSettings | undefined;
+			let didUpdate = false;
 			setBoard((currentBoard) => {
+				previousSettings = findCardSelection(currentBoard, taskId)?.card.taskLaunchSettings;
 				const result = setTaskLaunchSettings(currentBoard, taskId, nextLaunchSettings);
+				didUpdate = result.updated;
 				return result.updated ? result.board : currentBoard;
 			});
+			if (!didUpdate) {
+				return;
+			}
+			// Cursor (and Claude prompt-level) skill/MCP tags are enforced via the
+			// conversation. Push an allowlist update into the live session so removing
+			// a chip mid-run is reflected without a full restart.
+			const summary = sessions[taskId];
+			if (summary?.state !== "running" && summary?.state !== "awaiting_review") {
+				return;
+			}
+			const notice = buildLaunchTagAllowlistUpdateNotice(previousSettings, nextLaunchSettings);
+			if (!notice) {
+				return;
+			}
+			void (async () => {
+				// Paste + Enter matches other long prompt injections into Cursor/Claude PTYs.
+				const pasted = await sendTaskSessionInput(taskId, notice, {
+					mode: "paste",
+					appendNewline: false,
+				});
+				if (!pasted.ok) {
+					if (pasted.message) {
+						notifyError(pasted.message);
+					}
+					return;
+				}
+				const submitted = await sendTaskSessionInput(taskId, "\r", { appendNewline: false });
+				if (!submitted.ok && submitted.message) {
+					notifyError(submitted.message);
+				}
+			})();
 		},
-		[setBoard],
+		[sendTaskSessionInput, sessions, setBoard],
 	);
 
 	const handleCreateDialogOpenChange = useCallback(

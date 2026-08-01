@@ -872,7 +872,7 @@ def _valid_hook_names() -> frozenset[str]:
     Using the filesystem as the single source of truth means adding a
     new hook doesn't require updating a separate list.
     """
-    hooks_dir = _get_data_root() / "hooks"
+    hooks_dir = _get_package_data_root() / "hooks"
     if not hooks_dir.exists():
         return frozenset()
     return frozenset(
@@ -1026,11 +1026,17 @@ def log(category, name, session_id, repo):
 
 
 def _get_data_root() -> Path:
-    """Find the data root directory for skills/agents/commands.
+    """Catalog root for skills/agents/commands/rules/packs (``.agent`` when present)."""
+    from jacked.data_paths import get_catalog_data_root
 
-    Data is now inside the package at jacked/data/.
-    """
-    return Path(__file__).parent / "data"
+    return get_catalog_data_root()
+
+
+def _get_package_data_root() -> Path:
+    """Package root for hooks and other shipped runtime assets."""
+    from jacked.data_paths import get_package_data_root
+
+    return get_package_data_root()
 
 
 def _is_editable_install() -> bool:
@@ -1040,7 +1046,7 @@ def _is_editable_install() -> bool:
     >>> isinstance(_is_editable_install(), bool)
     True
     """
-    repo_root = _get_data_root().parent.parent
+    repo_root = _get_package_data_root().parent.parent
     return (repo_root / ".git").is_dir()
 
 
@@ -1644,7 +1650,7 @@ def _install_session_tracker_hook(existing: dict, settings_path: Path):
     The Stop hook fires a throttled heartbeat to keep sessions visible in the dashboard.
     """
     marker = _session_tracker_marker()
-    script_path = _get_data_root() / "hooks" / "session_account_tracker.py"
+    script_path = _get_package_data_root() / "hooks" / "session_account_tracker.py"
 
     if not script_path.exists():
         console.print(
@@ -1764,7 +1770,7 @@ def _install_chain_of_command_hook(existing: dict, settings_path: Path):
     clobbers the session tracker's own SessionStart entry.
     """
     marker = _chain_of_command_marker()
-    script_path = _get_data_root() / "hooks" / "chain_of_command_context.py"
+    script_path = _get_package_data_root() / "hooks" / "chain_of_command_context.py"
 
     if not script_path.exists():
         console.print(
@@ -1919,7 +1925,7 @@ def _install_qa_hook(existing: dict, settings_path: Path):
     >>> callable(_install_qa_hook)
     True
     """
-    script_path = _get_data_root() / "hooks" / "qa_suggest.py"
+    script_path = _get_package_data_root() / "hooks" / "qa_suggest.py"
 
     if not script_path.exists():
         console.print(
@@ -2044,7 +2050,7 @@ def _install_memory_capture_hook(existing: dict, settings_path: Path):
     (M7) share one implementation. Not wired into ``_run_install`` yet (M7
     handles install parity); directly testable in the meantime.
     """
-    script_path = _get_data_root() / "hooks" / "memory_capture.py"
+    script_path = _get_package_data_root() / "hooks" / "memory_capture.py"
 
     if not script_path.exists():
         console.print(
@@ -2080,7 +2086,7 @@ def _install_memory_recall_hook(existing: dict, settings_path: Path):
     (M7) share one implementation. Not wired into ``_run_install`` yet (M7
     handles install parity); directly testable in the meantime.
     """
-    script_path = _get_data_root() / "hooks" / "memory_recall.py"
+    script_path = _get_package_data_root() / "hooks" / "memory_recall.py"
 
     if not script_path.exists():
         console.print(

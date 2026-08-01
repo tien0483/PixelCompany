@@ -14,6 +14,7 @@ from fastapi import APIRouter, Request, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+from jacked.data_paths import get_catalog_data_root
 from jacked.memory.settings_io import SettingsUnreadableError
 
 logger = logging.getLogger(__name__)
@@ -26,7 +27,7 @@ HOME = Path.home()
 CLAUDE_DIR = HOME / ".claude"
 SETTINGS_JSON = CLAUDE_DIR / "settings.json"
 CLAUDE_MD = CLAUDE_DIR / "CLAUDE.md"
-DATA_ROOT = Path(__file__).parent.parent.parent / "data"
+DATA_ROOT = get_catalog_data_root()
 
 # Markers
 SOUND_MARKER = "# jacked-sound: "
@@ -702,9 +703,19 @@ async def _toggle_knowledge(name: str, enabled: bool):
         skill_name = name[len("skill_"):]
         if _validate_name(skill_name):
             src = DATA_ROOT / "skills" / skill_name / "SKILL.md"
-            dst = CLAUDE_DIR / "skills" / skill_name / "SKILL.md"
-            if src.exists():
-                return await _toggle_file_feature(src, dst, enabled, name, "knowledge")
+            skill_dir = CLAUDE_DIR / "skills" / skill_name
+            dst = skill_dir / "SKILL.md"
+            if enabled:
+                if src.exists():
+                    return await _toggle_file_feature(src, dst, enabled, name, "knowledge")
+            else:
+                # Skills are directories; deleting only SKILL.md left empty folders that
+                # still appeared in PixelOffice card skill pickers.
+                if skill_dir.exists():
+                    shutil.rmtree(skill_dir)
+                elif dst.exists():
+                    dst.unlink()
+                return {"name": name, "category": "knowledge", "enabled": False}
         return JSONResponse(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             content={"error": {"message": f"Unknown skill: {skill_name}", "code": "INVALID_FEATURE"}},

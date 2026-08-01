@@ -20,6 +20,7 @@ import { JackedLogsView } from "@/jacked/jacked-logs-view";
 import { JackedSettingsView } from "@/jacked/jacked-settings-view";
 import { JackedStatusBar } from "@/jacked/jacked-status-bar";
 import { MANAGER_LABELS } from "@/jacked/manager-labels";
+import { TrainingDiskSkillsPanel } from "@/jacked/training-disk-skills-panel";
 import { TrainingPacksPanel } from "@/jacked/training-packs-panel";
 
 export type JackedSidebarRoute =
@@ -131,7 +132,12 @@ export function JackedSidebarSection({
 					jacked={jacked}
 					copy={MANAGER_LABELS.shelves.training}
 					select={FEATURE_SHELF_SELECTORS.training}
-					header={<TrainingPacksPanel online={online} />}
+					header={
+						<>
+							<TrainingPacksPanel online={online} />
+							<TrainingDiskSkillsPanel online={online} />
+						</>
+					}
 					testId="manager-shelf-training"
 				/>
 			) : null}
