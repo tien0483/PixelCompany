@@ -1,8 +1,8 @@
 /**
  * Start the Pixel Office dev stack: runtime (Node) + Vite UI.
  *
- * The runtime supervises jacked itself (`backends/runtime/src/jacked/jacked-process.ts`),
- * so this script no longer spawns Python — it only frees jacked's port on --restart
+ * The runtime supervises Manager itself (`backends/runtime/src/manager/manager-process.ts`),
+ * so this script no longer spawns Python — it only frees Manager's port on --restart
  * so a stale service does not shadow the one the runtime would start.
  *
  * For a single-URL launch with no Vite, use `npm run solo`.
@@ -115,10 +115,10 @@ const viteCli = resolveDependencyEntry(webUiRoot, "vite", "bin", "vite.js");
 
 const RUNTIME_PORT = 3484;
 const WEB_UI_PORT = 5173;
-const JACKED_PORT = 8321;
-/** Freed by --restart: a stale jacked would stop the runtime from starting its own. */
-const RESTART_PORTS = [RUNTIME_PORT, WEB_UI_PORT, JACKED_PORT];
-/** Must be free to start: an already-running jacked is reused, not an error. */
+const MANAGER_PORT = Number(process.env.MANAGER_PORT ?? process.env.JACKED_PORT ?? 8321);
+/** Freed by --restart: a stale Manager would stop the runtime from starting its own. */
+const RESTART_PORTS = [RUNTIME_PORT, WEB_UI_PORT, MANAGER_PORT];
+/** Must be free to start: an already-running Manager is reused, not an error. */
 const REQUIRED_FREE_PORTS = [RUNTIME_PORT, WEB_UI_PORT];
 
 const restart = process.argv.includes("--restart");
@@ -280,7 +280,7 @@ async function main() {
 	console.log("  Starting Pixel Office stack...");
 	console.log(`  UI:       http://127.0.0.1:${WEB_UI_PORT}`);
 	console.log(`  Runtime:  http://127.0.0.1:${RUNTIME_PORT}`);
-	console.log(`  Jacked:   http://127.0.0.1:${JACKED_PORT} (started by the runtime)`);
+	console.log(`  Manager:   http://127.0.0.1:${MANAGER_PORT} (started by the runtime)`);
 	console.log("");
 
 	const runtime = spawnNode(
@@ -317,7 +317,7 @@ async function main() {
 		}
 	});
 
-	// Jacked is started and stopped by the runtime process itself; nothing to do here.
+	// Manager is started and stopped by the runtime process itself; nothing to do here.
 
 	try {
 		await waitForPort(WEB_UI_PORT, 30000);
@@ -331,7 +331,7 @@ async function main() {
 	console.log("  Stack is up:");
 	console.log(`    UI       http://127.0.0.1:${WEB_UI_PORT}`);
 	console.log(`    Runtime  http://127.0.0.1:${RUNTIME_PORT}`);
-	console.log(`    Jacked   http://127.0.0.1:${JACKED_PORT} (runtime-supervised, headless)`);
+	console.log(`    Manager   http://127.0.0.1:${MANAGER_PORT} (runtime-supervised, headless)`);
 	console.log("  Ctrl+C to stop.");
 	console.log("");
 }

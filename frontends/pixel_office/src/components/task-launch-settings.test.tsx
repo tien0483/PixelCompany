@@ -1,8 +1,10 @@
 import { act } from "react";
+import type { ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TaskLaunchSettingsPicker } from "@/components/task-launch-settings";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import type { RuntimeTaskLaunchSettings } from "@/runtime/types";
 
 const listSkillInventoryQuery = vi.hoisted(() => vi.fn());
@@ -21,6 +23,10 @@ vi.mock("@/runtime/trpc-client", () => ({
 
 let container: HTMLDivElement;
 let root: Root;
+
+function renderUi(element: ReactElement): void {
+	root.render(<TooltipProvider>{element}</TooltipProvider>);
+}
 
 beforeEach(() => {
 	container = document.createElement("div");
@@ -63,7 +69,7 @@ afterEach(() => {
 describe("TaskLaunchSettingsPicker", () => {
 	it("hides for non Claude/Cursor agents", () => {
 		act(() => {
-			root.render(
+			renderUi(
 				<TaskLaunchSettingsPicker active agentId="codex" value={undefined} onChange={() => undefined} />,
 			);
 		});
@@ -73,7 +79,7 @@ describe("TaskLaunchSettingsPicker", () => {
 	it("attaches and detaches skill chips", async () => {
 		const onChange = vi.fn();
 		await act(async () => {
-			root.render(
+			renderUi(
 				<TaskLaunchSettingsPicker active agentId="claude" value={undefined} onChange={onChange} />,
 			);
 		});
@@ -95,7 +101,7 @@ describe("TaskLaunchSettingsPicker", () => {
 
 		onChange.mockClear();
 		await act(async () => {
-			root.render(
+			renderUi(
 				<TaskLaunchSettingsPicker
 					active
 					agentId="claude"
@@ -119,7 +125,7 @@ describe("TaskLaunchSettingsPicker", () => {
 	it("exposes skill description on attached chips for hover", async () => {
 		const onChange = vi.fn();
 		await act(async () => {
-			root.render(
+			renderUi(
 				<TaskLaunchSettingsPicker
 					active
 					agentId="claude"
@@ -139,7 +145,7 @@ describe("TaskLaunchSettingsPicker", () => {
 	it("removes a skill chip while a description tooltip is present", async () => {
 		const onChange = vi.fn();
 		await act(async () => {
-			root.render(
+			renderUi(
 				<TaskLaunchSettingsPicker
 					active
 					agentId="claude"
@@ -163,7 +169,7 @@ describe("TaskLaunchSettingsPicker", () => {
 	it("attaches agent and slash command tags from inventory", async () => {
 		const onChange = vi.fn();
 		await act(async () => {
-			root.render(
+			renderUi(
 				<TaskLaunchSettingsPicker active agentId="claude" value={undefined} onChange={onChange} />,
 			);
 		});
@@ -200,7 +206,7 @@ describe("TaskLaunchSettingsPicker", () => {
 	it("accumulates multiple skill adds before parent value catches up", async () => {
 		const onChange = vi.fn();
 		await act(async () => {
-			root.render(
+			renderUi(
 				<TaskLaunchSettingsPicker active agentId="claude" value={undefined} onChange={onChange} />,
 			);
 		});
@@ -230,7 +236,7 @@ describe("TaskLaunchSettingsPicker", () => {
 	it("loads live models and sets effort for Claude", async () => {
 		const onChange = vi.fn();
 		await act(async () => {
-			root.render(
+			renderUi(
 				<TaskLaunchSettingsPicker active agentId="claude" value={undefined} onChange={onChange} />,
 			);
 		});
@@ -240,7 +246,7 @@ describe("TaskLaunchSettingsPicker", () => {
 		expect(listAgentModelsQuery).toHaveBeenCalledWith({ agentId: "claude" });
 
 		await act(async () => {
-			root.render(
+			renderUi(
 				<TaskLaunchSettingsPicker
 					active
 					agentId="claude"
@@ -263,7 +269,7 @@ describe("TaskLaunchSettingsPicker", () => {
 	it("attaches and detaches MCP chips", async () => {
 		const onChange = vi.fn();
 		await act(async () => {
-			root.render(
+			renderUi(
 				<TaskLaunchSettingsPicker active agentId="cursor" value={undefined} onChange={onChange} />,
 			);
 		});
@@ -283,7 +289,7 @@ describe("TaskLaunchSettingsPicker", () => {
 
 		onChange.mockClear();
 		await act(async () => {
-			root.render(
+			renderUi(
 				<TaskLaunchSettingsPicker
 					active
 					agentId="cursor"
@@ -303,7 +309,7 @@ describe("TaskLaunchSettingsPicker", () => {
 	it("clears all launch tags from the clear action", async () => {
 		const onChange = vi.fn();
 		await act(async () => {
-			root.render(
+			renderUi(
 				<TaskLaunchSettingsPicker
 					active
 					agentId="claude"

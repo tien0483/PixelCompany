@@ -2,17 +2,17 @@ import type { ReactElement } from "react";
 import { useMemo, useState } from "react";
 import { Building2, FolderGit2, GitBranch, LayoutGrid, Terminal } from "lucide-react";
 
-import type { RuntimeJackedSnapshot, RuntimeTaskSessionSummary } from "@/runtime/types";
+import type { RuntimeManagerSnapshot, RuntimeTaskSessionSummary } from "@/runtime/types";
 import type { BoardData } from "@/types";
-import { HomeSidebarJackedPanel, HomeSidebarJackedTab } from "@/components/home-sidebar-jacked";
-import { JackedAccountsView } from "@/jacked/jacked-accounts-view";
+import { HomeSidebarManagerPanel, HomeSidebarManagerTab } from "@/components/home-sidebar-manager";
+import { ManagerAccountsView } from "@/manager/manager-accounts-view";
 import { OfficeView } from "./office-view.js";
 
 /**
  * Deterministic fixture used by Playwright visual tests.
  *
  * Mounted only when the page is opened with `?officeE2e=1`, so production users
- * never see it. It does not need the Kanban runtime or claude-jacked: the office
+ * never see it. It does not need the Kanban runtime or Manager: the office
  * renders from this in-memory board/sessions/jacked snapshot alone.
  *
  * The chrome mirrors the three-pane home: sidebar + board center + right
@@ -55,7 +55,7 @@ function buildFixtureBoard(): BoardData {
 					{
 						id: "e2e-task-review",
 						title: "Review jacked bridge",
-						prompt: "Check jacked_state_updated stream",
+						prompt: "Check manager_state_updated stream",
 						startInPlanMode: false,
 						agentId: "codex",
 						baseRef: "main",
@@ -160,7 +160,7 @@ function buildFixtureSessions(): Record<string, RuntimeTaskSessionSummary> {
 	};
 }
 
-function buildFixtureJacked(pressure: number): RuntimeJackedSnapshot {
+function buildFixtureManager(pressure: number): RuntimeManagerSnapshot {
 	const clamp = Math.min(1, Math.max(0, pressure));
 	const account = (
 		id: number,
@@ -292,13 +292,13 @@ export function isOfficeE2eHarnessEnabled(): boolean {
 function KanbanShellChrome({
 	officeOpen,
 	onToggleOffice,
-	jacked,
+	manager,
 	children,
 }: {
 	officeOpen: boolean;
 	onToggleOffice: () => void;
-	/** Fixture snapshot, so the real Manager section renders without a live jacked. */
-	jacked: RuntimeJackedSnapshot;
+	/** Fixture snapshot, so the real Manager section renders without a live manager. */
+	manager: RuntimeManagerSnapshot;
 	children: ReactElement;
 }): ReactElement {
 	const [sidebarSection, setSidebarSection] = useState<"projects" | "manager">("projects");
@@ -323,13 +323,13 @@ function KanbanShellChrome({
 						Projects
 					</button>
 					{/* The real tab component, so its label and test id stay under test. */}
-					<HomeSidebarJackedTab
+					<HomeSidebarManagerTab
 						active={sidebarSection === "manager"}
 						onSelect={() => setSidebarSection("manager")}
 					/>
 				</div>
 				{sidebarSection === "manager" ? (
-					<HomeSidebarJackedPanel online jacked={jacked} />
+					<HomeSidebarManagerPanel online manager={manager} />
 				) : (
 				<div className="flex flex-col gap-1 p-2">
 					<button
@@ -408,7 +408,7 @@ export function OfficeE2eHarness(): ReactElement {
 	const board = floorMode === "staffed" ? staffedBoard : emptyBoard;
 	const sessions = floorMode === "staffed" ? staffedSessions : {};
 	const [pressure, setPressure] = useState(0.35);
-	const jacked = useMemo(() => buildFixtureJacked(pressure), [pressure]);
+	const manager = useMemo(() => buildFixtureManager(pressure), [pressure]);
 	const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
 	const [createClicks, setCreateClicks] = useState(0);
 	const [officeOpen, setOfficeOpen] = useState(true);
@@ -460,7 +460,7 @@ export function OfficeE2eHarness(): ReactElement {
 			<KanbanShellChrome
 				officeOpen={officeOpen}
 				onToggleOffice={() => setOfficeOpen((value) => !value)}
-				jacked={jacked}
+				manager={manager}
 			>
 				<div className="flex min-h-0 flex-1" data-testid="home-triple-pane">
 					<div
@@ -486,17 +486,17 @@ export function OfficeE2eHarness(): ReactElement {
 							className="flex w-[360px] shrink-0 flex-col border-l border-border bg-surface-1"
 						>
 							<div
-								data-testid="home-jacked-watch-pane"
+								data-testid="home-manager-watch-pane"
 								className="flex h-[40%] min-h-0 flex-col overflow-hidden border-b border-border"
 							>
-								<JackedAccountsView online jacked={jacked} />
+								<ManagerAccountsView online manager={manager} />
 							</div>
 							<div data-testid="home-office-pane" className="flex min-h-0 flex-1 flex-col overflow-hidden">
 								<OfficeView
 									board={board}
 									sessions={sessions}
 									workspaceId="e2e-workspace"
-									jacked={jacked}
+									manager={manager}
 									onSelectTask={setSelectedTaskId}
 									onCreateTask={() => setCreateClicks((count) => count + 1)}
 								/>

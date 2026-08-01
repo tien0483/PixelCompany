@@ -1,4 +1,4 @@
-// PTY-backed runtime for non-Cline task sessions and the workspace shell terminal.
+﻿// PTY-backed runtime for non-Cline task sessions and the workspace shell terminal.
 // It owns process lifecycle, terminal protocol filtering, and summary updates
 // for command-driven agents such as Claude Code, Codex, Gemini, and shell sessions.
 import type {
@@ -98,7 +98,7 @@ export interface StartTaskSessionRequest {
 	env?: Record<string, string | undefined>;
 	workspaceId?: string;
 	/** Claude account this session is pinned to; recorded on the summary for the UI. */
-	jackedAccountId?: number;
+	managerAccountId?: number;
 	taskLaunchSettings?: RuntimeTaskLaunchSettings;
 }
 
@@ -131,7 +131,7 @@ function createDefaultSummary(taskId: string): RuntimeTaskSessionSummary {
 		lastHookAt: null,
 		latestHookActivity: null,
 		warningMessage: null,
-		jackedAccountId: null,
+		managerAccountId: null,
 		latestTurnCheckpoint: null,
 		previousTurnCheckpoint: null,
 	};
@@ -568,7 +568,7 @@ export class TerminalSessionManager implements TerminalSessionService {
 				exitCode: null,
 				lastHookAt: null,
 				latestHookActivity: null,
-				jackedAccountId: request.jackedAccountId ?? null,
+				managerAccountId: request.managerAccountId ?? null,
 				latestTurnCheckpoint: null,
 				previousTurnCheckpoint: null,
 			});
@@ -640,7 +640,7 @@ export class TerminalSessionManager implements TerminalSessionService {
 			lastHookAt: null,
 			latestHookActivity: null,
 			warningMessage: null,
-			jackedAccountId: request.jackedAccountId ?? null,
+			managerAccountId: request.managerAccountId ?? null,
 			latestTurnCheckpoint: null,
 			previousTurnCheckpoint: null,
 		});

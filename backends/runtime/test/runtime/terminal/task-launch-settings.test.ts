@@ -1,4 +1,4 @@
-import { lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+﻿import { lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -152,7 +152,7 @@ describe("resolveHostPath", () => {
 			return;
 		}
 		expect(resolveHostPath("C:\\Users\\u\\.claude")).toBe("/mnt/c/Users/u/.claude");
-		expect(resolveHostPath("D:/jacked/accounts/2")).toBe("/mnt/d/jacked/accounts/2");
+		expect(resolveHostPath("D:/manager/accounts/2")).toBe("/mnt/d/manager/accounts/2");
 	});
 });
 

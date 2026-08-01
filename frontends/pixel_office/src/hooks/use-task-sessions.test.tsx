@@ -197,7 +197,7 @@ describe("useTaskSessions", () => {
 			agentId: undefined,
 			clineSettings: undefined,
 			taskLaunchSettings: undefined,
-			jackedAccountId: undefined,
+			managerAccountId: undefined,
 		});
 	});
 

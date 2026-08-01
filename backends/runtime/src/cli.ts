@@ -396,9 +396,9 @@ async function startServer(): Promise<{
 		{ shutdownRuntimeServer },
 		{ collectProjectWorktreeTaskIdsForRemoval, createWorkspaceRegistry },
 		{ clearPendingUpdateNotification, getPendingUpdateNotification },
-		{ createJackedClient },
-		{ createJackedMonitor },
-		{ startJackedProcess },
+		{ createManagerClient },
+		{ createManagerMonitor },
+		{ startManagerProcess },
 		{ describeRuntimeHomeMigration, migrateRuntimeHome },
 	] = await Promise.all([
 		import("./projects/project-path.js"),
@@ -409,9 +409,9 @@ async function startServer(): Promise<{
 		import("./server/shutdown-coordinator.js"),
 		import("./server/workspace-registry.js"),
 		import("./update/update.js"),
-		import("./jacked/jacked-client.js"),
-		import("./jacked/jacked-monitor.js"),
-		import("./jacked/jacked-process.js"),
+		import("./manager/manager-client.js"),
+		import("./manager/manager-monitor.js"),
+		import("./manager/manager-process.js"),
 		import("./state/runtime-home-migration.js"),
 	]);
 
@@ -434,9 +434,9 @@ async function startServer(): Promise<{
 			runtimeStateHub?.trackTerminalManager(workspaceId, manager);
 		},
 	});
-	// Bring jacked up before the client so the first snapshot poll finds it. It is
+	// Bring Manager up before the client so the first snapshot poll finds it. It is
 	// optional: a missing Python install only means Accounts report offline.
-	const jackedProcess = await startJackedProcess({
+	const ManagerProcess = await startManagerProcess({
 		warn: (message) => {
 			console.warn(`[kanban] ${message}`);
 		},
@@ -444,20 +444,20 @@ async function startServer(): Promise<{
 			console.log(`[kanban] ${message}`);
 		},
 	});
-	const jackedClient = createJackedClient({
+	const ManagerClient = createManagerClient({
 		warn: (message) => {
 			console.warn(`[kanban] ${message}`);
 		},
 	});
-	const jackedMonitor = createJackedMonitor({
-		client: jackedClient,
+	const ManagerMonitor = createManagerMonitor({
+		client: ManagerClient,
 		onStateUpdated: (state) => {
-			runtimeStateHub?.broadcastJackedStateUpdated(state);
+			runtimeStateHub?.broadcastManagerStateUpdated(state);
 		},
 	});
 	runtimeStateHub = createRuntimeStateHub({
 		workspaceRegistry,
-		jackedMonitor,
+		ManagerMonitor,
 	});
 	const runtimeHub = runtimeStateHub;
 	for (const { workspaceId, terminalManager } of workspaceRegistry.listManagedWorkspaces()) {
@@ -480,7 +480,7 @@ async function startServer(): Promise<{
 	const runtimeServer = await createRuntimeServer({
 		workspaceRegistry,
 		runtimeStateHub: runtimeHub,
-		jacked: { client: jackedClient, monitor: jackedMonitor },
+		manager: { client: ManagerClient, monitor: ManagerMonitor },
 		warn: (message) => {
 			console.warn(`[kanban] ${message}`);
 		},
@@ -537,8 +537,8 @@ async function startServer(): Promise<{
 
 	const close = async () => {
 		await runtimeServer.close();
-		// Only stops a jacked we spawned; an externally managed service is left alone.
-		await jackedProcess.close();
+		// Only stops a Manager we spawned; an externally managed service is left alone.
+		await ManagerProcess.close();
 	};
 
 	const shutdown = async (options?: { skipSessionCleanup?: boolean }) => {

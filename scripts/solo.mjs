@@ -1,6 +1,6 @@
 /**
  * Single-URL Pixel Office launch: one Node runtime serving the built UI, board,
- * PTY sessions and the Jacked bridge — plus the headless jacked child it starts
+ * PTY sessions and the Manager bridge — plus the headless Manager child it starts
  * itself. No Vite, no second origin, no :8321 dashboard.
  *
  *   http://127.0.0.1:3484   →  board + Claude Accounts + Pixel Office
@@ -111,7 +111,7 @@ const tsxCli = resolveDependencyEntry(runtimeRoot, "tsx", "dist", "cli.mjs");
 const viteCli = resolveDependencyEntry(webUiRoot, "vite", "bin", "vite.js");
 
 const RUNTIME_PORT = Number(process.env.PIXELOFFICE_PORT ?? 3484);
-const JACKED_PORT = 8321;
+const MANAGER_PORT = Number(process.env.MANAGER_PORT ?? process.env.JACKED_PORT ?? 8321);
 
 const args = process.argv.slice(2);
 const restart = args.includes("--restart");
@@ -188,9 +188,9 @@ function buildUi() {
 
 async function main() {
 	if (restart) {
-		console.log(`Freeing ports ${RUNTIME_PORT}, ${JACKED_PORT}...`);
+		console.log(`Freeing ports ${RUNTIME_PORT}, ${MANAGER_PORT}...`);
 		freePort(RUNTIME_PORT);
-		freePort(JACKED_PORT);
+		freePort(MANAGER_PORT);
 		await new Promise((resolve) => setTimeout(resolve, 500));
 	} else if (await portIsListening(RUNTIME_PORT)) {
 		console.error(`Port ${RUNTIME_PORT} is already in use. Run: npm run solo -- --restart`);
@@ -217,7 +217,7 @@ async function main() {
 	console.log("");
 	console.log("  Pixel Office (solo) — one process, one URL");
 	console.log(`  App:     http://127.0.0.1:${RUNTIME_PORT}`);
-	console.log(`  Jacked:  http://127.0.0.1:${JACKED_PORT} (headless child of the runtime)`);
+	console.log(`  Manager:  http://127.0.0.1:${MANAGER_PORT} (headless child of the runtime)`);
 	console.log("");
 
 	// The runtime serves frontends/pixel_office/dist through server/assets.ts and

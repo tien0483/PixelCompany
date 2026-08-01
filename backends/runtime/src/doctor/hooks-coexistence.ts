@@ -1,4 +1,4 @@
-// Doctor check: Kanban + claude-jacked hooks must coexist in ~/.claude/settings.json.
+// Doctor check: Kanban + Manager hooks must coexist in ~/.claude/settings.json.
 //
 // Claude Code allows multiple matchers per event. Kanban owns activity/to_review
 // transitions via `kanban hooks ingest`; jacked owns additive account/memory hooks.
@@ -12,14 +12,14 @@ export interface HooksCoexistenceReport {
 	settingsPath: string;
 	readable: boolean;
 	kanbanPresent: boolean;
-	jackedPresent: boolean;
+	managerPresent: boolean;
 	pixelAgentsPresent: boolean;
 	ok: boolean;
 	messages: string[];
 }
 
 const KANBAN_MARKERS = ["kanban hooks ingest", "hooks ingest --event"];
-const JACKED_MARKERS = ["session_account_tracker", "memory_capture", "memory_recall", "qa_suggest"];
+const MANAGER_HOOK_MARKERS = ["session_account_tracker", "memory_capture", "memory_recall", "qa_suggest"];
 const PIXEL_AGENTS_MARKERS = ["pixel-agents", "claude-hook.ts", "pixel_agents"];
 
 function collectCommands(node: unknown, into: string[]): void {
@@ -54,7 +54,7 @@ export async function checkHooksCoexistence(
 	const messages: string[] = [];
 	let readable = false;
 	let kanbanPresent = false;
-	let jackedPresent = false;
+	let managerPresent = false;
 	let pixelAgentsPresent = false;
 
 	try {
@@ -66,7 +66,7 @@ export async function checkHooksCoexistence(
 			collectCommands((parsed as { hooks: unknown }).hooks, commands);
 		}
 		kanbanPresent = anyMarker(commands, KANBAN_MARKERS);
-		jackedPresent = anyMarker(commands, JACKED_MARKERS);
+		managerPresent = anyMarker(commands, MANAGER_HOOK_MARKERS);
 		pixelAgentsPresent = anyMarker(commands, PIXEL_AGENTS_MARKERS);
 	} catch (error) {
 		messages.push(error instanceof Error ? `Could not read ${settingsPath}: ${error.message}` : String(error));
@@ -74,7 +74,7 @@ export async function checkHooksCoexistence(
 			settingsPath,
 			readable,
 			kanbanPresent,
-			jackedPresent,
+			managerPresent,
 			pixelAgentsPresent,
 			ok: false,
 			messages,
@@ -86,19 +86,19 @@ export async function checkHooksCoexistence(
 	} else {
 		messages.push("Kanban hooks are present.");
 	}
-	if (!jackedPresent) {
+	if (!managerPresent) {
 		messages.push(
-			"claude-jacked hooks were not found. Run `jacked install` if you want account tracking / memory vault.",
+			"Manager hooks were not found. Run `jacked install` if you want account tracking / memory vault.",
 		);
 	} else {
-		messages.push("claude-jacked additive hooks are present.");
+		messages.push("Manager additive hooks are present.");
 	}
 	if (pixelAgentsPresent) {
 		messages.push("Pixel Agents ingestion hooks are still installed. Remove them — Kanban owns agent activity now.");
 	}
 
 	const ok = kanbanPresent && !pixelAgentsPresent;
-	if (ok && jackedPresent) {
+	if (ok && managerPresent) {
 		messages.push("Hook coexistence looks healthy (Kanban + jacked, no Pixel Agents ingestion).");
 	} else if (ok) {
 		messages.push("Kanban hooks look healthy. jacked hooks are optional.");
@@ -108,7 +108,7 @@ export async function checkHooksCoexistence(
 		settingsPath,
 		readable,
 		kanbanPresent,
-		jackedPresent,
+		managerPresent,
 		pixelAgentsPresent,
 		ok,
 		messages,

@@ -222,6 +222,7 @@ function normalizeCard(rawCard: unknown): BoardCard | null {
 		agentId?: unknown;
 		clineSettings?: unknown;
 		taskLaunchSettings?: unknown;
+		managerAccountId?: unknown;
 		jackedAccountId?: unknown;
 		clineProviderId?: unknown;
 		clineModelId?: unknown;
@@ -248,9 +249,10 @@ function normalizeCard(rawCard: unknown): BoardCard | null {
 		legacyReasoningEffort: card.clineReasoningEffort,
 	});
 	const taskLaunchSettings = normalizeTaskLaunchSettings(card.taskLaunchSettings);
-	const jackedAccountId =
-		typeof card.jackedAccountId === "number" && Number.isInteger(card.jackedAccountId) && card.jackedAccountId > 0
-			? card.jackedAccountId
+	const rawAccountId = card.managerAccountId ?? card.jackedAccountId;
+	const managerAccountId =
+		typeof rawAccountId === "number" && Number.isInteger(rawAccountId) && rawAccountId > 0
+			? rawAccountId
 			: undefined;
 
 	const now = Date.now();
@@ -269,7 +271,7 @@ function normalizeCard(rawCard: unknown): BoardCard | null {
 		...(typeof card.agentId === "string" && card.agentId ? { agentId: card.agentId as RuntimeAgentId } : {}),
 		...(clineSettings !== undefined ? { clineSettings } : {}),
 		...(taskLaunchSettings !== undefined ? { taskLaunchSettings } : {}),
-		...(jackedAccountId !== undefined ? { jackedAccountId } : {}),
+		...(managerAccountId !== undefined ? { managerAccountId } : {}),
 		createdAt: typeof card.createdAt === "number" ? card.createdAt : now,
 		updatedAt: typeof card.updatedAt === "number" ? card.updatedAt : now,
 	};
@@ -581,7 +583,7 @@ export function moveTaskToColumn(
 	};
 }
 
-function jackedProviderForAgentId(agentId: RuntimeAgentId | undefined): "claude" | "cursor" | null {
+function managerProviderForAgentId(agentId: RuntimeAgentId | undefined): "claude" | "cursor" | null {
 	if (agentId === "claude") {
 		return "claude";
 	}
@@ -611,8 +613,8 @@ export function updateTask(board: BoardData, taskId: string, draft: TaskDraft): 
 			}
 			columnUpdated = true;
 			updated = true;
-			const previousProvider = jackedProviderForAgentId(card.agentId);
-			const nextProvider = jackedProviderForAgentId(draft.agentId);
+			const previousProvider = managerProviderForAgentId(card.agentId);
+			const nextProvider = managerProviderForAgentId(draft.agentId);
 			// Claude pins and Cursor pins are not interchangeable — drop the seat
 			// when the task switches agent family (including back to "use default").
 			const clearCrossProviderPin =
@@ -637,7 +639,7 @@ export function updateTask(board: BoardData, taskId: string, draft: TaskDraft): 
 				updatedAt: Date.now(),
 			};
 			if (clearCrossProviderPin) {
-				const { jackedAccountId: _clearedPin, ...withoutPin } = nextCard;
+				const { managerAccountId: _clearedPin, ...withoutPin } = nextCard;
 				return withoutPin;
 			}
 			return nextCard;
@@ -721,10 +723,11 @@ export function setTaskLaunchSettings(
 			columnUpdated = true;
 			updated = true;
 			const { taskLaunchSettings: _previous, ...rest } = card;
+			const nextUpdatedAt = Math.max(Date.now(), card.updatedAt + 1);
 			return {
 				...rest,
 				...(nextSettings === undefined ? {} : { taskLaunchSettings: nextSettings }),
-				updatedAt: Date.now(),
+				updatedAt: nextUpdatedAt,
 			};
 		});
 		return columnUpdated ? { ...column, cards } : column;
@@ -742,17 +745,17 @@ export function setTaskLaunchSettings(
  * Separate from `updateTask` because pinning is a single-field toggle that must not
  * require a full draft; `updateTask` preserves the field through its card spread.
  */
-export function setTaskJackedAccount(
+export function setTaskManagerAccount(
 	board: BoardData,
 	taskId: string,
-	jackedAccountId: number | null,
+	managerAccountId: number | null,
 ): { board: BoardData; updated: boolean } {
 	const selection = findCardSelection(board, taskId);
 	if (!selection) {
 		return { board, updated: false };
 	}
-	const nextAccountId = jackedAccountId ?? undefined;
-	if (selection.card.jackedAccountId === nextAccountId) {
+	const nextAccountId = managerAccountId ?? undefined;
+	if (selection.card.managerAccountId === nextAccountId) {
 		return { board, updated: false };
 	}
 
@@ -765,10 +768,10 @@ export function setTaskJackedAccount(
 			}
 			columnUpdated = true;
 			updated = true;
-			const { jackedAccountId: _previous, ...rest } = card;
+			const { managerAccountId: _previous, ...rest } = card;
 			return {
 				...rest,
-				...(nextAccountId === undefined ? {} : { jackedAccountId: nextAccountId }),
+				...(nextAccountId === undefined ? {} : { managerAccountId: nextAccountId }),
 				updatedAt: Date.now(),
 			};
 		});

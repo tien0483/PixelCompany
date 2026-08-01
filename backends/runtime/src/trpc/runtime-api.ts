@@ -43,7 +43,7 @@ import {
 } from "../core/api-validation";
 import { isHomeAgentSessionId } from "../core/home-agent-session";
 import { resolveTaskTitle } from "../core/task-title.js";
-import { resolveJackedAccountPin } from "../jacked/jacked-account-pin";
+import { resolveManagerAccountPin } from "../manager/manager-account-pin";
 import {
 	LEGACY_RUNTIME_HOME_PARENT_DIR_NAME,
 	RUNTIME_HOME_PARENT_DIR_NAME,
@@ -71,14 +71,14 @@ export interface CreateRuntimeApiDependencies {
 	/**
 	 * Prepares the per-account CLAUDE_CONFIG_DIR for a task pinned to a Claude account.
 	 */
-	getJackedAccountLaunchDir?: (accountId: number) => Promise<{ configDir: string } | null>;
+	getManagerAccountLaunchDir?: (accountId: number) => Promise<{ configDir: string } | null>;
 	/** Reads the Cursor API key snapshot for a pinned Cursor task. */
-	getJackedAccountLaunchCredential?: (accountId: number) => Promise<{ apiKey: string } | null>;
-	getJackedAccountProvider?: (accountId: number) => Promise<import("../core/api-contract").RuntimeJackedProvider | null>;
+	getManagerAccountLaunchCredential?: (accountId: number) => Promise<{ apiKey: string } | null>;
+	getManagerAccountProvider?: (accountId: number) => Promise<import("../core/api-contract").RuntimeManagerProvider | null>;
 	/** Auto (unpinned) Cursor tasks: pick a Cursor jacked account for CURSOR_API_KEY. */
-	resolveDefaultCursorJackedAccountId?: () => Promise<number | null>;
+	resolveDefaultCursormanagerAccountId?: () => Promise<number | null>;
 	/** Active Claude Jacked seat — used to prep CC creds for skill/MCP-tagged launches. */
-	resolveActiveClaudeJackedAccountId?: () => Promise<number | null>;
+	resolveActiveClaudemanagerAccountId?: () => Promise<number | null>;
 	resolveInteractiveShellCommand: () => { binary: string; args: string[] };
 	runCommand: (command: string, cwd: string) => Promise<RuntimeCommandRunResponse>;
 	broadcastClineMcpAuthStatusesUpdated?: (
@@ -307,19 +307,19 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 				// A pinned card runs on its own credential directory so concurrent tasks
 				// can hold different Claude accounts; unpinned cards keep following
 				// jacked's global auto-swap.
-				const accountPin = await resolveJackedAccountPin({
+				const accountPin = await resolveManagerAccountPin({
 					agentId: resolved.agentId,
-					jackedAccountId: body.jackedAccountId,
+					managerAccountId: body.managerAccountId,
 					getAccountLaunchDir:
-						deps.getJackedAccountLaunchDir ??
+						deps.getManagerAccountLaunchDir ??
 						(async () => null),
 					getAccountLaunchCredential:
-						deps.getJackedAccountLaunchCredential ??
+						deps.getManagerAccountLaunchCredential ??
 						(async () => null),
 					getAccountProvider: async (accountId) =>
-						(await deps.getJackedAccountProvider?.(accountId)) ?? null,
-					resolveDefaultCursorAccountId: deps.resolveDefaultCursorJackedAccountId,
-					resolveActiveClaudeAccountId: deps.resolveActiveClaudeJackedAccountId,
+						(await deps.getManagerAccountProvider?.(accountId)) ?? null,
+					resolveDefaultCursorAccountId: deps.resolveDefaultCursormanagerAccountId,
+					resolveActiveClaudeAccountId: deps.resolveActiveClaudemanagerAccountId,
 					needsClaudeConfigDirForLaunchTags:
 						resolved.agentId === "claude" && hasClaudeScopedConfigAllowlist(body.taskLaunchSettings),
 				});
@@ -341,7 +341,7 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 					workspaceId: workspaceScope.workspaceId,
 					taskLaunchSettings: body.taskLaunchSettings,
 					...(Object.keys(accountPin.env).length > 0 ? { env: accountPin.env } : {}),
-					...(accountPin.accountId === null ? {} : { jackedAccountId: accountPin.accountId }),
+					...(accountPin.accountId === null ? {} : { managerAccountId: accountPin.accountId }),
 				});
 
 				let nextSummary = summary;

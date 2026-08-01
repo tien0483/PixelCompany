@@ -3,7 +3,7 @@ import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { ChevronDown, ChevronUp, Ellipsis, ExternalLink, Info, Plus } from "lucide-react";
 import { type MouseEvent as ReactMouseEvent, useCallback, useEffect, useRef, useState } from "react";
 import { canShowFeaturebaseFeedbackButton } from "@/components/featurebase-feedback-button";
-import { HomeSidebarJackedPanel, HomeSidebarJackedTab } from "@/components/home-sidebar-jacked";
+import { HomeSidebarManagerPanel, HomeSidebarManagerTab } from "@/components/home-sidebar-manager";
 import askeeLogo from "@/assets/images/askee-logo.png";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
@@ -21,7 +21,7 @@ import { Kbd } from "@/components/ui/kbd";
 import { Spinner } from "@/components/ui/spinner";
 import type { FeaturebaseFeedbackState } from "@/hooks/use-featurebase-feedback-widget";
 import { useIsMobile } from "@/hooks/use-is-mobile";
-import type { RuntimeAgentId, RuntimeClineProviderSettings, RuntimeJackedSnapshot, RuntimeProjectSummary } from "@/runtime/types";
+import type { RuntimeAgentId, RuntimeClineProviderSettings, RuntimeManagerSnapshot, RuntimeProjectSummary } from "@/runtime/types";
 import { formatPathForDisplay } from "@/utils/path-display";
 import { isMacPlatform, modifierKeyLabel } from "@/utils/platform";
 import { useUnmount, useWindowEvent } from "@/utils/react-use";
@@ -47,8 +47,8 @@ export function ProjectNavigationPanel({
 	removingProjectId,
 	activeSection,
 	onActiveSectionChange,
-	jackedOnline = false,
-	jackedState = null,
+	managerOnline = false,
+	managerState = null,
 	selectedAgentId,
 	clineProviderSettings,
 	featurebaseFeedbackState,
@@ -59,18 +59,18 @@ export function ProjectNavigationPanel({
 	setExpandedSidebarWidth,
 	isCollapsed,
 	setSidebarCollapsed,
-	jackedSettingsFocusToken = 0,
+	managerSettingsFocusToken = 0,
 }: {
 	projects: RuntimeProjectSummary[];
 	isLoadingProjects?: boolean;
 	currentProjectId: string | null;
 	removingProjectId: string | null;
-	activeSection: "projects" | "jacked";
-	onActiveSectionChange: (section: "projects" | "jacked") => void;
+	activeSection: "projects" | "manager";
+	onActiveSectionChange: (section: "projects" | "manager") => void;
 	/** When true, Jacked tab treats the companion as reachable for mutations. */
-	jackedOnline?: boolean;
+	managerOnline?: boolean;
 	/** Latest jacked snapshot from the runtime stream (may be stale when offline). */
-	jackedState?: RuntimeJackedSnapshot | null;
+	managerState?: RuntimeManagerSnapshot | null;
 	selectedAgentId?: RuntimeAgentId | null;
 	clineProviderSettings?: RuntimeClineProviderSettings | null;
 	featurebaseFeedbackState?: FeaturebaseFeedbackState;
@@ -82,7 +82,7 @@ export function ProjectNavigationPanel({
 	isCollapsed: boolean;
 	setSidebarCollapsed: (collapsed: boolean, persist?: boolean) => void;
 	/** Incremented when Settings is requested so the Jacked panel focuses Settings. */
-	jackedSettingsFocusToken?: number;
+	managerSettingsFocusToken?: number;
 }): React.ReactElement {
 	const sortedProjects = [...projects].sort((a, b) => a.path.localeCompare(b.path));
 	const shouldShowFeaturebaseFeedback = canShowFeaturebaseFeedbackButton({
@@ -327,9 +327,9 @@ export function ProjectNavigationPanel({
 						>
 							Projects
 						</button>
-						<HomeSidebarJackedTab
-							active={activeSection === "jacked"}
-							onSelect={() => onActiveSectionChange("jacked")}
+						<HomeSidebarManagerTab
+							active={activeSection === "manager"}
+							onSelect={() => onActiveSectionChange("manager")}
 						/>
 					</div>
 				</div>
@@ -391,10 +391,10 @@ export function ProjectNavigationPanel({
 					/>
 				</>
 			) : (
-				<HomeSidebarJackedPanel
-					online={jackedOnline}
-					jacked={jackedState}
-					settingsFocusToken={jackedSettingsFocusToken}
+				<HomeSidebarManagerPanel
+					online={managerOnline}
+					manager={managerState}
+					settingsFocusToken={managerSettingsFocusToken}
 				/>
 			)}
 			<AlertDialog

@@ -25,7 +25,7 @@ describe("checkHooksCoexistence", () => {
 		);
 		const report = await checkHooksCoexistence(settingsPath);
 		expect(report.kanbanPresent).toBe(true);
-		expect(report.jackedPresent).toBe(true);
+		expect(report.managerPresent).toBe(true);
 		expect(report.pixelAgentsPresent).toBe(false);
 		expect(report.ok).toBe(true);
 	});

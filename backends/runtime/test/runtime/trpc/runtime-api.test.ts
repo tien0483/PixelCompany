@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { RuntimeConfigState } from "../../../src/config/runtime-config";
@@ -256,8 +256,10 @@ describe("createRuntimeApi startTaskSession", () => {
 	let mcpOauthSettingsPath = "";
 
 	beforeEach(() => {
-		mcpSettingsPath = `/tmp/kanban-mcp-settings-${Date.now()}-${Math.random().toString(16).slice(2)}.json`;
-		mcpOauthSettingsPath = `/tmp/kanban-mcp-oauth-settings-${Date.now()}-${Math.random().toString(16).slice(2)}.json`;
+		mcpSettingsPath = resolve(`/tmp/kanban-mcp-settings-${Date.now()}-${Math.random().toString(16).slice(2)}.json`);
+		mcpOauthSettingsPath = resolve(
+			`/tmp/kanban-mcp-oauth-settings-${Date.now()}-${Math.random().toString(16).slice(2)}.json`,
+		);
 		process.env.CLINE_MCP_SETTINGS_PATH = mcpSettingsPath;
 		process.env.CLINE_MCP_OAUTH_SETTINGS_PATH = mcpOauthSettingsPath;
 		agentRegistryMocks.resolveAgentCommand.mockReset();
@@ -2682,8 +2684,10 @@ describe("createRuntimeApi startTaskSession", () => {
 
 	it("runs reset teardown before deleting debug state paths", async () => {
 		const originalHome = process.env.HOME;
-		const tempHome = `/tmp/kanban-reset-home-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+		const originalUserProfile = process.env.USERPROFILE;
+		const tempHome = resolve(`/tmp/kanban-reset-home-${Date.now()}-${Math.random().toString(16).slice(2)}`);
 		process.env.HOME = tempHome;
+		process.env.USERPROFILE = tempHome;
 		mkdirSync(tempHome, { recursive: true });
 		const debugPaths = [
 			join(tempHome, ".cline", "data"),
@@ -2723,6 +2727,11 @@ describe("createRuntimeApi startTaskSession", () => {
 				delete process.env.HOME;
 			} else {
 				process.env.HOME = originalHome;
+			}
+			if (originalUserProfile === undefined) {
+				delete process.env.USERPROFILE;
+			} else {
+				process.env.USERPROFILE = originalUserProfile;
 			}
 			rmSync(tempHome, { recursive: true, force: true });
 		}
@@ -2797,8 +2806,8 @@ describe("createRuntimeApi startTaskSession", () => {
 			getScopedClineTaskSessionService: vi.fn(async () => createClineTaskSessionServiceMock() as never),
 			resolveInteractiveShellCommand: vi.fn(),
 			runCommand: vi.fn(),
-			getJackedAccountLaunchCredential: vi.fn(async () => ({ apiKey: "cursor-pinned-key" })),
-			getJackedAccountProvider: vi.fn(async () => "cursor" as const),
+			getManagerAccountLaunchCredential: vi.fn(async () => ({ apiKey: "cursor-pinned-key" })),
+			getManagerAccountProvider: vi.fn(async () => "cursor" as const),
 		});
 
 		const response = await api.startTaskSession(
@@ -2810,7 +2819,7 @@ describe("createRuntimeApi startTaskSession", () => {
 				taskId: "task-cursor",
 				baseRef: "main",
 				prompt: "Run cursor agent",
-				jackedAccountId: 11,
+				managerAccountId: 11,
 			},
 		);
 
@@ -2819,7 +2828,7 @@ describe("createRuntimeApi startTaskSession", () => {
 		expect(terminalManager.startTaskSession).toHaveBeenCalledWith(
 			expect.objectContaining({
 				agentId: "cursor",
-				jackedAccountId: 11,
+				managerAccountId: 11,
 				env: { CURSOR_API_KEY: "cursor-pinned-key" },
 			}),
 		);
@@ -2855,8 +2864,8 @@ describe("createRuntimeApi startTaskSession", () => {
 			getScopedClineTaskSessionService: vi.fn(async () => createClineTaskSessionServiceMock() as never),
 			resolveInteractiveShellCommand: vi.fn(),
 			runCommand: vi.fn(),
-			getJackedAccountLaunchCredential: vi.fn(async () => null),
-			getJackedAccountProvider: vi.fn(async () => "cursor" as const),
+			getManagerAccountLaunchCredential: vi.fn(async () => null),
+			getManagerAccountProvider: vi.fn(async () => "cursor" as const),
 		});
 
 		try {
@@ -2869,7 +2878,7 @@ describe("createRuntimeApi startTaskSession", () => {
 					taskId: "task-cursor-fallback",
 					baseRef: "main",
 					prompt: "Run cursor agent",
-					jackedAccountId: 11,
+					managerAccountId: 11,
 				},
 			);
 
@@ -2920,9 +2929,9 @@ describe("createRuntimeApi startTaskSession", () => {
 			getScopedClineTaskSessionService: vi.fn(async () => createClineTaskSessionServiceMock() as never),
 			resolveInteractiveShellCommand: vi.fn(),
 			runCommand: vi.fn(),
-			getJackedAccountLaunchCredential: vi.fn(async () => null),
-			getJackedAccountProvider: vi.fn(async () => "cursor" as const),
-			resolveDefaultCursorJackedAccountId: vi.fn(async () => 99),
+			getManagerAccountLaunchCredential: vi.fn(async () => null),
+			getManagerAccountProvider: vi.fn(async () => "cursor" as const),
+			resolveDefaultCursormanagerAccountId: vi.fn(async () => 99),
 		});
 
 		try {

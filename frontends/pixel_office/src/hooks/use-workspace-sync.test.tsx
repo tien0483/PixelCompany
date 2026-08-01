@@ -399,6 +399,11 @@ describe("useWorkspaceSync", () => {
 		}
 
 		await act(async () => {
+			await Promise.resolve();
+		});
+		expect(latestSnapshot.board.columns[0]?.cards[0]?.id).toBe("task-1");
+
+		await act(async () => {
 			latestSnapshot!.setBoard((current) => {
 				const withAlpha = setTaskLaunchSettings(current, "task-1", { skillIds: ["alpha"] }).board;
 				return setTaskLaunchSettings(withAlpha, "task-1", { skillIds: ["alpha", "beta"] }).board;

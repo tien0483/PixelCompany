@@ -158,7 +158,18 @@ function normalizeRuntimeTaskClineSettings(input: {
 	};
 }
 
-export const runtimeBoardCardSchema = z
+export const runtimeBoardCardSchema = z.preprocess(
+	(raw) => {
+		if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+			const obj = raw as Record<string, unknown>;
+			if ("jackedAccountId" in obj && !("managerAccountId" in obj)) {
+				const { jackedAccountId, ...rest } = obj;
+				return { ...rest, managerAccountId: jackedAccountId };
+			}
+		}
+		return raw;
+	},
+	z
 	.object({
 		id: z.string(),
 		title: z.string().optional(),
@@ -168,8 +179,8 @@ export const runtimeBoardCardSchema = z
 		autoReviewMode: runtimeTaskAutoReviewModeSchema.optional(),
 		images: z.array(runtimeTaskImageSchema).optional(),
 		agentId: runtimeAgentIdSchema.optional(),
-		/** Claude account (jacked id) this card's session runs on; unset follows auto-swap. */
-		jackedAccountId: z.number().int().positive().optional(),
+		/** Claude account (Manager id) this card's session runs on; unset follows auto-swap. */
+		managerAccountId: z.number().int().positive().optional(),
 		clineSettings: runtimeTaskClineSettingsSchema.optional(),
 		taskLaunchSettings: runtimeTaskLaunchSettingsSchema.optional(),
 		clineProviderId: z.string().optional(),
@@ -198,7 +209,8 @@ export const runtimeBoardCardSchema = z
 				title: resolveTaskTitle(card.title, card.prompt),
 			};
 		},
-	);
+	),
+);
 export type RuntimeBoardCard = z.infer<typeof runtimeBoardCardSchema>;
 
 export const runtimeBoardColumnSchema = z.object({
@@ -327,7 +339,7 @@ export const runtimeTaskSessionSummarySchema = z.object({
 	latestHookActivity: runtimeTaskHookActivitySchema.nullable().default(null),
 	warningMessage: z.string().nullable().optional(),
 	/** Claude account this session was pinned to via CLAUDE_CONFIG_DIR, if any. */
-	jackedAccountId: z.number().int().positive().nullable().optional(),
+	managerAccountId: z.number().int().positive().nullable().optional(),
 	latestTurnCheckpoint: runtimeTaskTurnCheckpointSchema.nullable().optional(),
 	previousTurnCheckpoint: runtimeTaskTurnCheckpointSchema.nullable().optional(),
 });
@@ -494,19 +506,19 @@ export const runtimeStateStreamErrorMessageSchema = z.object({
 export type RuntimeStateStreamErrorMessage = z.infer<typeof runtimeStateStreamErrorMessageSchema>;
 
 /**
- * Agent fleets that claude-jacked can hold accounts for.
+ * Agent fleets that Manager can hold accounts for.
  *
  * Kept separate from runtimeAgentIdSchema: an account provider is a billing identity,
  * while an agent id is a CLI Kanban can launch. They overlap but are not the same set —
  * "antigravity" is a quota pool with no Kanban CLI, and "cline" is a CLI with no jacked
  * account.
  */
-export const runtimeJackedProviderSchema = z.enum(["claude", "codex", "cursor", "antigravity"]);
-export type RuntimeJackedProvider = z.infer<typeof runtimeJackedProviderSchema>;
+export const RuntimeManagerProviderSchema = z.enum(["claude", "codex", "cursor", "antigravity"]);
+export type RuntimeManagerProvider = z.infer<typeof RuntimeManagerProviderSchema>;
 
-export const runtimeJackedAccountSchema = z.object({
+export const RuntimeManagerAccountSchema = z.object({
 	id: z.number().int(),
-	provider: runtimeJackedProviderSchema,
+	provider: RuntimeManagerProviderSchema,
 	email: z.string(),
 	displayName: z.string().nullable(),
 	organizationName: z.string().nullable(),
@@ -542,19 +554,19 @@ export const runtimeJackedAccountSchema = z.object({
 	/** Last credential/usage error from jacked, when the seat needs attention. */
 	lastError: z.string().nullable(),
 });
-export type RuntimeJackedAccount = z.infer<typeof runtimeJackedAccountSchema>;
+export type RuntimeManagerAccount = z.infer<typeof RuntimeManagerAccountSchema>;
 
-export const runtimeJackedFeatureCategorySchema = z.enum(["agents", "commands", "hooks", "knowledge"]);
-export type RuntimeJackedFeatureCategory = z.infer<typeof runtimeJackedFeatureCategorySchema>;
+export const RuntimeManagerFeatureCategorySchema = z.enum(["agents", "commands", "hooks", "knowledge"]);
+export type RuntimeManagerFeatureCategory = z.infer<typeof RuntimeManagerFeatureCategorySchema>;
 
-export const runtimeJackedFeatureSchema = z.object({
-	category: runtimeJackedFeatureCategorySchema,
+export const RuntimeManagerFeatureSchema = z.object({
+	category: RuntimeManagerFeatureCategorySchema,
 	name: z.string(),
 	displayName: z.string(),
 	description: z.string(),
 	installed: z.boolean(),
 });
-export type RuntimeJackedFeature = z.infer<typeof runtimeJackedFeatureSchema>;
+export type RuntimeManagerFeature = z.infer<typeof RuntimeManagerFeatureSchema>;
 
 /**
  * A curated skill bundle jacked can install from an upstream repository.
@@ -564,7 +576,7 @@ export type RuntimeJackedFeature = z.infer<typeof runtimeJackedFeatureSchema>;
  * `enabled` is the effective intent (an explicit user decision, or the registry
  * default when they never chose), which can disagree with what is on disk.
  */
-export const runtimeJackedPackSchema = z.object({
+export const RuntimeManagerPackSchema = z.object({
 	name: z.string(),
 	displayName: z.string(),
 	description: z.string(),
@@ -577,40 +589,40 @@ export const runtimeJackedPackSchema = z.object({
 	/** True when the user has explicitly toggled this pack (vs. inheriting the default). */
 	explicit: z.boolean(),
 });
-export type RuntimeJackedPack = z.infer<typeof runtimeJackedPackSchema>;
+export type RuntimeManagerPack = z.infer<typeof RuntimeManagerPackSchema>;
 
-export const runtimeJackedPacksSchema = z.object({
-	packs: z.array(runtimeJackedPackSchema),
+export const RuntimeManagerPacksSchema = z.object({
+	packs: z.array(RuntimeManagerPackSchema),
 	/** Pack installs shell out to npx; false means every toggle will fail. */
 	npxAvailable: z.boolean(),
 });
-export type RuntimeJackedPacks = z.infer<typeof runtimeJackedPacksSchema>;
+export type RuntimeManagerPacks = z.infer<typeof RuntimeManagerPacksSchema>;
 
-export const runtimeJackedPackToggleRequestSchema = z.object({
+export const RuntimeManagerPackToggleRequestSchema = z.object({
 	name: z.string().min(1),
 	enabled: z.boolean(),
 });
-export type RuntimeJackedPackToggleRequest = z.infer<typeof runtimeJackedPackToggleRequestSchema>;
+export type RuntimeManagerPackToggleRequest = z.infer<typeof RuntimeManagerPackToggleRequestSchema>;
 
-export const runtimeJackedSwapSchema = z.object({
+export const RuntimeManagerSwapSchema = z.object({
 	at: z.number(),
 	fromEmail: z.string().nullable(),
 	toEmail: z.string().nullable(),
 	reason: z.string().nullable(),
 });
-export type RuntimeJackedSwap = z.infer<typeof runtimeJackedSwapSchema>;
+export type RuntimeManagerSwap = z.infer<typeof RuntimeManagerSwapSchema>;
 
-export const runtimeJackedSnapshotSchema = z.object({
+export const RuntimeManagerSnapshotSchema = z.object({
 	version: z.string().nullable(),
-	accounts: z.array(runtimeJackedAccountSchema),
+	accounts: z.array(RuntimeManagerAccountSchema),
 	activeAccountId: z.number().int().nullable(),
 	/** Highest pressure across all accounts, which is what dims the office. */
 	pressure: z.number().min(0).max(1),
 	/** ISO timestamp while auto-swap is paused, null when it is running. */
 	swapPausedUntil: z.string().nullable(),
 	autoSwapEnabled: z.boolean(),
-	features: z.array(runtimeJackedFeatureSchema),
-	latestSwap: runtimeJackedSwapSchema.nullable(),
+	features: z.array(RuntimeManagerFeatureSchema),
+	latestSwap: RuntimeManagerSwapSchema.nullable(),
 	lessonsActive: z.number().int().nonnegative().nullable(),
 	fetchedAt: z.number(),
 	/**
@@ -621,80 +633,86 @@ export const runtimeJackedSnapshotSchema = z.object({
 	/** Wall-clock of the last successful fetch; equals fetchedAt when fresh. */
 	lastSuccessAt: z.number().optional(),
 });
-export type RuntimeJackedSnapshot = z.infer<typeof runtimeJackedSnapshotSchema>;
+export type RuntimeManagerSnapshot = z.infer<typeof RuntimeManagerSnapshotSchema>;
 
 /**
  * Null only when jacked has never been reached (or monitor was reset).
  * After a successful fetch, transient outages keep the last snapshot with stale=true.
  * Jacked is never a hard dependency for board or office rendering.
  */
-export const runtimeJackedStateSchema = runtimeJackedSnapshotSchema.nullable();
-export type RuntimeJackedState = z.infer<typeof runtimeJackedStateSchema>;
+export const RuntimeManagerStateSchema = RuntimeManagerSnapshotSchema.nullable();
+export type RuntimeManagerState = z.infer<typeof RuntimeManagerStateSchema>;
 
-export const runtimeStateStreamJackedMessageSchema = z.object({
-	type: z.literal("jacked_state_updated"),
-	jacked: runtimeJackedStateSchema,
+export const RuntimeStateStreamManagerMessageSchema = z.object({
+	type: z.literal("manager_state_updated"),
+	manager: RuntimeManagerStateSchema,
 });
-export type RuntimeStateStreamJackedMessage = z.infer<typeof runtimeStateStreamJackedMessageSchema>;
+export type RuntimeStateStreamManagerMessage = z.infer<typeof RuntimeStateStreamManagerMessageSchema>;
 
-export const runtimeJackedFeatureToggleRequestSchema = z.object({
-	category: runtimeJackedFeatureCategorySchema,
+/** @deprecated Read-only alias for one release; normalized to manager_state_updated. */
+export const runtimeStateStreamJackedLegacyMessageSchema = z.object({
+	type: z.literal("jacked_state_updated"),
+	jacked: RuntimeManagerStateSchema,
+});
+
+export const RuntimeManagerFeatureToggleRequestSchema = z.object({
+	category: RuntimeManagerFeatureCategorySchema,
 	name: z.string().min(1),
 	enabled: z.boolean(),
 });
-export type RuntimeJackedFeatureToggleRequest = z.infer<typeof runtimeJackedFeatureToggleRequestSchema>;
+export type RuntimeManagerFeatureToggleRequest = z.infer<typeof RuntimeManagerFeatureToggleRequestSchema>;
 
-export const runtimeJackedMutationResponseSchema = z.object({
+export const RuntimeManagerMutationResponseSchema = z.object({
 	ok: z.boolean(),
 	error: z.string().optional(),
 });
-export type RuntimeJackedMutationResponse = z.infer<typeof runtimeJackedMutationResponseSchema>;
+export type RuntimeManagerMutationResponse = z.infer<typeof RuntimeManagerMutationResponseSchema>;
 
-export const runtimeJackedSwapPauseRequestSchema = z.object({
+export const RuntimeManagerSwapPauseRequestSchema = z.object({
 	minutes: z.number().int().min(1).max(1440),
 });
-export type RuntimeJackedSwapPauseRequest = z.infer<typeof runtimeJackedSwapPauseRequestSchema>;
+export type RuntimeManagerSwapPauseRequest = z.infer<typeof RuntimeManagerSwapPauseRequestSchema>;
 
-export const runtimeJackedAccountIdRequestSchema = z.object({
+export const RuntimeManagerAccountIdRequestSchema = z.object({
 	accountId: z.number().int().positive(),
 });
-export type RuntimeJackedAccountIdRequest = z.infer<typeof runtimeJackedAccountIdRequestSchema>;
+export type RuntimeManagerAccountIdRequest = z.infer<typeof RuntimeManagerAccountIdRequestSchema>;
 
 /** Enable/disable an account, relabel it, or set donate limit (jacked PATCH /api/auth/accounts/{id}). */
-export const runtimeJackedAccountUpdateRequestSchema = z.object({
+export const RuntimeManagerAccountUpdateRequestSchema = z.object({
 	accountId: z.number().int().positive(),
 	isActive: z.boolean().optional(),
 	displayName: z.string().max(200).nullable().optional(),
 	donateLimitPercent: z.number().int().min(0).max(100).optional(),
 });
-export type RuntimeJackedAccountUpdateRequest = z.infer<typeof runtimeJackedAccountUpdateRequestSchema>;
+export type RuntimeManagerAccountUpdateRequest = z.infer<typeof RuntimeManagerAccountUpdateRequestSchema>;
 
 /** Re-run OAuth against an existing account row (jacked POST /api/auth/accounts/{id}/reauth). */
-export const runtimeJackedAccountReauthRequestSchema = z.object({
+export const RuntimeManagerAccountReauthRequestSchema = z.object({
 	accountId: z.number().int().positive(),
 	/** True when the browser cannot reach jacked's loopback callback (paste-code mode). */
 	remote: z.boolean().optional(),
 });
-export type RuntimeJackedAccountReauthRequest = z.infer<typeof runtimeJackedAccountReauthRequestSchema>;
+export type RuntimeManagerAccountReauthRequest = z.infer<typeof RuntimeManagerAccountReauthRequestSchema>;
 
 /**
  * Authorize independent Claude Code tokens on an existing account without
  * touching its primary credentials (jacked POST /api/auth/accounts/{id}/authorize-cc).
  */
-export const runtimeJackedAccountAuthorizeCcRequestSchema = z.object({
+export const RuntimeManagerAccountAuthorizeCcRequestSchema = z.object({
 	accountId: z.number().int().positive(),
 	/** True when the browser cannot reach jacked's loopback callback (paste-code mode). */
 	remote: z.boolean().optional(),
 });
-export type RuntimeJackedAccountAuthorizeCcRequest = z.infer<
-	typeof runtimeJackedAccountAuthorizeCcRequestSchema
+export type RuntimeManagerAccountAuthorizeCcRequest = z.infer<
+	typeof RuntimeManagerAccountAuthorizeCcRequestSchema
 >;
 
 /** Auto-swap priority order, first entry highest (jacked POST /api/auth/accounts/reorder). */
-export const runtimeJackedAccountReorderRequestSchema = z.object({
+export const RuntimeManagerAccountReorderRequestSchema = z.object({
 	accountIds: z.array(z.number().int().positive()).min(1),
 });
-export type RuntimeJackedAccountReorderRequest = z.infer<typeof runtimeJackedAccountReorderRequestSchema>;
+export type RuntimeManagerAccountReorderRequest = z.infer<typeof RuntimeManagerAccountReorderRequestSchema>;
 
 /**
  * One live Claude Code session attributed to an account.
@@ -702,7 +720,7 @@ export type RuntimeJackedAccountReorderRequest = z.infer<typeof runtimeJackedAcc
  * jacked derives these from its session-account hook, which reads CLAUDE_CONFIG_DIR —
  * so a task pinned to an account shows up here without extra runtime bookkeeping.
  */
-export const runtimeJackedSessionSchema = z.object({
+export const RuntimeManagerSessionSchema = z.object({
 	accountId: z.number().int(),
 	sessionId: z.string(),
 	repoPath: z.string().nullable(),
@@ -710,38 +728,38 @@ export const runtimeJackedSessionSchema = z.object({
 	isSubagent: z.boolean(),
 	agentType: z.string().nullable(),
 });
-export type RuntimeJackedSession = z.infer<typeof runtimeJackedSessionSchema>;
+export type RuntimeManagerSession = z.infer<typeof RuntimeManagerSessionSchema>;
 
-export const runtimeJackedSessionsSchema = z.object({
-	sessions: z.array(runtimeJackedSessionSchema),
+export const RuntimeManagerSessionsSchema = z.object({
+	sessions: z.array(RuntimeManagerSessionSchema),
 });
-export type RuntimeJackedSessions = z.infer<typeof runtimeJackedSessionsSchema>;
+export type RuntimeManagerSessions = z.infer<typeof RuntimeManagerSessionsSchema>;
 
 /**
  * Per-account credential directory used as CLAUDE_CONFIG_DIR, so several tasks can
  * run Claude Code on different accounts at the same time.
  */
-export const runtimeJackedAccountLaunchDirSchema = z.object({
+export const RuntimeManagerAccountLaunchDirSchema = z.object({
 	accountId: z.number().int().positive(),
 	configDir: z.string(),
 });
-export type RuntimeJackedAccountLaunchDir = z.infer<typeof runtimeJackedAccountLaunchDirSchema>;
+export type RuntimeManagerAccountLaunchDir = z.infer<typeof RuntimeManagerAccountLaunchDirSchema>;
 
 /** Per-task Cursor API key for CURSOR_API_KEY when a board task pins a Cursor account. */
-export const runtimeJackedAccountLaunchCredentialSchema = z.object({
+export const RuntimeManagerAccountLaunchCredentialSchema = z.object({
 	accountId: z.number().int().positive(),
 	apiKey: z.string(),
 });
-export type RuntimeJackedAccountLaunchCredential = z.infer<typeof runtimeJackedAccountLaunchCredentialSchema>;
+export type RuntimeManagerAccountLaunchCredential = z.infer<typeof RuntimeManagerAccountLaunchCredentialSchema>;
 
-export const runtimeJackedInstalledComponentSchema = z.object({
+export const RuntimeManagerInstalledComponentSchema = z.object({
 	name: z.string(),
 	displayName: z.string(),
 	installed: z.boolean(),
 });
-export type RuntimeJackedInstalledComponent = z.infer<typeof runtimeJackedInstalledComponentSchema>;
+export type RuntimeManagerInstalledComponent = z.infer<typeof RuntimeManagerInstalledComponentSchema>;
 
-export const runtimeJackedProjectActivitySchema = z.object({
+export const RuntimeManagerProjectActivitySchema = z.object({
 	repoPath: z.string(),
 	repoName: z.string(),
 	commandsRun: z.number().int().nonnegative(),
@@ -752,50 +770,50 @@ export const runtimeJackedProjectActivitySchema = z.object({
 	hasLessons: z.boolean(),
 	lessonsCount: z.number().int().nonnegative(),
 });
-export type RuntimeJackedProjectActivity = z.infer<typeof runtimeJackedProjectActivitySchema>;
+export type RuntimeManagerProjectActivity = z.infer<typeof RuntimeManagerProjectActivitySchema>;
 
-export const runtimeJackedInstallationsOverviewSchema = z.object({
+export const RuntimeManagerInstallationsOverviewSchema = z.object({
 	version: z.string(),
-	agents: z.array(runtimeJackedInstalledComponentSchema),
-	commands: z.array(runtimeJackedInstalledComponentSchema),
-	hooks: z.array(runtimeJackedInstalledComponentSchema),
-	knowledge: z.array(runtimeJackedInstalledComponentSchema),
-	skills: z.array(runtimeJackedInstalledComponentSchema),
-	projects: z.array(runtimeJackedProjectActivitySchema),
+	agents: z.array(RuntimeManagerInstalledComponentSchema),
+	commands: z.array(RuntimeManagerInstalledComponentSchema),
+	hooks: z.array(RuntimeManagerInstalledComponentSchema),
+	knowledge: z.array(RuntimeManagerInstalledComponentSchema),
+	skills: z.array(RuntimeManagerInstalledComponentSchema),
+	projects: z.array(RuntimeManagerProjectActivitySchema),
 	totalProjects: z.number().int().nonnegative(),
 });
-export type RuntimeJackedInstallationsOverview = z.infer<typeof runtimeJackedInstallationsOverviewSchema>;
+export type RuntimeManagerInstallationsOverview = z.infer<typeof RuntimeManagerInstallationsOverviewSchema>;
 
-export const runtimeJackedServerLogEntrySchema = z.object({
+export const RuntimeManagerServerLogEntrySchema = z.object({
 	timestamp: z.string().nullable(),
 	level: z.string(),
 	logger: z.string().nullable(),
 	message: z.string(),
 });
-export type RuntimeJackedServerLogEntry = z.infer<typeof runtimeJackedServerLogEntrySchema>;
+export type RuntimeManagerServerLogEntry = z.infer<typeof RuntimeManagerServerLogEntrySchema>;
 
-export const runtimeJackedServerLogsSchema = z.object({
-	entries: z.array(runtimeJackedServerLogEntrySchema),
+export const RuntimeManagerServerLogsSchema = z.object({
+	entries: z.array(RuntimeManagerServerLogEntrySchema),
 	bufferSize: z.number().int().nonnegative().nullable(),
 });
-export type RuntimeJackedServerLogs = z.infer<typeof runtimeJackedServerLogsSchema>;
+export type RuntimeManagerServerLogs = z.infer<typeof RuntimeManagerServerLogsSchema>;
 
-export const runtimeJackedHookLogEntrySchema = z.object({
+export const RuntimeManagerHookLogEntrySchema = z.object({
 	id: z.number().int().nullable(),
 	hookName: z.string().nullable(),
 	status: z.string().nullable(),
 	createdAt: z.string().nullable(),
 	detail: z.string().nullable(),
 });
-export type RuntimeJackedHookLogEntry = z.infer<typeof runtimeJackedHookLogEntrySchema>;
+export type RuntimeManagerHookLogEntry = z.infer<typeof RuntimeManagerHookLogEntrySchema>;
 
-export const runtimeJackedHookLogsSchema = z.object({
-	logs: z.array(runtimeJackedHookLogEntrySchema),
+export const RuntimeManagerHookLogsSchema = z.object({
+	logs: z.array(RuntimeManagerHookLogEntrySchema),
 	total: z.number().int().nonnegative(),
 });
-export type RuntimeJackedHookLogs = z.infer<typeof runtimeJackedHookLogsSchema>;
+export type RuntimeManagerHookLogs = z.infer<typeof RuntimeManagerHookLogsSchema>;
 
-export const runtimeJackedUsageOverviewSchema = z.object({
+export const RuntimeManagerUsageOverviewSchema = z.object({
 	days: z.number().int().positive(),
 	totalTokens: z.number().nullable(),
 	totalCostUsd: z.number().nullable(),
@@ -806,45 +824,45 @@ export const runtimeJackedUsageOverviewSchema = z.object({
 	ready: z.boolean(),
 	error: z.string().nullable(),
 });
-export type RuntimeJackedUsageOverview = z.infer<typeof runtimeJackedUsageOverviewSchema>;
+export type RuntimeManagerUsageOverview = z.infer<typeof RuntimeManagerUsageOverviewSchema>;
 
-export const runtimeJackedSwapLogEntrySchema = z.object({
+export const RuntimeManagerSwapLogEntrySchema = z.object({
 	at: z.number(),
 	fromEmail: z.string().nullable(),
 	toEmail: z.string().nullable(),
 	reason: z.string().nullable(),
 });
-export type RuntimeJackedSwapLogEntry = z.infer<typeof runtimeJackedSwapLogEntrySchema>;
+export type RuntimeManagerSwapLogEntry = z.infer<typeof RuntimeManagerSwapLogEntrySchema>;
 
-export const runtimeJackedSwapLogSchema = z.object({
-	swaps: z.array(runtimeJackedSwapLogEntrySchema),
+export const RuntimeManagerSwapLogSchema = z.object({
+	swaps: z.array(RuntimeManagerSwapLogEntrySchema),
 });
-export type RuntimeJackedSwapLog = z.infer<typeof runtimeJackedSwapLogSchema>;
+export type RuntimeManagerSwapLog = z.infer<typeof RuntimeManagerSwapLogSchema>;
 
 /**
  * Start Claude OAuth via jacked POST /api/auth/accounts/add?provider=claude.
  * `remote: true` forces manual authorization-code paste (no localhost callback).
  */
-export const runtimeJackedOAuthStartRequestSchema = z.object({
+export const RuntimeManagerOAuthStartRequestSchema = z.object({
 	remote: z.boolean().optional(),
 });
-export type RuntimeJackedOAuthStartRequest = z.infer<typeof runtimeJackedOAuthStartRequestSchema>;
+export type RuntimeManagerOAuthStartRequest = z.infer<typeof RuntimeManagerOAuthStartRequestSchema>;
 
-export const runtimeJackedOAuthStartResponseSchema = z.object({
+export const RuntimeManagerOAuthStartResponseSchema = z.object({
 	ok: z.boolean(),
 	flowId: z.string().optional(),
 	authUrl: z.string().optional(),
 	mode: z.enum(["browser", "manual"]).optional(),
 	error: z.string().optional(),
 });
-export type RuntimeJackedOAuthStartResponse = z.infer<typeof runtimeJackedOAuthStartResponseSchema>;
+export type RuntimeManagerOAuthStartResponse = z.infer<typeof RuntimeManagerOAuthStartResponseSchema>;
 
-export const runtimeJackedOAuthFlowStatusRequestSchema = z.object({
+export const RuntimeManagerOAuthFlowStatusRequestSchema = z.object({
 	flowId: z.string().min(1),
 });
-export type RuntimeJackedOAuthFlowStatusRequest = z.infer<typeof runtimeJackedOAuthFlowStatusRequestSchema>;
+export type RuntimeManagerOAuthFlowStatusRequest = z.infer<typeof RuntimeManagerOAuthFlowStatusRequestSchema>;
 
-export const runtimeJackedOAuthFlowStatusSchema = z.object({
+export const RuntimeManagerOAuthFlowStatusSchema = z.object({
 	status: z.enum(["pending", "completed", "error", "not_found"]),
 	flowId: z.string(),
 	accountId: z.number().int().nullable().optional(),
@@ -854,13 +872,13 @@ export const runtimeJackedOAuthFlowStatusSchema = z.object({
 	mode: z.string().nullable().optional(),
 	submitError: z.string().nullable().optional(),
 });
-export type RuntimeJackedOAuthFlowStatus = z.infer<typeof runtimeJackedOAuthFlowStatusSchema>;
+export type RuntimeManagerOAuthFlowStatus = z.infer<typeof RuntimeManagerOAuthFlowStatusSchema>;
 
-export const runtimeJackedOAuthSubmitCodeRequestSchema = z.object({
+export const RuntimeManagerOAuthSubmitCodeRequestSchema = z.object({
 	flowId: z.string().min(1),
 	code: z.string().min(1),
 });
-export type RuntimeJackedOAuthSubmitCodeRequest = z.infer<typeof runtimeJackedOAuthSubmitCodeRequestSchema>;
+export type RuntimeManagerOAuthSubmitCodeRequest = z.infer<typeof RuntimeManagerOAuthSubmitCodeRequestSchema>;
 
 export const runtimeStateStreamMessageSchema = z.discriminatedUnion("type", [
 	runtimeStateStreamSnapshotMessageSchema,
@@ -873,7 +891,7 @@ export const runtimeStateStreamMessageSchema = z.discriminatedUnion("type", [
 	runtimeStateStreamTaskChatClearedMessageSchema,
 	runtimeStateStreamMcpAuthUpdatedMessageSchema,
 	runtimeStateStreamClineSessionContextUpdatedMessageSchema,
-	runtimeStateStreamJackedMessageSchema,
+	RuntimeStateStreamManagerMessageSchema,
 	runtimeStateStreamErrorMessageSchema,
 ]);
 export type RuntimeStateStreamMessage = z.infer<typeof runtimeStateStreamMessageSchema>;
@@ -1393,7 +1411,7 @@ export const runtimeTaskSessionStartRequestSchema = z.object({
 	 * CLAUDE_CONFIG_DIR at that account's credential dir, so tasks pinned to
 	 * different accounts run concurrently. Omit to follow jacked's global auto-swap.
 	 */
-	jackedAccountId: z.number().int().positive().optional(),
+	managerAccountId: z.number().int().positive().optional(),
 });
 export type RuntimeTaskSessionStartRequest = z.infer<typeof runtimeTaskSessionStartRequestSchema>;
 

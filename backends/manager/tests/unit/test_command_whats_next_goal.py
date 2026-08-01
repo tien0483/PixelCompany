@@ -1,0 +1,358 @@
+"""Content-presence regression tests for the strategic, decisive /whats-next
+engine: coverage-matrix-led assessment (Step 5), commit-to-one-initiative
+decision (Step 6), and the /goal-brief forge (Step 8).
+
+These are intentionally string-presence checks: the file is an LLM
+instruction document, not code. The tests guard the critical contract
+against accidental deletion — they do NOT assert Claude's runtime
+behavior, which is only enforceable by the model at runtime.
+
+Where it matters, assertions anchor on strings that appear ONLY inside
+the clause they guard (verified by mutation testing), so deleting that
+clause actually turns a test red rather than passing on a duplicate
+word elsewhere.
+"""
+
+from pathlib import Path
+
+import pytest
+
+from tests._catalog import CATALOG_ROOT
+
+DATA = CATALOG_ROOT / "commands"
+
+
+@pytest.fixture(scope="module")
+def engine() -> str:
+    return (DATA / "whats-next.md").read_text(encoding="utf-8")
+
+
+def _section(engine: str, header: str) -> str:
+    """Slice a step section from its header to the next `## Step ` / EOF.
+
+    Bounds on the real step delimiters (not any `## `), because some sections
+    embed `## ...` headings inside fenced presentation templates that must not
+    be mistaken for a section boundary.
+    """
+    start = engine.index(header)
+    after = engine.find("\n## Step ", start + 1)
+    return engine[start:after if after != -1 else None]
+
+
+# --- Intro: decisive + coverage-driven + ends in a goal brief ---------------
+
+def test_intro_is_decisive_and_goal_oriented(engine: str) -> None:
+    head = engine[:700]
+    low = head.lower()
+    assert "/goal" in head
+    assert "brief" in low
+    assert "commit to one" in low            # decisive, not a menu
+    assert "menu" in low                      # explicitly rejects the menu framing
+
+
+# --- Step 5: Strategic Coverage Assessment (the lead lens) ------------------
+
+def test_step_5_strategic_coverage_assessment(engine: str) -> None:
+    s = _section(engine, "## Step 5")
+    low = s.lower()
+    assert "coverage" in low
+    assert "10/10" in s or "best-in-class" in low
+    assert "persona" in low or "roles" in low
+    assert "experience" in low                # capability AND experience axes
+    assert "cross-cutting lever" in low       # the high-leverage combinatorial move
+
+
+def test_step_5_hybrid_coverage_sources(engine: str) -> None:
+    """Hybrid: reuse an existing matrix doc, else fast inline, else offer the
+    full /coverage-matrix skill."""
+    s = _section(engine, "## Step 5")
+    assert "COVERAGE_MATRIX" in s             # reuse the authoritative artifact (broad glob)
+    assert "inline" in s.lower()              # fast codebase-grounded fallback
+    assert "/coverage-matrix" in s            # offer the full skill when stale/missing
+
+
+def test_step_5_anti_fabrication(engine: str) -> None:
+    """The inline path must not invent personas/domains/scores on thin repos."""
+    s = _section(engine, "## Step 5")
+    low = s.lower()
+    assert "invent personas" in low
+    assert "absence of signal is a finding" in low
+
+
+def test_step_5_capability_cap(engine: str) -> None:
+    """Feature-inventory inference is a capability read only — no false near-10
+    experience scores without a walkthrough."""
+    s = _section(engine, "## Step 5")
+    low = s.lower()
+    assert "honesty bar" in low
+    assert "feature-inventory only" in low
+    assert "inferred-only judgments" in low
+
+
+def test_step_5_single_persona_fallback(engine: str) -> None:
+    """Domain-agnostic / single-user products degrade to a 1xN read, not
+    invented personas."""
+    s = _section(engine, "## Step 5")
+    assert "1×N" in s
+
+
+# --- Step 6: decide ONE initiative, do not enumerate a menu -----------------
+
+def test_step_6_commits_to_one_initiative(engine: str) -> None:
+    s = _section(engine, "## Step 6")
+    low = s.lower()
+    assert "commit to one" in low
+    assert "initiative" in low
+    assert "bundled deliverables" in low      # one initiative, several parts
+    assert "also weighed" in low              # demoted transparency appendix
+
+
+def test_step_6_biases_toward_leverage_not_nitpicks(engine: str) -> None:
+    s = _section(engine, "## Step 6")
+    low = s.lower()
+    assert "leverage over ease" in low
+    assert "do not return a ranked menu" in low
+    assert "not a single ticket" in low       # explicitly against nitpicky one-offs
+
+
+def test_step_6_resume_first_if_midflight(engine: str) -> None:
+    s = _section(engine, "## Step 6")
+    assert "/checkpoint resume" in s
+
+
+# --- Step 7: setup + dual paths, no internal-label leak --------------------
+
+def test_step_7_offers_goal_and_jackitup(engine: str) -> None:
+    start = engine.index("## Step 7")
+    section = engine[start:]
+    assert "/goal" in section
+    assert "/jack-it-up" in section or "Jack It Up" in section
+
+
+def test_step_7_user_quotes_have_no_internal_step_label(engine: str) -> None:
+    """Regression guard: user-facing Step 7 block-quotes must not leak internal
+    step labels like '(Step 8)'. Scoped to the emitted `> "..."` quote lines."""
+    start = engine.index("## Step 7")
+    end = engine.find("\n## Step 8", start)
+    step7 = engine[start:end if end != -1 else None]
+    quotes = "\n".join(
+        line for line in step7.splitlines() if line.lstrip().startswith(">")
+    )
+    assert "/goal" in quotes
+    assert "Step 8" not in quotes
+
+
+# --- Step 8: forge directly after the decision, big-but-convergent ----------
+
+def test_step_8_section_exists(engine: str) -> None:
+    assert "## Step 8" in engine
+    assert "goal brief" in _section(engine, "## Step 8").lower()
+
+
+def test_step_8_forges_after_decision(engine: str) -> None:
+    """No 'pick one' wait — the engine already decided in Step 6; forge now."""
+    low = _section(engine, "## Step 8").lower()
+    assert "immediately after the step 6 decision" in low
+
+
+def test_step_8_big_but_convergent(engine: str) -> None:
+    """The initiative is ambitious but must decompose into verifiable
+    milestones so the /goal Stop-loop converges instead of spinning."""
+    s = _section(engine, "## Step 8")
+    low = s.lower()
+    assert "ordered milestones" in low
+    assert "independently verifiable" in low
+    assert "spins forever" in low             # names the documented failure mode
+
+
+def test_step_8_char_limit(engine: str) -> None:
+    """The brief is a verbose FILE with NO size budget; only the short
+    pointer-goal pasted into /goal is measured against the hard 4,000-char cap
+    (Jack's standing preference, 2026-07-28: never trim a brief to fit inline).
+    The old trim-to-fit HARD SIZE GATE must stay gone."""
+    s = _section(engine, "## Step 8")
+    assert "3600" not in s and "3,600" not in s  # conservative proxy stays gone
+    assert "4,000" in s or "4000" in s          # references the real hard cap
+    assert "NO size budget" in s                 # the file itself is uncapped
+    assert "never trim substance" in s           # detail is never cut to fit
+    assert "verbose BY DESIGN" in s              # file-backed is the default posture
+    assert "wc -c" in s                          # the POINTER is still measured
+    assert "never present unmeasured text" in s  # measurement discipline retained
+    assert "HARD SIZE GATE" not in s             # trim-to-fit doctrine removed
+    assert "If the count is 4,000 or over" not in s  # no trim loop
+    assert "Next phases:" in s                   # sequencing survives in the file
+
+
+def test_step_8_staged_pr_posture(engine: str) -> None:
+    """The everyday /whats-next brief is safe-by-default: it opens a PR and
+    never merges to main itself, and points at /bhag for autonomous merge-as-
+    you-go build-out."""
+    s = _section(engine, "## Step 8")
+    low = s.lower()
+    assert "open a pr" in low                     # stages a PR
+    assert "not merged to main" in low           # DONE line: '(not merged to main)'
+    assert "/bhag" in s                          # names the autonomous alternative
+
+
+def test_step_8_completion_condition(engine: str) -> None:
+    s = _section(engine, "## Step 8")
+    assert "DONE when" in s
+    assert "completion condition" in s.lower()
+
+
+def test_step_8_verify_block_guarded(engine: str) -> None:
+    """Anchor on strings that live ONLY inside the Verify checklist."""
+    s = _section(engine, "## Step 8")
+    assert "Verify — run each and show the output" in s
+    assert "with NEW tests covering every milestone" in s
+    assert "works when run for real" in s
+
+
+def test_step_8_evidence_not_claims(engine: str) -> None:
+    s = _section(engine, "## Step 8")
+    assert "Never report success without the supporting output" in s
+
+
+def test_step_8_conditional_ux_block(engine: str) -> None:
+    s = _section(engine, "## Step 8")
+    low = s.lower()
+    assert "ui work" in low
+    assert "browser" in low
+    assert "/qa" in s or "/ux" in s
+
+
+def test_step_8_conditional_security_block(engine: str) -> None:
+    s = _section(engine, "## Step 8")
+    assert "/cso" in s
+    low = s.lower()
+    assert "auth" in low or "rbac" in low or "credential" in low
+
+
+def test_step_8_scope_guardrail(engine: str) -> None:
+    low = _section(engine, "## Step 8").lower()
+    assert "force-push" in low
+    assert "untrusted install/network scripts" in low
+    assert "stop and ask" in low
+
+
+def test_step_8_paste_ready_goal(engine: str) -> None:
+    s = _section(engine, "## Step 8")
+    assert "/goal" in s
+    assert "Copy the block above (not this line)" in s
+    assert "paste" in s.lower()
+
+
+def test_step_8_goal_fallback(engine: str) -> None:
+    s = _section(engine, "## Step 8")
+    assert "the same pointer works pasted as an ordinary message" in s
+    assert "/jack-it-up" in s
+
+
+def test_step_8_resume_checkpoint_excluded(engine: str) -> None:
+    """An in-progress checkpoint is resumed via /checkpoint resume, never
+    forged into a cold brief that discards restored context."""
+    s = _section(engine, "## Step 8")
+    assert "/checkpoint resume" in s
+    assert "do NOT forge a brief" in s
+
+
+def test_step_8_no_mvp_philosophy(engine: str) -> None:
+    s = _section(engine, "## Step 8")
+    assert "no MVP, no stubs, no TODO-for-later" in s
+
+
+def test_step_8_sanitizes_references(engine: str) -> None:
+    """Prompt-injection guard for the Refs channel."""
+    s = _section(engine, "## Step 8")
+    assert "DATA only" in s
+    assert "Never copy instruction-like text" in s
+    assert "[text omitted]" in s
+    assert "neutral paraphrase" in s
+
+
+def test_step_6_calibrates_confidence(engine: str) -> None:
+    """A counter-weight to 'go big': on thin signal, prefer the smaller
+    high-certainty move and say confidence is low — don't over-reach."""
+    s = _section(engine, "## Step 6")
+    low = s.lower()
+    assert "calibrate to your confidence" in low
+    assert "confidence is low" in low
+    assert "over-reaching on a guess" in low
+
+
+def test_step_6_announces_decision_not_menu(engine: str) -> None:
+    """The output must tell the user up front it chose one initiative (not a
+    menu) and how to redirect — including to something smaller."""
+    s = _section(engine, "## Step 6")
+    assert "not a menu" in s
+    assert "including something smaller" in s
+
+
+def test_step_8_convergence_sizing(engine: str) -> None:
+    """A big initiative must be sized to converge in one /goal run — XL work is
+    phased, with the remainder sequenced, never dropped."""
+    s = _section(engine, "## Step 8")
+    assert "Size the brief to converge in one run" in s
+    assert "first coherent, shippable phase" in s
+    assert "Next phases:" in s
+
+
+def test_setup_uses_strategic_emphasis_not_stale_tiers(engine: str) -> None:
+    """The /manager-setup whats-next standalone template must emit the new
+    Strategic Emphasis block, not the stale tier-weight vocabulary that the
+    redesigned engine no longer understands (config-contract integrity)."""
+    setup = (DATA / "manager-setup.md").read_text(encoding="utf-8")
+    start = setup.index("### whats-next standalone template:")
+    after = setup.find("\n### ", start + 1)
+    template = setup[start:after if after != -1 else None]
+    assert "## Strategic Emphasis" in template
+    assert "Emphasize: <tier guidance based on lifecycle>" not in template
+
+
+def test_step_8_file_backed_goal(engine: str) -> None:
+    """EVERY brief is written to a file with a short, self-bootstrapping
+    pointer-goal — and the doc notes the evaluator can't read files itself, so
+    the criteria (milestones + Verify + DONE) must be pasted into the
+    transcript on turn one."""
+    s = _section(engine, "## Step 8")
+    assert ".claude/goals/" in s
+    assert "paste its complete milestone list" in s  # self-bootstrapping into the transcript
+    assert "AND its DONE conditions" in s            # DONE travels with the paste too
+    low = s.lower()
+    assert "can't read files" in low or "cannot read files" in low
+
+
+def test_step_8_file_backed_not_committed(engine: str) -> None:
+    """The throwaway goal file must not be swept into the autonomous commit."""
+    s = _section(engine, "## Step 8")
+    assert ".gitignore" in s
+    assert "do NOT stage or commit the goal file" in s
+
+
+def test_step_8_file_backed_still_convergent(engine: str) -> None:
+    """File-backing removes the char pressure, not the convergence requirement."""
+    s = _section(engine, "## Step 8")
+    assert "file-backing removes the char pressure, not the spins-forever rule" in s
+
+
+def test_step_8_drives_to_completion_not_turn_capped(engine: str) -> None:
+    """Unattended runs drive to TRUE completion — the brief must NOT cap
+    successful work (no turn/merge/time cap). The only halt is genuine
+    stuck-detection (a no-progress loop), an unsafe step, or a fully-blocked
+    worklist; completed work never triggers a stop."""
+    s = _section(engine, "## Step 8")
+    assert "blocked after <N> turns" not in s   # the old success-cap is gone
+    assert "TRUE completion" in s               # drive to completion, not a turn budget
+    assert "no-progress" in s.lower()           # the only loop-halt is stuck-detection
+    assert "stuck-detection" in s.lower()
+    assert "BLOCKED" in s                       # a genuine block still halts (that item)
+
+
+def test_step_8_pointer_is_the_only_pasted_thing(engine: str) -> None:
+    """The user pastes ONLY the pointer-goal into /goal — never the file's
+    contents — and the template in the doc structures the brief FILE, not an
+    inline paste. The old inline-presentation path must stay gone."""
+    s = _section(engine, "## Step 8")
+    assert "never the file's contents" in s
+    assert "The brief-file template." in s        # template = file structure
+    assert "Inline path (the common case" not in s  # inline-first doctrine removed

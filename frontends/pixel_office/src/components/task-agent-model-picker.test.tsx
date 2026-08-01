@@ -1,8 +1,10 @@
 import { act, useEffect } from "react";
+import type { ReactElement, ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { UseTaskAgentModelPickerResult } from "@/components/task-agent-model-picker";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import type {
 	RuntimeAgentId,
 	RuntimeClineProviderCatalogItem,
@@ -40,6 +42,10 @@ function createTaskClineSettings(settings?: RuntimeTaskClineSettings): RuntimeTa
 
 let container: HTMLDivElement;
 let root: Root;
+
+function renderUi(element: ReactElement | ReactNode): void {
+	root.render(<TooltipProvider>{element}</TooltipProvider>);
+}
 
 beforeEach(() => {
 	container = document.createElement("div");
@@ -82,7 +88,7 @@ describe("useTaskAgentModelPicker – clineProviderOptions", () => {
 			return null;
 		}
 
-		await act(async () => root.render(<Harness />));
+		await act(async () => renderUi(<Harness />));
 		await act(async () => {
 			await new Promise((r) => setTimeout(r, 0));
 		});
@@ -123,7 +129,7 @@ describe("useTaskAgentModelPicker – clineProviderOptions", () => {
 			return null;
 		}
 
-		await act(async () => root.render(<Harness />));
+		await act(async () => renderUi(<Harness />));
 		await act(async () => {
 			await new Promise((r) => setTimeout(r, 0));
 		});
@@ -159,7 +165,7 @@ describe("useTaskAgentModelPicker – clineProviderOptions", () => {
 			return null;
 		}
 
-		await act(async () => root.render(<Harness />));
+		await act(async () => renderUi(<Harness />));
 		await act(async () => {
 			await new Promise((r) => setTimeout(r, 0));
 		});
@@ -198,7 +204,7 @@ describe("useTaskAgentModelPicker – providerDefaultModels", () => {
 			return null;
 		}
 
-		await act(async () => root.render(<Harness />));
+		await act(async () => renderUi(<Harness />));
 		await act(async () => {
 			await new Promise((r) => setTimeout(r, 0));
 		});
@@ -243,7 +249,7 @@ describe("useTaskAgentModelPicker – provider-aware model default label", () =>
 			return null;
 		}
 
-		await act(async () => root.render(<Harness />));
+		await act(async () => renderUi(<Harness />));
 		await act(async () => {
 			await new Promise((r) => setTimeout(r, 0));
 		});
@@ -282,7 +288,7 @@ describe("useTaskAgentModelPicker – provider-aware model default label", () =>
 			return null;
 		}
 
-		await act(async () => root.render(<Harness />));
+		await act(async () => renderUi(<Harness />));
 		await act(async () => {
 			await new Promise((r) => setTimeout(r, 0));
 		});
@@ -323,7 +329,7 @@ describe("useTaskAgentModelPicker – provider-aware model default label", () =>
 			return null;
 		}
 
-		await act(async () => root.render(<Harness />));
+		await act(async () => renderUi(<Harness />));
 		await act(async () => {
 			await new Promise((r) => setTimeout(r, 0));
 		});
@@ -366,7 +372,7 @@ describe("useTaskAgentModelPicker – provider-aware model default label", () =>
 			return null;
 		}
 
-		await act(async () => root.render(<Harness />));
+		await act(async () => renderUi(<Harness />));
 		await act(async () => {
 			await new Promise((r) => setTimeout(r, 0));
 		});
@@ -390,7 +396,7 @@ describe("TaskAgentModelPicker – auto-reset invalid model selection", () => {
 		const { TaskAgentModelPicker } = await import("@/components/task-agent-model-picker");
 
 		await act(async () =>
-			root.render(
+			renderUi(
 				<TaskAgentModelPicker
 					agentId={"cline" as RuntimeAgentId}
 					onAgentIdChange={() => {}}
@@ -428,7 +434,7 @@ describe("TaskAgentModelPicker – auto-reset invalid model selection", () => {
 		const { TaskAgentModelPicker } = await import("@/components/task-agent-model-picker");
 
 		await act(async () =>
-			root.render(
+			renderUi(
 				<TaskAgentModelPicker
 					agentId={"cline" as RuntimeAgentId}
 					onAgentIdChange={() => {}}
@@ -458,7 +464,7 @@ describe("TaskAgentModelPicker – auto-reset invalid model selection", () => {
 		const { TaskAgentModelPicker } = await import("@/components/task-agent-model-picker");
 
 		await act(async () =>
-			root.render(
+			renderUi(
 				<TaskAgentModelPicker
 					agentId={"cline" as RuntimeAgentId}
 					onAgentIdChange={() => {}}
@@ -489,7 +495,7 @@ describe("TaskAgentModelPicker – auto-reset invalid model selection", () => {
 		const { TaskAgentModelPicker } = await import("@/components/task-agent-model-picker");
 
 		await act(async () =>
-			root.render(
+			renderUi(
 				<TaskAgentModelPicker
 					agentId={"cline" as RuntimeAgentId}
 					onAgentIdChange={() => {}}
@@ -519,7 +525,7 @@ describe("TaskAgentModelPicker – inherited default reasoning effort", () => {
 		const { TaskAgentModelPicker } = await import("@/components/task-agent-model-picker");
 
 		await act(async () =>
-			root.render(
+			renderUi(
 				<TaskAgentModelPicker
 					agentId={"cline" as RuntimeAgentId}
 					onAgentIdChange={() => {}}
@@ -546,7 +552,7 @@ describe("TaskAgentModelPicker – inherited default reasoning effort", () => {
 		);
 
 		const settingsTrigger = Array.from(container.querySelectorAll("button")).find((button) =>
-			button.textContent?.includes("Override Agent Settings"),
+			button.textContent?.includes("Cline model settings"),
 		);
 		expect(settingsTrigger).not.toBeUndefined();
 		await act(async () => {
@@ -569,7 +575,7 @@ describe("TaskAgentModelPicker – inherited default reasoning effort", () => {
 
 		const renderPicker = async (providerModels: RuntimeClineProviderModel[]) => {
 			await act(async () =>
-				root.render(
+				renderUi(
 					<TaskAgentModelPicker
 						agentId={"cline" as RuntimeAgentId}
 						onAgentIdChange={() => {}}
@@ -596,7 +602,7 @@ describe("TaskAgentModelPicker – inherited default reasoning effort", () => {
 		await renderPicker([]);
 
 		const settingsTrigger = Array.from(container.querySelectorAll("button")).find((button) =>
-			button.textContent?.includes("Override Agent Settings"),
+			button.textContent?.includes("Cline model settings"),
 		);
 		expect(settingsTrigger).not.toBeUndefined();
 		await act(async () => {
@@ -616,7 +622,7 @@ describe("TaskAgentModelPicker – inherited default reasoning effort", () => {
 		const onClineSettingsChange = vi.fn();
 
 		await act(async () =>
-			root.render(
+			renderUi(
 				<TaskAgentModelPicker
 					agentId={"cline" as RuntimeAgentId}
 					onAgentIdChange={() => {}}
@@ -643,7 +649,7 @@ describe("TaskAgentModelPicker – inherited default reasoning effort", () => {
 		);
 
 		const settingsTrigger = Array.from(container.querySelectorAll("button")).find((button) =>
-			button.textContent?.includes("Override Agent Settings"),
+			button.textContent?.includes("Cline model settings"),
 		);
 		expect(settingsTrigger).not.toBeUndefined();
 		await act(async () => {
@@ -674,7 +680,7 @@ describe("TaskAgentModelPicker – inherited default reasoning effort", () => {
 		const onClineSettingsChange = vi.fn();
 
 		await act(async () =>
-			root.render(
+			renderUi(
 				<TaskAgentModelPicker
 					agentId={"cline" as RuntimeAgentId}
 					onAgentIdChange={() => {}}
@@ -695,7 +701,7 @@ describe("TaskAgentModelPicker – inherited default reasoning effort", () => {
 		);
 
 		const settingsTrigger = Array.from(container.querySelectorAll("button")).find((button) =>
-			button.textContent?.includes("Override Agent Settings"),
+			button.textContent?.includes("Cline model settings"),
 		);
 		expect(settingsTrigger).not.toBeUndefined();
 		await act(async () => {
@@ -723,7 +729,7 @@ describe("TaskAgentModelPicker – inherited default reasoning effort", () => {
 		const { TaskAgentModelPicker } = await import("@/components/task-agent-model-picker");
 
 		await act(async () =>
-			root.render(
+			renderUi(
 				<TaskAgentModelPicker
 					agentId={"cline" as RuntimeAgentId}
 					onAgentIdChange={() => {}}
@@ -752,7 +758,7 @@ describe("TaskAgentModelPicker – inherited default reasoning effort", () => {
 		);
 
 		const settingsTrigger = Array.from(container.querySelectorAll("button")).find((button) =>
-			button.textContent?.includes("Override Agent Settings"),
+			button.textContent?.includes("Cline model settings"),
 		);
 		expect(settingsTrigger).not.toBeUndefined();
 		await act(async () => {

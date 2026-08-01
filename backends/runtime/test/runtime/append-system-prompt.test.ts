@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { buildShellCommandLine } from "../../src/core/shell";
 import {
 	renderAppendSystemPrompt,
 	resolveAppendSystemPromptCommandPrefix,
@@ -7,6 +8,10 @@ import {
 } from "../../src/prompts/append-system-prompt";
 
 describe("resolveAppendSystemPromptCommandPrefix", () => {
+	const execPath = "/usr/local/bin/node";
+	const repoCliPath = "/Users/example/repo/dist/cli.js";
+	const missingCliPath = "/tmp/missing-kanban-cli.js";
+
 	it("returns npx prefix for npx transient installs", () => {
 		const prefix = resolveAppendSystemPromptCommandPrefix({
 			currentVersion: "0.1.10",
@@ -31,26 +36,26 @@ describe("resolveAppendSystemPromptCommandPrefix", () => {
 		const prefix = resolveAppendSystemPromptCommandPrefix({
 			currentVersion: "0.1.10",
 			cwd: "/Users/example/repo",
-			execPath: "/usr/local/bin/node",
+			execPath,
 			execArgv: [],
-			argv: ["node", "/Users/example/repo/dist/cli.js"],
+			argv: ["node", repoCliPath],
 			resolveRealPath: (path) => path,
 		});
-		expect(prefix).toBe("'/usr/local/bin/node' '/Users/example/repo/dist/cli.js'");
+		expect(prefix).toBe(buildShellCommandLine(execPath, [repoCliPath]));
 	});
 
 	it("falls back to the current runnable invocation when realpath resolution fails", () => {
 		const prefix = resolveAppendSystemPromptCommandPrefix({
 			currentVersion: "0.1.10",
 			cwd: "/Users/example/repo",
-			execPath: "/usr/local/bin/node",
+			execPath,
 			execArgv: [],
-			argv: ["node", "/tmp/missing-kanban-cli.js"],
+			argv: ["node", missingCliPath],
 			resolveRealPath: () => {
 				throw new Error("missing");
 			},
 		});
-		expect(prefix).toBe("'/usr/local/bin/node' '/tmp/missing-kanban-cli.js'");
+		expect(prefix).toBe(buildShellCommandLine(execPath, [missingCliPath]));
 	});
 });
 
@@ -87,6 +92,10 @@ describe("renderAppendSystemPrompt", () => {
 });
 
 describe("resolveHomeAgentAppendSystemPrompt", () => {
+	const execPath = "/usr/local/bin/node";
+	const repoCliPath = "/Users/example/repo/dist/cli.js";
+	const localInvocationPrefix = buildShellCommandLine(execPath, [repoCliPath]);
+
 	it("returns null for non-home task sessions", () => {
 		expect(resolveHomeAgentAppendSystemPrompt("task-1")).toBeNull();
 	});
@@ -95,13 +104,13 @@ describe("resolveHomeAgentAppendSystemPrompt", () => {
 		const prompt = resolveHomeAgentAppendSystemPrompt("__home_agent__:workspace-1:codex", {
 			currentVersion: "0.1.10",
 			cwd: "/Users/example/repo",
-			execPath: "/usr/local/bin/node",
+			execPath,
 			execArgv: [],
-			argv: ["node", "/Users/example/repo/dist/cli.js"],
+			argv: ["node", repoCliPath],
 			resolveRealPath: (path) => path,
 		});
 		expect(prompt).toContain("Kanban sidebar agent");
-		expect(prompt).toContain("'/usr/local/bin/node' '/Users/example/repo/dist/cli.js' task list");
+		expect(prompt).toContain(`${localInvocationPrefix} task list`);
 		expect(prompt).toContain("Current home agent: `codex`");
 		expect(prompt).toContain("codex mcp add linear --url https://mcp.linear.app/mcp");
 		expect(prompt).not.toContain("claude mcp add --transport http --scope user linear https://mcp.linear.app/mcp");
@@ -111,9 +120,9 @@ describe("resolveHomeAgentAppendSystemPrompt", () => {
 		const prompt = resolveHomeAgentAppendSystemPrompt("__home_agent__:workspace-1:droid", {
 			currentVersion: "0.1.10",
 			cwd: "/Users/example/repo",
-			execPath: "/usr/local/bin/node",
+			execPath,
 			execArgv: [],
-			argv: ["node", "/Users/example/repo/dist/cli.js"],
+			argv: ["node", repoCliPath],
 			resolveRealPath: (path) => path,
 		});
 		expect(prompt).toContain("Current home agent: `droid`");
@@ -124,9 +133,9 @@ describe("resolveHomeAgentAppendSystemPrompt", () => {
 		const prompt = resolveHomeAgentAppendSystemPrompt("__home_agent__:workspace-1:kiro", {
 			currentVersion: "0.1.10",
 			cwd: "/Users/example/repo",
-			execPath: "/usr/local/bin/node",
+			execPath,
 			execArgv: [],
-			argv: ["node", "/Users/example/repo/dist/cli.js"],
+			argv: ["node", repoCliPath],
 			resolveRealPath: (path) => path,
 		});
 		expect(prompt).toContain("Current home agent: `kiro`");

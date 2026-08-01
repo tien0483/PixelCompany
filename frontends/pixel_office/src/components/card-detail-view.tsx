@@ -19,12 +19,12 @@ import { useCardDetailLayout } from "@/resize/use-card-detail-layout";
 import { useResizeDrag } from "@/resize/use-resize-drag";
 import { isNativeClineAgentSelected } from "@/runtime/native-agent";
 import { TaskLaunchSettingsPicker } from "@/components/task-launch-settings";
-import { TaskAccountPicker, filterJackedAccountsForAgent } from "@/jacked/task-account-picker";
+import { TaskAccountPicker, filterManagerAccountsForAgent } from "@/manager/task-account-picker";
 import type {
 	RuntimeAgentId,
 	RuntimeClineReasoningEffort,
 	RuntimeConfigResponse,
-	RuntimeJackedAccount,
+	RuntimeManagerAccount,
 	RuntimeTaskLaunchSettings,
 	RuntimeTaskSessionMode,
 	RuntimeTaskSessionSummary,
@@ -370,9 +370,9 @@ export function CardDetailView({
 	isDocumentVisible = true,
 	onClineSettingsSaved,
 	onTaskClineSettingsChanged,
-	jackedAccounts,
-	jackedActiveAccountId = null,
-	onTaskJackedAccountChanged,
+	managerAccounts,
+	managerActiveAccountId = null,
+	onTaskManagerAccountChanged,
 	onTaskLaunchSettingsChanged,
 }: {
 	selection: CardSelection;
@@ -441,10 +441,10 @@ export function CardDetailView({
 		reasoningEffort: RuntimeClineReasoningEffort | "";
 	}) => void;
 	/** Claude accounts jacked knows about; enables per-task account pinning when non-empty. */
-	jackedAccounts?: RuntimeJackedAccount[];
+	managerAccounts?: RuntimeManagerAccount[];
 	/** Account jacked currently has active, used to label the Auto option. */
-	jackedActiveAccountId?: number | null;
-	onTaskJackedAccountChanged?: (taskId: string, jackedAccountId: number | null) => void;
+	managerActiveAccountId?: number | null;
+	onTaskManagerAccountChanged?: (taskId: string, managerAccountId: number | null) => void;
 	onTaskLaunchSettingsChanged?: (taskId: string, settings: RuntimeTaskLaunchSettings | null) => void;
 }): React.ReactElement {
 	const isMobile = useIsMobile();
@@ -527,29 +527,29 @@ export function CardDetailView({
 	const showMoveToTrashActions = selection.column.id === "review" || selection.column.id === "in_progress";
 	const isTaskTerminalEnabled = selection.column.id === "in_progress" || selection.column.id === "review";
 	const effectiveTaskAgentId = sessionSummary?.agentId ?? selection.card.agentId ?? selectedAgentId;
-	const taskJackedAccounts = useMemo(
-		() => filterJackedAccountsForAgent(jackedAccounts ?? [], effectiveTaskAgentId),
-		[effectiveTaskAgentId, jackedAccounts],
+	const taskManagerAccounts = useMemo(
+		() => filterManagerAccountsForAgent(managerAccounts ?? [], effectiveTaskAgentId),
+		[effectiveTaskAgentId, managerAccounts],
 	);
 	// Clear a pin that belongs to the other provider (e.g. Claude seat left on a
 	// Cursor task after an agent switch) so Auto can resolve the right fleet.
 	useEffect(() => {
-		if (!onTaskJackedAccountChanged) {
+		if (!onTaskManagerAccountChanged) {
 			return;
 		}
-		const pinnedId = selection.card.jackedAccountId;
+		const pinnedId = selection.card.managerAccountId;
 		if (typeof pinnedId !== "number") {
 			return;
 		}
-		if (taskJackedAccounts.some((account) => account.id === pinnedId)) {
+		if (taskManagerAccounts.some((account) => account.id === pinnedId)) {
 			return;
 		}
-		onTaskJackedAccountChanged(selection.card.id, null);
+		onTaskManagerAccountChanged(selection.card.id, null);
 	}, [
-		onTaskJackedAccountChanged,
+		onTaskManagerAccountChanged,
 		selection.card.id,
-		selection.card.jackedAccountId,
-		taskJackedAccounts,
+		selection.card.managerAccountId,
+		taskManagerAccounts,
 	]);
 	const showClineAgentChatPanel = isNativeClineAgentSelected(effectiveTaskAgentId);
 	const availablePaths = useMemo(() => {
@@ -878,26 +878,26 @@ export function CardDetailView({
 					<div className="flex min-h-0 flex-1 overflow-hidden">{gitHistoryPanel}</div>
 				) : (
 					<>
-						{onTaskJackedAccountChanged && taskJackedAccounts.length > 0 ? (
+						{onTaskManagerAccountChanged && taskManagerAccounts.length > 0 ? (
 							<div
 								data-testid="task-account-pin-strip"
 								className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border bg-surface-1 px-2 py-1"
 							>
 								<TaskAccountPicker
-									accounts={taskJackedAccounts}
-									value={selection.card.jackedAccountId}
-									activeAccountId={jackedActiveAccountId}
+									accounts={taskManagerAccounts}
+									value={selection.card.managerAccountId}
+									activeAccountId={managerActiveAccountId}
 									agentId={effectiveTaskAgentId}
-									onChange={(jackedAccountId) => {
-										onTaskJackedAccountChanged(selection.card.id, jackedAccountId);
+									onChange={(managerAccountId) => {
+										onTaskManagerAccountChanged(selection.card.id, managerAccountId);
 									}}
 								/>
 								{/* Only warn when the card has an explicit pin that differs from the running session. */}
-								{typeof sessionSummary?.jackedAccountId === "number" &&
-								typeof selection.card.jackedAccountId === "number" &&
-								sessionSummary.jackedAccountId !== selection.card.jackedAccountId ? (
+								{typeof sessionSummary?.managerAccountId === "number" &&
+								typeof selection.card.managerAccountId === "number" &&
+								sessionSummary.managerAccountId !== selection.card.managerAccountId ? (
 									<span className="text-[10px] text-text-tertiary">
-										running on account {sessionSummary.jackedAccountId} — restart to apply
+										running on account {sessionSummary.managerAccountId} — restart to apply
 									</span>
 								) : null}
 							</div>

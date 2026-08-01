@@ -169,7 +169,7 @@ export function useTaskSessions({ currentProjectId, setSessions }: UseTaskSessio
 					taskLaunchSettings: task.taskLaunchSettings,
 					// Pins this session to one Claude account (own CLAUDE_CONFIG_DIR) so
 					// cards on different accounts can run at the same time.
-					jackedAccountId: task.jackedAccountId,
+					managerAccountId: task.managerAccountId,
 				});
 				if (!payload.ok || !payload.summary) {
 					return {

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+﻿import { describe, expect, it, vi } from "vitest";
 
 import type { RuntimeTaskSessionSummary } from "../../../src/core/api-contract";
 import {
@@ -20,7 +20,7 @@ function summary(state: RuntimeTaskSessionSummary["state"]): RuntimeTaskSessionS
 		lastHookAt: null,
 		latestHookActivity: null,
 		warningMessage: null,
-		jackedAccountId: null,
+		managerAccountId: null,
 		latestTurnCheckpoint: null,
 		previousTurnCheckpoint: null,
 	};

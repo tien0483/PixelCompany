@@ -47,10 +47,10 @@ export interface BoardCard {
 	images?: TaskImage[];
 	agentId?: RuntimeAgentId;
 	/**
-	 * Claude account (jacked id) this card's session runs on. Unset means the session
+	 * Claude account (manager id) this card's session runs on. Unset means the session
 	 * follows jacked's globally active account and its auto-swap rotation.
 	 */
-	jackedAccountId?: number;
+	managerAccountId?: number;
 	clineSettings?: RuntimeTaskClineSettings;
 	/** Per-task model/effort + skill/MCP allowlist tags (empty = inherit Manager/global). */
 	taskLaunchSettings?: RuntimeTaskLaunchSettings;

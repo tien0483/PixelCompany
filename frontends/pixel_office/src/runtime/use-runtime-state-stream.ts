@@ -2,7 +2,7 @@ import { useEffect, useReducer } from "react";
 
 import type {
 	RuntimeClineMcpServerAuthStatus,
-	RuntimeJackedState,
+	RuntimeManagerState,
 	RuntimeProjectSummary,
 	RuntimeStateStreamClineSessionContextUpdatedMessage,
 	RuntimeStateStreamMcpAuthUpdatedMessage,
@@ -57,8 +57,8 @@ export interface UseRuntimeStateStreamResult {
 	latestTaskReadyForReview: RuntimeStateStreamTaskReadyForReviewMessage | null;
 	latestMcpAuthStatuses: RuntimeClineMcpServerAuthStatus[] | null;
 	clineSessionContextVersion: number;
-	/** Null while claude-jacked is unreachable, which is a supported steady state. */
-	jacked: RuntimeJackedState;
+	/** Null while Manager is unreachable, which is a supported steady state. */
+	manager: RuntimeManagerState;
 	streamError: string | null;
 	isRuntimeDisconnected: boolean;
 	hasReceivedSnapshot: boolean;
@@ -74,7 +74,7 @@ interface RuntimeStateStreamStore {
 	latestTaskReadyForReview: RuntimeStateStreamTaskReadyForReviewMessage | null;
 	latestMcpAuthStatuses: RuntimeClineMcpServerAuthStatus[] | null;
 	clineSessionContextVersion: number;
-	jacked: RuntimeJackedState;
+	manager: RuntimeManagerState;
 	streamError: string | null;
 	isRuntimeDisconnected: boolean;
 	hasReceivedSnapshot: boolean;
@@ -95,7 +95,7 @@ type RuntimeStateStreamAction =
 	| { type: "task_ready_for_review"; payload: RuntimeStateStreamTaskReadyForReviewMessage }
 	| { type: "mcp_auth_updated"; payload: RuntimeStateStreamMcpAuthUpdatedMessage }
 	| { type: "cline_session_context_updated"; payload: RuntimeStateStreamClineSessionContextUpdatedMessage }
-	| { type: "jacked_state_updated"; jacked: RuntimeJackedState }
+	| { type: "manager_state_updated"; manager: RuntimeManagerState }
 	| { type: "workspace_state_updated"; workspaceState: RuntimeWorkspaceStateResponse }
 	| { type: "task_sessions_updated"; summaries: RuntimeTaskSessionSummary[] }
 	| { type: "stream_error"; message: string }
@@ -112,7 +112,7 @@ function createInitialRuntimeStateStreamStore(requestedWorkspaceId: string | nul
 		latestTaskReadyForReview: null,
 		latestMcpAuthStatuses: null,
 		clineSessionContextVersion: 0,
-		jacked: null,
+		manager: null,
 		streamError: null,
 		isRuntimeDisconnected: false,
 		hasReceivedSnapshot: false,
@@ -197,7 +197,7 @@ function runtimeStateStreamReducer(
 			latestTaskReadyForReview: state.latestTaskReadyForReview,
 			latestMcpAuthStatuses: state.latestMcpAuthStatuses,
 			clineSessionContextVersion: action.payload.clineSessionContextVersion,
-			jacked: state.jacked,
+			manager: state.manager,
 			streamError: null,
 			isRuntimeDisconnected: false,
 			hasReceivedSnapshot: true,
@@ -262,10 +262,10 @@ function runtimeStateStreamReducer(
 			clineSessionContextVersion: action.payload.version,
 		};
 	}
-	if (action.type === "jacked_state_updated") {
+	if (action.type === "manager_state_updated") {
 		return {
 			...state,
-			jacked: action.jacked,
+			manager: action.manager,
 		};
 	}
 	if (action.type === "workspace_state_updated") {
@@ -472,10 +472,15 @@ export function useRuntimeStateStream(requestedWorkspaceId: string | null): UseR
 						});
 						return;
 					}
-					if (payload.type === "jacked_state_updated") {
+					if (payload.type === "manager_state_updated" || payload.type === "jacked_state_updated") {
+						const managerPayload = payload as {
+							type: string;
+							manager?: RuntimeManagerState;
+							manager?: RuntimeManagerState;
+						};
 						dispatch({
-							type: "jacked_state_updated",
-							jacked: payload.jacked,
+							type: "manager_state_updated",
+							manager: managerPayload.manager ?? managerPayload.jacked ?? null,
 						});
 						return;
 					}
@@ -531,7 +536,7 @@ export function useRuntimeStateStream(requestedWorkspaceId: string | null): UseR
 		latestTaskReadyForReview: state.latestTaskReadyForReview,
 		latestMcpAuthStatuses: state.latestMcpAuthStatuses,
 		clineSessionContextVersion: state.clineSessionContextVersion,
-		jacked: state.jacked,
+		manager: state.manager,
 		streamError: state.streamError,
 		isRuntimeDisconnected: state.isRuntimeDisconnected,
 		hasReceivedSnapshot: state.hasReceivedSnapshot,

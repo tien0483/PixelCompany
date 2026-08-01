@@ -14,7 +14,7 @@ const repoRoot = join(currentDir, "..", "..");
  * and Claude Accounts all reachable from one URL with no second origin.
  *
  * Jacked itself may or may not be installed on the machine, so the account specs
- * stub the `jacked.*` tRPC procedures rather than mutating real credentials.
+ * stub the `manager.*` tRPC procedures rather than mutating real credentials.
  */
 const soloPort = process.env.PIXELOFFICE_SOLO_PORT ?? "3499";
 const soloUrl = `http://127.0.0.1:${soloPort}`;

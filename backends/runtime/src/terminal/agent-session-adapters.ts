@@ -1,4 +1,4 @@
-import { access, readFile, rm } from "node:fs/promises";
+﻿import { access, readFile, rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -13,7 +13,7 @@ import type {
 import { buildKanbanCommandParts } from "../core/kanban-command";
 import { quoteShellArg } from "../core/shell";
 import { lockedFileSystem } from "../fs/locked-file-system";
-import { CLAUDE_CONFIG_DIR_ENV } from "../jacked/jacked-account-pin";
+import { CLAUDE_CONFIG_DIR_ENV } from "../manager/manager-account-pin";
 import { resolveHomeAgentAppendSystemPrompt } from "../prompts/append-system-prompt";
 import { getRuntimeHomePath } from "../state/workspace-state";
 import { configureCodexHooks, hasCodexConfigOverride } from "./codex-hook-config";

@@ -27,7 +27,7 @@ export interface UseOfficeViewStateResult {
 }
 
 /**
- * Per-project right-column (Jacked watch + Office) toggle + persistence.
+ * Per-project right-column (manager watch + Office) toggle + persistence.
  *
  * `isOfficeOpen` means the home right column is visible — the board stays in center.
  */

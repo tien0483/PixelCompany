@@ -139,7 +139,7 @@ export function HomeTriplePane({
 						onMouseDown={startWidthDrag}
 					/>
 					<div
-						data-testid="home-jacked-watch-pane"
+						data-testid="home-manager-watch-pane"
 						className="flex min-h-0 flex-col overflow-hidden border-b border-border"
 						style={{ flex: `${rightSplitRatio} 1 0%` }}
 					>

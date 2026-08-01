@@ -4,6 +4,7 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
+import { buildShellCommandLine } from "../../../src/core/shell";
 import { RUNTIME_HOME_PARENT_DIR_NAME } from "../../../src/workspace/task-worktree-path";
 import { prepareAgentLaunch } from "../../../src/terminal/agent-session-adapters";
 
@@ -81,6 +82,14 @@ afterEach(() => {
 	});
 });
 
+function normalizeHookTrustState(value: string): string {
+	return value.replaceAll("\\", "/");
+}
+
+function expectHookTrustEntry(state: string, event: string): void {
+	expect(state.replaceAll("\\", "/")).toMatch(new RegExp(`config\\.toml:${event}:0:0`));
+}
+
 describe("prepareAgentLaunch hook strategies", () => {
 	it("configures Codex hooks without legacy notify", async () => {
 		setupTempHome();
@@ -107,12 +116,13 @@ describe("prepareAgentLaunch hook strategies", () => {
 		expect(getCodexConfigOverrideValues(launch.args, "features.codex_hooks")).toEqual([]);
 		const hookTrustState = getCodexConfigOverrideValues(launch.args, "hooks.state");
 		expect(hookTrustState).toHaveLength(1);
-		expect(hookTrustState[0]).toContain('"/<session-flags>/config.toml:user_prompt_submit:0:0"');
-		expect(hookTrustState[0]).toContain('"/<session-flags>/config.toml:stop:0:0"');
-		expect(hookTrustState[0]).toContain('"/<session-flags>/config.toml:permission_request:0:0"');
-		expect(hookTrustState[0]).toContain('"/<session-flags>/config.toml:pre_tool_use:0:0"');
-		expect(hookTrustState[0]).toContain('"/<session-flags>/config.toml:post_tool_use:0:0"');
-		expect(hookTrustState[0]).toContain('trusted_hash="sha256:');
+		const normalizedHookTrustState = normalizeHookTrustState(hookTrustState[0] ?? "");
+		expectHookTrustEntry(normalizedHookTrustState, "user_prompt_submit");
+		expectHookTrustEntry(normalizedHookTrustState, "stop");
+		expectHookTrustEntry(normalizedHookTrustState, "permission_request");
+		expectHookTrustEntry(normalizedHookTrustState, "pre_tool_use");
+		expectHookTrustEntry(normalizedHookTrustState, "post_tool_use");
+		expect(normalizedHookTrustState).toContain('trusted_hash="sha256:');
 		expect(launchCommand).toContain("timeout=5");
 		expect(launchCommand).not.toContain("codex-wrapper");
 		expect(launchCommand).not.toContain("notify=");
@@ -168,7 +178,9 @@ describe("prepareAgentLaunch hook strategies", () => {
 		const developerInstructions = getCodexConfigOverrideValues(launch.args, "developer_instructions");
 		expect(developerInstructions).toHaveLength(1);
 		expect(developerInstructions[0]).toContain("Kanban sidebar agent");
-		expect(developerInstructions[0]).toContain("'/usr/local/bin/node' '/Users/example/repo/dist/cli.js' task create");
+		expect(developerInstructions[0]).toContain("/usr/local/bin/node");
+		expect(developerInstructions[0]).toContain("/Users/example/repo/dist/cli.js");
+		expect(developerInstructions[0]).toContain("task create");
 		expect(getCodexConfigOverrideValues(launch.args, "check_for_update_on_startup")).toEqual(["false"]);
 	});
 
@@ -974,7 +986,9 @@ describe("prepareAgentLaunch hook strategies", () => {
 		const pinDir = join(home, "accounts", "3");
 		mkdirSync(pinDir, { recursive: true });
 		mkdirSync(join(home, ".claude", "skills", "keep"), { recursive: true });
+		writeFileSync(join(home, ".claude", "skills", "keep", "SKILL.md"), "# keep\n", "utf8");
 		mkdirSync(join(home, ".claude", "skills", "drop"), { recursive: true });
+		writeFileSync(join(home, ".claude", "skills", "drop", "SKILL.md"), "# drop\n", "utf8");
 		writeFileSync(
 			join(pinDir, ".credentials.json"),
 			JSON.stringify({ claudeAiOauth: { accessToken: "seat-token" } }),

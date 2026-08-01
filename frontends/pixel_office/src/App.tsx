@@ -57,7 +57,7 @@ import { useTerminalPanels } from "@/hooks/use-terminal-panels";
 import { useWorkspaceSync } from "@/hooks/use-workspace-sync";
 import { OfficeView } from "@/office/office-view";
 import { useOfficeViewState } from "@/office/use-office-view-state";
-import { JackedAccountsView } from "@/jacked/jacked-accounts-view";
+import { ManagerAccountsView } from "@/manager/manager-accounts-view";
 import { LayoutCustomizationsProvider } from "@/resize/layout-customizations";
 import { ResizableBottomPane } from "@/resize/resizable-bottom-pane";
 import { useProjectNavigationLayout } from "@/resize/use-project-navigation-layout";
@@ -79,7 +79,7 @@ import { saveWorkspaceState } from "@/runtime/workspace-state-query";
 import {
 	applyTaskDetailClineSettingsChange,
 	findCardSelection,
-	setTaskJackedAccount,
+	setTaskManagerAccount,
 	setTaskLaunchSettings,
 } from "@/state/board-state";
 import { buildLaunchTagAllowlistUpdateNotice } from "@runtime-task-launch-tag-messages";
@@ -99,8 +99,8 @@ export default function App(): ReactElement {
 	const [canPersistWorkspaceState, setCanPersistWorkspaceState] = useState(false);
 	const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 	const [settingsInitialSection, setSettingsInitialSection] = useState<RuntimeSettingsSection | null>(null);
-	const [homeSidebarSection, setHomeSidebarSection] = useState<"projects" | "jacked">("projects");
-	const [jackedSettingsFocusToken, setJackedSettingsFocusToken] = useState(0);
+	const [homeSidebarSection, setHomeSidebarSection] = useState<"projects" | "manager">("projects");
+	const [managerSettingsFocusToken, setManagerSettingsFocusToken] = useState(0);
 	const [isClearTrashDialogOpen, setIsClearTrashDialogOpen] = useState(false);
 	const [isGitHistoryOpen, setIsGitHistoryOpen] = useState(false);
 	const [pendingTaskStartAfterEditId, setPendingTaskStartAfterEditId] = useState<string | null>(null);
@@ -122,7 +122,7 @@ export default function App(): ReactElement {
 		latestTaskReadyForReview,
 		latestMcpAuthStatuses,
 		clineSessionContextVersion,
-		jacked,
+		manager,
 		streamError,
 		isRuntimeDisconnected,
 		hasReceivedSnapshot,
@@ -777,20 +777,20 @@ export default function App(): ReactElement {
 	);
 
 	// Claude + Cursor accounts can be pinned to tasks; jacked's snapshot includes both.
-	const managedJackedAccounts = useMemo(
+	const managedManagerAccounts = useMemo(
 		() =>
-			(jacked?.accounts ?? []).filter(
+			(manager?.accounts ?? []).filter(
 				(account) => account.provider === "claude" || account.provider === "cursor",
 			),
-		[jacked?.accounts],
+		[manager?.accounts],
 	);
 
-	const handleTaskJackedAccountChanged = useCallback(
-		(taskId: string, jackedAccountId: number | null) => {
+	const handleTaskManagerAccountChanged = useCallback(
+		(taskId: string, managerAccountId: number | null) => {
 			// Pins the card, not the running session: a live session keeps the account
 			// it launched with until it is restarted.
 			setBoard((currentBoard) => {
-				const result = setTaskJackedAccount(currentBoard, taskId, jackedAccountId);
+				const result = setTaskManagerAccount(currentBoard, taskId, managerAccountId);
 				return result.updated ? result.board : currentBoard;
 			});
 		},
@@ -904,8 +904,8 @@ export default function App(): ReactElement {
 						removingProjectId={removingProjectId}
 						activeSection={homeSidebarSection}
 						onActiveSectionChange={setHomeSidebarSection}
-						jackedOnline={jacked !== null && jacked.stale !== true}
-						jackedState={jacked}
+						managerOnline={manager !== null && manager.stale !== true}
+						managerState={manager}
 						selectedAgentId={settingsRuntimeProjectConfig?.selectedAgentId ?? null}
 						clineProviderSettings={settingsRuntimeProjectConfig?.clineProviderSettings ?? null}
 						featurebaseFeedbackState={featurebaseFeedbackState}
@@ -920,7 +920,7 @@ export default function App(): ReactElement {
 						setExpandedSidebarWidth={sidebarLayout.setExpandedSidebarWidth}
 						isCollapsed={sidebarLayout.isCollapsed}
 						setSidebarCollapsed={sidebarLayout.setSidebarCollapsed}
-						jackedSettingsFocusToken={jackedSettingsFocusToken}
+						managerSettingsFocusToken={managerSettingsFocusToken}
 					/>
 				) : null}
 				<div className="flex flex-col flex-1 min-w-0 overflow-hidden">
@@ -1066,9 +1066,9 @@ export default function App(): ReactElement {
 													/>
 												}
 												watch={
-													<JackedAccountsView
-														online={jacked !== null && jacked.stale !== true}
-														jacked={jacked}
+													<ManagerAccountsView
+														online={manager !== null && manager.stale !== true}
+														manager={manager}
 													/>
 												}
 												office={
@@ -1076,7 +1076,7 @@ export default function App(): ReactElement {
 														board={board}
 														sessions={sessions}
 														workspaceId={currentProjectId}
-														jacked={jacked}
+														manager={manager}
 														onSelectTask={handleCardSelect}
 														onCreateTask={handleOpenCreateTask}
 													/>
@@ -1197,9 +1197,9 @@ export default function App(): ReactElement {
 									isDocumentVisible={isDocumentVisible}
 									onClineSettingsSaved={refreshRuntimeProjectConfig}
 									onTaskClineSettingsChanged={handleClineTaskSettingsChangedForTask}
-									jackedAccounts={managedJackedAccounts}
-									jackedActiveAccountId={jacked?.activeAccountId ?? null}
-									onTaskJackedAccountChanged={handleTaskJackedAccountChanged}
+									managerAccounts={managedManagerAccounts}
+									managerActiveAccountId={manager?.activeAccountId ?? null}
+									onTaskManagerAccountChanged={handleTaskManagerAccountChanged}
 									onTaskLaunchSettingsChanged={handleTaskLaunchSettingsChanged}
 								/>
 							</div>
