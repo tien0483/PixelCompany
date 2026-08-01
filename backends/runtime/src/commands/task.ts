@@ -1310,9 +1310,9 @@ export function registerTaskCommand(program: Command): void {
 			[
 				"",
 				"Dependency direction:",
-				"  If both linked tasks are in backlog, Kanban preserves the order you pass:",
-				"  --task-id waits on --linked-task-id, and on the board the arrow points into",
-				"  --linked-task-id.",
+				"  If both linked tasks are in backlog, they form a chain that shares one worktree",
+				"  and runs in the order you pass: --task-id runs first (the chain root), and",
+				"  --linked-task-id follows it.",
 				"  Once only one linked task remains in backlog, Kanban reorients the saved link",
 				"  so the backlog task is the waiting dependent task and the other task is the",
 				"  prerequisite.",

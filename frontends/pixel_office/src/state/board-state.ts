@@ -228,6 +228,7 @@ function normalizeDependency(rawDependency: unknown, taskIds: Set<string>): Boar
 		fromTaskId?: unknown;
 		toTaskId?: unknown;
 		createdAt?: unknown;
+		chain?: unknown;
 	};
 	const fromTaskId = typeof dependency.fromTaskId === "string" ? dependency.fromTaskId.trim() : "";
 	const toTaskId = typeof dependency.toTaskId === "string" ? dependency.toTaskId.trim() : "";
@@ -243,6 +244,9 @@ function normalizeDependency(rawDependency: unknown, taskIds: Set<string>): Boar
 		fromTaskId,
 		toTaskId,
 		createdAt: typeof dependency.createdAt === "number" ? dependency.createdAt : Date.now(),
+		// A chain dependency (shared-worktree link) must survive a persisted-board round-trip;
+		// dropping the flag here would ungroup every chain on reload.
+		...(dependency.chain === true ? { chain: true } : {}),
 	};
 }
 function removeDependenciesByTaskIds(board: BoardData, taskIds: Set<string>): BoardData {
@@ -373,6 +377,14 @@ export function canCreateTaskDependency(board: BoardData, fromTaskId: string, to
 
 export function removeTaskDependency(board: BoardData, dependencyId: string): { board: BoardData; removed: boolean } {
 	return runtimeTaskState.removeTaskDependency(board, dependencyId);
+}
+
+export function reorderChainMembers(board: BoardData, orderedMemberIds: string[]): { board: BoardData; reordered: boolean } {
+	return runtimeTaskState.reorderChainMembers(board, orderedMemberIds);
+}
+
+export function breakChain(board: BoardData, memberIds: string[]): { board: BoardData; removed: boolean } {
+	return runtimeTaskState.breakChain(board, memberIds);
 }
 
 export function resolveChainWorktreeOwnerTaskId(board: BoardData, taskId: string): string {

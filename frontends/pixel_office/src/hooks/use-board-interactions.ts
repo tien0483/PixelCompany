@@ -86,6 +86,8 @@ export interface UseBoardInteractionsResult {
 	confirmMoveTaskToTrash: (task: BoardCard, currentBoard?: BoardData) => Promise<void>;
 	handleCreateDependency: (fromTaskId: string, toTaskId: string) => void;
 	handleDeleteDependency: (dependencyId: string) => void;
+	handleReorderChain: (orderedMemberIds: string[]) => void;
+	handleBreakChain: (memberIds: string[]) => void;
 	handleDragEnd: (result: DropResult, options?: { selectDroppedTask?: boolean }) => void;
 	handleStartTask: (taskId: string) => void;
 	handleDeleteBacklogTask: (taskId: string) => void;
@@ -520,8 +522,14 @@ export function useBoardInteractions({
 		});
 	}, [programmaticCardMoveCycle, sessions, setBoard, setSelectedTaskId, tryProgrammaticCardMove]);
 
-	const { confirmMoveTaskToTrash, handleCreateDependency, handleDeleteDependency, requestMoveTaskToTrash } =
-		useLinkedBacklogTaskActions({
+	const {
+		confirmMoveTaskToTrash,
+		handleCreateDependency,
+		handleDeleteDependency,
+		handleReorderChain,
+		handleBreakChain,
+		requestMoveTaskToTrash,
+	} = useLinkedBacklogTaskActions({
 			board,
 			setBoard,
 			setSelectedTaskId,
@@ -943,6 +951,8 @@ export function useBoardInteractions({
 		confirmMoveTaskToTrash,
 		handleCreateDependency,
 		handleDeleteDependency,
+		handleReorderChain,
+		handleBreakChain,
 		handleDragEnd,
 		handleStartTask,
 		handleDeleteBacklogTask,

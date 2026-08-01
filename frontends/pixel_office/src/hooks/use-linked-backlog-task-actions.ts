@@ -5,10 +5,12 @@ import { showAppToast } from "@/components/app-toaster";
 import { getDetailTerminalTaskId } from "@/hooks/use-terminal-panels";
 import {
 	addTaskDependency,
+	breakChain,
 	findCardSelection,
 	hasLiveChainMemberSharingWorktree,
 	moveTaskToColumn,
 	removeTaskDependency,
+	reorderChainMembers,
 	resolveChainWorktreeOwnerTaskId,
 	trashTaskAndGetReadyLinkedTaskIds,
 } from "@/state/board-state";
@@ -49,6 +51,8 @@ export function useLinkedBacklogTaskActions({
 }): {
 	handleCreateDependency: (fromTaskId: string, toTaskId: string) => void;
 	handleDeleteDependency: (dependencyId: string) => void;
+	handleReorderChain: (orderedMemberIds: string[]) => void;
+	handleBreakChain: (memberIds: string[]) => void;
 	confirmMoveTaskToTrash: (task: BoardCard, currentBoard?: BoardData) => Promise<void>;
 	requestMoveTaskToTrash: (
 		taskId: string,
@@ -101,6 +105,26 @@ export function useLinkedBacklogTaskActions({
 			setBoard((currentBoard) => {
 				const removed = removeTaskDependency(currentBoard, dependencyId);
 				return removed.removed ? removed.board : currentBoard;
+			});
+		},
+		[setBoard],
+	);
+
+	const handleReorderChain = useCallback(
+		(orderedMemberIds: string[]) => {
+			setBoard((currentBoard) => {
+				const reordered = reorderChainMembers(currentBoard, orderedMemberIds);
+				return reordered.reordered ? reordered.board : currentBoard;
+			});
+		},
+		[setBoard],
+	);
+
+	const handleBreakChain = useCallback(
+		(memberIds: string[]) => {
+			setBoard((currentBoard) => {
+				const broken = breakChain(currentBoard, memberIds);
+				return broken.removed ? broken.board : currentBoard;
 			});
 		},
 		[setBoard],
@@ -228,6 +252,8 @@ export function useLinkedBacklogTaskActions({
 	return {
 		handleCreateDependency,
 		handleDeleteDependency,
+		handleReorderChain,
+		handleBreakChain,
 		confirmMoveTaskToTrash: async (task: BoardCard, currentBoard?: BoardData) => {
 			await performMoveTaskToTrash(task, currentBoard);
 		},

@@ -4,9 +4,11 @@ import type { RuntimeBoardData } from "../../src/core/api-contract";
 import {
 	addTaskDependency,
 	addTaskToColumn,
+	breakChain,
 	deleteTasksFromBoard,
 	hasLiveChainMemberSharingWorktree,
 	moveTaskToColumn,
+	reorderChainMembers,
 	resolveChainWorktreeOwnerTaskId,
 	trashTaskAndGetReadyLinkedTaskIds,
 	updateTask,
@@ -285,13 +287,17 @@ describe("task chains", () => {
 		return c.board;
 	}
 
-	it("marks a link between two Backlog tasks as a chain (follower waits on root)", () => {
+	it("marks a link between two Backlog tasks as a chain (first arg runs first / is root)", () => {
 		const linked = addTaskDependency(boardWithThreeBacklogTasks(), "aaaaa", "bbbbb");
 		expect(linked.added).toBe(true);
 		expect(linked.dependency?.chain).toBe(true);
-		// first arg = follower (fromTaskId), second = root/prerequisite (toTaskId).
-		expect(linked.dependency?.fromTaskId).toBe("aaaaa");
-		expect(linked.dependency?.toTaskId).toBe("bbbbb");
+		// first arg (drag source / `link A B`'s A) = root/prerequisite (toTaskId), runs first;
+		// second arg = follower (fromTaskId), runs after.
+		expect(linked.dependency?.toTaskId).toBe("aaaaa");
+		expect(linked.dependency?.fromTaskId).toBe("bbbbb");
+		// The root owns the shared worktree; the follower resolves up to it.
+		expect(resolveChainWorktreeOwnerTaskId(linked.board, "bbbbb")).toBe("aaaaa");
+		expect(resolveChainWorktreeOwnerTaskId(linked.board, "aaaaa")).toBe("aaaaa");
 	});
 
 	it("does not mark a link as a chain when one endpoint is already running", () => {
@@ -303,37 +309,39 @@ describe("task chains", () => {
 	});
 
 	it("rejects chaining one follower onto two different roots", () => {
+		// A→B makes B a follower of A. Trying C→B (B a follower of C too) must be rejected: a
+		// follower may resolve to only one root/worktree owner.
 		const first = addTaskDependency(boardWithThreeBacklogTasks(), "aaaaa", "bbbbb");
 		if (!first.added) {
 			throw new Error("Expected first chain link to be created.");
 		}
-		const second = addTaskDependency(first.board, "aaaaa", "ccccc");
+		const second = addTaskDependency(first.board, "ccccc", "bbbbb");
 		expect(second.added).toBe(false);
 		expect(second.reason).toBe("chain_conflict");
 	});
 
 	it("resolves the worktree owner transitively to the chain root", () => {
-		// C waits on B, B waits on A → all share A's worktree.
-		const linkBA = addTaskDependency(boardWithThreeBacklogTasks(), "bbbbb", "aaaaa");
-		const linkCB = addTaskDependency(linkBA.board, "ccccc", "bbbbb");
-		const board = linkCB.board;
+		// A→B→C: A runs first (root), B follows A, C follows B → all share A's worktree.
+		const linkAB = addTaskDependency(boardWithThreeBacklogTasks(), "aaaaa", "bbbbb");
+		const linkBC = addTaskDependency(linkAB.board, "bbbbb", "ccccc");
+		const board = linkBC.board;
 		expect(resolveChainWorktreeOwnerTaskId(board, "ccccc")).toBe("aaaaa");
 		expect(resolveChainWorktreeOwnerTaskId(board, "bbbbb")).toBe("aaaaa");
 		expect(resolveChainWorktreeOwnerTaskId(board, "aaaaa")).toBe("aaaaa");
 	});
 
 	it("keeps the shared worktree while a chain follower is still live", () => {
-		// B (follower) waits on A (root). Root moved to review then trashed; B still live.
-		const linkBA = addTaskDependency(boardWithThreeBacklogTasks(), "bbbbb", "aaaaa");
-		const inProgress = moveTaskToColumn(linkBA.board, "aaaaa", "in_progress");
+		// A→B: A is the root, B follows. Root moved to review then trashed; B still live.
+		const linkAB = addTaskDependency(boardWithThreeBacklogTasks(), "aaaaa", "bbbbb");
+		const inProgress = moveTaskToColumn(linkAB.board, "aaaaa", "in_progress");
 		const review = moveTaskToColumn(inProgress.board, "aaaaa", "review");
 		const trashed = trashTaskAndGetReadyLinkedTaskIds(review.board, "aaaaa");
 		expect(hasLiveChainMemberSharingWorktree(trashed.board, "aaaaa", "aaaaa")).toBe(true);
 	});
 
 	it("releases the shared worktree once no live chain member remains", () => {
-		const linkBA = addTaskDependency(boardWithThreeBacklogTasks(), "bbbbb", "aaaaa");
-		let board = moveTaskToColumn(linkBA.board, "aaaaa", "trash").board;
+		const linkAB = addTaskDependency(boardWithThreeBacklogTasks(), "aaaaa", "bbbbb");
+		let board = moveTaskToColumn(linkAB.board, "aaaaa", "trash").board;
 		board = moveTaskToColumn(board, "bbbbb", "trash").board;
 		board = moveTaskToColumn(board, "ccccc", "trash").board;
 		expect(hasLiveChainMemberSharingWorktree(board, "aaaaa", "bbbbb")).toBe(false);
@@ -343,5 +351,52 @@ describe("task chains", () => {
 		const linked = addTaskDependency(boardWithThreeBacklogTasks(), "aaaaa", "bbbbb");
 		const normalized = updateTaskDependencies(linked.board);
 		expect(normalized.dependencies[0]?.chain).toBe(true);
+	});
+
+	// A→B→C: build the linear chain [A, B, C].
+	function chainedBoard(): RuntimeBoardData {
+		const linkAB = addTaskDependency(boardWithThreeBacklogTasks(), "aaaaa", "bbbbb");
+		const linkBC = addTaskDependency(linkAB.board, "bbbbb", "ccccc");
+		return linkBC.board;
+	}
+
+	it("reorders chain members and repoints the worktree owner to the new first member", () => {
+		// Reorder [A, B, C] → [C, A, B]: C becomes the root/worktree owner.
+		const result = reorderChainMembers(chainedBoard(), ["ccccc", "aaaaa", "bbbbb"]);
+		expect(result.reordered).toBe(true);
+		expect(resolveChainWorktreeOwnerTaskId(result.board, "aaaaa")).toBe("ccccc");
+		expect(resolveChainWorktreeOwnerTaskId(result.board, "bbbbb")).toBe("ccccc");
+		expect(resolveChainWorktreeOwnerTaskId(result.board, "ccccc")).toBe("ccccc");
+		// Still a single linear spine of two chain edges.
+		const chainEdges = result.board.dependencies.filter((dependency) => dependency.chain === true);
+		expect(chainEdges).toHaveLength(2);
+	});
+
+	it("linearizes a forked chain when reordering", () => {
+		// A→B and A→C (a fork: both B and C follow A). Reorder to a single line [A, B, C].
+		const linkAB = addTaskDependency(boardWithThreeBacklogTasks(), "aaaaa", "bbbbb");
+		const forked = addTaskDependency(linkAB.board, "aaaaa", "ccccc").board;
+		const result = reorderChainMembers(forked, ["aaaaa", "bbbbb", "ccccc"]);
+		expect(result.reordered).toBe(true);
+		expect(resolveChainWorktreeOwnerTaskId(result.board, "ccccc")).toBe("aaaaa");
+		const chainEdges = result.board.dependencies.filter((dependency) => dependency.chain === true);
+		expect(chainEdges).toHaveLength(2);
+		expect(chainEdges.some((edge) => edge.fromTaskId === "ccccc" && edge.toTaskId === "bbbbb")).toBe(true);
+	});
+
+	it("does not reorder across two different chains or for out-of-Backlog members", () => {
+		const board = chainedBoard();
+		// A non-member id breaks the "one shared chain" invariant.
+		expect(reorderChainMembers(board, ["aaaaa", "bbbbb", "zzzzz"]).reordered).toBe(false);
+		// A member that has left Backlog cannot be reordered into the run order.
+		const running = moveTaskToColumn(board, "aaaaa", "in_progress").board;
+		expect(reorderChainMembers(running, ["aaaaa", "bbbbb", "ccccc"]).reordered).toBe(false);
+	});
+
+	it("breaks a chain, leaving members as standalone tasks", () => {
+		const result = breakChain(chainedBoard(), ["aaaaa", "bbbbb", "ccccc"]);
+		expect(result.removed).toBe(true);
+		expect(result.board.dependencies).toHaveLength(0);
+		expect(resolveChainWorktreeOwnerTaskId(result.board, "ccccc")).toBe("ccccc");
 	});
 });

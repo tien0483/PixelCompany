@@ -575,6 +575,8 @@ export default function App(): ReactElement {
 		handleProgrammaticCardMoveReady,
 		handleCreateDependency,
 		handleDeleteDependency,
+		handleReorderChain,
+		handleBreakChain,
 		handleDragEnd,
 		handleStartTask,
 		handleDeleteBacklogTask,
@@ -1016,6 +1018,8 @@ export default function App(): ReactElement {
 														dependencies={board.dependencies}
 														onCreateDependency={handleCreateDependency}
 														onDeleteDependency={handleDeleteDependency}
+														onReorderChain={handleReorderChain}
+														onBreakChain={handleBreakChain}
 														onRequestProgrammaticCardMoveReady={
 															selectedCard ? undefined : handleProgrammaticCardMoveReady
 														}

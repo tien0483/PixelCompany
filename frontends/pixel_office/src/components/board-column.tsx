@@ -1,10 +1,10 @@
 import { Droppable } from "@hello-pangea/dnd";
-import { ChevronDown, ChevronRight, Link2, Play, Plus, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronRight, Link2, Link2Off, Play, Plus, Trash2 } from "lucide-react";
 import { type MouseEvent as ReactMouseEvent, type ReactNode, useMemo, useState } from "react";
 
 import { BoardCard } from "@/components/board-card";
+import { ChainMemberList } from "@/components/chain-member-list";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/components/ui/cn";
 import { ColumnIndicator } from "@/components/ui/column-indicator";
 import type { RuntimeTaskSessionSummary } from "@/runtime/types";
 import { computeBacklogChainGroups } from "@/state/chain-groups";
@@ -46,6 +46,9 @@ export function BoardColumn({
 	dependencyTargetTaskId,
 	isDependencyLinking,
 	dependencies,
+	onDeleteDependency,
+	onReorderChain,
+	onBreakChain,
 	workspacePath,
 	defaultClineModelId,
 }: {
@@ -82,6 +85,9 @@ export function BoardColumn({
 	dependencyTargetTaskId?: string | null;
 	isDependencyLinking?: boolean;
 	dependencies?: BoardDependency[];
+	onDeleteDependency?: (dependencyId: string) => void;
+	onReorderChain?: (orderedMemberIds: string[]) => void;
+	onBreakChain?: (memberIds: string[]) => void;
 	workspacePath?: string | null;
 	defaultClineModelId?: string | null;
 }): React.ReactElement {
@@ -234,8 +240,13 @@ export function BoardColumn({
 									const chainGroup = chainGrouping?.groupByRootId.get(card.id);
 									if (chainGroup) {
 										const isExpanded = expandedChainRootIds[card.id] ?? false;
-										const followerIds = chainGroup.memberIdsInOrder.slice(1);
+										const followerCount = chainGroup.memberIdsInOrder.length - 1;
 										const rootIsEditing = editingTaskId === card.id;
+										// Collapsed shows the root as its full card (an rbd Draggable, so it can be
+										// started or moved across columns). Expanded swaps to uniform reorderable
+										// member rows — including the root — so any member can be dragged to any
+										// position; only then does the root stop being a column Draggable.
+										const rootRenderedAsCard = !isExpanded && !rootIsEditing;
 										items.push(
 											<div
 												key={`chain-${card.id}`}
@@ -243,70 +254,65 @@ export function BoardColumn({
 												data-chain-root-id={card.id}
 												style={{ marginBottom: 6 }}
 											>
-												<button
-													type="button"
-													className="kb-chain-group-header"
-													onClick={() => toggleChainExpanded(card.id)}
-													aria-expanded={isExpanded}
-													title={
-														isExpanded
-															? "Collapse chain"
-															: `Chain of ${chainGroup.memberIdsInOrder.length} tasks — runs in one shared worktree`
-													}
-												>
-													{isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-													<Link2 size={12} />
-													<span className="font-medium">Chain</span>
-													<span className="kb-chain-group-count">
-														{chainGroup.memberIdsInOrder.length}
-													</span>
-													{!isExpanded ? (
-														<span className="text-text-tertiary text-xs">
-															+{followerIds.length} after root
+												<div className="kb-chain-group-header-row">
+													<button
+														type="button"
+														className="kb-chain-group-header"
+														onClick={() => toggleChainExpanded(card.id)}
+														aria-expanded={isExpanded}
+														title={
+															isExpanded
+																? "Collapse chain — collapse to move the root across columns"
+																: `Chain of ${chainGroup.memberIdsInOrder.length} tasks — runs in one shared worktree. Expand to reorder or unlink.`
+														}
+													>
+														{isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+														<Link2 size={12} />
+														<span className="font-medium">Chain</span>
+														<span className="kb-chain-group-count">
+															{chainGroup.memberIdsInOrder.length}
 														</span>
+														{!isExpanded ? (
+															<span className="text-text-tertiary text-xs">
+																+{followerCount} after root
+															</span>
+														) : null}
+													</button>
+													{onBreakChain ? (
+														<button
+															type="button"
+															className="kb-chain-icon-button kb-chain-break-button"
+															title="Break chain — unlink all members"
+															aria-label="Break chain"
+															onClick={() => onBreakChain(chainGroup.memberIdsInOrder)}
+														>
+															<Link2Off size={13} />
+														</button>
 													) : null}
-												</button>
+												</div>
 												<div className="kb-chain-group-body">
-													{rootIsEditing ? renderInlineEditor(card) : renderCard(card, draggableIndex)}
-													{isExpanded
-														? followerIds.map((followerId, followerIndex) => {
-																const followerCard = cardById.get(followerId);
-																if (!followerCard) {
-																	return null;
-																}
-																if (editingTaskId === followerId) {
-																	return renderInlineEditor(followerCard);
-																}
-																return (
-																	<button
-																		key={followerId}
-																		type="button"
-																		data-task-id={followerId}
-																		data-column-id={column.id}
-																		className={cn(
-																			"kb-chain-follower-row",
-																			dependencyTargetTaskId === followerId &&
-																				"kb-chain-follower-row-target",
-																		)}
-																		onMouseEnter={() =>
-																			onDependencyPointerEnter?.(followerId)
-																		}
-																		onClick={() => onEditTask?.(followerCard)}
-																	>
-																		<span className="kb-chain-follower-order">
-																			{followerIndex + 2}
-																		</span>
-																		<span className="kb-chain-follower-title">
-																			{followerCard.title}
-																		</span>
-																	</button>
-																);
-															})
-														: null}
+													{isExpanded ? (
+														<ChainMemberList
+															memberIds={chainGroup.memberIdsInOrder}
+															cardById={cardById}
+															dependencies={dependencies ?? []}
+															editingTaskId={editingTaskId}
+															dependencyTargetTaskId={dependencyTargetTaskId}
+															renderInlineEditor={renderInlineEditor}
+															onEditTask={onEditTask}
+															onDependencyPointerEnter={onDependencyPointerEnter}
+															onDeleteDependency={onDeleteDependency}
+															onReorderChain={onReorderChain}
+														/>
+													) : rootIsEditing ? (
+														renderInlineEditor(card)
+													) : (
+														renderCard(card, draggableIndex)
+													)}
 												</div>
 											</div>,
 										);
-										if (!rootIsEditing) {
+										if (rootRenderedAsCard) {
 											draggableIndex += 1;
 										}
 										continue;

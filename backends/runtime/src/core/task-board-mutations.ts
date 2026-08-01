@@ -91,6 +91,16 @@ export interface RuntimeRemoveTaskDependencyResult {
 	removed: boolean;
 }
 
+export interface RuntimeReorderChainResult {
+	board: RuntimeBoardData;
+	reordered: boolean;
+}
+
+export interface RuntimeBreakChainResult {
+	board: RuntimeBoardData;
+	removed: boolean;
+}
+
 export interface RuntimeTrashTaskResult extends RuntimeMoveTaskResult {
 	readyTaskIds: string[];
 }
@@ -194,9 +204,12 @@ function resolveDependencyEndpoints(
 	const firstIsBacklog = firstColumnId === "backlog";
 	const secondIsBacklog = secondColumnId === "backlog";
 	if (firstIsBacklog && secondIsBacklog) {
+		// Chain link: the first task (drag source / `link A B`'s A) runs FIRST, so it is the
+		// root/prerequisite (`toTaskId`); the second task follows it (`fromTaskId`). Dragging
+		// A onto B therefore reads as "A before B".
 		return {
-			backlogTaskId: firstTaskId,
-			linkedTaskId: secondTaskId,
+			backlogTaskId: secondTaskId,
+			linkedTaskId: firstTaskId,
 			chain: true,
 		};
 	}
@@ -525,6 +538,102 @@ export function canAddTaskDependency(board: RuntimeBoardData, firstTaskId: strin
 
 export function removeTaskDependency(board: RuntimeBoardData, dependencyId: string): RuntimeRemoveTaskDependencyResult {
 	const dependencies = board.dependencies.filter((dependency) => dependency.id !== dependencyId);
+	if (dependencies.length === board.dependencies.length) {
+		return { board, removed: false };
+	}
+	return {
+		board: {
+			...board,
+			dependencies,
+		},
+		removed: true,
+	};
+}
+
+/**
+ * Rewrites a chain's edges so its members run in `orderedMemberIds` order. `orderedMemberIds[0]`
+ * becomes the root/worktree owner (no incoming chain dependency); every later member follows the
+ * one before it (`fromTaskId: ordered[i], toTaskId: ordered[i-1]`). A forked chain is linearized
+ * in the process. No-ops (`reordered: false`) unless the ids are exactly one existing chain's
+ * member set, all still in Backlog.
+ */
+export function reorderChainMembers(board: RuntimeBoardData, orderedMemberIds: string[]): RuntimeReorderChainResult {
+	const ordered = orderedMemberIds.map((id) => id.trim()).filter((id) => id.length > 0);
+	if (ordered.length < 2) {
+		return { board, reordered: false };
+	}
+	const orderedSet = new Set(ordered);
+	if (orderedSet.size !== ordered.length) {
+		return { board, reordered: false };
+	}
+	// Every member must exist, be in Backlog, and resolve to the same chain root today.
+	let sharedRoot: string | null = null;
+	for (const memberId of ordered) {
+		if (getTaskColumnId(board, memberId) !== "backlog") {
+			return { board, reordered: false };
+		}
+		const root = resolveChainWorktreeOwnerTaskId(board, memberId);
+		if (sharedRoot === null) {
+			sharedRoot = root;
+		} else if (sharedRoot !== root) {
+			return { board, reordered: false };
+		}
+	}
+
+	// Index the chain edges among these members so ids/createdAt can be reused for stable identity.
+	const existingByPair = new Map<string, RuntimeBoardDependency>();
+	for (const dependency of board.dependencies) {
+		if (dependency.chain !== true) {
+			continue;
+		}
+		if (orderedSet.has(dependency.fromTaskId) && orderedSet.has(dependency.toTaskId)) {
+			existingByPair.set(createDependencyPairKey(dependency.fromTaskId, dependency.toTaskId), dependency);
+		}
+	}
+	if (existingByPair.size === 0) {
+		return { board, reordered: false };
+	}
+
+	// Drop the old chain edges among these members, keep everything else untouched.
+	const dependencies = board.dependencies.filter(
+		(dependency) =>
+			!(dependency.chain === true && orderedSet.has(dependency.fromTaskId) && orderedSet.has(dependency.toTaskId)),
+	);
+	// Re-add a single linear spine in the requested order.
+	for (let index = 1; index < ordered.length; index += 1) {
+		const followerId = ordered[index] as string;
+		const parentId = ordered[index - 1] as string;
+		const reused = existingByPair.get(createDependencyPairKey(followerId, parentId));
+		dependencies.push({
+			id: reused ? reused.id : createDependencyId(),
+			fromTaskId: followerId,
+			toTaskId: parentId,
+			createdAt: reused ? reused.createdAt : Date.now(),
+			chain: true,
+		});
+	}
+
+	return {
+		board: {
+			...board,
+			dependencies,
+		},
+		reordered: true,
+	};
+}
+
+/**
+ * Dissolves a chain by removing every `chain` dependency whose both endpoints are in `memberIds`,
+ * leaving the members as standalone tasks. Non-chain dependencies are untouched.
+ */
+export function breakChain(board: RuntimeBoardData, memberIds: string[]): RuntimeBreakChainResult {
+	const members = new Set(memberIds.map((id) => id.trim()).filter((id) => id.length > 0));
+	if (members.size === 0) {
+		return { board, removed: false };
+	}
+	const dependencies = board.dependencies.filter(
+		(dependency) => !(dependency.chain === true && members.has(dependency.fromTaskId) && members.has(dependency.toTaskId)),
+	);
 	if (dependencies.length === board.dependencies.length) {
 		return { board, removed: false };
 	}

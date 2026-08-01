@@ -107,13 +107,13 @@ describe("board dependency state", () => {
 		const taskA = requireTaskId(fixture.taskIdByPrompt["Task A"], "Task A");
 		const taskB = requireTaskId(fixture.taskIdByPrompt["Task B"], "Task B");
 
-		// A backlog-to-backlog link is a chain: the follower (fromTaskId) waits on the root
-		// (toTaskId) and shares its worktree.
+		// A backlog-to-backlog link is a chain: the first task (drag source) runs first and is
+		// the root (toTaskId); the second task follows it (fromTaskId) and shares its worktree.
 		const bothBacklog = addTaskDependency(fixture.board, taskA, taskB);
 		expect(bothBacklog.added).toBe(true);
 		expect(bothBacklog.dependency).toMatchObject({
-			fromTaskId: taskA,
-			toTaskId: taskB,
+			fromTaskId: taskB,
+			toTaskId: taskA,
 			chain: true,
 		});
 
@@ -122,23 +122,27 @@ describe("board dependency state", () => {
 		expect(movedA.moved).toBe(true);
 		expect(movedA.board.dependencies).toEqual([
 			expect.objectContaining({
-				fromTaskId: taskA,
-				toTaskId: taskB,
+				fromTaskId: taskB,
+				toTaskId: taskA,
 				chain: true,
 			}),
 		]);
 	});
 
-	it("rejects a reverse backlog-to-backlog chain link that would form a cycle", () => {
-		const fixture = createBacklogBoard(["Task A", "Task B"]);
+	it("rejects a chain link that would close a cycle", () => {
+		const fixture = createBacklogBoard(["Task A", "Task B", "Task C"]);
 		const taskA = requireTaskId(fixture.taskIdByPrompt["Task A"], "Task A");
 		const taskB = requireTaskId(fixture.taskIdByPrompt["Task B"], "Task B");
+		const taskC = requireTaskId(fixture.taskIdByPrompt["Task C"], "Task C");
 
-		const firstDirection = addTaskDependency(fixture.board, taskA, taskB);
-		expect(firstDirection.added).toBe(true);
-		const reverseDirection = addTaskDependency(firstDirection.board, taskB, taskA);
-		expect(reverseDirection.added).toBe(false);
-		expect(reverseDirection.reason).toBe("chain_conflict");
+		// A → B → C (A first). Linking C → A would make A follow C while C already follows A.
+		const linkAB = addTaskDependency(fixture.board, taskA, taskB);
+		expect(linkAB.added).toBe(true);
+		const linkBC = addTaskDependency(linkAB.board, taskB, taskC);
+		expect(linkBC.added).toBe(true);
+		const cycle = addTaskDependency(linkBC.board, taskC, taskA);
+		expect(cycle.added).toBe(false);
+		expect(cycle.reason).toBe("chain_conflict");
 	});
 
 	it("only unlocks backlog cards when a review card is trashed", () => {
@@ -566,8 +570,20 @@ describe("board dependency state", () => {
 		expect(normalized?.dependencies.map((dependency) => `${dependency.fromTaskId}->${dependency.toTaskId}`)).toEqual([
 			"b->a",
 			"c->a",
-			"b->c",
+			"c->b",
 		]);
+	});
+
+	it("preserves the chain flag through a normalize round-trip", () => {
+		const fixture = createBacklogBoard(["Task A", "Task B"]);
+		const taskA = requireTaskId(fixture.taskIdByPrompt["Task A"], "Task A");
+		const taskB = requireTaskId(fixture.taskIdByPrompt["Task B"], "Task B");
+		const linked = addTaskDependency(fixture.board, taskA, taskB);
+		expect(linked.dependency?.chain).toBe(true);
+
+		// Round-trip through JSON (as persisted) then re-normalize; the chain flag must survive.
+		const roundTripped = normalizeBoardData(JSON.parse(JSON.stringify(linked.board)));
+		expect(roundTripped?.dependencies[0]?.chain).toBe(true);
 	});
 
 	it("disables auto-review settings for a task", () => {

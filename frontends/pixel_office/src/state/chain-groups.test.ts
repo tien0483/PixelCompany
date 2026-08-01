@@ -15,9 +15,10 @@ function backlogBoard(count: number): { board: BoardData; ids: string[] } {
 	return { board, ids };
 }
 
-// addTaskDependency(board, follower, root): follower waits on root.
+// Links so that `followerId` waits on `rootId`. addTaskDependency's first arg runs first (the
+// root/prerequisite), so the root is passed first and the follower second.
 function chain(board: BoardData, followerId: string, rootId: string): BoardData {
-	const result = addTaskDependency(board, followerId, rootId);
+	const result = addTaskDependency(board, rootId, followerId);
 	if (!result.added) {
 		throw new Error(`Expected chain link ${followerId} -> ${rootId} (${result.reason}).`);
 	}
