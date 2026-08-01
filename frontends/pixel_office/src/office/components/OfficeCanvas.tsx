@@ -860,11 +860,19 @@ export function OfficeCanvas({
     [isEditMode, officeState, screenToTile, isControlMode],
   );
 
-  // Wheel: Ctrl+wheel to zoom, plain wheel/trackpad to pan
+  // Wheel: plain wheel/trackpad zooms; Shift+wheel pans (middle-click drag also pans).
   const handleWheel = useCallback(
     (e: WheelEvent) => {
       e.preventDefault();
-      if (e.ctrlKey || e.metaKey) {
+      if (e.shiftKey) {
+        // Pan via Shift+wheel
+        const dpr = window.devicePixelRatio || 1;
+        officeState.cameraFollowId = null;
+        panRef.current = clampPan(
+          panRef.current.x - e.deltaX * dpr,
+          panRef.current.y - e.deltaY * dpr,
+        );
+      } else {
         // Accumulate scroll delta, step zoom when threshold crossed
         zoomAccumulatorRef.current += e.deltaY;
         if (Math.abs(zoomAccumulatorRef.current) >= ZOOM_SCROLL_THRESHOLD) {
@@ -875,14 +883,6 @@ export function OfficeCanvas({
             onZoomChange(newZoom);
           }
         }
-      } else {
-        // Pan via trackpad two-finger scroll or mouse wheel
-        const dpr = window.devicePixelRatio || 1;
-        officeState.cameraFollowId = null;
-        panRef.current = clampPan(
-          panRef.current.x - e.deltaX * dpr,
-          panRef.current.y - e.deltaY * dpr,
-        );
       }
     },
     [zoom, onZoomChange, officeState, panRef, clampPan],
