@@ -102,29 +102,34 @@ describe("board dependency state", () => {
 		expect(sameTask.reason).toBe("same_task");
 	});
 
-	it("preserves backlog-to-backlog link order and reorients it when one task starts", () => {
+	it("marks a backlog-to-backlog link as a directional chain that survives one task starting", () => {
 		const fixture = createBacklogBoard(["Task A", "Task B"]);
 		const taskA = requireTaskId(fixture.taskIdByPrompt["Task A"], "Task A");
 		const taskB = requireTaskId(fixture.taskIdByPrompt["Task B"], "Task B");
 
+		// A backlog-to-backlog link is a chain: the follower (fromTaskId) waits on the root
+		// (toTaskId) and shares its worktree.
 		const bothBacklog = addTaskDependency(fixture.board, taskA, taskB);
 		expect(bothBacklog.added).toBe(true);
 		expect(bothBacklog.dependency).toMatchObject({
 			fromTaskId: taskA,
 			toTaskId: taskB,
+			chain: true,
 		});
 
+		// A chain is directional and does not reorient when a member starts running.
 		const movedA = moveTaskToColumn(bothBacklog.board, taskA, "in_progress");
 		expect(movedA.moved).toBe(true);
 		expect(movedA.board.dependencies).toEqual([
 			expect.objectContaining({
-				fromTaskId: taskB,
-				toTaskId: taskA,
+				fromTaskId: taskA,
+				toTaskId: taskB,
+				chain: true,
 			}),
 		]);
 	});
 
-	it("allows backlog-to-backlog links in either direction", () => {
+	it("rejects a reverse backlog-to-backlog chain link that would form a cycle", () => {
 		const fixture = createBacklogBoard(["Task A", "Task B"]);
 		const taskA = requireTaskId(fixture.taskIdByPrompt["Task A"], "Task A");
 		const taskB = requireTaskId(fixture.taskIdByPrompt["Task B"], "Task B");
@@ -132,11 +137,8 @@ describe("board dependency state", () => {
 		const firstDirection = addTaskDependency(fixture.board, taskA, taskB);
 		expect(firstDirection.added).toBe(true);
 		const reverseDirection = addTaskDependency(firstDirection.board, taskB, taskA);
-		expect(reverseDirection.added).toBe(true);
-		expect(reverseDirection.board.dependencies).toEqual([
-			expect.objectContaining({ fromTaskId: taskA, toTaskId: taskB }),
-			expect.objectContaining({ fromTaskId: taskB, toTaskId: taskA }),
-		]);
+		expect(reverseDirection.added).toBe(false);
+		expect(reverseDirection.reason).toBe("chain_conflict");
 	});
 
 	it("only unlocks backlog cards when a review card is trashed", () => {

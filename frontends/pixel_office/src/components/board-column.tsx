@@ -1,13 +1,20 @@
 import { Droppable } from "@hello-pangea/dnd";
-import { Play, Plus, Trash2 } from "lucide-react";
-import type { MouseEvent as ReactMouseEvent, ReactNode } from "react";
+import { ChevronDown, ChevronRight, Link2, Play, Plus, Trash2 } from "lucide-react";
+import { type MouseEvent as ReactMouseEvent, type ReactNode, useMemo, useState } from "react";
 
 import { BoardCard } from "@/components/board-card";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/components/ui/cn";
 import { ColumnIndicator } from "@/components/ui/column-indicator";
 import type { RuntimeTaskSessionSummary } from "@/runtime/types";
+import { computeBacklogChainGroups } from "@/state/chain-groups";
 import { isCardDropDisabled, type ProgrammaticCardMoveInFlight } from "@/state/drag-rules";
-import type { BoardCard as BoardCardModel, BoardColumnId, BoardColumn as BoardColumnModel } from "@/types";
+import type {
+	BoardCard as BoardCardModel,
+	BoardColumnId,
+	BoardColumn as BoardColumnModel,
+	BoardDependency,
+} from "@/types";
 
 export function BoardColumn({
 	column,
@@ -38,6 +45,7 @@ export function BoardColumn({
 	dependencySourceTaskId,
 	dependencyTargetTaskId,
 	isDependencyLinking,
+	dependencies,
 	workspacePath,
 	defaultClineModelId,
 }: {
@@ -64,11 +72,16 @@ export function BoardColumn({
 	activeDragTaskId?: string | null;
 	activeDragSourceColumnId?: BoardColumnId | null;
 	programmaticCardMoveInFlight?: ProgrammaticCardMoveInFlight | null;
-	onDependencyPointerDown?: (taskId: string, event: ReactMouseEvent<HTMLElement>) => void;
+	onDependencyPointerDown?: (
+		taskId: string,
+		event: ReactMouseEvent<HTMLElement>,
+		options?: { viaHandle?: boolean },
+	) => void;
 	onDependencyPointerEnter?: (taskId: string) => void;
 	dependencySourceTaskId?: string | null;
 	dependencyTargetTaskId?: string | null;
 	isDependencyLinking?: boolean;
+	dependencies?: BoardDependency[];
 	workspacePath?: string | null;
 	defaultClineModelId?: string | null;
 }): React.ReactElement {
@@ -76,6 +89,22 @@ export function BoardColumn({
 	const canStartAllTasks = column.id === "backlog" && onStartAllTasks;
 	const canClearTrash = column.id === "trash" && onClearTrash;
 	const cardDropType = "CARD";
+	// Backlog groups chained tasks (shared-worktree chains) into one collapsible guardrail.
+	const chainGrouping = useMemo(
+		() => (column.id === "backlog" ? computeBacklogChainGroups(column.cards, dependencies ?? []) : null),
+		[column.id, column.cards, dependencies],
+	);
+	const cardById = useMemo(() => {
+		const map = new Map<string, BoardCardModel>();
+		for (const card of column.cards) {
+			map.set(card.id, card);
+		}
+		return map;
+	}, [column.cards]);
+	// Chains default to collapsed (root + count badge); the user expands to see followers.
+	const [expandedChainRootIds, setExpandedChainRootIds] = useState<Record<string, boolean>>({});
+	const toggleChainExpanded = (rootId: string) =>
+		setExpandedChainRootIds((current) => ({ ...current, [rootId]: !current[rootId] }));
 	const isDropDisabled = isCardDropDisabled(column.id, activeDragSourceColumnId ?? null, {
 		activeDragTaskId,
 		programmaticCardMoveInFlight,
@@ -153,54 +182,140 @@ export function BoardColumn({
 							{(() => {
 								const items: ReactNode[] = [];
 								let draggableIndex = 0;
+								const renderInlineEditor = (card: BoardCardModel) => (
+									<div
+										key={card.id}
+										data-task-id={card.id}
+										data-column-id={column.id}
+										style={{ marginBottom: 6 }}
+									>
+										{inlineTaskEditor}
+									</div>
+								);
+								const renderCard = (card: BoardCardModel, index: number) => (
+									<BoardCard
+										key={card.id}
+										card={card}
+										index={index}
+										columnId={column.id}
+										sessionSummary={taskSessions[card.id]}
+										onStart={onStartTask}
+										onDelete={onDeleteTask}
+										onMoveToTrash={onMoveToTrashTask}
+										onRestoreFromTrash={onRestoreFromTrashTask}
+										onCommit={onCommitTask}
+										onOpenPr={onOpenPrTask}
+										onCancelAutomaticAction={onCancelAutomaticTaskAction}
+										isCommitLoading={commitTaskLoadingById?.[card.id] ?? false}
+										isOpenPrLoading={openPrTaskLoadingById?.[card.id] ?? false}
+										isMoveToTrashLoading={moveToTrashLoadingById?.[card.id] ?? false}
+										onDependencyPointerDown={onDependencyPointerDown}
+										onDependencyPointerEnter={onDependencyPointerEnter}
+										isDependencySource={dependencySourceTaskId === card.id}
+										isDependencyTarget={dependencyTargetTaskId === card.id}
+										isDependencyLinking={isDependencyLinking}
+										workspacePath={workspacePath}
+										defaultClineModelId={defaultClineModelId}
+										onSaveTitle={onSaveTitle}
+										onClick={() => {
+											if (column.id === "backlog") {
+												onEditTask?.(card);
+												return;
+											}
+											onCardClick?.(card);
+										}}
+									/>
+								);
 								for (const card of column.cards) {
-									if (column.id === "backlog" && editingTaskId === card.id) {
-										items.push(
-											<div
-												key={card.id}
-												data-task-id={card.id}
-												data-column-id={column.id}
-												style={{ marginBottom: 6 }}
-											>
-												{inlineTaskEditor}
-											</div>,
-										);
+									// Chain followers render inside their root's guardrail group, not here.
+									if (chainGrouping?.rootIdByMemberId.has(card.id)) {
 										continue;
 									}
-									items.push(
-										<BoardCard
-											key={card.id}
-											card={card}
-											index={draggableIndex}
-											columnId={column.id}
-											sessionSummary={taskSessions[card.id]}
-											onStart={onStartTask}
-											onDelete={onDeleteTask}
-											onMoveToTrash={onMoveToTrashTask}
-											onRestoreFromTrash={onRestoreFromTrashTask}
-											onCommit={onCommitTask}
-											onOpenPr={onOpenPrTask}
-											onCancelAutomaticAction={onCancelAutomaticTaskAction}
-											isCommitLoading={commitTaskLoadingById?.[card.id] ?? false}
-											isOpenPrLoading={openPrTaskLoadingById?.[card.id] ?? false}
-											isMoveToTrashLoading={moveToTrashLoadingById?.[card.id] ?? false}
-											onDependencyPointerDown={onDependencyPointerDown}
-											onDependencyPointerEnter={onDependencyPointerEnter}
-											isDependencySource={dependencySourceTaskId === card.id}
-											isDependencyTarget={dependencyTargetTaskId === card.id}
-											isDependencyLinking={isDependencyLinking}
-											workspacePath={workspacePath}
-											defaultClineModelId={defaultClineModelId}
-											onSaveTitle={onSaveTitle}
-											onClick={() => {
-												if (column.id === "backlog") {
-													onEditTask?.(card);
-													return;
-												}
-												onCardClick?.(card);
-											}}
-										/>,
-									);
+									const chainGroup = chainGrouping?.groupByRootId.get(card.id);
+									if (chainGroup) {
+										const isExpanded = expandedChainRootIds[card.id] ?? false;
+										const followerIds = chainGroup.memberIdsInOrder.slice(1);
+										const rootIsEditing = editingTaskId === card.id;
+										items.push(
+											<div
+												key={`chain-${card.id}`}
+												className="kb-chain-group"
+												data-chain-root-id={card.id}
+												style={{ marginBottom: 6 }}
+											>
+												<button
+													type="button"
+													className="kb-chain-group-header"
+													onClick={() => toggleChainExpanded(card.id)}
+													aria-expanded={isExpanded}
+													title={
+														isExpanded
+															? "Collapse chain"
+															: `Chain of ${chainGroup.memberIdsInOrder.length} tasks — runs in one shared worktree`
+													}
+												>
+													{isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+													<Link2 size={12} />
+													<span className="font-medium">Chain</span>
+													<span className="kb-chain-group-count">
+														{chainGroup.memberIdsInOrder.length}
+													</span>
+													{!isExpanded ? (
+														<span className="text-text-tertiary text-xs">
+															+{followerIds.length} after root
+														</span>
+													) : null}
+												</button>
+												<div className="kb-chain-group-body">
+													{rootIsEditing ? renderInlineEditor(card) : renderCard(card, draggableIndex)}
+													{isExpanded
+														? followerIds.map((followerId, followerIndex) => {
+																const followerCard = cardById.get(followerId);
+																if (!followerCard) {
+																	return null;
+																}
+																if (editingTaskId === followerId) {
+																	return renderInlineEditor(followerCard);
+																}
+																return (
+																	<button
+																		key={followerId}
+																		type="button"
+																		data-task-id={followerId}
+																		data-column-id={column.id}
+																		className={cn(
+																			"kb-chain-follower-row",
+																			dependencyTargetTaskId === followerId &&
+																				"kb-chain-follower-row-target",
+																		)}
+																		onMouseEnter={() =>
+																			onDependencyPointerEnter?.(followerId)
+																		}
+																		onClick={() => onEditTask?.(followerCard)}
+																	>
+																		<span className="kb-chain-follower-order">
+																			{followerIndex + 2}
+																		</span>
+																		<span className="kb-chain-follower-title">
+																			{followerCard.title}
+																		</span>
+																	</button>
+																);
+															})
+														: null}
+												</div>
+											</div>,
+										);
+										if (!rootIsEditing) {
+											draggableIndex += 1;
+										}
+										continue;
+									}
+									if (column.id === "backlog" && editingTaskId === card.id) {
+										items.push(renderInlineEditor(card));
+										continue;
+									}
+									items.push(renderCard(card, draggableIndex));
 									draggableIndex += 1;
 								}
 								return items;

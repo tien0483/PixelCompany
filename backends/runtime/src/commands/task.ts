@@ -17,9 +17,11 @@ import {
 	addTaskToColumn,
 	deleteTasksFromBoard,
 	getTaskColumnId,
+	hasLiveChainMemberSharingWorktree,
 	moveTaskToColumn,
 	type RuntimeAddTaskDependencyResult,
 	removeTaskDependency,
+	resolveChainWorktreeOwnerTaskId,
 	trashTaskAndGetReadyLinkedTaskIds,
 	updateTask,
 } from "../core/task-board-mutations";
@@ -696,8 +698,11 @@ async function startTask(input: { cwd: string; taskId: string; projectPath?: str
 	const shouldStartSession = !existingSession || existingSession.state !== "running";
 
 	if (shouldStartSession) {
+		// Chain followers share the chain root's worktree; resolve the owner so both the
+		// worktree we ensure and the session cwd point at the root's tree, not a fresh one.
+		const worktreeTaskId = resolveChainWorktreeOwnerTaskId(runtimeState.board, task.id);
 		const ensured = await runtimeClient.workspace.ensureWorktree.mutate({
-			taskId: task.id,
+			taskId: worktreeTaskId,
 			baseRef: task.baseRef,
 		});
 		if (!ensured.ok) {
@@ -706,6 +711,7 @@ async function startTask(input: { cwd: string; taskId: string; projectPath?: str
 
 		const started = await runtimeClient.runtime.startTaskSession.mutate({
 			taskId: task.id,
+			worktreeTaskId,
 			prompt: task.prompt,
 			taskTitle: task.title,
 			startInPlanMode: task.startInPlanMode,
@@ -856,7 +862,21 @@ async function trashTaskById(input: {
 		autoStartedTasks.push(started);
 	}
 
-	const deletedWorkspace = await deleteTaskWorkspace(input.runtimeClient, input.taskId);
+	// A chained task shares one worktree keyed on the chain root. When this task is trashed
+	// but a chain follower is still live (e.g. it just auto-started above), the shared
+	// worktree must be handed off, not deleted. Only delete the root's worktree once no
+	// live chain member still resolves to it. For non-chained tasks the owner is the task
+	// itself and this is the same single deleteTaskWorkspace as before.
+	const stateAfterAutoStart = await input.runtimeClient.workspace.getState.query();
+	const worktreeOwnerId = resolveChainWorktreeOwnerTaskId(stateAfterAutoStart.board, input.taskId);
+	const worktreeStillInUse = hasLiveChainMemberSharingWorktree(
+		stateAfterAutoStart.board,
+		worktreeOwnerId,
+		input.taskId,
+	);
+	const deletedWorkspace = worktreeStillInUse
+		? { removed: false, error: undefined }
+		: await deleteTaskWorkspace(input.runtimeClient, worktreeOwnerId);
 
 	return {
 		task: mutation.value.task,

@@ -375,6 +375,18 @@ export function removeTaskDependency(board: BoardData, dependencyId: string): { 
 	return runtimeTaskState.removeTaskDependency(board, dependencyId);
 }
 
+export function resolveChainWorktreeOwnerTaskId(board: BoardData, taskId: string): string {
+	return runtimeTaskState.resolveChainWorktreeOwnerTaskId(board, taskId);
+}
+
+export function hasLiveChainMemberSharingWorktree(
+	board: BoardData,
+	ownerTaskId: string,
+	excludeTaskId: string,
+): boolean {
+	return runtimeTaskState.hasLiveChainMemberSharingWorktree(board, ownerTaskId, excludeTaskId);
+}
+
 export function getReadyLinkedTaskIdsForTaskInTrash(board: BoardData, taskId: string): string[] {
 	return runtimeTaskState.getReadyLinkedTaskIdsForTaskInTrash(board, taskId);
 }

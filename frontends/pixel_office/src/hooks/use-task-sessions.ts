@@ -46,11 +46,18 @@ interface StartTaskSessionResult {
 
 interface StartTaskSessionOptions {
 	resumeFromTrash?: boolean;
+	/** Chain follower: run this session in the chain root's worktree instead of a fresh one. */
+	worktreeTaskId?: string;
+}
+
+interface EnsureTaskWorkspaceOptions {
+	/** Chain follower: ensure/reuse the chain root's worktree instead of the task's own. */
+	worktreeTaskId?: string;
 }
 
 export interface UseTaskSessionsResult {
 	upsertSession: (summary: RuntimeTaskSessionSummary) => void;
-	ensureTaskWorkspace: (task: BoardCard) => Promise<EnsureTaskWorkspaceResult>;
+	ensureTaskWorkspace: (task: BoardCard, options?: EnsureTaskWorkspaceOptions) => Promise<EnsureTaskWorkspaceResult>;
 	startTaskSession: (task: BoardCard, options?: StartTaskSessionOptions) => Promise<StartTaskSessionResult>;
 	stopTaskSession: (taskId: string) => Promise<void>;
 	sendTaskSessionInput: (
@@ -119,14 +126,14 @@ export function useTaskSessions({ currentProjectId, setSessions }: UseTaskSessio
 	});
 
 	const ensureTaskWorkspace = useCallback(
-		async (task: BoardCard): Promise<EnsureTaskWorkspaceResult> => {
+		async (task: BoardCard, options?: EnsureTaskWorkspaceOptions): Promise<EnsureTaskWorkspaceResult> => {
 			if (!currentProjectId) {
 				return { ok: false, message: "No project selected." };
 			}
 			try {
 				const trpcClient = getRuntimeTrpcClient(currentProjectId);
 				const payload = await trpcClient.workspace.ensureWorktree.mutate({
-					taskId: task.id,
+					taskId: options?.worktreeTaskId?.trim() || task.id,
 					baseRef: task.baseRef,
 				});
 				if (!payload.ok) {
@@ -156,6 +163,7 @@ export function useTaskSessions({ currentProjectId, setSessions }: UseTaskSessio
 					getTerminalGeometry(task.id) ?? estimateTaskSessionGeometry(window.innerWidth, window.innerHeight);
 				const payload = await trpcClient.runtime.startTaskSession.mutate({
 					taskId: task.id,
+					...(options?.worktreeTaskId?.trim() ? { worktreeTaskId: options.worktreeTaskId.trim() } : {}),
 					prompt: kickoffPrompt,
 					taskTitle: task.title,
 					images: options?.resumeFromTrash ? undefined : task.images,

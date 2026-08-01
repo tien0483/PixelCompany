@@ -197,6 +197,14 @@ export const runtimeBoardDependencySchema = z.object({
 	fromTaskId: z.string(),
 	toTaskId: z.string(),
 	createdAt: z.number(),
+	/**
+	 * True when both endpoints were in Backlog at link time (a "chain"). The waiter
+	 * (fromTaskId) then reuses the prerequisite's (toTaskId) git worktree instead of
+	 * starting fresh, so a sequence of chained tasks builds up in one working tree.
+	 * Plain wait-links (one endpoint already running) leave this unset and keep the
+	 * fresh-worktree behavior.
+	 */
+	chain: z.boolean().optional(),
 });
 export type RuntimeBoardDependency = z.infer<typeof runtimeBoardDependencySchema>;
 
@@ -1374,6 +1382,13 @@ export const runtimeTaskSessionStartRequestSchema = z.object({
 	rows: z.number().int().positive().optional(),
 	agentId: runtimeAgentIdSchema.optional(),
 	clineSettings: runtimeTaskClineSettingsSchema.optional(),
+	/**
+	 * Which task's git worktree this session should run in. Chain followers pass their
+	 * chain root's id here so they continue in the root's shared working tree instead of
+	 * a fresh worktree. Defaults to taskId when omitted (the normal one-worktree-per-task
+	 * behavior).
+	 */
+	worktreeTaskId: z.string().optional(),
 	/**
 	 * Pin this session to one Claude account (jacked account id). The runtime points
 	 * CLAUDE_CONFIG_DIR at that account's credential dir, so tasks pinned to

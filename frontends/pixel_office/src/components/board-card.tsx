@@ -265,7 +265,11 @@ export function BoardCard({
 	isCommitLoading?: boolean;
 	isOpenPrLoading?: boolean;
 	isMoveToTrashLoading?: boolean;
-	onDependencyPointerDown?: (taskId: string, event: MouseEvent<HTMLElement>) => void;
+	onDependencyPointerDown?: (
+		taskId: string,
+		event: MouseEvent<HTMLElement>,
+		options?: { viaHandle?: boolean },
+	) => void;
 	onDependencyPointerEnter?: (taskId: string) => void;
 	isDependencySource?: boolean;
 	isDependencyTarget?: boolean;
@@ -555,7 +559,7 @@ export function BoardCard({
 					>
 						<div
 							className={cn(
-								"rounded-md border border-border-bright bg-surface-2 p-2.5",
+								"relative rounded-md border border-border-bright bg-surface-2 p-2.5",
 								isCardInteractive && "cursor-pointer hover:bg-surface-3 hover:border-border-bright",
 								isDragging && "shadow-lg",
 								isHovered && isCardInteractive && "bg-surface-3 border-border-bright",
@@ -563,6 +567,23 @@ export function BoardCard({
 								isDependencyTarget && "kb-board-card-dependency-target",
 							)}
 						>
+							{isCardInteractive && onDependencyPointerDown ? (
+								<button
+									type="button"
+									aria-label="Drag onto another task to link"
+									title="Drag onto another task to link. Two Backlog tasks form a chain (shared worktree)."
+									className={cn(
+										"kb-board-card-link-handle",
+										(isHovered || isDependencyLinking) && "kb-board-card-link-handle-visible",
+									)}
+									onMouseDown={(event) => {
+										event.preventDefault();
+										event.stopPropagation();
+										onDependencyPointerDown(card.id, event, { viaHandle: true });
+									}}
+									onClick={stopEvent}
+								/>
+							) : null}
 							<div className="flex items-center gap-2" style={{ minHeight: 24 }}>
 								{statusMarker ? <div className="inline-flex items-center">{statusMarker}</div> : null}
 								<div className="flex-1 min-w-0">

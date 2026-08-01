@@ -5,9 +5,12 @@ import {
 	addTaskDependency,
 	addTaskToColumn,
 	deleteTasksFromBoard,
+	hasLiveChainMemberSharingWorktree,
 	moveTaskToColumn,
+	resolveChainWorktreeOwnerTaskId,
 	trashTaskAndGetReadyLinkedTaskIds,
 	updateTask,
+	updateTaskDependencies,
 } from "../../src/core/task-board-mutations";
 
 function createBoard(): RuntimeBoardData {
@@ -270,5 +273,75 @@ describe("per-task agent/model/provider overrides", () => {
 			modelId: "claude-sonnet-4-20250514",
 			reasoningEffort: "high",
 		});
+	});
+});
+
+describe("task chains", () => {
+	// Builds A, B, C all in Backlog. Returns the board.
+	function boardWithThreeBacklogTasks(): RuntimeBoardData {
+		const a = addTaskToColumn(createBoard(), "backlog", { prompt: "Task A", baseRef: "main" }, () => "aaaaa111");
+		const b = addTaskToColumn(a.board, "backlog", { prompt: "Task B", baseRef: "main" }, () => "bbbbb111");
+		const c = addTaskToColumn(b.board, "backlog", { prompt: "Task C", baseRef: "main" }, () => "ccccc111");
+		return c.board;
+	}
+
+	it("marks a link between two Backlog tasks as a chain (follower waits on root)", () => {
+		const linked = addTaskDependency(boardWithThreeBacklogTasks(), "aaaaa", "bbbbb");
+		expect(linked.added).toBe(true);
+		expect(linked.dependency?.chain).toBe(true);
+		// first arg = follower (fromTaskId), second = root/prerequisite (toTaskId).
+		expect(linked.dependency?.fromTaskId).toBe("aaaaa");
+		expect(linked.dependency?.toTaskId).toBe("bbbbb");
+	});
+
+	it("does not mark a link as a chain when one endpoint is already running", () => {
+		const board = boardWithThreeBacklogTasks();
+		const running = moveTaskToColumn(board, "bbbbb", "in_progress");
+		const linked = addTaskDependency(running.board, "aaaaa", "bbbbb");
+		expect(linked.added).toBe(true);
+		expect(linked.dependency?.chain).toBeUndefined();
+	});
+
+	it("rejects chaining one follower onto two different roots", () => {
+		const first = addTaskDependency(boardWithThreeBacklogTasks(), "aaaaa", "bbbbb");
+		if (!first.added) {
+			throw new Error("Expected first chain link to be created.");
+		}
+		const second = addTaskDependency(first.board, "aaaaa", "ccccc");
+		expect(second.added).toBe(false);
+		expect(second.reason).toBe("chain_conflict");
+	});
+
+	it("resolves the worktree owner transitively to the chain root", () => {
+		// C waits on B, B waits on A → all share A's worktree.
+		const linkBA = addTaskDependency(boardWithThreeBacklogTasks(), "bbbbb", "aaaaa");
+		const linkCB = addTaskDependency(linkBA.board, "ccccc", "bbbbb");
+		const board = linkCB.board;
+		expect(resolveChainWorktreeOwnerTaskId(board, "ccccc")).toBe("aaaaa");
+		expect(resolveChainWorktreeOwnerTaskId(board, "bbbbb")).toBe("aaaaa");
+		expect(resolveChainWorktreeOwnerTaskId(board, "aaaaa")).toBe("aaaaa");
+	});
+
+	it("keeps the shared worktree while a chain follower is still live", () => {
+		// B (follower) waits on A (root). Root moved to review then trashed; B still live.
+		const linkBA = addTaskDependency(boardWithThreeBacklogTasks(), "bbbbb", "aaaaa");
+		const inProgress = moveTaskToColumn(linkBA.board, "aaaaa", "in_progress");
+		const review = moveTaskToColumn(inProgress.board, "aaaaa", "review");
+		const trashed = trashTaskAndGetReadyLinkedTaskIds(review.board, "aaaaa");
+		expect(hasLiveChainMemberSharingWorktree(trashed.board, "aaaaa", "aaaaa")).toBe(true);
+	});
+
+	it("releases the shared worktree once no live chain member remains", () => {
+		const linkBA = addTaskDependency(boardWithThreeBacklogTasks(), "bbbbb", "aaaaa");
+		let board = moveTaskToColumn(linkBA.board, "aaaaa", "trash").board;
+		board = moveTaskToColumn(board, "bbbbb", "trash").board;
+		board = moveTaskToColumn(board, "ccccc", "trash").board;
+		expect(hasLiveChainMemberSharingWorktree(board, "aaaaa", "bbbbb")).toBe(false);
+	});
+
+	it("preserves the chain flag through updateTaskDependencies", () => {
+		const linked = addTaskDependency(boardWithThreeBacklogTasks(), "aaaaa", "bbbbb");
+		const normalized = updateTaskDependencies(linked.board);
+		expect(normalized.dependencies[0]?.chain).toBe(true);
 	});
 });

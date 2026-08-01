@@ -17,6 +17,7 @@ import {
 	getTaskColumnId,
 	moveTaskToColumn,
 	removeTask,
+	resolveChainWorktreeOwnerTaskId,
 	updateTask,
 } from "@/state/board-state";
 import { clearTaskWorkspaceInfo, setTaskWorkspaceInfo } from "@/stores/workspace-metadata-store";
@@ -300,7 +301,10 @@ export function useBoardInteractions({
 			options?: { optimisticMove?: boolean },
 		): Promise<boolean> => {
 			const optimisticMove = options?.optimisticMove ?? true;
-			const ensured = await ensureTaskWorkspace(task);
+			// Chain followers run in the chain root's shared worktree; owner === task.id for
+			// standalone tasks, so this is a no-op there.
+			const worktreeTaskId = resolveChainWorktreeOwnerTaskId(board, task.id);
+			const ensured = await ensureTaskWorkspace(task, { worktreeTaskId });
 			if (!ensured.ok) {
 				notifyError(ensured.message ?? "Could not set up task workspace.");
 				if (optimisticMove) {
@@ -340,7 +344,7 @@ export function useBoardInteractions({
 					setTaskWorkspaceInfo(infoAfterEnsure);
 				}
 			}
-			const started = await startTaskSession(task);
+			const started = await startTaskSession(task, { worktreeTaskId });
 			if (!started.ok) {
 				notifyError(started.message ?? "Could not start task session.");
 				if (optimisticMove) {
@@ -367,7 +371,7 @@ export function useBoardInteractions({
 			}
 			return true;
 		},
-		[ensureTaskWorkspace, fetchTaskWorkspaceInfo, selectedTaskId, setBoard, startTaskSession],
+		[board, ensureTaskWorkspace, fetchTaskWorkspaceInfo, selectedTaskId, setBoard, startTaskSession],
 	);
 
 	const startBacklogTaskImmediately = useCallback(
@@ -543,7 +547,8 @@ export function useBoardInteractions({
 
 	const resumeTaskFromTrash = useCallback(
 		async (task: BoardCard, taskId: string, options?: { optimisticMoveApplied?: boolean }): Promise<void> => {
-			const ensured = await ensureTaskWorkspace(task);
+			const worktreeTaskId = resolveChainWorktreeOwnerTaskId(board, task.id);
+			const ensured = await ensureTaskWorkspace(task, { worktreeTaskId });
 			if (!ensured.ok) {
 				notifyError(ensured.message ?? "Could not set up task workspace.");
 				if (!options?.optimisticMoveApplied) {
@@ -569,7 +574,7 @@ export function useBoardInteractions({
 					timeout: 7000,
 				});
 			}
-			const resumed = await startTaskSession(task, { resumeFromTrash: true });
+			const resumed = await startTaskSession(task, { resumeFromTrash: true, worktreeTaskId });
 			if (resumed.ok) {
 				setBoard((currentBoard) => {
 					const disabledAutoReview = disableTaskAutoReview(currentBoard, taskId);
@@ -593,7 +598,7 @@ export function useBoardInteractions({
 				return reverted.moved ? reverted.board : currentBoard;
 			});
 		},
-		[ensureTaskWorkspace, setBoard, startTaskSession],
+		[board, ensureTaskWorkspace, setBoard, startTaskSession],
 	);
 
 	const handleDragEnd = useCallback(
@@ -684,6 +689,10 @@ export function useBoardInteractions({
 			if (!selection || selection.column.id !== "backlog") {
 				return;
 			}
+			// A chain follower only runs after its root completes; ignore a direct start.
+			if (resolveChainWorktreeOwnerTaskId(board, taskId) !== taskId) {
+				return;
+			}
 			maybeRequestNotificationPermissionForTaskStart();
 			void startBacklogTaskWithAnimation(selection.card);
 		},
@@ -738,6 +747,11 @@ export function useBoardInteractions({
 				}
 				const selection = findCardSelection(nextBoard, taskId);
 				if (!selection || selection.column.id !== "backlog") {
+					continue;
+				}
+				// Chain followers auto-run in their root's worktree once the root completes, so
+				// "start all" must not kick them off directly — only start chain roots / standalone.
+				if (resolveChainWorktreeOwnerTaskId(nextBoard, taskId) !== taskId) {
 					continue;
 				}
 				const moved = moveTaskToColumn(nextBoard, taskId, "in_progress", { insertAtTop: true });

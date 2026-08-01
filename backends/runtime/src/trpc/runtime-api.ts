@@ -185,11 +185,15 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 				}
 				const requestedClineTaskMode = body.mode ?? "act";
 				const scopedRuntimeConfig = await deps.loadScopedRuntimeConfig(workspaceScope);
+				// Chain followers run in their chain root's worktree: resolve the cwd from
+				// worktreeTaskId when present so the shared working tree is reused instead of
+				// a fresh per-task worktree. The session itself stays keyed on body.taskId.
+				const worktreeTaskId = body.worktreeTaskId?.trim() || body.taskId;
 				const taskCwd = isHomeAgentSessionId(body.taskId)
 					? workspaceScope.workspacePath
 					: await resolveExistingTaskCwdOrEnsure({
 							cwd: workspaceScope.workspacePath,
-							taskId: body.taskId,
+							taskId: worktreeTaskId,
 							baseRef: body.baseRef,
 						});
 				const shouldCaptureTurnCheckpoint = !body.resumeFromTrash && !isHomeAgentSessionId(body.taskId);

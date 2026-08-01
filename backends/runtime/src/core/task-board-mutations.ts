@@ -82,7 +82,7 @@ export interface RuntimeUpdateTaskResult {
 export interface RuntimeAddTaskDependencyResult {
 	board: RuntimeBoardData;
 	added: boolean;
-	reason?: "missing_task" | "same_task" | "duplicate" | "trash_task" | "non_backlog";
+	reason?: "missing_task" | "same_task" | "duplicate" | "trash_task" | "non_backlog" | "chain_conflict";
 	dependency?: RuntimeBoardDependency;
 }
 
@@ -179,6 +179,8 @@ function resolveDependencyEndpoints(
 	| {
 			backlogTaskId: string;
 			linkedTaskId: string;
+			/** Both endpoints are in Backlog: this link is a worktree-sharing chain. */
+			chain: boolean;
 	  }
 	| { reason: RuntimeAddTaskDependencyResult["reason"] } {
 	const firstColumnId = getTaskColumnId(board, firstTaskId);
@@ -195,14 +197,99 @@ function resolveDependencyEndpoints(
 		return {
 			backlogTaskId: firstTaskId,
 			linkedTaskId: secondTaskId,
+			chain: true,
 		};
 	}
 	if (!firstIsBacklog && !secondIsBacklog) {
 		return { reason: "non_backlog" };
 	}
 	return firstIsBacklog
-		? { backlogTaskId: firstTaskId, linkedTaskId: secondTaskId }
-		: { backlogTaskId: secondTaskId, linkedTaskId: firstTaskId };
+		? { backlogTaskId: firstTaskId, linkedTaskId: secondTaskId, chain: false }
+		: { backlogTaskId: secondTaskId, linkedTaskId: firstTaskId, chain: false };
+}
+
+/**
+ * Walks the chain-dependency graph from a task up to the chain root and returns the
+ * task id whose git worktree the whole chain shares. A chain follower is the
+ * `fromTaskId` of a `chain` dependency; its worktree owner is the `toTaskId` it waits
+ * on, resolved transitively to the root that is not itself a follower. A task with no
+ * incoming chain dependency owns its own worktree (returns its own id). Cycle-guarded.
+ */
+export function resolveChainWorktreeOwnerTaskId(board: RuntimeBoardData, taskId: string): string {
+	const normalized = taskId.trim();
+	if (!normalized) {
+		return normalized;
+	}
+	const seen = new Set<string>();
+	let current = normalized;
+	while (!seen.has(current)) {
+		seen.add(current);
+		const chainDependency = board.dependencies.find(
+			(dependency) => dependency.chain === true && dependency.fromTaskId === current,
+		);
+		if (!chainDependency) {
+			break;
+		}
+		const next = chainDependency.toTaskId.trim();
+		if (!next) {
+			break;
+		}
+		current = next;
+	}
+	return current;
+}
+
+/**
+ * True when walking `chain` dependencies root-ward from `startTaskId` (follower →
+ * prerequisite) reaches `targetTaskId`. Used to detect cycles before adding a chain link.
+ */
+function chainReachesTaskId(board: RuntimeBoardData, startTaskId: string, targetTaskId: string): boolean {
+	const seen = new Set<string>();
+	let current = startTaskId;
+	while (!seen.has(current)) {
+		if (current === targetTaskId) {
+			return true;
+		}
+		seen.add(current);
+		const chainDependency = board.dependencies.find(
+			(dependency) => dependency.chain === true && dependency.fromTaskId === current,
+		);
+		if (!chainDependency) {
+			break;
+		}
+		current = chainDependency.toTaskId;
+	}
+	return current === targetTaskId;
+}
+
+/**
+ * True when some live (non-trash) task other than `excludeTaskId` still resolves to
+ * `ownerTaskId` as its chain worktree owner. Used at trash time to decide whether the
+ * shared worktree must be handed off to a chain follower instead of being deleted.
+ */
+export function hasLiveChainMemberSharingWorktree(
+	board: RuntimeBoardData,
+	ownerTaskId: string,
+	excludeTaskId: string,
+): boolean {
+	const normalizedOwner = ownerTaskId.trim();
+	if (!normalizedOwner) {
+		return false;
+	}
+	for (const column of board.columns) {
+		if (column.id === "trash") {
+			continue;
+		}
+		for (const card of column.cards) {
+			if (card.id === excludeTaskId) {
+				continue;
+			}
+			if (resolveChainWorktreeOwnerTaskId(board, card.id) === normalizedOwner) {
+				return true;
+			}
+		}
+	}
+	return false;
 }
 
 function getLinkedBacklogTaskIdsReadyAfterTaskTrashed(
@@ -242,6 +329,26 @@ export function updateTaskDependencies(board: RuntimeBoardData): RuntimeBoardDat
 		if (!taskIds.has(firstTaskId) || !taskIds.has(secondTaskId)) {
 			continue;
 		}
+		// A chain dependency must survive its endpoints moving out of Backlog (e.g. the root
+		// running then landing in trash) so the shared worktree stays resolvable during
+		// hand-off. Preserve it verbatim as long as both tasks still exist; it is only pruned
+		// once a task is deleted (dropped by the taskIds guard above). Re-resolving here would
+		// treat a trashed endpoint as invalid and silently drop the chain.
+		if (dependency.chain === true) {
+			const chainPairKey = createDependencyPairKey(firstTaskId, secondTaskId);
+			if (existingPairs.has(chainPairKey)) {
+				continue;
+			}
+			existingPairs.add(chainPairKey);
+			dependencies.push({
+				id: dependency.id,
+				fromTaskId: firstTaskId,
+				toTaskId: secondTaskId,
+				createdAt: dependency.createdAt,
+				chain: true,
+			});
+			continue;
+		}
 		const resolved = resolveDependencyEndpoints(board, firstTaskId, secondTaskId);
 		if ("reason" in resolved) {
 			continue;
@@ -256,6 +363,7 @@ export function updateTaskDependencies(board: RuntimeBoardData): RuntimeBoardDat
 			fromTaskId: resolved.backlogTaskId,
 			toTaskId: resolved.linkedTaskId,
 			createdAt: dependency.createdAt,
+			...(dependency.chain ? { chain: true } : {}),
 		});
 	}
 	if (
@@ -267,7 +375,8 @@ export function updateTaskDependencies(board: RuntimeBoardData): RuntimeBoardDat
 				current.id === dependency.id &&
 				current.fromTaskId === dependency.fromTaskId &&
 				current.toTaskId === dependency.toTaskId &&
-				current.createdAt === dependency.createdAt
+				current.createdAt === dependency.createdAt &&
+				Boolean(current.chain) === Boolean(dependency.chain)
 			);
 		})
 	) {
@@ -367,11 +476,29 @@ export function addTaskDependency(
 	if (hasDependencyPair(board, resolved.backlogTaskId, resolved.linkedTaskId)) {
 		return { board, added: false, reason: "duplicate" };
 	}
+	if (resolved.chain) {
+		// A chain follower runs in exactly one shared worktree, so it may wait on at most one
+		// chain root. Reject a second chain prerequisite for the same follower to keep chains
+		// resolvable to a single worktree owner.
+		if (
+			board.dependencies.some(
+				(dependency) => dependency.chain === true && dependency.fromTaskId === resolved.backlogTaskId,
+			)
+		) {
+			return { board, added: false, reason: "chain_conflict" };
+		}
+		// Reject a link that would make the chain cyclic (the proposed root already chains,
+		// transitively, back onto the proposed follower). A cycle has no single root/owner.
+		if (chainReachesTaskId(board, resolved.linkedTaskId, resolved.backlogTaskId)) {
+			return { board, added: false, reason: "chain_conflict" };
+		}
+	}
 	const dependency: RuntimeBoardDependency = {
 		id: createDependencyId(),
 		fromTaskId: resolved.backlogTaskId,
 		toTaskId: resolved.linkedTaskId,
 		createdAt: Date.now(),
+		...(resolved.chain ? { chain: true } : {}),
 	};
 	return {
 		board: {

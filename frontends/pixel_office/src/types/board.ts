@@ -72,6 +72,12 @@ export interface BoardDependency {
 	fromTaskId: string;
 	toTaskId: string;
 	createdAt: number;
+	/**
+	 * True when both endpoints were in Backlog at link time (a "chain"): the waiter
+	 * (fromTaskId) reuses the prerequisite's (toTaskId) worktree and the chain renders as
+	 * one collapsible group in Backlog. Plain wait-links leave this unset.
+	 */
+	chain?: boolean;
 }
 
 export interface BoardData {

@@ -84,12 +84,19 @@ export function useDependencyLinking({
 	onCreateDependency?: (fromTaskId: string, toTaskId: string) => void;
 }): {
 	draft: DependencyLinkDraft | null;
-	onDependencyPointerDown: (taskId: string, event: ReactMouseEvent<HTMLElement>) => void;
+	onDependencyPointerDown: (
+		taskId: string,
+		event: ReactMouseEvent<HTMLElement>,
+		options?: { viaHandle?: boolean },
+	) => void;
 	onDependencyPointerEnter: (taskId: string) => void;
 } {
 	const [draft, setDraft] = useState<DependencyLinkDraft | null>(null);
 	const draftRef = useRef<DependencyLinkDraft | null>(null);
 	const modifierPressedRef = useRef(false);
+	// True when the current draft was started from a card's link handle (the dot) rather
+	// than a Cmd/Ctrl+drag. Handle drags complete on mouseup without any modifier held.
+	const handleInitiatedRef = useRef(false);
 
 	const getValidTargetTaskId = useCallback(
 		(sourceTaskId: string, targetTaskId: string | null): string | null => {
@@ -113,6 +120,7 @@ export function useDependencyLinking({
 			}
 			onCreateDependency?.(current.sourceTaskId, validTaskId);
 			draftRef.current = null;
+			handleInitiatedRef.current = false;
 			setDraft(null);
 			return true;
 		},
@@ -129,6 +137,7 @@ export function useDependencyLinking({
 		};
 		const handleWindowBlur = () => {
 			modifierPressedRef.current = false;
+			handleInitiatedRef.current = false;
 			draftRef.current = null;
 			setDraft(null);
 		};
@@ -182,11 +191,15 @@ export function useDependencyLinking({
 					current.sourceTaskId,
 					getTaskIdFromPoint(event.clientX, event.clientY) ?? current.targetTaskId,
 				);
-				if (modifierPressedRef.current && completeDependencyLink(resolvedTargetTaskId ?? null)) {
+				// A handle-initiated drag commits on mouseup with no modifier; a Cmd/Ctrl drag
+				// still requires the modifier so a plain click-drag doesn't accidentally link.
+				const shouldCompleteOnMouseUp = handleInitiatedRef.current || modifierPressedRef.current;
+				if (shouldCompleteOnMouseUp && completeDependencyLink(resolvedTargetTaskId ?? null)) {
 					return null;
 				}
 				if (!modifierPressedRef.current) {
 					draftRef.current = null;
+					handleInitiatedRef.current = false;
 					return null;
 				}
 				const nextDraft = {
@@ -202,6 +215,11 @@ export function useDependencyLinking({
 
 		const handleModifierRelease = (event: KeyboardEvent) => {
 			if (event.metaKey || event.ctrlKey) {
+				return;
+			}
+			// A handle drag isn't driven by the modifier, so a stray key release must not
+			// commit or cancel it — it completes on mouseup instead.
+			if (handleInitiatedRef.current) {
 				return;
 			}
 			modifierPressedRef.current = false;
@@ -231,23 +249,28 @@ export function useDependencyLinking({
 		};
 	}, [completeDependencyLink, getValidTargetTaskId, isLinking]);
 
-	const handleDependencyPointerDown = useCallback((taskId: string, event: ReactMouseEvent<HTMLElement>) => {
-		modifierPressedRef.current = event.metaKey || event.ctrlKey;
-		setDraft((current) => {
-			if (current?.sourceTaskId === taskId) {
-				draftRef.current = null;
-				return null;
-			}
-			const nextDraft = {
-				sourceTaskId: taskId,
-				targetTaskId: null,
-				pointerClientX: event.clientX,
-				pointerClientY: event.clientY,
-			};
-			draftRef.current = nextDraft;
-			return nextDraft;
-		});
-	}, []);
+	const handleDependencyPointerDown = useCallback(
+		(taskId: string, event: ReactMouseEvent<HTMLElement>, options?: { viaHandle?: boolean }) => {
+			modifierPressedRef.current = event.metaKey || event.ctrlKey;
+			handleInitiatedRef.current = options?.viaHandle === true;
+			setDraft((current) => {
+				if (current?.sourceTaskId === taskId) {
+					draftRef.current = null;
+					handleInitiatedRef.current = false;
+					return null;
+				}
+				const nextDraft = {
+					sourceTaskId: taskId,
+					targetTaskId: null,
+					pointerClientX: event.clientX,
+					pointerClientY: event.clientY,
+				};
+				draftRef.current = nextDraft;
+				return nextDraft;
+			});
+		},
+		[],
+	);
 
 	const handleDependencyPointerEnter = useCallback(
 		(taskId: string) => {

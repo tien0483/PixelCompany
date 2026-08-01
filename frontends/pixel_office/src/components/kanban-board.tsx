@@ -9,7 +9,7 @@ import {
 	type SnapDragActions,
 } from "@hello-pangea/dnd";
 import type { ReactNode } from "react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { BoardColumn } from "@/components/board-column";
 import { DependencyOverlay } from "@/components/dependencies/dependency-overlay";
@@ -98,6 +98,13 @@ export function KanbanBoard({
 		canLinkTasks: (fromTaskId, toTaskId) => canCreateTaskDependency(data, fromTaskId, toTaskId),
 		onCreateDependency,
 	});
+
+	// Chain dependencies are drawn by the Backlog guardrail group, not the connector
+	// overlay, so filter them out to avoid arrows pointing at folded chain members.
+	const overlayDependencies = useMemo(
+		() => dependencies.filter((dependency) => dependency.chain !== true),
+		[dependencies],
+	);
 
 	useEffect(() => {
 		latestDataRef.current = data;
@@ -412,6 +419,7 @@ export function KanbanBoard({
 						dependencySourceTaskId={dependencyLinking.draft?.sourceTaskId ?? null}
 						dependencyTargetTaskId={dependencyLinking.draft?.targetTaskId ?? null}
 						isDependencyLinking={dependencyLinking.draft !== null}
+						dependencies={dependencies}
 						workspacePath={workspacePath}
 						defaultClineModelId={defaultClineModelId}
 						onCardClick={(card) => {
@@ -423,7 +431,7 @@ export function KanbanBoard({
 				))}
 				<DependencyOverlay
 					containerRef={boardRef}
-					dependencies={dependencies}
+					dependencies={overlayDependencies}
 					draft={dependencyLinking.draft}
 					activeTaskId={activeDragTaskId ?? programmaticCardMoveInFlight?.taskId ?? null}
 					activeTaskEffectiveColumnId={activeTaskEffectiveColumnId}

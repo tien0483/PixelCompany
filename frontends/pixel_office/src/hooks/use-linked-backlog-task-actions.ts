@@ -6,8 +6,10 @@ import { getDetailTerminalTaskId } from "@/hooks/use-terminal-panels";
 import {
 	addTaskDependency,
 	findCardSelection,
+	hasLiveChainMemberSharingWorktree,
 	moveTaskToColumn,
 	removeTaskDependency,
+	resolveChainWorktreeOwnerTaskId,
 	trashTaskAndGetReadyLinkedTaskIds,
 } from "@/state/board-state";
 import { trackTaskDependencyCreated, trackTasksAutoStartedFromDependency } from "@/telemetry/events";
@@ -73,7 +75,9 @@ export function useLinkedBacklogTaskActions({
 								? "Links cannot include done tasks."
 								: result.reason === "non_backlog"
 									? "Links must include at least one Backlog task."
-									: "Could not create link.";
+									: result.reason === "chain_conflict"
+										? "This task already chains onto another task."
+										: "Could not create link.";
 				showAppToast({
 					intent: "warning",
 					icon: "warning-sign",
@@ -167,7 +171,16 @@ export function useLinkedBacklogTaskActions({
 			}
 
 			await Promise.all([stopTaskSession(task.id), stopTaskSession(getDetailTerminalTaskId(task.id))]);
-			await cleanupTaskWorkspace(task.id);
+			// Chained tasks share one worktree keyed on the chain root. If a chain follower is
+			// still live (it may have just auto-started above), hand the worktree off instead of
+			// deleting it; only remove the root's worktree once no live chain member remains. For
+			// standalone tasks the owner is the task itself, so this stays the original cleanup.
+			const latestBoard = boardRef.current;
+			const worktreeOwnerId = resolveChainWorktreeOwnerTaskId(latestBoard, task.id);
+			const worktreeStillInUse = hasLiveChainMemberSharingWorktree(latestBoard, worktreeOwnerId, task.id);
+			if (!worktreeStillInUse) {
+				await cleanupTaskWorkspace(worktreeOwnerId);
+			}
 		},
 		[
 			cleanupTaskWorkspace,

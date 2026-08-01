@@ -263,8 +263,8 @@ describe("useBoardInteractions", () => {
 		});
 
 		expect(started).toBe(true);
-		expect(ensureTaskWorkspace).toHaveBeenCalledWith(backlogTask);
-		expect(startTaskSession).toHaveBeenCalledWith(backlogTask);
+		expect(ensureTaskWorkspace).toHaveBeenCalledWith(backlogTask, { worktreeTaskId: backlogTask.id });
+		expect(startTaskSession).toHaveBeenCalledWith(backlogTask, { worktreeTaskId: backlogTask.id });
 	});
 
 	it("waits for a new backlog card height to settle before starting animation", async () => {
@@ -433,7 +433,9 @@ describe("useBoardInteractions", () => {
 		expect(tryProgrammaticCardMove).not.toHaveBeenCalled();
 		expect(measurementCount).toBe(0);
 		expect(setBoard).toHaveBeenCalled();
-		expect(startTaskSession).toHaveBeenCalledWith(board.columns[0]!.cards[0]!);
+		expect(startTaskSession).toHaveBeenCalledWith(board.columns[0]!.cards[0]!, {
+			worktreeTaskId: board.columns[0]!.cards[0]!.id,
+		});
 		boardElement.remove();
 	});
 
@@ -518,8 +520,11 @@ describe("useBoardInteractions", () => {
 			baseRef: trashTask.baseRef,
 			createdAt: trashTask.createdAt,
 		});
-		expect(ensureTaskWorkspace).toHaveBeenCalledWith(expectedTask);
-		expect(startTaskSession).toHaveBeenCalledWith(expectedTask, { resumeFromTrash: true });
+		expect(ensureTaskWorkspace).toHaveBeenCalledWith(expectedTask, { worktreeTaskId: trashTask.id });
+		expect(startTaskSession).toHaveBeenCalledWith(expectedTask, {
+			resumeFromTrash: true,
+			worktreeTaskId: trashTask.id,
+		});
 		expect(showAppToastMock).toHaveBeenCalledWith({
 			intent: "warning",
 			icon: "warning-sign",
