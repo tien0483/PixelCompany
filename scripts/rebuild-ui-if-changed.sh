@@ -22,9 +22,19 @@ if ! command -v node >/dev/null 2>&1 || [ "$(node -p 'process.versions.node.spli
 	exit 0
 fi
 
+UI_DIR="frontends/pixel_office"
+
+# Kanban task worktrees are created by `git worktree add`, which fires this
+# post-checkout hook BEFORE the runtime symlinks node_modules into the new
+# worktree — a build here can only fail (and its non-zero exit aborts worktree
+# creation entirely). No deps means no build is possible anywhere, so skip.
+if [ ! -d "$UI_DIR/node_modules" ]; then
+	echo "[git-hook] Skipping UI rebuild: $UI_DIR/node_modules not installed (fresh worktree or pre-install checkout)." >&2
+	exit 0
+fi
+
 OLD_REF="${1:-}"
 NEW_REF="${2:-HEAD}"
-UI_DIR="frontends/pixel_office"
 WATCH_PATHS=("$UI_DIR/src" "$UI_DIR/package.json" "$UI_DIR/vite.config.ts" "$UI_DIR/index.html")
 
 needs_build=1
