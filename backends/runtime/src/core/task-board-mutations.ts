@@ -413,6 +413,7 @@ export function updateTaskDependencies(board: RuntimeBoardData): RuntimeBoardDat
 		if ("reason" in resolved) {
 			continue;
 		}
+		// Chain deps already `continue`d above, so this path is non-chain-only: no `chain` flag.
 		const pairKey = createDependencyPairKey(resolved.backlogTaskId, resolved.linkedTaskId);
 		if (existingPairs.has(pairKey)) {
 			continue;
@@ -423,7 +424,6 @@ export function updateTaskDependencies(board: RuntimeBoardData): RuntimeBoardDat
 			fromTaskId: resolved.backlogTaskId,
 			toTaskId: resolved.linkedTaskId,
 			createdAt: dependency.createdAt,
-			...(dependency.chain ? { chain: true } : {}),
 		});
 	}
 	if (

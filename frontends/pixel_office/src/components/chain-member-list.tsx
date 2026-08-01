@@ -5,6 +5,28 @@ import { cn } from "@/components/ui/cn";
 import type { BoardCard as BoardCardModel, BoardDependency } from "@/types";
 
 /**
+ * Move `fromId` to sit immediately BEFORE `toId`, consistently regardless of drag direction.
+ * Removing `fromId` first shifts every later index down by one, so a downward drag
+ * (fromIndex < toIndex) must decrement the insert index to stay before the target.
+ * Returns the new order, or `null` when the move is a no-op / either id is absent.
+ */
+export function reorderMembersBeforeTarget(memberIds: string[], fromId: string, toId: string): string[] | null {
+	if (fromId === toId) {
+		return null;
+	}
+	const order = [...memberIds];
+	const fromIndex = order.indexOf(fromId);
+	const toIndex = order.indexOf(toId);
+	if (fromIndex < 0 || toIndex < 0) {
+		return null;
+	}
+	order.splice(fromIndex, 1);
+	const insertAt = fromIndex < toIndex ? toIndex - 1 : toIndex;
+	order.splice(insertAt, 0, fromId);
+	return order.some((id, index) => id !== memberIds[index]) ? order : null;
+}
+
+/**
  * The expanded body of a Backlog chain guardrail: every member (root first, then followers)
  * rendered as a uniform, reorderable row. Reordering uses native HTML5 drag-and-drop rather
  * than react-beautiful-dnd — the board already lives inside one global DragDropContext, and
@@ -53,18 +75,11 @@ export function ChainMemberList({
 	}, [dependencies]);
 
 	const commitReorder = (fromId: string, toId: string) => {
-		if (!onReorderChain || fromId === toId) {
+		if (!onReorderChain) {
 			return;
 		}
-		const order = [...memberIds];
-		const fromIndex = order.indexOf(fromId);
-		const toIndex = order.indexOf(toId);
-		if (fromIndex < 0 || toIndex < 0) {
-			return;
-		}
-		order.splice(fromIndex, 1);
-		order.splice(toIndex, 0, fromId);
-		if (order.some((id, index) => id !== memberIds[index])) {
+		const order = reorderMembersBeforeTarget(memberIds, fromId, toId);
+		if (order) {
 			onReorderChain(order);
 		}
 	};

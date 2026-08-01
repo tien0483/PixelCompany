@@ -237,12 +237,6 @@ export function useLinkedBacklogTaskActions({
 				);
 			};
 
-			if (options?.skipWorkingChangeWarning) {
-				moveSelectionIfOptimisticMoveIsConfirmed();
-				await performMoveTaskToTrash(selection.card, boardSnapshot);
-				return;
-			}
-
 			moveSelectionIfOptimisticMoveIsConfirmed();
 			await performMoveTaskToTrash(selection.card, boardSnapshot);
 		},
