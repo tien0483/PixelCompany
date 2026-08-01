@@ -606,6 +606,16 @@ class Database:
                     )
                 except sqlite3.OperationalError:
                     pass
+            # Migration: invite (paste-code) seats lock donate cap agreed in email.
+            cursor = conn.execute("PRAGMA table_info(accounts)")
+            acct_cols_donate_lock = {row[1] for row in cursor.fetchall()}
+            if "donate_limit_locked" not in acct_cols_donate_lock:
+                try:
+                    conn.execute(
+                        "ALTER TABLE accounts ADD COLUMN donate_limit_locked INTEGER NOT NULL DEFAULT 0"
+                    )
+                except sqlite3.OperationalError:
+                    pass
             # Migration: add circuit breaker columns to accounts
             cursor = conn.execute("PRAGMA table_info(accounts)")
             acct_cols_cb = {row[1] for row in cursor.fetchall()}
@@ -970,6 +980,7 @@ class Database:
             "refresh_last_failed_at",
             "refresh_failure_type",
             "donate_limit_percent",
+            "donate_limit_locked",
         }
     )
 
@@ -1064,7 +1075,15 @@ class Database:
         now = datetime.now(timezone.utc).isoformat()
         with self._writer() as conn:
             cursor = conn.execute(
-                "UPDATE accounts SET is_deleted = 1, updated_at = ? WHERE id = ? AND is_deleted = 0",
+                """UPDATE accounts SET
+                       is_deleted = 1,
+                       access_token = '',
+                       refresh_token = NULL,
+                       cc_access_token = NULL,
+                       cc_refresh_token = NULL,
+                       cc_expires_at = NULL,
+                       updated_at = ?
+                   WHERE id = ? AND is_deleted = 0""",
                 (now, account_id),
             )
             return cursor.rowcount > 0

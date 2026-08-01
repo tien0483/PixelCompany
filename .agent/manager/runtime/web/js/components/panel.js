@@ -170,7 +170,7 @@ function panelEmptyHtml() {
 function panelErrorHtml(message) {
     return `
         <div class="panel-error">
-            <div class="panel-error-title">Can't reach jacked</div>
+            <div class="panel-error-title">Can't reach manager</div>
             <div class="panel-error-sub">${escapeHtml(message || 'Service unavailable')}</div>
             <button id="panel-retry" class="panel-retry">Retry</button>
         </div>`;

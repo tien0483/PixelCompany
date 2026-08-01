@@ -45,6 +45,18 @@ describe("pickDefaultCursorAccountId", () => {
 		).toBe(3);
 	});
 
+	it("skips disabled Cursor seats for Auto pick", () => {
+		expect(
+			pickDefaultCursorAccountId({
+				accounts: [
+					{ id: 1, provider: "cursor", isActive: false, isActiveForProvider: true },
+					{ id: 2, provider: "cursor", isActive: true, isActiveForProvider: false },
+				],
+				activeAccountId: 1,
+			}),
+		).toBe(2);
+	});
+
 	it("falls back to the first Cursor account when Claude is globally active", () => {
 		expect(
 			pickDefaultCursorAccountId({

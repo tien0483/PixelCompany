@@ -183,6 +183,7 @@ class OAuthFlow:
         self._event = asyncio.Event()
         self._submit_lock = asyncio.Lock()
         self._submit_attempts = 0
+        self._donate_limit_percent: Optional[int] = None
         self._created_at = time.time()
 
     @property
@@ -421,7 +422,11 @@ class OAuthFlow:
             return code.strip() or None, state.strip() or None
         return pasted, None
 
-    async def submit_code(self, pasted: str) -> dict:
+    async def submit_code(
+        self,
+        pasted: str,
+        donate_limit_percent: Optional[int] = None,
+    ) -> dict:
         """Complete the flow from a manually pasted authorization code.
 
         A parse or state failure returns an inline ``submit_error`` and keeps
@@ -429,7 +434,12 @@ class OAuthFlow:
         exchange marks the flow as error (matching the callback path). A
         foreign code cannot complete the flow either way: PKCE binds every
         exchangeable code to this flow's own code_challenge.
+
+        ``donate_limit_percent`` (0–100) is applied when a new account row is
+        created from a paste-code invite — not on re-auth of an existing seat.
         """
+        if donate_limit_percent is not None:
+            self._donate_limit_percent = max(0, min(100, int(donate_limit_percent)))
 
         def _rejected(message: str) -> dict:
             return {**self.get_status(), "submit_error": message}
@@ -535,27 +545,9 @@ class OAuthFlow:
 
                 sync_credential_to_all_stores(account["id"], account)
 
-            # Step 7: For primary flows, persist active account + auto-start CC flow
-            if self.purpose == "primary":
-                if activate:
-                    self.db.set_setting("active_account_id", str(account["id"]))
-
-                # Auto-start CC flow so the account gets independent CC tokens.
-                # Wrapped in try/except: CC failure is non-fatal — primary account
-                # is already saved. Without this guard, a CC failure (e.g., no
-                # available port) would propagate up to _handle_callback() and
-                # mark the PRIMARY flow as errored.
-                try:
-                    cc_flow = OAuthFlow(
-                        self.db,
-                        purpose="claude_code",
-                        target_account_id=account["id"],
-                    )
-                    cc_result = await cc_flow.start()
-                    self._cc_flow_id = cc_result.get("flow_id")
-                except Exception as e:
-                    logger.warning(f"CC auto-flow failed (non-fatal): {e}")
-                    self._cc_flow_id = None
+            # Step 7: For primary flows, persist active account id when activating.
+            if self.purpose == "primary" and activate:
+                self.db.set_setting("active_account_id", str(account["id"]))
 
             return {
                 "account_id": account.get("id"),
@@ -812,6 +804,13 @@ class OAuthFlow:
                 logger.warning(
                     f"Validation status update failed for account {account['id']}"
                 )
+            if self._donate_limit_percent is not None:
+                self.db.update_account(
+                    account["id"],
+                    donate_limit_percent=self._donate_limit_percent,
+                    donate_limit_locked=1,
+                )
+                account = self.db.get_account(account["id"]) or account
 
         # Update usage cache if we got usage data
         five_hour = usage.get("five_hour", {})

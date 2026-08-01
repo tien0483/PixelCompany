@@ -108,6 +108,7 @@ export interface ManagerClient {
 	submitOAuthCode: (
 		flowId: string,
 		code: string,
+		donateLimitPercent?: number,
 	) => Promise<RuntimeManagerOAuthFlowStatus | null>;
 	/** Forward an arbitrary jacked HTTP path (same-origin proxy helper). */
 	proxyRequest: (
@@ -211,11 +212,13 @@ function parseAccount(raw: unknown): RuntimeManagerAccount | null {
 		usageCachedAt: readNumber(raw, "usage_cached_at"),
 		subscriptionType: readString(raw, "subscription_type"),
 		donateLimitPercent,
+		donateLimitLocked: readBoolean(raw, "donate_limit_locked"),
 		pressure: toPressure([fiveHourPercent, sevenDayPercent]),
 		nextRefreshAt: readNumber(raw, "next_refresh_at"),
 		canAutoSwap,
 		canTrackUsage,
 		hasCcToken: readBoolean(raw, "has_cc_token"),
+		ccNeedsAuth: readBoolean(raw, "cc_needs_auth"),
 		isActiveForProvider: readBoolean(raw, "is_active_for_provider"),
 		validationStatus: readString(raw, "validation_status"),
 		lastError: readString(raw, "last_error"),
@@ -399,7 +402,7 @@ export function createManagerClient(deps: CreateManagerClientDependencies): Mana
 
 		const [accountsRaw, menubarRaw, swapSettingsRaw, featuresRaw, swapLogRaw, lessonsRaw, versionRaw] =
 			await Promise.all([
-				request("/api/auth/accounts"),
+				request("/api/auth/accounts?include_inactive=true"),
 				request("/api/menubar-summary"),
 				request("/api/settings/swap-settings"),
 				request("/api/features"),
@@ -1001,18 +1004,23 @@ export function createManagerClient(deps: CreateManagerClientDependencies): Mana
 				authUrl: readString(raw, "auth_url"),
 				mode: readString(raw, "mode"),
 				submitError: readString(raw, "submit_error"),
+				ccFlowId: readString(raw, "cc_flow_id"),
 			};
 		},
-		submitOAuthCode: async (flowId, code) => {
+		submitOAuthCode: async (flowId, code, donateLimitPercent?) => {
 			const controller = new AbortController();
 			const timeout = setTimeout(() => {
 				controller.abort();
 			}, LONG_REQUEST_TIMEOUT_MS);
 			try {
+				const body: { code: string; donate_limit_percent?: number } = { code };
+				if (donateLimitPercent !== undefined) {
+					body.donate_limit_percent = donateLimitPercent;
+				}
 				const response = await fetch(`${baseUrl}/api/auth/flow/${encodeURIComponent(flowId)}/code`, {
 					method: "POST",
 					headers: { "content-type": "application/json" },
-					body: JSON.stringify({ code }),
+					body: JSON.stringify(body),
 					signal: controller.signal,
 				});
 				let payload: unknown = null;
@@ -1075,6 +1083,7 @@ export function createManagerClient(deps: CreateManagerClientDependencies): Mana
 					authUrl: readString(payload, "auth_url"),
 					mode: readString(payload, "mode"),
 					submitError: readString(payload, "submit_error"),
+					ccFlowId: readString(payload, "cc_flow_id"),
 				};
 			} catch {
 				return {
@@ -1086,6 +1095,7 @@ export function createManagerClient(deps: CreateManagerClientDependencies): Mana
 					authUrl: null,
 					mode: null,
 					submitError: "Manager is not reachable.",
+					ccFlowId: null,
 				};
 			} finally {
 				clearTimeout(timeout);

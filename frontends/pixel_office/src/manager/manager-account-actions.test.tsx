@@ -27,6 +27,7 @@ function baseAccount(overrides: Partial<RuntimeManagerAccount> = {}): RuntimeMan
 		canAutoSwap: true,
 		canTrackUsage: true,
 		hasCcToken: true,
+		ccNeedsAuth: false,
 		isActiveForProvider: false,
 		validationStatus: "valid",
 		lastError: null,
@@ -113,6 +114,34 @@ describe("ManagerAccountActions", () => {
 		expect(onReimport).toHaveBeenCalledTimes(1);
 	});
 
+	it("colors Re-auth green when usage token is valid and CC red when CC token is missing", () => {
+		const container = renderActions(baseAccount({ hasCcToken: false }), {});
+		const reauth = container.querySelector('[aria-label="Re-authenticate claude@example.com"]');
+		const cc = container.querySelector('[aria-label="Authorize Claude Code tokens for claude@example.com"]');
+		expect(reauth?.className).toContain("text-status-green");
+		expect(cc?.className).toContain("text-status-red");
+	});
+
+	it("colors Re-auth red when usage token is invalid and CC green when CC token is healthy", () => {
+		const container = renderActions(
+			baseAccount({ validationStatus: "invalid", hasCcToken: true, ccNeedsAuth: false }),
+			{},
+		);
+		const reauth = container.querySelector('[aria-label="Re-authenticate claude@example.com"]');
+		const cc = container.querySelector('[aria-label="Authorize Claude Code tokens for claude@example.com"]');
+		expect(reauth?.className).toContain("text-status-red");
+		expect(cc?.className).toContain("text-status-green");
+	});
+
+	it("colors CC red when ccNeedsAuth is true", () => {
+		const container = renderActions(
+			baseAccount({ hasCcToken: true, ccNeedsAuth: true }),
+			{},
+		);
+		const cc = container.querySelector('[aria-label="Authorize Claude Code tokens for claude@example.com"]');
+		expect(cc?.className).toContain("text-status-red");
+	});
+
 	it("labels Claude Re-auth / CC actions instead of icon-only controls", () => {
 		const container = renderActions(baseAccount({ hasCcToken: false }), {});
 		const reauth = container.querySelector('[aria-label="Re-authenticate claude@example.com"]');
@@ -132,5 +161,33 @@ describe("ManagerAccountActions", () => {
 		);
 		expect(container.querySelector('[aria-label="Raise auto-swap priority of cursor@example.com"]')).toBeNull();
 		expect(container.querySelector('[aria-label="Lower auto-swap priority of cursor@example.com"]')).toBeNull();
+	});
+
+	it("locks seat actions when disabled except On and Delete", () => {
+		const onToggleEnabled = vi.fn();
+		const onDelete = vi.fn();
+		const onValidate = vi.fn();
+		const container = renderActions(baseAccount({ isActive: false }), {
+			onToggleEnabled,
+			onDelete,
+			onValidate,
+		});
+		expect(container.querySelector('[data-testid="manager-account-actions-1"]')?.getAttribute("data-seat-locked")).toBe(
+			"true",
+		);
+		expect((container.querySelector('[aria-label="Validate claude@example.com"]') as HTMLButtonElement).disabled).toBe(
+			true,
+		);
+		expect((container.querySelector('[aria-label="Enable claude@example.com"]') as HTMLButtonElement).disabled).toBe(
+			false,
+		);
+		expect((container.querySelector('[aria-label="Delete claude@example.com"]') as HTMLButtonElement).disabled).toBe(
+			false,
+		);
+		act(() => {
+			(container.querySelector('[aria-label="Enable claude@example.com"]') as HTMLButtonElement).click();
+		});
+		expect(onToggleEnabled).toHaveBeenCalledTimes(1);
+		expect(onValidate).not.toHaveBeenCalled();
 	});
 });

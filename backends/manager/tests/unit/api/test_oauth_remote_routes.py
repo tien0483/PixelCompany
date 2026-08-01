@@ -203,12 +203,14 @@ class _StubStatusFlow:
         self._status = status or {}
         self._submit_result = submit_result or {}
         self.submitted = None
+        self.submitted_donate = None
 
     def get_status(self):
         return dict(self._status)
 
-    async def submit_code(self, pasted):
+    async def submit_code(self, pasted, donate_limit_percent=None):
         self.submitted = pasted
+        self.submitted_donate = donate_limit_percent
         return dict(self._submit_result)
 
 
@@ -318,6 +320,27 @@ def test_submit_code_success_returns_the_completed_account(client, monkeypatch):
     assert body["cc_flow_id"] == "cc-flow-1"
     assert body["submit_error"] is None
     assert flow.submitted == "auth-code-abc#state-xyz"
+
+
+def test_submit_code_forwards_donate_limit_percent(client, monkeypatch):
+    flow = _StubStatusFlow(
+        submit_result={
+            "status": "completed",
+            "flow_id": "flow-1",
+            "mode": "manual",
+            "account_id": 7,
+            "email": "jack@example.com",
+        }
+    )
+    monkeypatch.setattr(routes_auth, "get_flow", lambda flow_id: flow)
+
+    resp = client.post(
+        "/api/auth/flow/flow-1/code",
+        json={"code": "auth-code-abc#state-xyz", "donate_limit_percent": 65},
+    )
+
+    assert resp.status_code == 200
+    assert flow.submitted_donate == 65
 
 
 def test_submit_code_requires_a_code_field(client, monkeypatch):

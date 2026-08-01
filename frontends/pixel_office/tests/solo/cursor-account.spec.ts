@@ -9,7 +9,7 @@ async function openAccountsPane(page: import("@playwright/test").Page) {
 	await expect(page.getByTestId("manager-accounts-view")).toBeVisible();
 }
 
-test("Cursor row uses Switch in IDE and Claude fleet auto-swap footer copy", async ({ page }) => {
+test("Cursor row uses Use Account and Claude fleet auto-swap footer copy", async ({ page }) => {
 	await stubTrpc(page, {
 		"manager.activeSessions": () => ({ sessions: [] }),
 		"manager.swapLog": () => ({ swaps: [] }),
@@ -17,7 +17,7 @@ test("Cursor row uses Switch in IDE and Claude fleet auto-swap footer copy", asy
 	await openAccountsPane(page);
 
 	const cursorRow = page.getByTestId("jacked-account-3");
-	await expect(cursorRow.getByRole("button", { name: "Switch in IDE" })).toBeVisible();
+	await expect(cursorRow.getByRole("button", { name: "Use Account" })).toBeVisible();
 	await expect(cursorRow).toContainText("Kanban: pin this account on a Cursor task");
 	await expect(cursorRow).toContainText("in IDE");
 	await expect(page.getByTestId("jacked-account-1")).toContainText("active");

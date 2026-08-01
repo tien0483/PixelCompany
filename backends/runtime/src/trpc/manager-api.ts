@@ -267,7 +267,11 @@ export function createManagerApi(deps: CreateManagerApiDependencies): RuntimeTrp
 		submitOAuthCode: async (
 			input: RuntimeManagerOAuthSubmitCodeRequest,
 		): Promise<RuntimeManagerOAuthFlowStatus | null> => {
-			const result = await deps.client.submitOAuthCode(input.flowId, input.code);
+			const result = await deps.client.submitOAuthCode(
+				input.flowId,
+				input.code,
+				input.donateLimitPercent,
+			);
 			if (result?.status === "completed") {
 				await deps.monitor.refresh();
 			}

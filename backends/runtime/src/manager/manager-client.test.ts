@@ -202,8 +202,13 @@ describe("createManagerClient", () => {
 			warn: vi.fn(),
 		});
 		const snapshot = await client.fetchSnapshot();
+		expect(fetchMock).toHaveBeenCalledWith(
+			expect.stringContaining("/api/auth/accounts?include_inactive=true"),
+			expect.anything(),
+		);
 		expect(snapshot?.accounts).toHaveLength(2);
 		expect(snapshot?.accounts.map((account) => account.provider)).toEqual(["claude", "cursor"]);
+		expect(snapshot?.accounts[1]?.isActive).toBe(false);
 		expect(snapshot?.accounts[1]?.isActiveForProvider).toBe(false);
 		expect(snapshot?.activeAccountId).toBeNull();
 		expect(snapshot?.pressure).toBeCloseTo(0.4);

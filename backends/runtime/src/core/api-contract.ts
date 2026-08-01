@@ -538,15 +538,20 @@ export const RuntimeManagerAccountSchema = z.object({
 	 * max(5h%, 7d%) >= this value. Explicit task pins still work.
 	 */
 	donateLimitPercent: z.number().int().min(0).max(100),
+	/** Set via paste-code invite; donate cap cannot be changed afterward. */
+	donateLimitLocked: z.boolean().optional().default(false),
 	/** Normalized 0-1 usage pressure across every window the provider reports. */
 	pressure: z.number().min(0).max(1),
 	/** Unix seconds until the tightest window resets. */
 	nextRefreshAt: z.number().nullable(),
 	canAutoSwap: z.boolean(),
 	canTrackUsage: z.boolean(),
-	/** False means Claude Code tokens were never authorized (or expired unrecovered) — the
-	 * account can't be switched to until `startAccountAuthorizeCc` completes for it. */
+	/** False means Claude Code tokens were never authorized (or expired unrecovered).
+	 * The seat can still be activated; credentials fall back to primary tokens (~8h
+	 * without auto-refresh until CC authorization completes). */
 	hasCcToken: z.boolean(),
+	/** True when CC access exists but cannot refresh and primary fallback is unavailable. */
+	ccNeedsAuth: z.boolean().optional().default(false),
 	/** Whether this account is the active credential for its provider fleet. */
 	isActiveForProvider: z.boolean(),
 	/** Jacked validation probe result (`valid` / `invalid` / `checking` / `unknown`). */
@@ -871,12 +876,16 @@ export const RuntimeManagerOAuthFlowStatusSchema = z.object({
 	authUrl: z.string().nullable().optional(),
 	mode: z.string().nullable().optional(),
 	submitError: z.string().nullable().optional(),
+	/** Set when a primary OAuth flow auto-starts Claude Code authorization. */
+	ccFlowId: z.string().nullable().optional(),
 });
 export type RuntimeManagerOAuthFlowStatus = z.infer<typeof RuntimeManagerOAuthFlowStatusSchema>;
 
 export const RuntimeManagerOAuthSubmitCodeRequestSchema = z.object({
 	flowId: z.string().min(1),
 	code: z.string().min(1),
+	/** Applied when paste-code OAuth creates a new Claude seat (0–100). */
+	donateLimitPercent: z.number().int().min(0).max(100).optional(),
 });
 export type RuntimeManagerOAuthSubmitCodeRequest = z.infer<typeof RuntimeManagerOAuthSubmitCodeRequestSchema>;
 

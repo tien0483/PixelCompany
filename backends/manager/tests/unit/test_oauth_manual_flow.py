@@ -499,6 +499,23 @@ def test_submit_code_completes_the_flow_on_a_valid_paste():
     assert status["email"] == "jack@example.com"
 
 
+def test_submit_code_records_donate_limit_percent():
+    async def _body():
+        flow = _pending_flow(state="the-right-state")
+        flow._complete_auth = AsyncMock(
+            return_value={"account_id": 7, "email": "jack@example.com"}
+        )
+        return flow, await flow.submit_code(
+            "auth-code-abc#the-right-state",
+            donate_limit_percent=72,
+        )
+
+    flow, result = run_async(_body)
+
+    assert result["status"] == "completed"
+    assert flow._donate_limit_percent == 72
+
+
 def test_submit_code_marks_the_flow_errored_when_the_exchange_fails():
     """A rejected code is not a paste mistake — it matches the callback
     path and errors the flow with the reason attached."""

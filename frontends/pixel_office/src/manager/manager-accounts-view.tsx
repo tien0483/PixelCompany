@@ -1,7 +1,7 @@
 import type { ReactElement, ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
-import { ArrowLeft, ChevronDown, ChevronRight, Mail, Pause, Play, Plus, RefreshCw, X } from "lucide-react";
+import { ArrowLeft, ChevronDown, ChevronRight, Pause, Play, Plus, RefreshCw, X } from "lucide-react";
 
 import type {
 	RuntimeManagerAccount,
@@ -19,8 +19,10 @@ import {
 	isDonateExhausted,
 	pressureBarColor,
 } from "@/manager/manager-format";
+import { buildClaudeCcOAuthInviteEmail } from "@/manager/manager-oauth-cc-invite-email";
 import {
 	buildClaudeOAuthInviteEmail,
+	copyClaudeOAuthInviteEmail,
 	type ClaudeOAuthInviteEmail,
 } from "@/manager/manager-oauth-invite-email";
 import { MANAGER_LABELS } from "@/manager/manager-labels";
@@ -69,6 +71,8 @@ function UsageWindowBar({
 }
 
 type AddAccountMenuStep = "provider" | "claude" | "cursor";
+
+type OauthFlowKind = "account" | "cc";
 
 /** Claude + Cursor accounts managed from PixelOffice. */
 function managedAccounts(accounts: RuntimeManagerAccount[]): RuntimeManagerAccount[] {
@@ -140,6 +144,7 @@ interface ManagerAccountsViewProps {
 function AccountRow({
 	account,
 	isSelected,
+	isPrimary,
 	busy,
 	online,
 	sessionCount,
@@ -150,6 +155,8 @@ function AccountRow({
 }: {
 	account: RuntimeManagerAccount;
 	isSelected: boolean;
+	/** First in fleet priority order (priority=0). */
+	isPrimary: boolean;
 	busy: boolean;
 	online: boolean;
 	/** Live agent sessions currently running on this account. */
@@ -160,8 +167,10 @@ function AccountRow({
 	actions: ReactNode;
 }): ReactElement {
 	const isCursorAccount = account.provider === "cursor";
-	const useAccountLabel = isCursorAccount ? "Switch in IDE" : "Use Account";
 	const donateExhausted = isDonateExhausted(account);
+	const isSeatDisabled = !account.isActive;
+	const donateLocked = account.donateLimitLocked;
+	const seatControlsLocked = !online || busy || isSeatDisabled;
 	const [donateDraft, setDonateDraft] = useState(account.donateLimitPercent);
 	const donateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -190,11 +199,17 @@ function AccountRow({
 	return (
 		<div
 			data-testid={`manager-account-${account.id}`}
+			data-seat-disabled={isSeatDisabled ? "true" : "false"}
 			className={cn(
 				"rounded-md border px-2 py-2",
-				isSelected ? "border-border-bright bg-surface-3" : "border-border bg-surface-1",
+				isSeatDisabled
+					? "border-border/60 bg-surface-0"
+					: isSelected
+						? "border-border-bright bg-surface-3"
+						: "border-border bg-surface-1",
 			)}
 		>
+			<div className={cn(isSeatDisabled && "opacity-50 saturate-0")}>
 			<div className="flex items-start justify-between gap-2">
 				<div className="min-w-0 flex-1">
 					<div className="flex items-center gap-1.5">
@@ -213,6 +228,14 @@ function AccountRow({
 								{activeBadgeLabel(account.provider)}
 							</span>
 						) : null}
+						{isPrimary ? (
+							<span
+								className="shrink-0 rounded bg-surface-2 px-1 py-0.5 text-[9px] uppercase tracking-wide text-text-secondary"
+								title="Primary seat in fleet order — Use Account or move up/down to change"
+							>
+								primary
+							</span>
+						) : null}
 						{!account.isActive ? (
 							<span className="shrink-0 rounded bg-surface-2 px-1 py-0.5 text-[9px] uppercase tracking-wide text-text-tertiary">
 								disabled
@@ -228,6 +251,15 @@ function AccountRow({
 								title="Usage is at or above the donate limit. Auto pick skips this seat; pinned tasks may still use it."
 							>
 								donate exhausted
+							</span>
+						) : null}
+						{donateLocked ? (
+							<span
+								data-testid={`manager-account-donate-locked-${account.id}`}
+								className="shrink-0 rounded bg-surface-2 px-1 py-0.5 text-[9px] uppercase tracking-wide text-text-tertiary"
+								title="Donate cap was agreed in the invite email and cannot be changed"
+							>
+								donate locked
 							</span>
 						) : null}
 						{account.subscriptionType ? (
@@ -278,22 +310,30 @@ function AccountRow({
 				<p className="mt-1 text-[10px] text-text-tertiary">Usage not tracked</p>
 			)}
 			<label className="mt-2 flex flex-col gap-0.5" data-testid={`manager-account-donate-${account.id}`}>
-				<span className="text-[10px] text-text-tertiary">Donate up to {donateDraft}%</span>
+				<span className="text-[10px] text-text-tertiary">
+					Donate up to {donateDraft}%
+					{donateLocked ? " (locked from invite)" : ""}
+				</span>
 				<input
 					type="range"
 					min={0}
 					max={100}
 					step={1}
 					value={donateDraft}
-					disabled={!online || busy}
+					disabled={seatControlsLocked || donateLocked}
 					aria-label={`Donate up to percent for ${account.email}`}
-					className="w-full accent-[var(--color-accent)]"
+					className="w-full accent-[var(--color-accent)] disabled:opacity-40"
 					onChange={(event) => {
+						if (donateLocked) {
+							return;
+						}
 						scheduleDonatePatch(Number(event.target.value));
 					}}
 				/>
 				<span className="text-[9px] text-text-tertiary">
-					Auto skips this seat at the limit; pinned tasks still work.
+					{donateLocked
+						? "Invite seats keep the donate cap agreed in email."
+						: "Auto skips this seat at the limit; pinned tasks still work."}
 				</span>
 			</label>
 			{isCursorAccount ? (
@@ -306,25 +346,26 @@ function AccountRow({
 					{account.lastError}
 				</p>
 			) : null}
-			<div className="mt-2 flex gap-1">
+			</div>
+			<div className={cn("mt-2 flex gap-1", isSeatDisabled && "opacity-50 saturate-0")}>
 				<Button
 					variant="ghost"
 					size="sm"
-					disabled={!online || busy || isSelected || !account.isActive}
+					disabled={seatControlsLocked || isSelected}
 					onClick={onUse}
 					className="h-6 px-2 text-[10px]"
 					title={
 						isCursorAccount
-							? "Writes this account into the Cursor IDE database. Close Cursor first. Kanban tasks should use card pinning instead."
-							: undefined
+							? "Use this Cursor seat in the IDE (writes state.vscdb — close Cursor first). Kanban tasks can pin instead."
+							: "Use this Claude Code seat as the active credential"
 					}
 				>
-					{useAccountLabel}
+					Use Account
 				</Button>
 				<Button
 					variant="ghost"
 					size="sm"
-					disabled={!online || busy}
+					disabled={seatControlsLocked}
 					onClick={onRefresh}
 					icon={<RefreshCw size={10} />}
 					className="h-6 px-2 text-[10px]"
@@ -357,9 +398,11 @@ export function ManagerAccountsView({ online, manager }: ManagerAccountsViewProp
 	const [oauthSubmitError, setOauthSubmitError] = useState<string | null>(null);
 	const [oauthInviteEmail, setOauthInviteEmail] = useState<ClaudeOAuthInviteEmail | null>(null);
 	const [oauthEmailCopied, setOauthEmailCopied] = useState(false);
+	const [oauthFlowKind, setOauthFlowKind] = useState<OauthFlowKind>("account");
 	const [inviteDonatePercent, setInviteDonatePercent] = useState(DEFAULT_INVITE_DONATE_PERCENT);
 	const pendingInviteDonateRef = useRef<Map<string, number>>(new Map());
 	const oauthGenerationRef = useRef(0);
+	const oauthFlowKindRef = useRef<OauthFlowKind>("account");
 	// Proves concurrent multi-account work: each pinned task reports a session under
 	// its own account instead of all of them sharing the active credential.
 	const sessions = useManagerSessions(online);
@@ -427,27 +470,60 @@ export function ManagerAccountsView({ online, manager }: ManagerAccountsViewProp
 		setOauthSubmitError(null);
 		setOauthInviteEmail(null);
 		setOauthEmailCopied(false);
+		oauthFlowKindRef.current = "account";
+		setOauthFlowKind("account");
 	};
 
-	const applyPendingInviteDonate = async (flowId: string, accountId: number | null | undefined) => {
-		const donateLimitPercent = pendingInviteDonateRef.current.get(flowId);
-		pendingInviteDonateRef.current.delete(flowId);
-		if (donateLimitPercent === undefined || accountId === null || accountId === undefined) {
-			return;
-		}
-		try {
-			await getRuntimeTrpcClient(null).manager.updateAccount.mutate({
-				accountId,
-				donateLimitPercent,
-			});
-		} catch {
-			// Seat still lands; donate can be adjusted manually in Seats.
-		}
+	const completeOAuthUi = (flowKind: OauthFlowKind, email?: string | null) => {
+		const ccHint =
+			flowKind === "account"
+				? " Add CC separately when you want auto-refresh (~8h without it)."
+				: "";
+		setOauthStatus(
+			flowKind === "cc"
+				? email
+					? `Claude Code (CC) authorized for ${email}.`
+					: "Claude Code (CC) authorized."
+				: email
+					? `Claude account authorized: ${email}.${ccHint}`
+					: `Claude account authorized.${ccHint}`,
+		);
+		setOauthAuthUrl(null);
+		setOauthFlowId(null);
+		setOauthManual(false);
+		setOauthInviteEmail(null);
+		setOauthCode("");
+		oauthFlowKindRef.current = "account";
+		setOauthFlowKind("account");
+		setBusyId(null);
+	};
+
+	const applyPendingInviteDonate = async (_flowId: string, _accountId: number | null | undefined) => {
+		// Donate cap is set and locked at account creation in the OAuth paste-code path.
+		pendingInviteDonateRef.current.delete(_flowId);
 	};
 
 	const rebuildInviteEmail = (authUrl: string, donateLimitPercent: number) => {
 		setOauthInviteEmail(buildClaudeOAuthInviteEmail(authUrl, { donateLimitPercent }));
 		setOauthEmailCopied(false);
+	};
+
+	const syncInviteDonate = (
+		flowId: string,
+		donateLimitPercent: number,
+		authUrl: string | null = oauthAuthUrl,
+	) => {
+		pendingInviteDonateRef.current.set(flowId, donateLimitPercent);
+		if (authUrl) {
+			rebuildInviteEmail(authUrl, donateLimitPercent);
+		}
+	};
+
+	const handleInviteDonateChange = (next: number) => {
+		setInviteDonatePercent(next);
+		if (oauthFlowId) {
+			syncInviteDonate(oauthFlowId, next);
+		}
 	};
 
 	/**
@@ -461,7 +537,12 @@ export function ManagerAccountsView({ online, manager }: ManagerAccountsViewProp
 		setBusyId(null);
 	};
 
-	const pollOauthFlow = async (flowId: string, manual: boolean, generation: number) => {
+	const pollOauthFlow = async (
+		flowId: string,
+		manual: boolean,
+		generation: number,
+		flowKind: OauthFlowKind = "account",
+	) => {
 		const maxPolls = manual ? OAUTH_MANUAL_MAX_POLLS : OAUTH_BROWSER_MAX_POLLS;
 		for (let i = 0; i < maxPolls; i += 1) {
 			if (oauthGenerationRef.current !== generation) {
@@ -483,14 +564,7 @@ export function ManagerAccountsView({ online, manager }: ManagerAccountsViewProp
 				}
 				if (poll.status === "completed") {
 					await applyPendingInviteDonate(flowId, poll.accountId);
-					setOauthStatus(
-						poll.email ? `Claude account authorized: ${poll.email}` : "Claude account authorized.",
-					);
-					setOauthAuthUrl(null);
-					setOauthFlowId(null);
-					setOauthManual(false);
-					setOauthInviteEmail(null);
-					setBusyId(null);
+					completeOAuthUi(flowKind, poll.email);
 					return;
 				}
 				if (poll.status === "error") {
@@ -526,9 +600,14 @@ export function ManagerAccountsView({ online, manager }: ManagerAccountsViewProp
 		remote: boolean,
 		startingStatus: string,
 		failureMessage: string,
+		flowKind: OauthFlowKind = "account",
+		showInviteEmail = false,
+		inviteContext?: { accountEmail?: string },
 	) => {
 		const generation = oauthGenerationRef.current + 1;
 		oauthGenerationRef.current = generation;
+		oauthFlowKindRef.current = flowKind;
+		setOauthFlowKind(flowKind);
 		setBusyId("oauth");
 		setError(null);
 		setOauthSubmitError(null);
@@ -554,20 +633,38 @@ export function ManagerAccountsView({ online, manager }: ManagerAccountsViewProp
 			setOauthManual(manual);
 			setOauthFlowId(start.flowId);
 			setOauthAuthUrl(start.authUrl ?? null);
-			if (remote && start.authUrl) {
-				const donate = inviteDonatePercent;
-				pendingInviteDonateRef.current.set(start.flowId, donate);
-				rebuildInviteEmail(start.authUrl, donate);
-				setOauthStatus(
-					"Adjust donate %, send the invite email, then paste their authorization code below.",
+			if (manual && flowKind === "account") {
+				syncInviteDonate(start.flowId, inviteDonatePercent, start.authUrl ?? null);
+			}
+			if (remote && start.authUrl && flowKind === "cc") {
+				setOauthInviteEmail(
+					buildClaudeCcOAuthInviteEmail(start.authUrl, {
+						accountEmail: inviteContext?.accountEmail,
+					}),
 				);
+				setOauthStatus(
+					inviteContext?.accountEmail
+						? `Copy the CC invite email for ${inviteContext.accountEmail} (explains the ~8h refresh token), send it, then paste their code below.`
+						: "Copy the CC invite email below (explains the ~8h refresh token), send it, then paste their code below.",
+				);
+			} else if (remote && start.authUrl && showInviteEmail) {
+				setOauthStatus(
+					`Adjust donate % (currently ${String(inviteDonatePercent)}%), send the invite email, then paste their authorization code below.`,
+				);
+			} else if (manual && start.authUrl) {
+				setOauthStatus(
+					flowKind === "cc"
+						? "Open the Claude Code (CC) authorization link, then paste the code below."
+						: "Open the authorization link, then paste the code below.",
+				);
+				window.open(start.authUrl, "_blank", "noopener,noreferrer");
 			} else {
 				setOauthStatus(
 					"A browser tab should open automatically. If it didn't, use the link below.",
 				);
 			}
 			setBusyId(null);
-			void pollOauthFlow(start.flowId, manual, generation);
+			void pollOauthFlow(start.flowId, manual, generation, flowKind);
 		} catch (err) {
 			if (oauthGenerationRef.current !== generation) {
 				return;
@@ -585,6 +682,8 @@ export function ManagerAccountsView({ online, manager }: ManagerAccountsViewProp
 			remote,
 			remote ? "Preparing invite email…" : "Starting Claude OAuth…",
 			"Could not start Claude OAuth",
+			"account",
+			remote,
 		);
 	};
 
@@ -593,7 +692,7 @@ export function ManagerAccountsView({ online, manager }: ManagerAccountsViewProp
 			return;
 		}
 		try {
-			await navigator.clipboard.writeText(oauthInviteEmail.body);
+			await copyClaudeOAuthInviteEmail(oauthInviteEmail);
 			setOauthEmailCopied(true);
 		} catch {
 			setOauthSubmitError("Could not copy email to clipboard.");
@@ -612,15 +711,18 @@ export function ManagerAccountsView({ online, manager }: ManagerAccountsViewProp
 		);
 	};
 
-	const startAccountAuthorizeCc = async (accountId: number, remote = false) => {
+	const startAccountAuthorizeCc = async (accountId: number, remote = false, accountEmail?: string) => {
 		await beginOAuthFlow(
 			async () =>
 				await getRuntimeTrpcClient(null).manager.startAccountAuthorizeCc.mutate(
 					remote ? { accountId, remote: true } : { accountId },
 				),
 			remote,
-			"Starting Claude Code authorization…",
+			remote ? "Preparing CC invite email…" : "Starting Claude Code authorization…",
 			"Could not authorize Claude Code",
+			"cc",
+			false,
+			{ accountEmail },
 		);
 	};
 
@@ -630,10 +732,16 @@ export function ManagerAccountsView({ online, manager }: ManagerAccountsViewProp
 		}
 		setOauthSubmitError(null);
 		setBusyId("oauth");
+		const donateForNewSeat =
+			oauthFlowKindRef.current === "account" && oauthManual ? inviteDonatePercent : undefined;
+		if (oauthFlowKindRef.current === "account" && oauthManual) {
+			syncInviteDonate(oauthFlowId, inviteDonatePercent);
+		}
 		try {
 			const result = await getRuntimeTrpcClient(null).manager.submitOAuthCode.mutate({
 				flowId: oauthFlowId,
 				code: oauthCode.trim(),
+				...(donateForNewSeat === undefined ? {} : { donateLimitPercent: donateForNewSeat }),
 			});
 			if (!result) {
 				setOauthSubmitError("Could not submit authorization code.");
@@ -646,17 +754,8 @@ export function ManagerAccountsView({ online, manager }: ManagerAccountsViewProp
 				return;
 			}
 			if (result.status === "completed") {
-				oauthGenerationRef.current += 1;
 				await applyPendingInviteDonate(oauthFlowId, result.accountId);
-				setOauthStatus(
-					result.email ? `Claude account authorized: ${result.email}` : "Claude account authorized.",
-				);
-				setOauthAuthUrl(null);
-				setOauthFlowId(null);
-				setOauthManual(false);
-				setOauthInviteEmail(null);
-				setOauthCode("");
-				setBusyId(null);
+				completeOAuthUi(oauthFlowKindRef.current, result.email);
 				return;
 			}
 			if (result.status === "error") {
@@ -937,10 +1036,52 @@ export function ManagerAccountsView({ online, manager }: ManagerAccountsViewProp
 							className="mt-1.5 rounded border border-border bg-surface-2 p-2"
 							data-testid="manager-oauth-invite-email"
 						>
-							<label
-								className="mb-1.5 flex flex-col gap-0.5"
-								data-testid="manager-oauth-invite-donate"
+							{oauthManual && oauthFlowKind === "account" && oauthFlowId ? (
+								<label className="mb-2 flex flex-col gap-0.5" data-testid="manager-oauth-invite-donate">
+									<span className="text-[10px] text-text-tertiary">
+										Donate up to {inviteDonatePercent}%
+									</span>
+									<input
+										type="range"
+										min={0}
+										max={100}
+										step={1}
+										value={inviteDonatePercent}
+										aria-label="Invite donate up to percent"
+										className="w-full accent-[var(--color-accent)]"
+										onChange={(event) => {
+											handleInviteDonateChange(Number(event.target.value));
+										}}
+									/>
+								</label>
+							) : null}
+							<Button
+								variant="primary"
+								size="sm"
+								className="h-7 w-full text-[10px]"
+								data-testid="manager-oauth-copy-email"
+								onClick={() => {
+									void copyInviteEmail();
+								}}
 							>
+								{oauthEmailCopied
+									? "Copied — paste into mail compose (Ctrl+V)"
+									: oauthFlowKind === "cc"
+										? "Copy CC invite email"
+										: "Copy invite email"}
+							</Button>
+							<p className="mt-1.5 text-[10px] text-text-tertiary">
+								{oauthFlowKind === "cc"
+									? "Includes CC authorize link, the ~8h refresh-token explanation, and paste-code guidance. Then paste their code below."
+									: "Includes authorize link, donate limit, and paste-code guidance. Then paste their code below."}
+							</p>
+						</div>
+					) : oauthManual && oauthFlowKind === "account" && oauthFlowId ? (
+						<div
+							className="mt-1.5 rounded border border-border bg-surface-2 p-2"
+							data-testid="manager-oauth-invite-donate"
+						>
+							<label className="flex flex-col gap-0.5">
 								<span className="text-[10px] text-text-tertiary">
 									Donate up to {inviteDonatePercent}%
 								</span>
@@ -953,48 +1094,13 @@ export function ManagerAccountsView({ online, manager }: ManagerAccountsViewProp
 									aria-label="Invite donate up to percent"
 									className="w-full accent-[var(--color-accent)]"
 									onChange={(event) => {
-										const next = Number(event.target.value);
-										setInviteDonatePercent(next);
-										if (oauthFlowId) {
-											pendingInviteDonateRef.current.set(oauthFlowId, next);
-										}
-										if (oauthAuthUrl) {
-											rebuildInviteEmail(oauthAuthUrl, next);
-										}
+										handleInviteDonateChange(Number(event.target.value));
 									}}
 								/>
 							</label>
-							<p className="text-[10px] font-medium text-text-primary">{oauthInviteEmail.subject}</p>
-							<pre className="mt-1 max-h-28 overflow-y-auto whitespace-pre-wrap break-all text-[10px] text-text-secondary">
-								{oauthInviteEmail.body}
-							</pre>
-							<div className="mt-1.5 flex flex-wrap gap-1">
-								<Button
-									variant="ghost"
-									size="sm"
-									className="h-6 px-2 text-[10px]"
-									data-testid="manager-oauth-copy-email"
-									onClick={() => {
-										void copyInviteEmail();
-									}}
-								>
-									{oauthEmailCopied ? "Copied" : "Copy email"}
-								</Button>
-								<Button
-									variant="ghost"
-									size="sm"
-									icon={<Mail size={10} />}
-									className="h-6 px-2 text-[10px]"
-									data-testid="manager-oauth-open-mail"
-									onClick={() => {
-										window.location.href = oauthInviteEmail.mailto;
-									}}
-								>
-									Open in mail app
-								</Button>
-							</div>
 						</div>
-					) : oauthAuthUrl ? (
+					) : null}
+					{oauthInviteEmail ? null : oauthAuthUrl ? (
 						<a
 							href={oauthAuthUrl}
 							target="_blank"
@@ -1011,11 +1117,19 @@ export function ManagerAccountsView({ online, manager }: ManagerAccountsViewProp
 									type="text"
 									value={oauthCode}
 									onChange={(event) => setOauthCode(event.target.value)}
-									placeholder="Paste authorization code"
+									placeholder={
+										oauthFlowKind === "cc"
+											? "Paste Claude Code (CC) authorization code"
+											: "Paste authorization code"
+									}
 									className="min-w-0 flex-1 rounded border border-border bg-surface-2 px-1.5 py-1 text-[10px] text-text-primary"
 									autoComplete="off"
 									spellCheck={false}
-									aria-label="Claude OAuth authorization code"
+									aria-label={
+										oauthFlowKind === "cc"
+											? "Claude Code authorization code"
+											: "Claude OAuth authorization code"
+									}
 								/>
 								<Button
 									variant="ghost"
@@ -1062,6 +1176,7 @@ export function ManagerAccountsView({ online, manager }: ManagerAccountsViewProp
 								key={account.id}
 								account={account}
 								isSelected={accountIsSelected(account, manager)}
+								isPrimary={index === 0}
 								busy={rowBusy}
 								online={online}
 								sessionCount={sessions.byAccountId.get(account.id)?.length ?? 0}
@@ -1077,10 +1192,10 @@ export function ManagerAccountsView({ online, manager }: ManagerAccountsViewProp
 											}
 											return {
 												ok: false,
-												error: `${result.error ?? "Could not switch Cursor account."} For Kanban, pin this account on a Cursor task card instead of switching the IDE.`,
+												error: `${result.error ?? "Could not use Cursor account."} For Kanban, pin this account on a Cursor task card instead.`,
 											};
 										},
-										account.provider === "cursor" ? "Cursor IDE seat updated." : "Active Claude seat updated.",
+										"Seat updated and set as primary.",
 									);
 								}}
 								onRefresh={() => {
@@ -1116,7 +1231,7 @@ export function ManagerAccountsView({ online, manager }: ManagerAccountsViewProp
 											void startAccountAuthorizeCc(account.id);
 										}}
 										onAuthorizeCcRemote={() => {
-											void startAccountAuthorizeCc(account.id, true);
+											void startAccountAuthorizeCc(account.id, true, account.email);
 										}}
 										onReimport={
 											account.provider === "cursor"

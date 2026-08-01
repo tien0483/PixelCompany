@@ -49,6 +49,7 @@ const UNPINNED: ManagerAccountPin = { env: {}, accountId: null, warning: null };
 export interface ManagerDonateAccountLike {
 	id: number;
 	provider: string;
+	isActive?: boolean;
 	isActiveForProvider?: boolean;
 	fiveHourPercent?: number | null;
 	sevenDayPercent?: number | null;
@@ -99,7 +100,9 @@ export function pickDefaultCursorAccountId(input: {
 	accounts: ReadonlyArray<ManagerDonateAccountLike>;
 	activeAccountId: number | null;
 }): number | null {
-	const cursorAccounts = input.accounts.filter((account) => account.provider === "cursor");
+	const cursorAccounts = input.accounts.filter(
+		(account) => account.provider === "cursor" && account.isActive !== false,
+	);
 	if (cursorAccounts.length === 0) {
 		return null;
 	}

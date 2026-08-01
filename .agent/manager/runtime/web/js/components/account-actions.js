@@ -116,7 +116,7 @@ async function _confirmReauth(email) {
         title: 'Re-authenticate Account?',
         html: `Re-authenticate <strong>${escapeHtml(email)}</strong>?<br><br>
                This opens browser tabs for authorization:<br>
-               1. Usage token (for jacked dashboard)<br>
+               1. Usage token (for manager dashboard)<br>
                2. Claude Code token (refresh-capable, for CC sessions)<br><br>
                Complete both to fully authorize this account.<br>
                Sign in with the same Claude account.`,

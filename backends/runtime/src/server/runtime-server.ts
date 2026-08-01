@@ -243,12 +243,15 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 					if (
 						snapshot.activeAccountId !== null &&
 						snapshot.accounts.some(
-							(account) => account.id === snapshot.activeAccountId && account.provider === "claude",
+							(account) =>
+								account.id === snapshot.activeAccountId &&
+								account.provider === "claude" &&
+								account.isActive,
 						)
 					) {
 						return snapshot.activeAccountId;
 					}
-					return snapshot.accounts.find((account) => account.provider === "claude")?.id ?? null;
+					return snapshot.accounts.find((account) => account.provider === "claude" && account.isActive)?.id ?? null;
 				},
 				resolveInteractiveShellCommand: deps.resolveInteractiveShellCommand,
 				runCommand: deps.runCommand,

@@ -40,8 +40,10 @@ export function autoFallbackAccount(
 	activeAccountId: number | null,
 	agentId: RuntimeAgentId | null,
 ): RuntimeManagerAccount | null {
-	const underLimit = accounts.filter((account) => !isDonateExhausted(account));
-	const pool = underLimit.length > 0 ? underLimit : accounts;
+	const enabled = accounts.filter((account) => account.isActive);
+	const poolBase = enabled.length > 0 ? enabled : accounts;
+	const underLimit = poolBase.filter((account) => !isDonateExhausted(account));
+	const pool = underLimit.length > 0 ? underLimit : poolBase;
 	if (agentId === "cursor") {
 		return pool.find((account) => account.isActiveForProvider) ?? pool[0] ?? null;
 	}
@@ -109,10 +111,19 @@ export function managerProviderForAgent(agentId: RuntimeAgentId | null | undefin
 export function filterManagerAccountsForAgent(
 	accounts: RuntimeManagerAccount[],
 	agentId: RuntimeAgentId | null | undefined,
+	options?: { kanbanEligibleOnly?: boolean },
 ): RuntimeManagerAccount[] {
 	const provider = managerProviderForAgent(agentId);
 	if (provider === null) {
 		return [];
 	}
-	return accounts.filter((account) => account.provider === provider);
+	return accounts.filter((account) => {
+		if (account.provider !== provider) {
+			return false;
+		}
+		if (options?.kanbanEligibleOnly && !account.isActive) {
+			return false;
+		}
+		return true;
+	});
 }

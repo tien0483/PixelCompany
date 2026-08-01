@@ -98,6 +98,16 @@ describe("filterManagerAccountsForAgent", () => {
 		expect(filtered).toHaveLength(2);
 		expect(filtered.every((entry) => entry.provider === "claude")).toBe(true);
 	});
+
+	it("excludes disabled seats from Kanban when kanbanEligibleOnly is set", () => {
+		const disabled = account(2, "claude", "off@example.com");
+		disabled.isActive = false;
+		const filtered = filterManagerAccountsForAgent([fleet[0]!, disabled], "claude", {
+			kanbanEligibleOnly: true,
+		});
+		expect(filtered).toHaveLength(1);
+		expect(filtered[0]?.email).toBe("claude@example.com");
+	});
 });
 
 describe("autoFallbackAccount", () => {
@@ -117,6 +127,13 @@ describe("autoFallbackAccount", () => {
 		only.fiveHourPercent = 95;
 		only.donateLimitPercent = 70;
 		expect(autoFallbackAccount([only], 1, "claude")?.id).toBe(1);
+	});
+
+	it("skips disabled seats for Auto pick", () => {
+		const disabled = account(1, "claude", "off@example.com");
+		disabled.isActive = false;
+		const active = account(2, "claude", "on@example.com");
+		expect(autoFallbackAccount([disabled, active], 1, "claude")?.id).toBe(2);
 	});
 });
 

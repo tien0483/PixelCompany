@@ -251,11 +251,20 @@ def test_use_account_disabled(client):
 
 
 def test_use_account_no_cc_tokens(client):
-    """Returns 400 for account without CC tokens (would be un-refreshable)."""
-    resp = client.post("/api/auth/accounts/3/use")
-    assert resp.status_code == 400
-    assert "cc" in resp.json()["error"]["message"].lower() or \
-           "authorize" in resp.json()["error"]["message"].lower()
+    """Activates accounts without CC tokens using primary-token fallback."""
+    with mock.patch(
+        "manager.api.credential_helpers.sync_credential_to_all_stores"
+    ) as mock_sync, mock.patch(
+        "manager.api.usage_monitor._read_active_account_id", return_value=None
+    ):
+        resp = client.post("/api/auth/accounts/3/use")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "active"
+    assert data["email"] == "carol@test.com"
+    mock_sync.assert_called_once()
+    assert mock_sync.call_args.args[0] == 3
 
 
 def test_use_account_invalid_status(client):

@@ -6,6 +6,7 @@ import { ArrowDown, ArrowUp, BadgeCheck, ChevronDown, Download, KeyRound, Power,
 import type { RuntimeManagerAccount } from "@/runtime/types";
 
 import { Button } from "@/components/ui/button";
+import { cn } from "@/components/ui/cn";
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -55,23 +56,59 @@ function ActionTooltip({
 	);
 }
 
+/** Green = healthy token, red = re-auth needed, neutral = unknown/checking. */
+type TokenActionTone = "ok" | "bad" | "neutral";
+
+function primaryTokenTone(account: RuntimeManagerAccount): TokenActionTone {
+	if (account.validationStatus === "valid") {
+		return "ok";
+	}
+	if (account.validationStatus === "invalid" || account.validationStatus === "expired") {
+		return "bad";
+	}
+	if (typeof account.lastError === "string" && account.lastError.trim().length > 0) {
+		return "bad";
+	}
+	return "neutral";
+}
+
+function ccTokenTone(account: RuntimeManagerAccount): TokenActionTone {
+	if (!account.hasCcToken || account.ccNeedsAuth) {
+		return "bad";
+	}
+	return "ok";
+}
+
+function tokenActionClassName(tone: TokenActionTone): string {
+	const base = "h-6 rounded px-1.5 text-[10px]";
+	if (tone === "ok") {
+		return `${base} border border-status-green/30 bg-status-green/10 text-status-green`;
+	}
+	if (tone === "bad") {
+		return `${base} border border-status-red/30 bg-status-red/10 text-status-red`;
+	}
+	return `${base}`;
+}
+
 /** Split OAuth/paste-code trigger shared by re-auth and CC-authorize. */
 function OAuthDropdownButton({
 	icon,
 	label,
 	text,
 	disabled,
-	highlighted,
+	statusTone = "neutral",
 	onOAuth,
 	onPasteCode,
+	pasteCodeHint = "Invite a colleague by email",
 }: {
 	icon: ReactElement;
 	label: string;
 	text: string;
 	disabled: boolean;
-	highlighted?: boolean;
+	statusTone?: TokenActionTone;
 	onOAuth: () => void;
 	onPasteCode: () => void;
+	pasteCodeHint?: string;
 }): ReactElement {
 	return (
 		<DropdownMenu.Root modal={false}>
@@ -82,11 +119,7 @@ function OAuthDropdownButton({
 					disabled={disabled}
 					icon={icon}
 					iconRight={<ChevronDown size={8} aria-hidden />}
-					className={
-						highlighted
-							? "h-6 rounded border border-status-orange/30 bg-status-orange/10 px-1.5 text-[10px] text-status-orange"
-							: "h-6 px-1.5 text-[10px]"
-					}
+					className={tokenActionClassName(statusTone)}
 					aria-label={label}
 					title={label}
 				>
@@ -113,7 +146,7 @@ function OAuthDropdownButton({
 						onSelect={onPasteCode}
 					>
 						<p className="font-medium">Paste code</p>
-						<p className="text-[10px] text-text-tertiary">Invite a colleague by email</p>
+						<p className="text-[10px] text-text-tertiary">{pasteCodeHint}</p>
 					</DropdownMenu.Item>
 				</DropdownMenu.Content>
 			</DropdownMenu.Portal>
@@ -148,18 +181,34 @@ export function ManagerAccountActions({
 	onMoveDown,
 }: ManagerAccountActionsProps): ReactElement {
 	const [confirmDelete, setConfirmDelete] = useState(false);
+	const seatLocked = !account.isActive;
 	const disabled = !online || busy;
+	const actionDisabled = disabled || seatLocked;
 	const offlineReason = !online ? "Manager is offline — reconnect to use seat actions" : busy ? "Working…" : null;
+	const seatLockedReason = seatLocked ? "Seat is disabled — turn On to unlock other actions" : null;
 	const label = account.displayName ?? account.email;
 	const isCursor = account.provider === "cursor";
 	const isClaude = account.provider === "claude";
+	const canReorder = account.canAutoSwap || isCursor;
+	const priorityUpLabel = account.canAutoSwap
+		? "Higher auto-swap priority"
+		: "Higher fleet priority (primary seat)";
+	const priorityDownLabel = account.canAutoSwap
+		? "Lower auto-swap priority"
+		: "Lower fleet priority";
 	const needsAttention =
 		account.validationStatus === "invalid" ||
 		account.validationStatus === "expired" ||
 		(typeof account.lastError === "string" && account.lastError.trim().length > 0);
+	const reauthTone = primaryTokenTone(account);
+	const ccTone = ccTokenTone(account);
 
 	return (
-		<div className="mt-1 flex flex-wrap items-center gap-0.5" data-testid={`manager-account-actions-${account.id}`}>
+		<div
+			className={cn("mt-1 flex flex-wrap items-center gap-0.5", seatLocked && "rounded-md bg-surface-0/40 px-1 py-0.5")}
+			data-testid={`manager-account-actions-${account.id}`}
+			data-seat-locked={seatLocked ? "true" : "false"}
+		>
 			{isClaude ? (
 				<>
 					{/* No Tooltip wrapper: Radix Tooltip + DropdownMenu nesting blocks the menu open. */}
@@ -167,6 +216,7 @@ export function ManagerAccountActions({
 						className="inline-flex"
 						title={
 							offlineReason ??
+							seatLockedReason ??
 							"Re-run Claude OAuth for this account"
 						}
 					>
@@ -174,8 +224,8 @@ export function ManagerAccountActions({
 							icon={<KeyRound size={10} />}
 							label={`Re-authenticate ${label}`}
 							text="Re-auth"
-							disabled={disabled}
-							highlighted={needsAttention}
+							disabled={actionDisabled}
+							statusTone={reauthTone}
 							onOAuth={onReauth}
 							onPasteCode={onReauthRemote}
 						/>
@@ -184,6 +234,7 @@ export function ManagerAccountActions({
 						className="inline-flex"
 						title={
 							offlineReason ??
+							seatLockedReason ??
 							(account.hasCcToken
 								? "Re-run Claude Code token authorization for this account"
 								: "Claude Code tokens missing — authorize now or credentials expire in ~8 hours with no way to renew")
@@ -193,20 +244,21 @@ export function ManagerAccountActions({
 							icon={<ShieldAlert size={10} />}
 							label={`Authorize Claude Code tokens for ${label}`}
 							text={account.hasCcToken ? "CC" : "Add CC"}
-							disabled={disabled}
-							highlighted={!account.hasCcToken}
+							disabled={actionDisabled}
+							statusTone={ccTone}
 							onOAuth={onAuthorizeCc}
 							onPasteCode={onAuthorizeCcRemote}
+							pasteCodeHint="CC invite email (~8h refresh token)"
 						/>
 					</span>
 				</>
 			) : null}
 			{isCursor && onReimport ? (
-				<ActionTooltip content={offlineReason ?? "Re-import credential from the signed-in Cursor IDE"}>
+				<ActionTooltip content={offlineReason ?? seatLockedReason ?? "Re-import credential from the signed-in Cursor IDE"}>
 					<Button
 						variant="ghost"
 						size="sm"
-						disabled={disabled}
+						disabled={actionDisabled}
 						onClick={onReimport}
 						icon={<Download size={10} />}
 						className={
@@ -220,11 +272,11 @@ export function ManagerAccountActions({
 					</Button>
 				</ActionTooltip>
 			) : null}
-			<ActionTooltip content={offlineReason ?? "Check the stored credential without switching to it"}>
+			<ActionTooltip content={offlineReason ?? seatLockedReason ?? "Check the stored credential without switching to it"}>
 				<Button
 					variant="ghost"
 					size="sm"
-					disabled={disabled}
+					disabled={actionDisabled}
 					onClick={onValidate}
 					icon={<BadgeCheck size={10} />}
 					className="h-6 px-1.5 text-[10px]"
@@ -251,35 +303,39 @@ export function ManagerAccountActions({
 					disabled={disabled}
 					onClick={onToggleEnabled}
 					icon={<Power size={10} />}
-					className={account.isActive ? "h-6 px-1.5 text-[10px]" : "h-6 px-1.5 text-[10px] text-text-tertiary"}
+					className={
+						account.isActive
+							? "h-6 px-1.5 text-[10px]"
+							: "h-6 rounded border border-status-green/30 bg-status-green/10 px-1.5 text-[10px] text-status-green"
+					}
 					aria-label={account.isActive ? `Disable ${label}` : `Enable ${label}`}
 				>
 					{account.isActive ? "On" : "Off"}
 				</Button>
 			</ActionTooltip>
-			{account.canAutoSwap ? (
+			{canReorder ? (
 				<>
 					<span className="mx-0.5 h-4 w-px bg-border" aria-hidden="true" />
-					<ActionTooltip content={offlineReason ?? "Higher auto-swap priority"}>
+					<ActionTooltip content={offlineReason ?? seatLockedReason ?? priorityUpLabel}>
 						<Button
 							variant="ghost"
 							size="sm"
-							disabled={disabled || isFirst}
+							disabled={actionDisabled || isFirst}
 							onClick={onMoveUp}
 							icon={<ArrowUp size={10} />}
 							className="h-6 px-1.5 text-[10px]"
-							aria-label={`Raise auto-swap priority of ${label}`}
+							aria-label={`Raise priority of ${label}`}
 						/>
 					</ActionTooltip>
-					<ActionTooltip content={offlineReason ?? "Lower auto-swap priority"}>
+					<ActionTooltip content={offlineReason ?? seatLockedReason ?? priorityDownLabel}>
 						<Button
 							variant="ghost"
 							size="sm"
-							disabled={disabled || isLast}
+							disabled={actionDisabled || isLast}
 							onClick={onMoveDown}
 							icon={<ArrowDown size={10} />}
 							className="h-6 px-1.5 text-[10px]"
-							aria-label={`Lower auto-swap priority of ${label}`}
+							aria-label={`Lower priority of ${label}`}
 						/>
 					</ActionTooltip>
 				</>

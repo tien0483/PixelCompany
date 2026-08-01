@@ -528,7 +528,10 @@ export function CardDetailView({
 	const isTaskTerminalEnabled = selection.column.id === "in_progress" || selection.column.id === "review";
 	const effectiveTaskAgentId = sessionSummary?.agentId ?? selection.card.agentId ?? selectedAgentId;
 	const taskManagerAccounts = useMemo(
-		() => filterManagerAccountsForAgent(managerAccounts ?? [], effectiveTaskAgentId),
+		() =>
+			filterManagerAccountsForAgent(managerAccounts ?? [], effectiveTaskAgentId, {
+				kanbanEligibleOnly: true,
+			}),
 		[effectiveTaskAgentId, managerAccounts],
 	);
 	// Clear a pin that belongs to the other provider (e.g. Claude seat left on a

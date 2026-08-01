@@ -198,6 +198,8 @@ class AccountResponse(BaseModel):
     is_active_for_provider: bool = False
     # Soft usage donate cap (0-100). Auto-swap / Auto pick skip when pressure >= this.
     donate_limit_percent: int = 100
+    # True when donate cap was set via paste-code invite — cannot be changed later.
+    donate_limit_locked: bool = False
 
 
 class AccountPatchRequest(BaseModel):
@@ -243,6 +245,7 @@ def _flow_status_response(status_data: dict) -> FlowStatusResponse:
 
 class SubmitCodeRequest(BaseModel):
     code: str
+    donate_limit_percent: Optional[int] = Field(None, ge=0, le=100)
 
 
 _LOOPBACK_HOSTS = ("127.0.0.1", "::1", "localhost", "testclient")
@@ -518,6 +521,7 @@ def _account_to_response(row: dict, db=None) -> AccountResponse:
         manual_switch_warning=caps.manual_switch_warning,
         is_active_for_provider=active_for_provider,
         donate_limit_percent=max(0, min(100, int(row.get("donate_limit_percent") or 100))),
+        donate_limit_locked=bool(row.get("donate_limit_locked", 0)),
     )
 
 
@@ -728,7 +732,9 @@ async def submit_flow_code(flow_id: str, body: SubmitCodeRequest):
             },
         )
 
-    return _flow_status_response(await flow.submit_code(body.code))
+    return _flow_status_response(
+        await flow.submit_code(body.code, body.donate_limit_percent)
+    )
 
 
 @router.get("/providers")
@@ -790,6 +796,19 @@ async def update_account(account_id: int, body: AccountPatchRequest, request: Re
     if has_active:
         patch_fields["is_active"] = body.is_active
     if has_donate:
+        if account.get("donate_limit_locked"):
+            return JSONResponse(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                content={
+                    "error": {
+                        "message": (
+                            "Donate limit is locked for this seat — it was agreed "
+                            "in the paste-code invite email and cannot be changed."
+                        ),
+                        "code": "DONATE_LIMIT_LOCKED",
+                    }
+                },
+            )
         patch_fields["donate_limit_percent"] = int(body.donate_limit_percent)
     if len(patch_fields) > 0:
         if not db.update_account(account_id, **patch_fields):
@@ -801,9 +820,20 @@ async def update_account(account_id: int, body: AccountPatchRequest, request: Re
     return _account_to_response(updated)
 
 
+def _promote_account_to_primary(db, account_id: int) -> None:
+    """Move account to priority 0 in the fleet ordering (Seats list / delete guard)."""
+    rows = db.list_accounts(include_inactive=True)
+    order = [row["id"] for row in rows if not row.get("is_deleted")]
+    if account_id not in order or order[0] == account_id:
+        return
+    order.remove(account_id)
+    order.insert(0, account_id)
+    db.reorder_accounts(order)
+
+
 @router.delete("/accounts/{account_id}")
 async def delete_account(account_id: int, request: Request):
-    """Soft-delete an account. Cannot delete primary while others exist."""
+    """Soft-delete an account. Cannot delete primary while other same-provider seats exist."""
     db = _get_db(request)
     if db is None:
         return _db_unavailable()
@@ -812,17 +842,29 @@ async def delete_account(account_id: int, request: Request):
     if not account:
         return _not_found(f"No account with id={account_id}")
 
-    # Cannot delete primary (priority=0) while other active accounts exist
+    # Cannot delete primary (priority=0) while other active seats of the same
+    # provider exist — Cursor must not block deleting a Claude primary seat.
     if account.get("priority", 0) == 0:
-        other_active = db.list_accounts(include_inactive=False)
-        if len(other_active) > 1:
+        provider = account.get("provider") or "claude"
+        other_same_provider = [
+            a
+            for a in db.list_accounts(include_inactive=False)
+            if a["id"] != account_id and (a.get("provider") or "claude") == provider
+        ]
+        if len(other_same_provider) > 0:
             return JSONResponse(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 content={
                     "error": {
-                        "message": "Cannot delete primary account while other active accounts exist",
+                        "message": (
+                            "Cannot delete primary account while other active "
+                            f"{provider} accounts exist"
+                        ),
                         "code": "CANNOT_DELETE_PRIMARY",
-                        "detail": "Set a different account as primary first, or delete other accounts.",
+                        "detail": (
+                            "Use a different account first (Use Account / reorder), "
+                            "or delete other accounts of the same provider."
+                        ),
                     }
                 },
             )
@@ -1554,8 +1596,9 @@ async def use_account(account_id: int, request: Request):
     v2.1.81+ dynamically re-reads credentials, so running sessions
     pick up the new account without logging out.
 
-    Rejects disabled accounts, accounts with invalid validation status,
-    and accounts without CC tokens (which would be un-refreshable).
+    Rejects disabled accounts and accounts with invalid validation status.
+    Accounts without CC tokens are allowed — primary access tokens are written
+    via build_oauth_data fallback (no CC refresh; authorize CC separately).
     """
     db = _get_db(request)
     if db is None:
@@ -1612,6 +1655,7 @@ async def use_account(account_id: int, request: Request):
                 status_code=status.HTTP_400_BAD_REQUEST,
                 content={"error": {"message": str(exc), "code": "CODEX_SWAP_FAILED"}},
             )
+        _promote_account_to_primary(db, account_id)
         return JSONResponse(
             status_code=status.HTTP_200_OK,
             content={
@@ -1646,6 +1690,7 @@ async def use_account(account_id: int, request: Request):
                     }
                 },
             )
+        _promote_account_to_primary(db, account_id)
         return JSONResponse(
             status_code=status.HTTP_200_OK,
             content={
@@ -1677,6 +1722,7 @@ async def use_account(account_id: int, request: Request):
                     "manual_switch_warning": capabilities_for("cursor").manual_switch_warning,
                 },
             )
+        _promote_account_to_primary(db, account_id)
         return JSONResponse(
             status_code=status.HTTP_200_OK,
             content={
@@ -1686,25 +1732,10 @@ async def use_account(account_id: int, request: Request):
                 "restart_required": True,
                 "backup_path": result.backup_path,
                 "message": (
-                    "Switched the Cursor account in state.vscdb. "
-                    "Restart Cursor to pick it up."
+                    "Switched the Cursor account in state.vscdb and set it as "
+                    "the primary seat. Restart Cursor to pick it up."
                 ),
                 "manual_switch_warning": capabilities_for("cursor").manual_switch_warning,
-            },
-        )
-
-    if not account.get("cc_access_token"):
-        return JSONResponse(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            content={
-                "error": {
-                    "message": (
-                        "Account has no CC tokens — authorize Claude Code "
-                        "tokens first (credentials without a refresh token "
-                        "would expire in ~8 hours with no way to renew)"
-                    ),
-                    "code": "CC_TOKEN_MISSING",
-                }
             },
         )
 
@@ -1858,6 +1889,8 @@ async def use_account(account_id: int, request: Request):
             )
     except Exception:
         pass
+
+    _promote_account_to_primary(db, account_id)
 
     return UseAccountResponse(
         status="active",

@@ -201,6 +201,7 @@ test("a pending paste-code flow can be dismissed and leaves the pane usable", as
 	await page.getByTestId("jacked-add-account-paste-code").click();
 	await expect(page.getByTestId("jacked-oauth-status")).toBeVisible();
 	await expect(page.getByTestId("manager-oauth-invite-email")).toBeVisible();
+	await expect(page.getByTestId("manager-oauth-invite-donate")).toBeVisible();
 	await expect(page.getByPlaceholder("Paste authorization code")).toBeVisible();
 
 	// The rest of the pane must not be frozen while the flow waits for input.
