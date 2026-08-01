@@ -148,7 +148,14 @@ export function createUsageResumeScheduler(deps: UsageResumeSchedulerDeps): Usag
 					}
 					case "reschedule": {
 						// A known future reset is trustworthy; only guessed wakes escalate.
-						const resumeAt = action.source === "reset" ? action.resumeAt : escalatedBackoff(session.taskId, now);
+						let resumeAt: number;
+						if (action.source === "reset") {
+							// Reset the escalation counter so a later backoff starts fresh, not carried over.
+							rescheduleAttempts.delete(session.taskId);
+							resumeAt = action.resumeAt;
+						} else {
+							resumeAt = escalatedBackoff(session.taskId, now);
+						}
 						session.markUsagePaused(resumeAt);
 						break;
 					}
