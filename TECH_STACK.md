@@ -134,27 +134,29 @@ non-login shell where nvm-managed Node isn't on `PATH` otherwise.
 `core.hooksPath .githooks` is set automatically by the root `prepare` npm script on `npm install` —
 nothing to configure by hand.
 
-If OAuth (Add Account / re-auth) fails with **"claude-jacked returned HTTP 405"**, jacked's Python
-interpreter is missing a dependency (usually `aiohttp`). The runtime spawns bare `python3` on PATH
-by default, which on a fresh WSL box is the system interpreter, not the `uv sync`/`pip install -e .`
-venv under `backends/jacked/.venv`. A missing import makes jacked's auth router fail to load
-(swallowed by a broad `except ImportError` in `jacked/api/main.py`), so every `/api/auth/*` call
-falls through to the SPA static catch-all and 405s instead of erroring clearly. The runtime now
-auto-detects `backends/jacked/.venv/bin/python` (`.venv\Scripts\python.exe` on Windows) when
-`JACKED_PYTHON` isn't set — see `resolvePythonBinary` in
-`backends/runtime/src/jacked/jacked-process.ts`. Run `cd backends/jacked && uv sync` once so that
-venv exists; only set `JACKED_PYTHON` yourself to override with a different interpreter.
+If OAuth (Add Account / re-auth, including the manual **Paste Code** flow) fails with **"Manager
+returned HTTP 405"**, Manager's Python interpreter is missing a dependency (usually `aiohttp`, pulled
+in transitively by `manager.web.oauth`). The runtime spawns bare `python3` on PATH by default, which
+on a fresh WSL box is the system interpreter, not the `uv sync`/`pip install -e .` venv under
+`backends/manager/.venv`. A missing import makes Manager's auth router fail to load (swallowed by a
+broad `except ImportError` in `manager/api/main.py:485`), so **every** `/api/auth/*` route — Add
+Account, re-auth, and `POST /api/auth/flow/{flow_id}/code` (Paste Code) — falls through to the SPA
+static catch-all and 405s instead of erroring clearly. The runtime auto-detects
+`backends/manager/.venv/bin/python` (`.venv\Scripts\python.exe` on Windows) when `MANAGER_PYTHON`
+(legacy: `JACKED_PYTHON`) isn't set — see `resolvePythonBinary` in
+`backends/runtime/src/manager/manager-process.ts`. Run `cd backends/manager && uv sync` once so that
+venv exists; only set `MANAGER_PYTHON` yourself to override with a different interpreter.
 
-## Jacked install (once)
+## Manager install (once)
 
 ```bash
-cd backends/jacked
-pip install -e .
-# or: uv sync
+cd backends/manager
+uv sync
+# or: pip install -e .
 ```
 
-The runtime waits briefly for port `8321` in the background after spawning Jacked; if it never opens
-it logs the install hint above and keeps running. Set `JACKED_PYTHON` to pick a specific interpreter.
+The runtime waits briefly for port `8321` in the background after spawning Manager; if it never opens
+it logs the install hint above and keeps running. Set `MANAGER_PYTHON` to pick a specific interpreter.
 
 From the monorepo root, run `npm install --install-links` so the `file:` link into `backends/runtime`
 resolves (plain `npm install` currently fails during dedupe because the root `package.json` has no
