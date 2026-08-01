@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -8,12 +8,14 @@ import {
 	applyModelAndEffortArgs,
 	buildCursorLaunchTagPreface,
 	cloneTaskLaunchSettings,
+	ensureLinkedPath,
 	hasMcpAllowlist,
 	hasSkillAllowlist,
 	listClaudeMcpInventory,
 	listClaudeSkillInventory,
 	prepareClaudeMcpAllowlistConfig,
 	prepareClaudeSkillScopedConfigDir,
+	resolveHostPath,
 } from "../../../src/terminal/task-launch-settings";
 
 const originalHome = process.env.HOME;
@@ -101,6 +103,54 @@ describe("buildCursorLaunchTagPreface", () => {
 		});
 		expect(preface).toContain("Skills: chain-of-command.");
 		expect(preface).toContain("MCP servers: filesystem.");
+	});
+});
+
+describe("resolveHostPath", () => {
+	it("keeps absolute POSIX paths", () => {
+		expect(resolveHostPath("/home/u/.claude/accounts/1")).toBe("/home/u/.claude/accounts/1");
+	});
+
+	it("maps Windows drive paths to /mnt/<drive> off win32", () => {
+		if (process.platform === "win32") {
+			expect(resolveHostPath("C:\\Users\\u\\.claude")).toMatch(/^[A-Za-z]:\\/);
+			return;
+		}
+		expect(resolveHostPath("C:\\Users\\u\\.claude")).toBe("/mnt/c/Users/u/.claude");
+		expect(resolveHostPath("D:/jacked/accounts/2")).toBe("/mnt/d/jacked/accounts/2");
+	});
+});
+
+describe("ensureLinkedPath portability", () => {
+	it("preferCopy materializes a real file (sandbox / no-symlink)", async () => {
+		const root = mkdtempSync(join(tmpdir(), "kanban-link-"));
+		try {
+			const source = join(root, "source.json");
+			const target = join(root, "target.json");
+			writeFileSync(source, JSON.stringify({ ok: true }), "utf8");
+			expect(await ensureLinkedPath(source, target, { isDirectory: false, preferCopy: true })).toBe(true);
+			expect(lstatSync(target).isSymbolicLink()).toBe(false);
+			expect(JSON.parse(readFileSync(target, "utf8"))).toEqual({ ok: true });
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
+	});
+
+	it("falls back to recursive directory copy when needed", async () => {
+		const root = mkdtempSync(join(tmpdir(), "kanban-link-dir-"));
+		try {
+			const source = join(root, "skills", "keep");
+			const target = join(root, "scoped", "keep");
+			mkdirSync(source, { recursive: true });
+			mkdirSync(join(root, "scoped"), { recursive: true });
+			writeFileSync(join(source, "SKILL.md"), "# keep\n", "utf8");
+			// preferCopy forces the sandbox-safe path used when symlink fails
+			expect(await ensureLinkedPath(source, target, { isDirectory: true, preferCopy: true })).toBe(true);
+			expect(lstatSync(target).isDirectory()).toBe(true);
+			expect(readFileSync(join(target, "SKILL.md"), "utf8")).toContain("# keep");
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
 	});
 });
 
@@ -247,6 +297,11 @@ describe("Claude inventory + scoped launch config", () => {
 			claudeAiOauth: { accessToken: string };
 		};
 		expect(creds.claudeAiOauth.accessToken).toBe("pin-token");
+		// Credentials must be a real file so Windows (no Developer Mode) and
+		// sandboxes without symlink CAP still authenticate.
+		expect(lstatSync(join(scoped.configDir, ".credentials.json")).isSymbolicLink()).toBe(false);
+		expect(lstatSync(join(scoped.configDir, ".claude.json")).isSymbolicLink()).toBe(false);
+		expect(lstatSync(join(scoped.configDir, "settings.json")).isSymbolicLink()).toBe(false);
 		const seeded = JSON.parse(readFileSync(join(scoped.configDir, ".claude.json"), "utf8")) as {
 			oauthAccount?: { emailAddress?: string };
 		};

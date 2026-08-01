@@ -11,6 +11,7 @@
 // Pinning is best-effort: if jacked is offline or refuses the account, the session
 // still launches on the CLI login / globally active credential rather than failing.
 import type { RuntimeAgentId, RuntimeJackedProvider } from "../core/api-contract";
+import { resolveHostPath } from "../terminal/task-launch-settings";
 
 export const CLAUDE_CONFIG_DIR_ENV = "CLAUDE_CONFIG_DIR";
 export const CURSOR_API_KEY_ENV = "CURSOR_API_KEY";
@@ -206,8 +207,9 @@ export async function resolveJackedAccountPin(
 				warning: `Jacked could not prepare credentials for account ${String(jackedAccountId)}; using the active account.`,
 			};
 		}
+		// Normalize Win paths when the runtime is on WSL/Linux (Jacked may return `C:\...`).
 		return {
-			env: { [CLAUDE_CONFIG_DIR_ENV]: launchDir.configDir },
+			env: { [CLAUDE_CONFIG_DIR_ENV]: resolveHostPath(launchDir.configDir) },
 			accountId: jackedAccountId,
 			warning: mismatchWarning,
 		};

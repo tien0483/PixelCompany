@@ -5,9 +5,9 @@
  * allowlists applied at Claude launch (scoped CLAUDE_CONFIG_DIR + mcp-config).
  * Cursor gets model/effort flags when supported and a prompt preface for tags.
  */
-import { access, copyFile, mkdir, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { access, copyFile, cp, mkdir, readdir, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 
 import type {
 	RuntimeMcpInventory,
@@ -16,7 +16,6 @@ import type {
 	RuntimeTaskLaunchSettings,
 } from "../core/api-contract";
 import { getRuntimeHomePath } from "../state/workspace-state";
-import { CLAUDE_CONFIG_DIR_ENV } from "../jacked/jacked-account-pin";
 
 const SHARED_SYMLINK_NAMES = ["CLAUDE.md", "plugins", "agents", "commands", "projects"] as const;
 const SAFE_CLAUDE_JSON_KEYS = [
@@ -148,45 +147,120 @@ async function pathExists(target: string): Promise<boolean> {
 	}
 }
 
-async function ensureSymlink(source: string, target: string, isDirectory: boolean): Promise<void> {
-	if (!(await pathExists(source))) {
-		return;
+/**
+ * Resolve a path Jacked/Claude may hand us across Windows, WSL, or a sandbox.
+ * Accepts absolute host paths as-is; keeps relative paths resolved from cwd.
+ */
+export function resolveHostPath(rawPath: string): string {
+	const trimmed = rawPath.trim();
+	if (!trimmed) {
+		return trimmed;
 	}
+	// WSL can see Windows paths when Jacked was started from /mnt/<drive>.
+	// Convert `C:\foo` / `C:/foo` → `/mnt/c/foo` when we are not on win32.
+	if (process.platform !== "win32") {
+		const windowsPath = /^([A-Za-z]):[\\/](.*)$/.exec(trimmed);
+		if (windowsPath) {
+			const drive = windowsPath[1]?.toLowerCase();
+			const rest = (windowsPath[2] ?? "").replace(/\\/g, "/");
+			if (drive) {
+				return `/mnt/${drive}/${rest}`.replace(/\/+/g, "/");
+			}
+		}
+	}
+	return isAbsolute(trimmed) ? trimmed : resolve(trimmed);
+}
+
+async function resolveExistingPath(rawPath: string): Promise<string | null> {
+	const candidate = resolveHostPath(rawPath);
+	if (!(await pathExists(candidate))) {
+		return null;
+	}
+	try {
+		return await realpath(candidate);
+	} catch {
+		return candidate;
+	}
+}
+
+async function removePath(target: string): Promise<void> {
 	try {
 		await rm(target, { recursive: true, force: true });
 	} catch {
 		// Best effort.
 	}
+}
+
+async function copyPath(source: string, target: string, isDirectory: boolean): Promise<boolean> {
 	try {
-		await symlink(source, target, isDirectory ? "junction" : "file");
-		return;
-	} catch {
-		try {
-			await symlink(source, target, isDirectory ? "dir" : "file");
-			return;
-		} catch {
-			// Windows often blocks file symlinks without Developer Mode. Fall back
-			// to a copy so pin credentials and settings still reach the scoped dir.
-		}
-	}
-	if (!isDirectory) {
-		try {
+		await removePath(target);
+		if (isDirectory) {
+			await cp(source, target, { recursive: true, force: true, errorOnExist: false });
+		} else {
+			await mkdir(dirname(target), { recursive: true });
 			await copyFile(source, target);
+		}
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+/**
+ * Link `source` → `target`, with portable fallbacks:
+ * - Windows dirs: junction (no admin) then dir symlink
+ * - Windows files / sandboxes: file symlink then copy
+ * - Linux/WSL: plain symlink (type ignored), then recursive copy
+ *
+ * Credential-like files should pass `preferCopy: true` so Claude/Jacked never
+ * depend on symlink privileges (Jacked also refuses symlink credential writes).
+ */
+export async function ensureLinkedPath(
+	source: string,
+	target: string,
+	options: { isDirectory: boolean; preferCopy?: boolean },
+): Promise<boolean> {
+	const resolvedSource = await resolveExistingPath(source);
+	if (!resolvedSource) {
+		return false;
+	}
+	await removePath(target);
+
+	if (options.preferCopy) {
+		return await copyPath(resolvedSource, target, options.isDirectory);
+	}
+
+	const linkTypes: Array<"junction" | "dir" | "file" | null> = options.isDirectory
+		? process.platform === "win32"
+			? ["junction", "dir", null]
+			: [null, "dir"]
+		: process.platform === "win32"
+			? ["file", null]
+			: [null, "file"];
+
+	for (const linkType of linkTypes) {
+		try {
+			if (linkType === null) {
+				await symlink(resolvedSource, target);
+			} else {
+				await symlink(resolvedSource, target, linkType);
+			}
+			return true;
 		} catch {
-			// Non-fatal: launch continues without that shared resource.
+			// Try the next strategy.
 		}
 	}
+
+	return await copyPath(resolvedSource, target, options.isDirectory);
 }
 
 async function seedClaudeJsonForScopedDir(configDir: string, baseDir: string): Promise<void> {
 	const target = join(configDir, ".claude.json");
 	// Prefer the prepared pin/account config (already has oauthAccount + onboarding).
+	// Always copy — never symlink — so Windows/sandbox without symlink rights still auth.
 	const baseClaudeJson = join(baseDir, ".claude.json");
-	if (await pathExists(baseClaudeJson)) {
-		await ensureSymlink(baseClaudeJson, target, false);
-		if (await pathExists(target)) {
-			return;
-		}
+	if (await ensureLinkedPath(baseClaudeJson, target, { isDirectory: false, preferCopy: true })) {
+		return;
 	}
 
 	// Global Claude Code state lives at ~/.claude.json (NOT ~/.claude/.claude.json).
@@ -240,14 +314,8 @@ async function writeScopedSettingsJson(
 		return;
 	}
 
-	// No MCP allowlist: reuse the Manager/global settings as-is.
-	if (!mcpServerIds || mcpServerIds.length === 0) {
-		await ensureSymlink(sourcePath, target, false);
-		return;
-	}
-
-	// MCP allowlist: materialize settings without mcpServers so Claude does not
-	// re-discover every global server alongside --mcp-config/--strict-mcp-config.
+	// Always materialize settings as a real file. Symlinked settings break in
+	// sandboxes and can reintroduce global mcpServers when an allowlist is set.
 	let parsed: Record<string, unknown> = {};
 	try {
 		const raw: unknown = JSON.parse(await readFile(sourcePath, "utf8"));
@@ -257,7 +325,9 @@ async function writeScopedSettingsJson(
 	} catch {
 		parsed = {};
 	}
-	delete parsed.mcpServers;
+	if (mcpServerIds && mcpServerIds.length > 0) {
+		delete parsed.mcpServers;
+	}
 	await writeFile(target, JSON.stringify(parsed, null, 2), "utf8");
 }
 
@@ -273,7 +343,8 @@ export async function prepareClaudeSkillScopedConfigDir(input: {
 	baseConfigDir?: string | null;
 }): Promise<{ configDir: string; cleanup: () => Promise<void> }> {
 	const globalDir = globalClaudeDir();
-	const baseDir = input.baseConfigDir?.trim() || globalDir;
+	const requestedBase = input.baseConfigDir?.trim() ? resolveHostPath(input.baseConfigDir.trim()) : "";
+	const baseDir = requestedBase && (await pathExists(requestedBase)) ? requestedBase : globalDir;
 	const configDir = taskLaunchScratchDir(input.taskId);
 	await rm(configDir, { recursive: true, force: true }).catch(() => {});
 	await mkdir(configDir, { recursive: true });
@@ -282,16 +353,22 @@ export async function prepareClaudeSkillScopedConfigDir(input: {
 		const source = join(baseDir, name);
 		const fallback = join(globalDir, name);
 		const resolvedSource = (await pathExists(source)) ? source : fallback;
-		await ensureSymlink(resolvedSource, join(configDir, name), name !== "CLAUDE.md");
+		const isDirectory = name !== "CLAUDE.md";
+		await ensureLinkedPath(resolvedSource, join(configDir, name), { isDirectory });
 	}
 
 	await writeScopedSettingsJson(configDir, baseDir, input.mcpServerIds);
 
-	// Credentials: prefer the prepared Jacked account dir, else global ~/.claude.
+	// Credentials: always copy. Symlinks fail without Windows Developer Mode /
+	// sandbox CAP_DAC, and Jacked refuses to treat symlink credential files as writable.
 	const credentialCandidates = [join(baseDir, ".credentials.json"), join(globalDir, ".credentials.json")];
 	for (const source of credentialCandidates) {
-		if (await pathExists(source)) {
-			await ensureSymlink(source, join(configDir, ".credentials.json"), false);
+		if (
+			await ensureLinkedPath(source, join(configDir, ".credentials.json"), {
+				isDirectory: false,
+				preferCopy: true,
+			})
+		) {
 			break;
 		}
 	}
@@ -301,8 +378,8 @@ export async function prepareClaudeSkillScopedConfigDir(input: {
 	const globalSkills = join(globalDir, "skills");
 	const skillAllowlist = (input.skillIds ?? []).map((id) => id.trim()).filter((id) => id.length > 0);
 	if (skillAllowlist.length === 0) {
-		// Inherit all Manager skills.
-		await ensureSymlink(globalSkills, skillsDir, true);
+		// Inherit all Manager skills (link, or recursive copy in restricted envs).
+		await ensureLinkedPath(globalSkills, skillsDir, { isDirectory: true });
 	} else {
 		await mkdir(skillsDir, { recursive: true });
 		for (const skillId of skillAllowlist) {
@@ -311,7 +388,9 @@ export async function prepareClaudeSkillScopedConfigDir(input: {
 			if (!folderName) {
 				continue;
 			}
-			await ensureSymlink(join(globalSkills, folderName), join(skillsDir, folderName), true);
+			await ensureLinkedPath(join(globalSkills, folderName), join(skillsDir, folderName), {
+				isDirectory: true,
+			});
 		}
 	}
 
