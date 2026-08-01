@@ -56,14 +56,14 @@ test("the Jacked bridge answers on the same origin", async ({ page, baseURL }) =
 
 	// Same-origin tRPC: proves the Python service is reachable only through the runtime.
 	const state = await page.request.get(
-		`${baseURL}/api/trpc/jacked.state?batch=1&input=${encodeURIComponent("{}")}`,
+		`${baseURL}/api/trpc/manager.state?batch=1&input=${encodeURIComponent("{}")}`,
 	);
 	expect(state.status()).toBe(200);
 	const payload = (await state.json()) as Array<{ result?: { data?: { accounts?: unknown[] } } }>;
 	expect(Array.isArray(payload[0]?.result?.data?.accounts)).toBe(true);
 
 	const sessions = await page.request.get(
-		`${baseURL}/api/trpc/jacked.activeSessions?batch=1&input=${encodeURIComponent("{}")}`,
+		`${baseURL}/api/trpc/manager.activeSessions?batch=1&input=${encodeURIComponent("{}")}`,
 	);
 	expect(sessions.status()).toBe(200);
 
@@ -124,7 +124,7 @@ test("Claude Accounts and the docked office share the right column", async ({ pa
 	}
 	await expect(page.getByTestId("home-triple-pane")).toBeVisible();
 	await expect(page.getByTestId("home-right-column")).toBeVisible();
-	await expect(page.getByTestId("jacked-accounts-view")).toBeVisible();
+	await expect(page.getByTestId("manager-accounts-view")).toBeVisible();
 	// The office is docked natively — no jacked iframe panel.
 	await expect(page.getByTestId("office-jacked-side-panel")).toHaveCount(0);
 });

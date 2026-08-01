@@ -4,6 +4,7 @@ import type {
 	RuntimeTaskAutoReviewMode,
 	RuntimeTaskClineSettings,
 	RuntimeTaskImage,
+	RuntimeTaskLaunchSettings,
 } from "@/runtime/types";
 
 export type BoardColumnId = RuntimeBoardColumnId;
@@ -46,16 +47,18 @@ export interface BoardCard {
 	images?: TaskImage[];
 	agentId?: RuntimeAgentId;
 	/**
-	 * Claude account (jacked id) this card's session runs on. Unset means the session
+	 * Claude account (manager id) this card's session runs on. Unset means the session
 	 * follows jacked's globally active account and its auto-swap rotation.
 	 */
-	jackedAccountId?: number;
+	managerAccountId?: number;
 	/**
 	 * When true, a session that hits the Claude usage limit parks as "Paused" and the runtime
 	 * auto-resumes it (--continue) once its window resets, instead of stopping in Review.
 	 */
 	autoResumeOnUsageLimit?: boolean;
 	clineSettings?: RuntimeTaskClineSettings;
+	/** Per-task model/effort + skill/MCP allowlist tags (empty = inherit Manager/global). */
+	taskLaunchSettings?: RuntimeTaskLaunchSettings;
 	baseRef: string;
 	createdAt: number;
 	updatedAt: number;

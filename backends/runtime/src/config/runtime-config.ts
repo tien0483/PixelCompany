@@ -55,10 +55,10 @@ const PROJECT_CONFIG_PARENT_DIR = RUNTIME_HOME_PARENT_DIR_NAME;
 const LEGACY_PROJECT_CONFIG_PARENT_DIR = LEGACY_RUNTIME_HOME_PARENT_DIR_NAME;
 const PROJECT_CONFIG_DIR = "kanban";
 const PROJECT_CONFIG_FILENAME = "config.json";
-// Claude-only product: `normalizeAgentId` coerces any persisted id that is no
-// longer launch-supported (an older config.json holding "cline") to this value.
+// `normalizeAgentId` coerces any persisted id that is no longer launch-supported
+// (for example an older config.json holding "cline") to DEFAULT_AGENT_ID.
 const DEFAULT_AGENT_ID: RuntimeAgentId = "claude";
-const AUTO_SELECT_AGENT_PRIORITY: readonly RuntimeAgentId[] = ["claude"];
+const AUTO_SELECT_AGENT_PRIORITY: readonly RuntimeAgentId[] = ["claude", "cursor"];
 const DEFAULT_AGENT_AUTONOMOUS_MODE_ENABLED = true;
 const DEFAULT_READY_FOR_REVIEW_NOTIFICATIONS_ENABLED = true;
 const DEFAULT_COMMIT_PROMPT_TEMPLATE = `You are in a worktree on a detached HEAD. When you are finished with the task, commit the working changes onto {{base_ref}}.
@@ -107,9 +107,8 @@ Steps:
 export function pickBestInstalledAgentIdFromDetected(detectedCommands: readonly string[]): RuntimeAgentId | null {
 	const detected = new Set(detectedCommands);
 	for (const agentId of AUTO_SELECT_AGENT_PRIORITY) {
-		const catalogEntry = getRuntimeAgentCatalogEntry(agentId);
-		const binary = catalogEntry?.binary ?? agentId;
-		if (detected.has(binary) || detected.has(agentId)) {
+		const canonicalBinary = getRuntimeAgentCatalogEntry(agentId)?.binary ?? agentId;
+		if (detected.has(canonicalBinary) || detected.has(agentId)) {
 			return agentId;
 		}
 	}
@@ -124,6 +123,7 @@ function normalizeAgentId(agentId: RuntimeAgentId | string | null | undefined): 
 	if (
 		(agentId === "claude" ||
 			agentId === "codex" ||
+			agentId === "cursor" ||
 			agentId === "gemini" ||
 			agentId === "opencode" ||
 			agentId === "droid" ||
@@ -447,13 +447,21 @@ async function readRuntimeConfigFiles(cwd: string | null): Promise<RuntimeConfig
 
 async function loadRuntimeConfigLocked(cwd: string | null): Promise<RuntimeConfigState> {
 	const configFiles = await readRuntimeConfigFiles(cwd);
-	if (configFiles.globalConfig === null) {
+	// Empty `{}` (or a file with no selectedAgentId) is treated like a first boot so we
+	// persist an explicit default instead of silently coercing to Claude forever.
+	const needsAgentSelection =
+		configFiles.globalConfig === null ||
+		!hasOwnKey(configFiles.globalConfig, "selectedAgentId") ||
+		configFiles.globalConfig.selectedAgentId === undefined ||
+		configFiles.globalConfig.selectedAgentId === null;
+	if (needsAgentSelection) {
 		const autoSelectedAgentId = pickBestInstalledAgentId();
 		if (autoSelectedAgentId) {
 			await writeRuntimeGlobalConfigFile(configFiles.globalConfigPath, {
 				selectedAgentId: autoSelectedAgentId,
 			});
 			configFiles.globalConfig = {
+				...(configFiles.globalConfig ?? {}),
 				selectedAgentId: autoSelectedAgentId,
 			};
 		}

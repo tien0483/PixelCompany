@@ -22,7 +22,8 @@
       "@runtime-task-id": ["../../backends/runtime/src/core/task-id.ts"],
       "@runtime-task-title": ["../../backends/runtime/src/core/task-title.ts"],
       "@runtime-task-worktree-path": ["../../backends/runtime/src/workspace/task-worktree-path.ts"],
-      "@runtime-task-state": ["../../backends/runtime/src/core/task-board-mutations.ts"]
+      "@runtime-task-state": ["../../backends/runtime/src/core/task-board-mutations.ts"],
+      "@runtime-task-launch-tag-messages": ["../../backends/runtime/src/terminal/task-launch-tag-messages.ts"]
     },
     "types": ["vitest/globals"]
   },

@@ -3,7 +3,13 @@ import { createShortTaskId } from "@runtime-task-id";
 import * as runtimeTaskState from "@runtime-task-state";
 
 import { createInitialBoardData } from "@/data/board-data";
-import type { RuntimeAgentId, RuntimeClineReasoningEffort, RuntimeTaskClineSettings } from "@/runtime/types";
+import type {
+	RuntimeAgentId,
+	RuntimeClineReasoningEffort,
+	RuntimeTaskClineSettings,
+	RuntimeTaskLaunchEffort,
+	RuntimeTaskLaunchSettings,
+} from "@/runtime/types";
 import { isAllowedCrossColumnCardMove, type ProgrammaticCardMoveInFlight } from "@/state/drag-rules";
 import {
 	type BoardCard,
@@ -27,7 +33,63 @@ export interface TaskDraft {
 	images?: TaskImage[];
 	agentId?: RuntimeAgentId;
 	clineSettings?: RuntimeTaskClineSettings;
+	taskLaunchSettings?: RuntimeTaskLaunchSettings;
 	baseRef: string;
+}
+
+const TASK_LAUNCH_EFFORTS = new Set<RuntimeTaskLaunchEffort>(["low", "medium", "high", "xhigh", "max"]);
+
+function normalizeTaskLaunchSettings(raw: unknown): RuntimeTaskLaunchSettings | undefined {
+	if (!raw || typeof raw !== "object") {
+		return undefined;
+	}
+	const settings = raw as {
+		modelId?: unknown;
+		effort?: unknown;
+		skillIds?: unknown;
+		agentIds?: unknown;
+		commandIds?: unknown;
+		mcpServerIds?: unknown;
+	};
+	const modelId = typeof settings.modelId === "string" ? settings.modelId.trim() : "";
+	const effort =
+		typeof settings.effort === "string" && TASK_LAUNCH_EFFORTS.has(settings.effort as RuntimeTaskLaunchEffort)
+			? (settings.effort as RuntimeTaskLaunchEffort)
+			: undefined;
+	const normalizeIds = (rawIds: unknown): string[] | undefined =>
+		Array.isArray(rawIds)
+			? [
+					...new Set(
+						rawIds
+							.filter((id): id is string => typeof id === "string")
+							.map((id) => id.trim())
+							.filter((id) => id.length > 0),
+					),
+				]
+			: undefined;
+	const skillIds = normalizeIds(settings.skillIds);
+	const agentIds = normalizeIds(settings.agentIds);
+	const commandIds = normalizeIds(settings.commandIds);
+	const mcpServerIds = normalizeIds(settings.mcpServerIds);
+	const next: RuntimeTaskLaunchSettings = {
+		...(modelId ? { modelId } : {}),
+		...(effort ? { effort } : {}),
+		...(skillIds && skillIds.length > 0 ? { skillIds } : {}),
+		...(agentIds && agentIds.length > 0 ? { agentIds } : {}),
+		...(commandIds && commandIds.length > 0 ? { commandIds } : {}),
+		...(mcpServerIds && mcpServerIds.length > 0 ? { mcpServerIds } : {}),
+	};
+	if (
+		next.modelId === undefined &&
+		next.effort === undefined &&
+		next.skillIds === undefined &&
+		next.agentIds === undefined &&
+		next.commandIds === undefined &&
+		next.mcpServerIds === undefined
+	) {
+		return undefined;
+	}
+	return next;
 }
 
 export interface TaskMoveEvent {
@@ -159,6 +221,9 @@ function normalizeCard(rawCard: unknown): BoardCard | null {
 		baseRef?: unknown;
 		agentId?: unknown;
 		clineSettings?: unknown;
+		taskLaunchSettings?: unknown;
+		managerAccountId?: unknown;
+		jackedAccountId?: unknown;
 		clineProviderId?: unknown;
 		clineModelId?: unknown;
 		clineReasoningEffort?: unknown;
@@ -183,6 +248,12 @@ function normalizeCard(rawCard: unknown): BoardCard | null {
 		legacyModelId: card.clineModelId,
 		legacyReasoningEffort: card.clineReasoningEffort,
 	});
+	const taskLaunchSettings = normalizeTaskLaunchSettings(card.taskLaunchSettings);
+	const rawAccountId = card.managerAccountId ?? card.jackedAccountId;
+	const managerAccountId =
+		typeof rawAccountId === "number" && Number.isInteger(rawAccountId) && rawAccountId > 0
+			? rawAccountId
+			: undefined;
 
 	const now = Date.now();
 
@@ -199,6 +270,8 @@ function normalizeCard(rawCard: unknown): BoardCard | null {
 		baseRef,
 		...(typeof card.agentId === "string" && card.agentId ? { agentId: card.agentId as RuntimeAgentId } : {}),
 		...(clineSettings !== undefined ? { clineSettings } : {}),
+		...(taskLaunchSettings !== undefined ? { taskLaunchSettings } : {}),
+		...(managerAccountId !== undefined ? { managerAccountId } : {}),
 		createdAt: typeof card.createdAt === "number" ? card.createdAt : now,
 		updatedAt: typeof card.updatedAt === "number" ? card.updatedAt : now,
 	};
@@ -350,6 +423,7 @@ export function addTaskToColumnWithResult(
 			images: draft.images,
 			agentId: draft.agentId,
 			clineSettings: draft.clineSettings,
+			taskLaunchSettings: draft.taskLaunchSettings,
 			baseRef: draft.baseRef,
 		},
 		createBrowserUuid,
@@ -533,6 +607,16 @@ export function moveTaskToColumn(
 	};
 }
 
+function managerProviderForAgentId(agentId: RuntimeAgentId | undefined): "claude" | "cursor" | null {
+	if (agentId === "claude") {
+		return "claude";
+	}
+	if (agentId === "cursor") {
+		return "cursor";
+	}
+	return null;
+}
+
 export function updateTask(board: BoardData, taskId: string, draft: TaskDraft): { board: BoardData; updated: boolean } {
 	const prompt = draft.prompt.trim();
 	if (!prompt) {
@@ -553,7 +637,13 @@ export function updateTask(board: BoardData, taskId: string, draft: TaskDraft): 
 			}
 			columnUpdated = true;
 			updated = true;
-			return {
+			const previousProvider = managerProviderForAgentId(card.agentId);
+			const nextProvider = managerProviderForAgentId(draft.agentId);
+			// Claude pins and Cursor pins are not interchangeable — drop the seat
+			// when the task switches agent family (including back to "use default").
+			const clearCrossProviderPin =
+				card.agentId !== draft.agentId && previousProvider !== nextProvider;
+			const nextCard: BoardCard = {
 				...card,
 				title: title || card.title,
 				prompt,
@@ -568,8 +658,100 @@ export function updateTask(board: BoardData, taskId: string, draft: TaskDraft): 
 							: undefined,
 				agentId: draft.agentId,
 				clineSettings: draft.clineSettings,
+				taskLaunchSettings: draft.taskLaunchSettings,
 				baseRef,
 				updatedAt: Date.now(),
+			};
+			if (clearCrossProviderPin) {
+				const { managerAccountId: _clearedPin, ...withoutPin } = nextCard;
+				return withoutPin;
+			}
+			return nextCard;
+		});
+		return columnUpdated ? { ...column, cards } : column;
+	});
+
+	if (!updated) {
+		return { board, updated: false };
+	}
+	return { board: withUpdatedColumns(board, columns), updated: true };
+}
+
+function indexBoardCards(board: BoardData): Map<string, BoardCard> {
+	const byId = new Map<string, BoardCard>();
+	for (const column of board.columns) {
+		for (const card of column.cards) {
+			byId.set(card.id, card);
+		}
+	}
+	return byId;
+}
+
+/**
+ * True when `local` has card edits newer than `remote` and remote has nothing newer.
+ * Used to keep in-progress UI edits (e.g. adding a second skill tag) when a
+ * workspace save-echo or refresh would otherwise clobber them.
+ */
+export function shouldPreferLocalBoard(local: BoardData, remote: BoardData): boolean {
+	const localById = indexBoardCards(local);
+	const remoteById = indexBoardCards(remote);
+	let localHasNewer = false;
+	let remoteHasNewer = false;
+
+	for (const [cardId, localCard] of localById) {
+		const remoteCard = remoteById.get(cardId);
+		if (!remoteCard) {
+			localHasNewer = true;
+			continue;
+		}
+		if (localCard.updatedAt > remoteCard.updatedAt) {
+			localHasNewer = true;
+		} else if (remoteCard.updatedAt > localCard.updatedAt) {
+			remoteHasNewer = true;
+		}
+	}
+	for (const cardId of remoteById.keys()) {
+		if (!localById.has(cardId)) {
+			remoteHasNewer = true;
+		}
+	}
+
+	return localHasNewer && !remoteHasNewer;
+}
+
+/**
+ * Updates per-task Model / Effort / Skill / MCP tags without a full draft save.
+ */
+export function setTaskLaunchSettings(
+	board: BoardData,
+	taskId: string,
+	taskLaunchSettings: RuntimeTaskLaunchSettings | null,
+): { board: BoardData; updated: boolean } {
+	const selection = findCardSelection(board, taskId);
+	if (!selection) {
+		return { board, updated: false };
+	}
+	const nextSettings = taskLaunchSettings ?? undefined;
+	const previous = selection.card.taskLaunchSettings;
+	if (JSON.stringify(previous ?? null) === JSON.stringify(nextSettings ?? null)) {
+		return { board, updated: false };
+	}
+
+	let updated = false;
+	const columns = board.columns.map((column) => {
+		let columnUpdated = false;
+		const cards = column.cards.map((card) => {
+			if (card.id !== taskId) {
+				return card;
+			}
+			columnUpdated = true;
+			updated = true;
+			const { taskLaunchSettings: _previous, ...rest } = card;
+			const nextUpdatedAt = Math.max(Date.now(), card.updatedAt + 1);
+			return {
+				...rest,
+				...(nextSettings === undefined ? {} : { taskLaunchSettings: nextSettings }),
+				updatedAt: nextUpdatedAt,
 			};
 		});
 		return columnUpdated ? { ...column, cards } : column;
@@ -587,17 +769,17 @@ export function updateTask(board: BoardData, taskId: string, draft: TaskDraft): 
  * Separate from `updateTask` because pinning is a single-field toggle that must not
  * require a full draft; `updateTask` preserves the field through its card spread.
  */
-export function setTaskJackedAccount(
+export function setTaskManagerAccount(
 	board: BoardData,
 	taskId: string,
-	jackedAccountId: number | null,
+	managerAccountId: number | null,
 ): { board: BoardData; updated: boolean } {
 	const selection = findCardSelection(board, taskId);
 	if (!selection) {
 		return { board, updated: false };
 	}
-	const nextAccountId = jackedAccountId ?? undefined;
-	if (selection.card.jackedAccountId === nextAccountId) {
+	const nextAccountId = managerAccountId ?? undefined;
+	if (selection.card.managerAccountId === nextAccountId) {
 		return { board, updated: false };
 	}
 
@@ -610,10 +792,10 @@ export function setTaskJackedAccount(
 			}
 			columnUpdated = true;
 			updated = true;
-			const { jackedAccountId: _previous, ...rest } = card;
+			const { managerAccountId: _previous, ...rest } = card;
 			return {
 				...rest,
-				...(nextAccountId === undefined ? {} : { jackedAccountId: nextAccountId }),
+				...(nextAccountId === undefined ? {} : { managerAccountId: nextAccountId }),
 				updatedAt: Date.now(),
 			};
 		});
@@ -644,6 +826,7 @@ export function updateTaskTitle(
 		images: selection.card.images,
 		agentId: selection.card.agentId,
 		clineSettings: selection.card.clineSettings,
+		taskLaunchSettings: selection.card.taskLaunchSettings,
 		baseRef: selection.card.baseRef,
 	});
 }

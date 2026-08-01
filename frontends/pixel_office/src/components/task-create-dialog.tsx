@@ -22,11 +22,17 @@ import { useHotkeys } from "react-hotkeys-hook";
 import type { BranchSelectOption } from "@/components/branch-select-dropdown";
 import { BranchSelectDropdown } from "@/components/branch-select-dropdown";
 import { TaskAgentModelPicker, useTaskAgentModelPicker } from "@/components/task-agent-model-picker";
+import { TaskLaunchSettingsPicker } from "@/components/task-launch-settings";
 import { TaskPromptComposer } from "@/components/task-prompt-composer";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogBody, DialogFooter, DialogHeader } from "@/components/ui/dialog";
 import { NativeSelect } from "@/components/ui/native-select";
-import type { RuntimeAgentId, RuntimeClineReasoningEffort, RuntimeTaskClineSettings } from "@/runtime/types";
+import type {
+	RuntimeAgentId,
+	RuntimeClineReasoningEffort,
+	RuntimeTaskClineSettings,
+	RuntimeTaskLaunchSettings,
+} from "@/runtime/types";
 import { LocalStorageKey } from "@/storage/local-storage-store";
 import type { TaskAutoReviewMode, TaskImage } from "@/types";
 import { isMacPlatform, pasteShortcutLabel } from "@/utils/platform";
@@ -122,6 +128,8 @@ export function TaskCreateDialog({
 	onAgentIdChange,
 	clineSettings,
 	onClineSettingsChange,
+	taskLaunchSettings,
+	onTaskLaunchSettingsChange,
 	defaultAgentId,
 	defaultProviderId,
 	defaultModelId,
@@ -153,6 +161,8 @@ export function TaskCreateDialog({
 	onAgentIdChange?: (value: RuntimeAgentId | undefined) => void;
 	clineSettings?: RuntimeTaskClineSettings | undefined;
 	onClineSettingsChange?: (value: RuntimeTaskClineSettings | undefined) => void;
+	taskLaunchSettings?: RuntimeTaskLaunchSettings | undefined;
+	onTaskLaunchSettingsChange?: (value: RuntimeTaskLaunchSettings | undefined) => void;
 	/** Default agent ID from runtimeConfig.selectedAgentId, used to show "Default (AgentName)" in picker */
 	defaultAgentId?: RuntimeAgentId | null;
 	/** Default Cline provider ID from runtimeConfig.clineProviderSettings.providerId */
@@ -593,6 +603,15 @@ export function TaskCreateDialog({
 							defaultProviderId={defaultProviderId}
 							defaultReasoningEffort={defaultReasoningEffort}
 							providerDefaultModels={providerDefaultModels}
+						/>
+					) : null}
+					{onTaskLaunchSettingsChange ? (
+						<TaskLaunchSettingsPicker
+							active={open}
+							agentId={agentId}
+							defaultAgentId={defaultAgentId}
+							value={taskLaunchSettings}
+							onChange={onTaskLaunchSettingsChange}
 						/>
 					) : null}
 				</div>

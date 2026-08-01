@@ -4,6 +4,7 @@ export interface RuntimeAgentCatalogEntry {
 	id: RuntimeAgentId;
 	label: string;
 	binary: string;
+	binaryAliases?: string[];
 	baseArgs: string[];
 	autonomousArgs: string[];
 	installUrl: string;
@@ -70,22 +71,22 @@ export const RUNTIME_AGENT_CATALOG: RuntimeAgentCatalogEntry[] = [
 		id: "cursor",
 		label: "Cursor Agent",
 		binary: "cursor-agent",
+		binaryAliases: ["agent"],
 		baseArgs: [],
 		autonomousArgs: ["--force", "--trust"],
-		installUrl: "https://docs.cursor.com/cli",
+		installUrl: "https://cursor.com/docs/cli/overview",
 	},
 ];
 
-// PixelOffice is Claude-only: Claude Code is the sole launchable agent, and the
-// native Cline agent stays gated so Jacked owns every credential in play.
-// Re-enable additional CLIs by uncommenting entries below when ready.
+// Claude + Cursor are launchable; Jacked pins credentials per task. Other CLIs
+// stay gated until explicitly enabled below.
 export const RUNTIME_LAUNCH_SUPPORTED_AGENT_IDS: readonly RuntimeAgentId[] = [
 	"claude",
+	"cursor",
 	// "cline",
 	// "codex",
 	// "droid",
 	// "kiro",
-	// "cursor",
 	// "opencode",
 	// "gemini",
 ];
@@ -102,4 +103,12 @@ export function getRuntimeLaunchSupportedAgentCatalog(): RuntimeAgentCatalogEntr
 
 export function getRuntimeAgentCatalogEntry(agentId: RuntimeAgentId): RuntimeAgentCatalogEntry | null {
 	return RUNTIME_AGENT_CATALOG.find((entry) => entry.id === agentId) ?? null;
+}
+
+export function getRuntimeAgentBinaryCandidates(agentId: RuntimeAgentId): string[] {
+	const entry = getRuntimeAgentCatalogEntry(agentId);
+	if (!entry) {
+		return [agentId];
+	}
+	return [entry.binary, ...(entry.binaryAliases ?? [])];
 }

@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type {
-	RuntimeJackedPacing,
-	RuntimeJackedSnapshot,
+	RuntimeManagerPacing,
+	RuntimeManagerSnapshot,
 	RuntimeTaskSessionSummary,
 } from "../../../src/core/api-contract";
 import {
@@ -15,7 +15,7 @@ import {
 const NOW = 1_000_000_000_000;
 const FUTURE = NOW + 3 * 60 * 60 * 1000;
 
-function snapshot(pacing: RuntimeJackedPacing | null): RuntimeJackedSnapshot {
+function snapshot(pacing: RuntimeManagerPacing | null): RuntimeManagerSnapshot {
 	return {
 		version: null,
 		accounts: [],
@@ -47,7 +47,7 @@ function summary(partial: Partial<RuntimeTaskSessionSummary> & { taskId: string 
 		lastHookAt: null,
 		latestHookActivity: null,
 		warningMessage: null,
-		jackedAccountId: null,
+		managerAccountId: null,
 		autoResumeOnUsageLimit: false,
 		resumeAt: null,
 		latestTurnCheckpoint: null,
@@ -56,8 +56,8 @@ function summary(partial: Partial<RuntimeTaskSessionSummary> & { taskId: string 
 	};
 }
 
-const EXHAUSTED: RuntimeJackedPacing = { pauseUntil: FUTURE, worstWindowPct: 99, allExhausted: true };
-const HEADROOM: RuntimeJackedPacing = { pauseUntil: null, worstWindowPct: 10, allExhausted: false };
+const EXHAUSTED: RuntimeManagerPacing = { pauseUntil: FUTURE, worstWindowPct: 99, allExhausted: true };
+const HEADROOM: RuntimeManagerPacing = { pauseUntil: null, worstWindowPct: 10, allExhausted: false };
 
 describe("isUsageResumeCandidate", () => {
 	it("selects opted-in errors and any paused task, ignores the rest", () => {
@@ -162,7 +162,7 @@ describe("createUsageResumeScheduler runner", () => {
 	});
 
 	it("escalates the backoff when a due paused task keeps finding the wall (unknown reset)", async () => {
-		const walledNoReset: RuntimeJackedPacing = { pauseUntil: null, worstWindowPct: 99, allExhausted: true };
+		const walledNoReset: RuntimeManagerPacing = { pauseUntil: null, worstWindowPct: 99, allExhausted: true };
 		const session = makeSession(summary({ taskId: "a", reviewReason: "usage_paused", resumeAt: NOW - 1 }));
 		const scheduler = createUsageResumeScheduler({
 			collectSessions: () => [session],

@@ -11,7 +11,7 @@
 //
 // The pure per-session decision is `evaluateSession`; the runner binds it to the terminal /
 // cline services the host provides.
-import type { RuntimeJackedSnapshot, RuntimeTaskSessionSummary } from "../core/api-contract";
+import type { RuntimeManagerSnapshot, RuntimeTaskSessionSummary } from "../core/api-contract";
 import { classifyUsagePause } from "./usage-pause";
 
 /** Escalating backoff for a wake that finds the window still walled. */
@@ -42,16 +42,16 @@ export function isUsageResumeCandidate(summary: RuntimeTaskSessionSummary): bool
  */
 export function evaluateSession(
 	summary: RuntimeTaskSessionSummary,
-	snapshot: RuntimeJackedSnapshot | null,
+	snapshot: RuntimeManagerSnapshot | null,
 	now: number,
 ): UsageResumeAction {
-	const jackedAccountId = summary.jackedAccountId ?? null;
+	const managerAccountId = summary.managerAccountId ?? null;
 
 	// A freshly errored, opted-in task: pause it only if the exit is usage-caused.
 	if (summary.reviewReason === "error") {
 		const decision = classifyUsagePause({
 			autoResumeOnUsageLimit: summary.autoResumeOnUsageLimit === true,
-			jackedAccountId,
+			managerAccountId,
 			snapshot,
 			errorText: summary.warningMessage ?? summary.latestHookActivity?.finalMessage ?? null,
 			now,
@@ -67,7 +67,7 @@ export function evaluateSession(
 		// Wake: re-verify against jacked with no error text (the error is stale by now).
 		const decision = classifyUsagePause({
 			autoResumeOnUsageLimit: true,
-			jackedAccountId,
+			managerAccountId,
 			snapshot,
 			errorText: null,
 			now,
@@ -95,7 +95,7 @@ export interface UsageResumeSchedulerDeps {
 	/** Gather every candidate session across all workspaces, bound to its owning service. */
 	collectSessions: () => Promise<PausableSession[]> | PausableSession[];
 	/** Force-refresh and return the jacked snapshot (monitor.refresh). */
-	refreshSnapshot: () => Promise<RuntimeJackedSnapshot | null>;
+	refreshSnapshot: () => Promise<RuntimeManagerSnapshot | null>;
 	now: () => number;
 	pollIntervalMs?: number;
 	log?: (message: string) => void;

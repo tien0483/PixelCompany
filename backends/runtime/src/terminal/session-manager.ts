@@ -1,14 +1,16 @@
-// PTY-backed runtime for non-Cline task sessions and the workspace shell terminal.
+﻿// PTY-backed runtime for non-Cline task sessions and the workspace shell terminal.
 // It owns process lifecycle, terminal protocol filtering, and summary updates
 // for command-driven agents such as Claude Code, Codex, Gemini, and shell sessions.
 import type {
 	RuntimeTaskHookActivity,
 	RuntimeTaskImage,
+	RuntimeTaskLaunchSettings,
 	RuntimeTaskSessionReviewReason,
 	RuntimeTaskSessionState,
 	RuntimeTaskSessionSummary,
 	RuntimeTaskTurnCheckpoint,
 } from "../core/api-contract";
+import { detectAgentAuthFailure } from "./agent-auth-failure";
 import {
 	type AgentAdapterLaunchInput,
 	type AgentOutputTransitionDetector,
@@ -22,6 +24,7 @@ import {
 	WORKSPACE_TRUST_CONFIRM_DELAY_MS,
 } from "./claude-workspace-trust";
 import { hasCodexWorkspaceTrustPrompt, shouldAutoConfirmCodexWorkspaceTrust } from "./codex-workspace-trust";
+import { isCursorOutputTransitionDetector } from "./cursor-output-transition";
 import { stripAnsi } from "./output-utils";
 import { PtySession } from "./pty-session";
 import { reduceSessionTransition, type SessionTransitionEvent } from "./session-state-machine";
@@ -35,6 +38,7 @@ import type { TerminalSessionListener, TerminalSessionService } from "./terminal
 import { TerminalStateMirror } from "./terminal-state-mirror";
 
 const MAX_WORKSPACE_TRUST_BUFFER_CHARS = 16_384;
+const MAX_RECENT_OUTPUT_CHARS = 12_288;
 const AUTO_RESTART_WINDOW_MS = 5_000;
 const MAX_AUTO_RESTARTS_PER_WINDOW = 3;
 // TUI apps (Codex, OpenCode) can query OSC 10/11 before the browser terminal is attached
@@ -51,6 +55,9 @@ type RestartableSessionRequest =
 interface ActiveProcessState {
 	session: PtySession;
 	workspaceTrustBuffer: string | null;
+	/** Rolling plain-text PTY output used to detect auth/login failures. */
+	recentOutputText: string;
+	authFailureMessage: string | null;
 	cols: number;
 	rows: number;
 	terminalProtocolFilter: TerminalProtocolFilterState;
@@ -91,7 +98,8 @@ export interface StartTaskSessionRequest {
 	env?: Record<string, string | undefined>;
 	workspaceId?: string;
 	/** Claude account this session is pinned to; recorded on the summary for the UI. */
-	jackedAccountId?: number;
+	managerAccountId?: number;
+	taskLaunchSettings?: RuntimeTaskLaunchSettings;
 	/** Card opt-in: a usage-limit exit parks as "usage_paused" and auto-resumes at the reset. */
 	autoResumeOnUsageLimit?: boolean;
 }
@@ -125,7 +133,7 @@ function createDefaultSummary(taskId: string): RuntimeTaskSessionSummary {
 		lastHookAt: null,
 		latestHookActivity: null,
 		warningMessage: null,
-		jackedAccountId: null,
+		managerAccountId: null,
 		resumeAt: null,
 		latestTurnCheckpoint: null,
 		previousTurnCheckpoint: null,
@@ -157,6 +165,23 @@ function cloneStartTaskSessionRequest(request: StartTaskSessionRequest): StartTa
 		args: [...request.args],
 		images: request.images ? request.images.map((image) => ({ ...image })) : undefined,
 		env: request.env ? { ...request.env } : undefined,
+		taskLaunchSettings: request.taskLaunchSettings
+			? {
+					...request.taskLaunchSettings,
+					skillIds: request.taskLaunchSettings.skillIds
+						? [...request.taskLaunchSettings.skillIds]
+						: undefined,
+					agentIds: request.taskLaunchSettings.agentIds
+						? [...request.taskLaunchSettings.agentIds]
+						: undefined,
+					commandIds: request.taskLaunchSettings.commandIds
+						? [...request.taskLaunchSettings.commandIds]
+						: undefined,
+					mcpServerIds: request.taskLaunchSettings.mcpServerIds
+						? [...request.taskLaunchSettings.mcpServerIds]
+						: undefined,
+				}
+			: undefined,
 	};
 }
 
@@ -339,6 +364,10 @@ export class TerminalSessionManager implements TerminalSessionService {
 		}
 
 		if (entry.active) {
+			const previousDetect = entry.active.detectOutputTransition;
+			if (isCursorOutputTransitionDetector(previousDetect)) {
+				previousDetect.dispose();
+			}
 			stopWorkspaceTrustTimers(entry.active);
 			entry.active.session.stop();
 			entry.active = null;
@@ -370,6 +399,7 @@ export class TerminalSessionManager implements TerminalSessionService {
 			resumeFromTrash: request.resumeFromTrash,
 			env: request.env,
 			workspaceId: request.workspaceId,
+			taskLaunchSettings: request.taskLaunchSettings,
 		});
 
 		const env = buildTerminalEnvironment(request.env, launch.env);
@@ -409,6 +439,32 @@ export class TerminalSessionManager implements TerminalSessionService {
 						(entry.active.detectOutputTransition !== null &&
 							(entry.active.shouldInspectOutputForTransition?.(entry.summary) ?? true));
 					const data = needsDecodedOutput ? filteredChunk.toString("utf8") : "";
+					const plainOutput = stripAnsi(filteredChunk.toString("utf8"));
+					if (plainOutput.length > 0) {
+						entry.active.recentOutputText = `${entry.active.recentOutputText}${plainOutput}`.slice(
+							-MAX_RECENT_OUTPUT_CHARS,
+						);
+						if (entry.active.authFailureMessage === null) {
+							const authFailure = detectAgentAuthFailure(entry.summary.agentId, entry.active.recentOutputText);
+							if (authFailure) {
+								entry.active.authFailureMessage = authFailure;
+								// Stop relaunch loops: auth will keep failing until the user re-auths.
+								entry.suppressAutoRestartOnExit = true;
+								entry.restartRequest = null;
+								const summary = updateSummary(entry, {
+									warningMessage: authFailure,
+									// Keep the PTY alive (Claude /login) but pull the card out of
+									// in-progress so it doesn't look like the agent is still working.
+									state: "awaiting_review",
+									reviewReason: "error",
+								});
+								for (const taskListener of entry.listeners.values()) {
+									taskListener.onState?.(cloneSummary(summary));
+								}
+								this.emitSummary(summary);
+							}
+						}
+					}
 
 					if (entry.active.workspaceTrustBuffer !== null) {
 						entry.active.workspaceTrustBuffer += data;
@@ -489,11 +545,23 @@ export class TerminalSessionManager implements TerminalSessionService {
 					}
 					stopWorkspaceTrustTimers(currentActive);
 
-					const summary = this.applySessionEvent(currentEntry, {
+					const authFailure =
+						currentActive.authFailureMessage ??
+						detectAgentAuthFailure(currentEntry.summary.agentId, currentActive.recentOutputText);
+					if (authFailure) {
+						currentActive.authFailureMessage = authFailure;
+						currentEntry.suppressAutoRestartOnExit = true;
+						currentEntry.restartRequest = null;
+					}
+
+					let summary = this.applySessionEvent(currentEntry, {
 						type: "process.exit",
 						exitCode: event.exitCode,
 						interrupted: currentActive.session.wasInterrupted(),
 					});
+					if (authFailure) {
+						summary = updateSummary(currentEntry, { warningMessage: authFailure });
+					}
 					const shouldAutoRestart = this.shouldAutoRestart(currentEntry);
 
 					for (const taskListener of currentEntry.listeners.values()) {
@@ -533,7 +601,7 @@ export class TerminalSessionManager implements TerminalSessionService {
 				exitCode: null,
 				lastHookAt: null,
 				latestHookActivity: null,
-				jackedAccountId: request.jackedAccountId ?? null,
+				managerAccountId: request.managerAccountId ?? null,
 				resumeAt: null,
 				latestTurnCheckpoint: null,
 				previousTurnCheckpoint: null,
@@ -542,6 +610,7 @@ export class TerminalSessionManager implements TerminalSessionService {
 			throw new Error(formatSpawnFailure(commandBinary, error));
 		}
 
+		const detectOutputTransition = launch.detectOutputTransition ?? null;
 		const active: ActiveProcessState = {
 			session,
 			workspaceTrustBuffer:
@@ -550,6 +619,8 @@ export class TerminalSessionManager implements TerminalSessionService {
 				hasCodexLaunchSignature
 					? ""
 					: null,
+			recentOutputText: "",
+			authFailureMessage: null,
 			cols,
 			rows,
 			terminalProtocolFilter: createTerminalProtocolFilterState({
@@ -558,7 +629,7 @@ export class TerminalSessionManager implements TerminalSessionService {
 			}),
 			onSessionCleanup: launch.cleanup ?? null,
 			deferredStartupInput: launch.deferredStartupInput ?? null,
-			detectOutputTransition: launch.detectOutputTransition ?? null,
+			detectOutputTransition,
 			shouldInspectOutputForTransition: launch.shouldInspectOutputForTransition ?? null,
 			awaitingCodexPromptAfterEnter: false,
 			autoConfirmedWorkspaceTrust: false,
@@ -566,6 +637,29 @@ export class TerminalSessionManager implements TerminalSessionService {
 		};
 		entry.active = active;
 		entry.terminalStateMirror = terminalStateMirror;
+
+		// Cursor idle→review waits for a quiet gap after the last work signal; the
+		// timer may fire when no further PTY chunks arrive, so bind a deferred emit.
+		if (isCursorOutputTransitionDetector(detectOutputTransition)) {
+			detectOutputTransition.bindDeferredEmit((event) => {
+				const current = this.entries.get(request.taskId);
+				if (!current?.active || current.active.detectOutputTransition !== detectOutputTransition) {
+					return;
+				}
+				const summary = this.applySessionEvent(current, event);
+				for (const taskListener of current.listeners.values()) {
+					taskListener.onState?.(cloneSummary(summary));
+				}
+				this.emitSummary(summary);
+			});
+			const previousCleanup = active.onSessionCleanup;
+			active.onSessionCleanup = async () => {
+				detectOutputTransition.dispose();
+				if (previousCleanup) {
+					await previousCleanup();
+				}
+			};
+		}
 
 		const startedAt = now();
 		updateSummary(entry, {
@@ -580,7 +674,7 @@ export class TerminalSessionManager implements TerminalSessionService {
 			lastHookAt: null,
 			latestHookActivity: null,
 			warningMessage: null,
-			jackedAccountId: request.jackedAccountId ?? null,
+			managerAccountId: request.managerAccountId ?? null,
 			autoResumeOnUsageLimit: request.autoResumeOnUsageLimit ?? false,
 			resumeAt: null,
 			latestTurnCheckpoint: null,
@@ -707,6 +801,8 @@ export class TerminalSessionManager implements TerminalSessionService {
 		const active: ActiveProcessState = {
 			session,
 			workspaceTrustBuffer: null,
+			recentOutputText: "",
+			authFailureMessage: null,
 			cols,
 			rows,
 			terminalProtocolFilter: createTerminalProtocolFilterState({

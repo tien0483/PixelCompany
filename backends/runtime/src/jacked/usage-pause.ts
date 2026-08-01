@@ -11,7 +11,7 @@
 // secondary signal for terminal agents that print a limit notice without a structured code.
 
 import { isUsageLimitError } from "../cline-sdk/cline-session-state";
-import type { RuntimeJackedAccount, RuntimeJackedSnapshot } from "../core/api-contract";
+import type { RuntimeManagerAccount, RuntimeManagerSnapshot } from "../core/api-contract";
 
 /** A window at/above this percent is treated as walled. Mirrors jacked usage_pacing's default. */
 export const USAGE_WALLED_THRESHOLD = 90;
@@ -29,9 +29,9 @@ export interface ClassifyUsagePauseInput {
 	/** The card/session opt-in. When false, a usage-limit exit parks normally in Review. */
 	autoResumeOnUsageLimit: boolean;
 	/** The account this task is pinned to (jacked id), or null when it follows auto-swap. */
-	jackedAccountId: number | null;
+	managerAccountId: number | null;
 	/** Last-known jacked snapshot (from the monitor). Null when jacked is unreachable. */
-	snapshot: RuntimeJackedSnapshot | null;
+	snapshot: RuntimeManagerSnapshot | null;
 	/** Agent error / output text captured at exit, if any. */
 	errorText: string | null;
 	/** Current time in epoch ms. */
@@ -49,17 +49,26 @@ function windowIsWalled(percent: number | null): boolean {
 	return percent !== null && percent >= USAGE_WALLED_THRESHOLD;
 }
 
+/** Manager reports window resets as ISO-8601 strings; the pause math needs epoch ms. */
+function resetToEpochMs(value: string | null): number | null {
+	if (value === null || value.length === 0) {
+		return null;
+	}
+	const parsed = Date.parse(value);
+	return Number.isFinite(parsed) ? parsed : null;
+}
+
 /**
  * The account is workable only once its LAST constrained window resets, so among walled
  * windows with a known future reset we take the latest. Returns null when the account is
  * walled but no walled window has a known future reset (wake unknowable).
  */
-function pinnedAccountResumeAt(account: RuntimeJackedAccount, now: number): number | null {
+function pinnedAccountResumeAt(account: RuntimeManagerAccount, now: number): number | null {
 	const constrained: number[] = [];
 	let walledButUnknown = false;
-	const windows: Array<[number | null, number | null | undefined]> = [
-		[account.fiveHourPercent, account.fiveHourResetsAt],
-		[account.sevenDayPercent, account.sevenDayResetsAt],
+	const windows: Array<[number | null, number | null]> = [
+		[account.fiveHourPercent, resetToEpochMs(account.fiveHourResetsAt)],
+		[account.sevenDayPercent, resetToEpochMs(account.sevenDayResetsAt)],
 	];
 	for (const [percent, reset] of windows) {
 		if (!windowIsWalled(percent)) {
@@ -92,12 +101,12 @@ export function classifyUsagePause(input: ClassifyUsagePauseInput): UsagePauseDe
 	if (!input.autoResumeOnUsageLimit) {
 		return null;
 	}
-	const { snapshot, jackedAccountId, now } = input;
+	const { snapshot, managerAccountId, now } = input;
 	const errorSaysUsage = isUsageLimitError(input.errorText);
 
 	// Pinned task: its own account's window governs, regardless of fleet headroom elsewhere.
-	if (jackedAccountId !== null) {
-		const account = snapshot?.accounts.find((candidate) => candidate.id === jackedAccountId) ?? null;
+	if (managerAccountId !== null) {
+		const account = snapshot?.accounts.find((candidate) => candidate.id === managerAccountId) ?? null;
 		if (account) {
 			const walled = windowIsWalled(account.fiveHourPercent) || windowIsWalled(account.sevenDayPercent);
 			if (walled) {

@@ -1,13 +1,18 @@
 import { describe, expect, it } from "vitest";
 
-import type { RuntimeJackedAccount, RuntimeJackedPacing, RuntimeJackedSnapshot } from "../../../src/core/api-contract";
+import type { RuntimeManagerAccount, RuntimeManagerPacing, RuntimeManagerSnapshot } from "../../../src/core/api-contract";
 import { classifyUsagePause, UNKNOWN_WAKE_BACKOFF_MS } from "../../../src/jacked/usage-pause";
 
 const NOW = 1_000_000_000_000;
 const FUTURE = NOW + 3 * 60 * 60 * 1000; // 3h out
 const PAST = NOW - 60_000;
 
-function makeAccount(partial: Partial<RuntimeJackedAccount> & { id: number }): RuntimeJackedAccount {
+/** Manager reports window resets as ISO-8601 strings; round-trips back to the same epoch ms. */
+function iso(ms: number): string {
+	return new Date(ms).toISOString();
+}
+
+function makeAccount(partial: Partial<RuntimeManagerAccount> & { id: number }): RuntimeManagerAccount {
 	return {
 		provider: "claude",
 		email: `acct${partial.id}@x.com`,
@@ -18,16 +23,24 @@ function makeAccount(partial: Partial<RuntimeJackedAccount> & { id: number }): R
 		sevenDayPercent: null,
 		fiveHourResetsAt: null,
 		sevenDayResetsAt: null,
+		usageCachedAt: null,
+		subscriptionType: null,
+		donateLimitPercent: 100,
 		pressure: 0,
 		nextRefreshAt: null,
 		canAutoSwap: true,
 		canTrackUsage: true,
 		hasCcToken: true,
+		ccNeedsAuth: false,
+		donateLimitLocked: false,
+		isActiveForProvider: true,
+		validationStatus: null,
+		lastError: null,
 		...partial,
 	};
 }
 
-function makeSnapshot(accounts: RuntimeJackedAccount[], pacing: RuntimeJackedPacing | null): RuntimeJackedSnapshot {
+function makeSnapshot(accounts: RuntimeManagerAccount[], pacing: RuntimeManagerPacing | null): RuntimeManagerSnapshot {
 	return {
 		version: null,
 		accounts,
@@ -50,7 +63,7 @@ describe("classifyUsagePause", () => {
 		expect(
 			classifyUsagePause({
 				autoResumeOnUsageLimit: false,
-				jackedAccountId: null,
+				managerAccountId: null,
 				snapshot,
 				errorText: "usage limit reached",
 				now: NOW,
@@ -64,7 +77,7 @@ describe("classifyUsagePause", () => {
 			expect(
 				classifyUsagePause({
 					autoResumeOnUsageLimit: true,
-					jackedAccountId: null,
+					managerAccountId: null,
 					snapshot,
 					errorText: null,
 					now: NOW,
@@ -77,7 +90,7 @@ describe("classifyUsagePause", () => {
 			expect(
 				classifyUsagePause({
 					autoResumeOnUsageLimit: true,
-					jackedAccountId: null,
+					managerAccountId: null,
 					snapshot,
 					errorText: null,
 					now: NOW,
@@ -90,7 +103,7 @@ describe("classifyUsagePause", () => {
 			expect(
 				classifyUsagePause({
 					autoResumeOnUsageLimit: true,
-					jackedAccountId: null,
+					managerAccountId: null,
 					snapshot,
 					errorText: null,
 					now: NOW,
@@ -103,7 +116,7 @@ describe("classifyUsagePause", () => {
 			expect(
 				classifyUsagePause({
 					autoResumeOnUsageLimit: true,
-					jackedAccountId: null,
+					managerAccountId: null,
 					snapshot,
 					errorText: "Claude usage limit reached · resets at 5pm",
 					now: NOW,
@@ -116,7 +129,7 @@ describe("classifyUsagePause", () => {
 			expect(
 				classifyUsagePause({
 					autoResumeOnUsageLimit: true,
-					jackedAccountId: null,
+					managerAccountId: null,
 					snapshot,
 					errorText: "Insufficient balance — out of credits",
 					now: NOW,
@@ -127,13 +140,13 @@ describe("classifyUsagePause", () => {
 
 	describe("pinned account", () => {
 		it("wakes at the pinned account's constrained window reset (even if the fleet has headroom)", () => {
-			const walled = makeAccount({ id: 7, sevenDayPercent: 97, sevenDayResetsAt: FUTURE });
+			const walled = makeAccount({ id: 7, sevenDayPercent: 97, sevenDayResetsAt: iso(FUTURE) });
 			const spare = makeAccount({ id: 8, fiveHourPercent: 5 });
 			const snapshot = makeSnapshot([walled, spare], { pauseUntil: null, worstWindowPct: 5, allExhausted: false });
 			expect(
 				classifyUsagePause({
 					autoResumeOnUsageLimit: true,
-					jackedAccountId: 7,
+					managerAccountId: 7,
 					snapshot,
 					errorText: null,
 					now: NOW,
@@ -146,15 +159,15 @@ describe("classifyUsagePause", () => {
 			const walled = makeAccount({
 				id: 7,
 				fiveHourPercent: 95,
-				fiveHourResetsAt: FUTURE,
+				fiveHourResetsAt: iso(FUTURE),
 				sevenDayPercent: 98,
-				sevenDayResetsAt: later,
+				sevenDayResetsAt: iso(later),
 			});
 			const snapshot = makeSnapshot([walled], null);
 			expect(
 				classifyUsagePause({
 					autoResumeOnUsageLimit: true,
-					jackedAccountId: 7,
+					managerAccountId: 7,
 					snapshot,
 					errorText: null,
 					now: NOW,
@@ -163,12 +176,12 @@ describe("classifyUsagePause", () => {
 		});
 
 		it("backs off when walled but the reset is in the past / unknown", () => {
-			const walled = makeAccount({ id: 7, sevenDayPercent: 97, sevenDayResetsAt: PAST });
+			const walled = makeAccount({ id: 7, sevenDayPercent: 97, sevenDayResetsAt: iso(PAST) });
 			const snapshot = makeSnapshot([walled], null);
 			expect(
 				classifyUsagePause({
 					autoResumeOnUsageLimit: true,
-					jackedAccountId: 7,
+					managerAccountId: 7,
 					snapshot,
 					errorText: null,
 					now: NOW,
@@ -182,7 +195,7 @@ describe("classifyUsagePause", () => {
 			expect(
 				classifyUsagePause({
 					autoResumeOnUsageLimit: true,
-					jackedAccountId: 7,
+					managerAccountId: 7,
 					snapshot,
 					errorText: null,
 					now: NOW,
@@ -195,7 +208,7 @@ describe("classifyUsagePause", () => {
 			expect(
 				classifyUsagePause({
 					autoResumeOnUsageLimit: true,
-					jackedAccountId: 7,
+					managerAccountId: 7,
 					snapshot,
 					errorText: "rate limit exceeded, try again later",
 					now: NOW,

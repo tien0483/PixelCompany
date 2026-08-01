@@ -25,6 +25,7 @@ export default defineConfig({
 			"@runtime-task-title": resolve(runtimeSrc, "core/task-title.ts"),
 			"@runtime-task-worktree-path": resolve(runtimeSrc, "workspace/task-worktree-path.ts"),
 			"@runtime-task-state": resolve(runtimeSrc, "core/task-board-mutations.ts"),
+			"@runtime-task-launch-tag-messages": resolve(runtimeSrc, "terminal/task-launch-tag-messages.ts"),
 		},
 		conditions: ["import", "module", "browser", "default"],
 	},

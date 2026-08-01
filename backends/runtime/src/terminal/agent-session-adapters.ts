@@ -1,4 +1,4 @@
-import { access, readFile, rm } from "node:fs/promises";
+﻿import { access, readFile, rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -7,11 +7,13 @@ import type {
 	RuntimeAgentId,
 	RuntimeHookEvent,
 	RuntimeTaskImage,
+	RuntimeTaskLaunchSettings,
 	RuntimeTaskSessionSummary,
 } from "../core/api-contract";
 import { buildKanbanCommandParts } from "../core/kanban-command";
 import { quoteShellArg } from "../core/shell";
 import { lockedFileSystem } from "../fs/locked-file-system";
+import { CLAUDE_CONFIG_DIR_ENV } from "../manager/manager-account-pin";
 import { resolveHomeAgentAppendSystemPrompt } from "../prompts/append-system-prompt";
 import { getRuntimeHomePath } from "../state/workspace-state";
 import { configureCodexHooks, hasCodexConfigOverride } from "./codex-hook-config";
@@ -21,9 +23,24 @@ import {
 	getOpenCodeConfigPathCandidates,
 	getOpenCodeModelStatePathCandidates,
 } from "./opencode-paths";
+import {
+	createCursorOutputTransitionDetector,
+	cursorOutputTransitionInspection,
+} from "./cursor-output-transition";
 import { stripAnsi } from "./output-utils";
 import type { SessionTransitionEvent } from "./session-state-machine";
 import { prepareTaskPromptWithImages } from "./task-image-prompt";
+import {
+	applyModelAndEffortArgs,
+	buildCursorLaunchTagPreface,
+	hasAgentAllowlist,
+	hasClaudeScopedConfigAllowlist,
+	hasCommandAllowlist,
+	hasMcpAllowlist,
+	hasSkillAllowlist,
+	prepareClaudeMcpAllowlistConfig,
+	prepareClaudeSkillScopedConfigDir,
+} from "./task-launch-settings";
 
 export interface AgentAdapterLaunchInput {
 	taskId: string;
@@ -38,6 +55,7 @@ export interface AgentAdapterLaunchInput {
 	resumeFromTrash?: boolean;
 	env?: Record<string, string | undefined>;
 	workspaceId?: string;
+	taskLaunchSettings?: RuntimeTaskLaunchSettings;
 }
 
 export type AgentOutputTransitionDetector = (
@@ -585,6 +603,44 @@ async function ensureTextFile(filePath: string, content: string, executable = fa
 	});
 }
 
+async function readOptionalTextFile(filePath: string): Promise<string | null> {
+	try {
+		return await readFile(filePath, "utf8");
+	} catch {
+		return null;
+	}
+}
+
+function mergeCursorPromptWithHomeSystemPrompt(prompt: string, appendedSystemPrompt: string | null): string {
+	if (!appendedSystemPrompt) {
+		return prompt;
+	}
+	const trimmedPrompt = prompt.trim();
+	if (!trimmedPrompt) {
+		return appendedSystemPrompt;
+	}
+	return `${appendedSystemPrompt}\n\n# User Request\n\n${trimmedPrompt}`;
+}
+
+function removeCursorPlanModeConflicts(args: string[]): string[] {
+	const filtered: string[] = [];
+	for (let index = 0; index < args.length; index += 1) {
+		const arg = args[index];
+		if (arg === "--force" || arg === "-f" || arg === "--yolo" || arg === "--plan") {
+			continue;
+		}
+		if (arg === "--mode") {
+			index += 1;
+			continue;
+		}
+		if (arg.startsWith("--mode=")) {
+			continue;
+		}
+		filtered.push(arg);
+	}
+	return filtered;
+}
+
 function withPrompt(args: string[], prompt: string, mode: "append" | "flag", flag?: string): PreparedAgentLaunch {
 	const trimmed = prompt.trim();
 	if (!trimmed) {
@@ -614,6 +670,9 @@ const claudeAdapter: AgentSessionAdapter = {
 		const env: Record<string, string | undefined> = {
 			FORCE_HYPERLINK: "1",
 		};
+		const launchCleanups: Array<() => Promise<void>> = [];
+		const launchSettings = input.taskLaunchSettings;
+		applyModelAndEffortArgs(args, launchSettings, { effortFlag: "--effort" });
 		const appendedSystemPrompt = resolveHomeAgentAppendSystemPrompt(input.taskId);
 		if (input.autonomousModeEnabled) {
 			// Auto mode is gated behind this env var on Bedrock/Vertex/Foundry; the Anthropic API ignores it.
@@ -635,6 +694,38 @@ const claudeAdapter: AgentSessionAdapter = {
 			args.length = 0;
 			args.push(...withoutImmediateBypass);
 			args.push("--permission-mode", "plan");
+		}
+
+		const skillAllowlist = hasSkillAllowlist(launchSettings);
+		const agentAllowlist = hasAgentAllowlist(launchSettings);
+		const commandAllowlist = hasCommandAllowlist(launchSettings);
+		const mcpAllowlist = hasMcpAllowlist(launchSettings);
+		// Any allowlist needs a task-scoped CLAUDE_CONFIG_DIR so we can keep CC
+		// credentials/onboarding while filtering skills/agents/commands and
+		// stripping mcpServers from settings.json (otherwise Claude still
+		// discovers every global Manager install / MCP).
+		if (hasClaudeScopedConfigAllowlist(launchSettings)) {
+			const scoped = await prepareClaudeSkillScopedConfigDir({
+				taskId: input.taskId,
+				skillIds: skillAllowlist ? launchSettings?.skillIds : undefined,
+				agentIds: agentAllowlist ? launchSettings?.agentIds : undefined,
+				commandIds: commandAllowlist ? launchSettings?.commandIds : undefined,
+				mcpServerIds: mcpAllowlist ? launchSettings?.mcpServerIds : undefined,
+				baseConfigDir: input.env?.[CLAUDE_CONFIG_DIR_ENV] ?? null,
+			});
+			env[CLAUDE_CONFIG_DIR_ENV] = scoped.configDir;
+			launchCleanups.push(scoped.cleanup);
+		}
+
+		if (mcpAllowlist && launchSettings?.mcpServerIds) {
+			const mcpConfig = await prepareClaudeMcpAllowlistConfig({
+				taskId: input.taskId,
+				mcpServerIds: launchSettings.mcpServerIds,
+			});
+			if (mcpConfig && !hasCliOption(args, "--mcp-config")) {
+				args.push("--mcp-config", mcpConfig.mcpConfigPath, "--strict-mcp-config");
+				launchCleanups.push(mcpConfig.cleanup);
+			}
 		}
 
 		const hooks = resolveHookContext(input);
@@ -724,20 +815,20 @@ const claudeAdapter: AgentSessionAdapter = {
 		const withPromptLaunch = withPrompt(args, input.prompt, "append");
 		const promptFileCleanup = cleanupAppendedPromptFile;
 		const existingCleanup = withPromptLaunch.cleanup;
+		const runCleanups = async () => {
+			await existingCleanup?.();
+			await promptFileCleanup?.();
+			for (const cleanup of launchCleanups) {
+				await cleanup();
+			}
+		};
 		return {
 			...withPromptLaunch,
 			env: {
 				...withPromptLaunch.env,
 				...env,
 			},
-			...(promptFileCleanup
-				? {
-						cleanup: async () => {
-							await existingCleanup?.();
-							await promptFileCleanup();
-						},
-					}
-				: {}),
+			cleanup: runCleanups,
 		};
 	},
 };
@@ -1460,70 +1551,72 @@ const clineAdapter: AgentSessionAdapter = {
 };
 
 /**
- * Cursor Agent CLI (`cursor-agent`).
+ * Cursor Agent CLI (`cursor-agent` / `agent`).
  *
- * Cursor does not install Claude-style hooks into a settings file, so activity is
- * inferred from `--output-format stream-json` when autonomous mode is on. The
- * access token is injected as CURSOR_API_KEY from the process environment (or a
- * future jacked bridge) so a multi-account setup can point at a specific key
- * without rewriting the IDE's state database.
+ * Explicit seat pins inject CURSOR_API_KEY. Unpinned tasks leave auth alone so
+ * the CLI uses the same `agent login` session as an interactive terminal.
+ *
+ * Do not write `.cursor/hooks.json`: `buildKanbanCommandParts` embeds absolute
+ * node/entrypoint paths from the current machine, which break WSL and shipped
+ * copies on other hosts. Review/in-progress transitions use TUI output detection.
  */
 const cursorAdapter: AgentSessionAdapter = {
 	async prepare(input) {
 		const args = [...input.args];
-		const env: Record<string, string | undefined> = {};
-		const apiKey = process.env.CURSOR_API_KEY?.trim();
-		if (apiKey && apiKey.length > 0) {
-			env.CURSOR_API_KEY = apiKey;
-		}
-		if (input.autonomousModeEnabled) {
-			if (!hasCliOption(args, "--force")) {
-				args.push("--force");
-			}
-			if (!hasCliOption(args, "--trust")) {
-				args.push("--trust");
-			}
-			if (!hasCliOption(args, "--output-format")) {
-				args.push("--output-format", "stream-json");
-			}
-		}
-		if (input.resumeFromTrash && !hasCliOption(args, "--resume")) {
-			args.push("--resume");
+		const env: Record<string, string | undefined> = { ...input.env };
+		const launchSettings = input.taskLaunchSettings;
+		// Cursor Agent accepts --model; effort is stored on the card and applied
+		// only when a dedicated flag becomes available (null = UI-only for now).
+		applyModelAndEffortArgs(args, launchSettings, { effortFlag: null });
+
+		// Only honor an explicitly pinned key from the task pin. Do not fall back
+		// to process.env.CURSOR_API_KEY here — a stale shell export would override
+		// a working `agent login` the same way a bad Seats snapshot did.
+		const pinnedApiKey = input.env?.CURSOR_API_KEY?.trim();
+		if (pinnedApiKey && pinnedApiKey.length > 0) {
+			env.CURSOR_API_KEY = pinnedApiKey;
+		} else {
+			delete env.CURSOR_API_KEY;
 		}
 
-		const hooks = resolveHookContext(input);
-		if (hooks) {
-			Object.assign(
-				env,
-				createHookRuntimeEnv({
-					taskId: hooks.taskId,
-					workspaceId: hooks.workspaceId,
-				}),
-			);
+		if (input.startInPlanMode) {
+			const filteredArgs = removeCursorPlanModeConflicts(args);
+			args.length = 0;
+			args.push(...filteredArgs, "--plan");
+		} else if (
+			input.autonomousModeEnabled &&
+			!hasCliOption(args, "--force") &&
+			!hasCliOption(args, "-f") &&
+			!hasCliOption(args, "--yolo")
+		) {
+			args.push("--force");
 		}
 
-		const withPromptLaunch = withPrompt(args, input.prompt, "flag", "--print");
-		const detectOutputTransition: AgentOutputTransitionDetector = (data, summary) => {
-			// Synthetic hook events from stream-json lines when Cursor has no hook installer.
-			if (summary.state !== "running") {
-				return null;
-			}
-			const lower = stripAnsi(data).toLowerCase();
-			if (lower.includes('"type":"result"') || lower.includes('"type": "result"')) {
-				return { type: "hook.to_review" };
-			}
-			if (lower.includes('"type":"error"') || lower.includes('"type": "error"')) {
-				return { type: "process.exit", exitCode: 1, interrupted: false };
-			}
-			return null;
-		};
+		if (input.autonomousModeEnabled && !hasCliOption(args, "--trust")) {
+			args.push("--trust");
+		}
+
+		if (input.resumeFromTrash && !hasCliOption(args, "--resume") && !hasCliOption(args, "--continue")) {
+			args.push("--continue");
+		}
+
+		const tagPreface = buildCursorLaunchTagPreface(launchSettings);
+		const promptWithTags = tagPreface
+			? `${tagPreface}\n\n${input.prompt}`.trim()
+			: input.prompt;
+		const prompt = mergeCursorPromptWithHomeSystemPrompt(
+			promptWithTags,
+			resolveHomeAgentAppendSystemPrompt(input.taskId),
+		);
+		const withPromptLaunch = withPrompt(args, prompt, "append");
 		return {
 			...withPromptLaunch,
 			env: {
 				...withPromptLaunch.env,
 				...env,
 			},
-			detectOutputTransition: input.autonomousModeEnabled ? detectOutputTransition : undefined,
+			detectOutputTransition: createCursorOutputTransitionDetector(),
+			shouldInspectOutputForTransition: cursorOutputTransitionInspection,
 		};
 	},
 };

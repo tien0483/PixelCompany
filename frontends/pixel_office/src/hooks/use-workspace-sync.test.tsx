@@ -1,9 +1,10 @@
-import { act, useEffect, useState } from "react";
+import { act, useEffect, useState, type Dispatch, type SetStateAction } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createInitialBoardData } from "@/data/board-data";
 import { useWorkspaceSync } from "@/hooks/use-workspace-sync";
 import type { RuntimeTaskSessionSummary, RuntimeWorkspaceStateResponse } from "@/runtime/types";
+import { setTaskLaunchSettings } from "@/state/board-state";
 import type { BoardData } from "@/types";
 
 const fetchWorkspaceStateMock = vi.hoisted(() => vi.fn());
@@ -115,6 +116,7 @@ interface HookSnapshot {
 	canPersistWorkspaceState: boolean;
 	refreshWorkspaceState: () => Promise<void>;
 	resetWorkspaceSyncState: () => void;
+	setBoard: Dispatch<SetStateAction<BoardData>>;
 }
 
 function HookHarness({
@@ -149,8 +151,17 @@ function HookHarness({
 			canPersistWorkspaceState,
 			refreshWorkspaceState,
 			resetWorkspaceSyncState,
+			setBoard,
 		});
-	}, [board, canPersistWorkspaceState, onSnapshot, refreshWorkspaceState, resetWorkspaceSyncState, sessions]);
+	}, [
+		board,
+		canPersistWorkspaceState,
+		onSnapshot,
+		refreshWorkspaceState,
+		resetWorkspaceSyncState,
+		sessions,
+		setBoard,
+	]);
 
 	return null;
 }
@@ -330,5 +341,88 @@ describe("useWorkspaceSync", () => {
 
 		expect(fetchWorkspaceStateMock).not.toHaveBeenCalled();
 		expect(latestSnapshot).not.toBeNull();
+	});
+
+	it("does not clobber newer local skill tags when a stale save-echo arrives", async () => {
+		type StreamHostSnapshot = HookSnapshot & {
+			pushStreamed: (next: RuntimeWorkspaceStateResponse) => void;
+		};
+		let latestSnapshot: StreamHostSnapshot | null = null;
+
+		function StreamHost(): null {
+			const [streamedWorkspaceState, setStreamedWorkspaceState] = useState<RuntimeWorkspaceStateResponse | null>(
+				() => createWorkspaceState("task-1", 1),
+			);
+			const [board, setBoard] = useState<BoardData>(() => createInitialBoardData());
+			const [sessions, setSessions] = useState<Record<string, RuntimeTaskSessionSummary>>({});
+			const [canPersistWorkspaceState, setCanPersistWorkspaceState] = useState(false);
+			const { refreshWorkspaceState, resetWorkspaceSyncState } = useWorkspaceSync({
+				currentProjectId: "project-a",
+				streamedWorkspaceState,
+				hasNoProjects: false,
+				hasReceivedSnapshot: true,
+				isDocumentVisible: false,
+				setBoard,
+				setSessions,
+				setCanPersistWorkspaceState,
+			});
+
+			useEffect(() => {
+				latestSnapshot = {
+					board,
+					sessions,
+					canPersistWorkspaceState,
+					refreshWorkspaceState,
+					resetWorkspaceSyncState,
+					setBoard,
+					pushStreamed: (next) => {
+						setStreamedWorkspaceState(next);
+					},
+				};
+			}, [
+				board,
+				canPersistWorkspaceState,
+				refreshWorkspaceState,
+				resetWorkspaceSyncState,
+				sessions,
+			]);
+
+			return null;
+		}
+
+		await act(async () => {
+			root.render(<StreamHost />);
+		});
+
+		if (latestSnapshot === null) {
+			throw new Error("Expected an initial hook snapshot.");
+		}
+
+		await act(async () => {
+			await Promise.resolve();
+		});
+		expect(latestSnapshot.board.columns[0]?.cards[0]?.id).toBe("task-1");
+
+		await act(async () => {
+			latestSnapshot!.setBoard((current) => {
+				const withAlpha = setTaskLaunchSettings(current, "task-1", { skillIds: ["alpha"] }).board;
+				return setTaskLaunchSettings(withAlpha, "task-1", { skillIds: ["alpha", "beta"] }).board;
+			});
+		});
+
+		const staleEcho: RuntimeWorkspaceStateResponse = {
+			...createWorkspaceState("task-1", 2),
+			board: setTaskLaunchSettings(createBoard("task-1"), "task-1", { skillIds: ["alpha"] }).board,
+		};
+
+		await act(async () => {
+			latestSnapshot!.pushStreamed(staleEcho);
+		});
+
+		if (latestSnapshot === null) {
+			throw new Error("Expected a hook snapshot after save-echo.");
+		}
+		const card = latestSnapshot.board.columns[0]?.cards[0];
+		expect(card?.taskLaunchSettings?.skillIds).toEqual(["alpha", "beta"]);
 	});
 });

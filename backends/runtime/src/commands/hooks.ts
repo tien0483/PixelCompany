@@ -820,7 +820,7 @@ export function registerHooksCommand(program: Command): void {
 
 	hooks
 		.command("doctor")
-		.description("Check that Kanban and claude-jacked hooks coexist in ~/.claude/settings.json.")
+		.description("Check that Kanban and Manager hooks coexist in ~/.claude/settings.json.")
 		.action(async () => {
 			const { checkHooksCoexistence } = await import("../doctor/hooks-coexistence.js");
 			const report = await checkHooksCoexistence();

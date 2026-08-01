@@ -6,10 +6,10 @@ import { WebSocket, WebSocketServer } from "ws";
 import type { ClineTaskMessage, ClineTaskSessionService } from "../cline-sdk/cline-task-session-service";
 import type {
 	RuntimeClineMcpServerAuthStatus,
-	RuntimeJackedState,
+	RuntimeManagerState,
 	RuntimeStateStreamClineSessionContextUpdatedMessage,
 	RuntimeStateStreamErrorMessage,
-	RuntimeStateStreamJackedMessage,
+	RuntimeStateStreamManagerMessage,
 	RuntimeStateStreamMcpAuthUpdatedMessage,
 	RuntimeStateStreamMessage,
 	RuntimeStateStreamProjectsMessage,
@@ -22,7 +22,7 @@ import type {
 	RuntimeStateStreamWorkspaceStateMessage,
 	RuntimeTaskSessionSummary,
 } from "../core/api-contract";
-import type { JackedMonitor } from "../jacked/jacked-monitor";
+import type { ManagerMonitor } from "../manager/manager-monitor";
 import type { TerminalSessionManager } from "../terminal/session-manager";
 import { createWorkspaceMetadataMonitor } from "./workspace-metadata-monitor";
 import type { ResolvedWorkspaceStreamTarget, WorkspaceRegistry } from "./workspace-registry";
@@ -39,8 +39,8 @@ export interface CreateRuntimeStateHubDependencies {
 		WorkspaceRegistry,
 		"resolveWorkspaceForStream" | "buildProjectsPayload" | "buildWorkspaceStateSnapshot"
 	>;
-	/** Omitted when the claude-jacked bridge is disabled; the office then renders without it. */
-	jackedMonitor?: JackedMonitor;
+	/** Omitted when the Manager bridge is disabled; the office then renders without it. */
+	ManagerMonitor?: ManagerMonitor;
 }
 
 export interface RuntimeStateHub {
@@ -62,7 +62,7 @@ export interface RuntimeStateHub {
 	broadcastClineMcpAuthStatusesUpdated: (statuses: RuntimeClineMcpServerAuthStatus[]) => void;
 	bumpClineSessionContextVersion: () => void;
 	broadcastTaskReadyForReview: (workspaceId: string, taskId: string) => void;
-	broadcastJackedStateUpdated: (jacked: RuntimeJackedState) => void;
+	broadcastManagerStateUpdated: (jacked: RuntimeManagerState) => void;
 	close: () => Promise<void>;
 }
 
@@ -76,7 +76,7 @@ export function createRuntimeStateHub(deps: CreateRuntimeStateHubDependencies): 
 	const runtimeStateClientsByWorkspaceId = new Map<string, Set<WebSocket>>();
 	const runtimeStateClients = new Set<WebSocket>();
 	const runtimeStateWorkspaceIdByClient = new Map<WebSocket, string>();
-	const jackedSubscribedClients = new Set<WebSocket>();
+	const managerSubscribedClients = new Set<WebSocket>();
 	let clineSessionContextVersion = 0;
 	const runtimeStateWebSocketServer = new WebSocketServer({ noServer: true });
 	const workspaceMetadataMonitor = createWorkspaceMetadataMonitor({
@@ -243,8 +243,8 @@ export function createRuntimeStateHub(deps: CreateRuntimeStateHubDependencies): 
 		}
 		runtimeStateWorkspaceIdByClient.delete(client);
 		runtimeStateClients.delete(client);
-		if (jackedSubscribedClients.delete(client)) {
-			deps.jackedMonitor?.disconnect();
+		if (managerSubscribedClients.delete(client)) {
+			deps.ManagerMonitor?.disconnect();
 		}
 	};
 
@@ -332,13 +332,13 @@ export function createRuntimeStateHub(deps: CreateRuntimeStateHubDependencies): 
 		}
 	};
 
-	const broadcastJackedStateUpdated = (jacked: RuntimeJackedState) => {
+	const broadcastManagerStateUpdated = (manager: RuntimeManagerState) => {
 		if (runtimeStateClients.size === 0) {
 			return;
 		}
-		const payload: RuntimeStateStreamJackedMessage = {
-			type: "jacked_state_updated",
-			jacked,
+		const payload: RuntimeStateStreamManagerMessage = {
+			type: "manager_state_updated",
+			manager,
 		};
 		for (const client of runtimeStateClients) {
 			sendRuntimeStateMessage(client, payload);
@@ -420,14 +420,14 @@ export function createRuntimeStateHub(deps: CreateRuntimeStateHubDependencies): 
 				state for a client that never finished the handshake.
 			*/
 			runtimeStateClients.add(client);
-			if (deps.jackedMonitor) {
-				jackedSubscribedClients.add(client);
-				const jacked = deps.jackedMonitor.connect();
-				if (jacked !== null) {
+			if (deps.ManagerMonitor) {
+				managerSubscribedClients.add(client);
+				const managerState = deps.ManagerMonitor.connect();
+				if (managerState !== null) {
 					sendRuntimeStateMessage(client, {
-						type: "jacked_state_updated",
-						jacked,
-					} satisfies RuntimeStateStreamJackedMessage);
+						type: "manager_state_updated",
+						manager: managerState,
+					} satisfies RuntimeStateStreamManagerMessage);
 				}
 			}
 			let monitorWorkspaceId: string | null = null;
@@ -585,7 +585,7 @@ export function createRuntimeStateHub(deps: CreateRuntimeStateHubDependencies): 
 		broadcastClineMcpAuthStatusesUpdated,
 		bumpClineSessionContextVersion,
 		broadcastTaskReadyForReview,
-		broadcastJackedStateUpdated,
+		broadcastManagerStateUpdated,
 		close: async () => {
 			for (const timer of taskSessionBroadcastTimersByWorkspaceId.values()) {
 				clearTimeout(timer);
@@ -617,7 +617,7 @@ export function createRuntimeStateHub(deps: CreateRuntimeStateHubDependencies): 
 				}
 			}
 			clineMessageUnsubscribeByWorkspaceId.clear();
-			jackedSubscribedClients.clear();
+			managerSubscribedClients.clear();
 			workspaceMetadataMonitor.close();
 			for (const client of runtimeStateClients) {
 				try {

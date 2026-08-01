@@ -85,7 +85,7 @@ export const TASK_START_ONBOARDING_SLIDES: OnboardingSlide[] = [
 
 // Preferred display order; the catalog decides which of these are launchable, so
 // gating an agent there (PixelOffice is Claude-only) drops it from onboarding too.
-const ONBOARDING_AGENT_ORDER: readonly RuntimeAgentId[] = ["cline", "claude", "codex", "droid", "kiro"];
+const ONBOARDING_AGENT_ORDER: readonly RuntimeAgentId[] = ["cline", "claude", "cursor", "codex", "droid", "kiro"];
 const ONBOARDING_AGENT_IDS: readonly RuntimeAgentId[] = ONBOARDING_AGENT_ORDER.filter((agentId) =>
 	isRuntimeAgentLaunchSupported(agentId),
 );
@@ -304,6 +304,9 @@ function resolveInstallInstructions(agentId: RuntimeAgentId): string {
 	if (agentId === "codex") {
 		return "OpenAI's coding agent CLI with access to the latest GPT models.";
 	}
+	if (agentId === "cursor") {
+		return "Cursor's coding agent CLI powered by Cursor Agent.";
+	}
 	if (agentId === "droid") {
 		return "Factory's coding agent with access to the latest frontier models.";
 	}
@@ -318,6 +321,9 @@ function getInstallLinkLabel(agentId: RuntimeAgentId): string {
 		return "Learn more";
 	}
 	if (agentId === "codex") {
+		return "Learn more";
+	}
+	if (agentId === "cursor") {
 		return "Learn more";
 	}
 	if (agentId === "droid") {

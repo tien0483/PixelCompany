@@ -38,9 +38,9 @@ async function openManager(page: Page, route: string) {
 
 async function stubManager(page: Page, overrides: Record<string, (input: unknown) => unknown> = {}) {
 	return await stubTrpc(page, {
-		"jacked.activeSessions": () => ({ sessions: [] }),
-		"jacked.swapLog": () => ({ swaps: [] }),
-		"jacked.packs": () => PACKS,
+		"manager.activeSessions": () => ({ sessions: [] }),
+		"manager.swapLog": () => ({ swaps: [] }),
+		"manager.packs": () => PACKS,
 		...overrides,
 	});
 }
@@ -57,7 +57,7 @@ test("the sidebar tab reads Manager and lists the staffing routes", async ({ pag
 });
 
 test("Staff lists subagents and hiring one calls setFeatureEnabled", async ({ page }) => {
-	const stub = await stubManager(page, { "jacked.setFeatureEnabled": () => ({ ok: true }) });
+	const stub = await stubManager(page, { "manager.setFeatureEnabled": () => ({ ok: true }) });
 	await openManager(page, "Staff");
 
 	const shelf = page.getByTestId("manager-shelf-staff");
@@ -67,7 +67,7 @@ test("Staff lists subagents and hiring one calls setFeatureEnabled", async ({ pa
 	await expect(shelf.getByTestId("manager-shelf-staff-row-code-simplicity-reviewer")).toBeVisible();
 
 	await shelf.getByRole("button", { name: "Install code-simplicity-reviewer" }).click();
-	expect((await stub.waitForCall("jacked.setFeatureEnabled")).input).toEqual({
+	expect((await stub.waitForCall("manager.setFeatureEnabled")).input).toEqual({
 		category: "agents",
 		name: "code-simplicity-reviewer",
 		enabled: true,
@@ -113,7 +113,7 @@ test("filtering narrows a shelf", async ({ page }) => {
 });
 
 test("Training hosts skill packs and toggling one calls setPackEnabled", async ({ page }) => {
-	const stub = await stubManager(page, { "jacked.setPackEnabled": () => ({ ok: true }) });
+	const stub = await stubManager(page, { "manager.setPackEnabled": () => ({ ok: true }) });
 	await openManager(page, "Training");
 
 	const packs = page.getByTestId("training-packs-panel");
@@ -123,7 +123,7 @@ test("Training hosts skill packs and toggling one calls setPackEnabled", async (
 	await expect(packs.getByTestId("training-pack-marketing")).toContainText("0/20");
 
 	await packs.getByRole("button", { name: "Install Marketing Skills" }).click();
-	expect((await stub.waitForCall("jacked.setPackEnabled")).input).toEqual({
+	expect((await stub.waitForCall("manager.setPackEnabled")).input).toEqual({
 		name: "marketing",
 		enabled: true,
 	});

@@ -96,6 +96,10 @@ export default defineConfig({
 				"../../backends/runtime/src/workspace/task-worktree-path.ts",
 			),
 			"@runtime-task-state": resolve(__dirname, "../../backends/runtime/src/core/task-board-mutations.ts"),
+			"@runtime-task-launch-tag-messages": resolve(
+				__dirname,
+				"../../backends/runtime/src/terminal/task-launch-tag-messages.ts",
+			),
 		},
 	},
 	server: {

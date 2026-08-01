@@ -12,6 +12,7 @@ import { createSessionId } from "../../../src/cline-sdk/cline-session-state";
 import type { ClineTaskSessionService } from "../../../src/cline-sdk/cline-task-session-service";
 import { createInMemoryClineTaskSessionService } from "../../../src/cline-sdk/cline-task-session-service";
 import { createClineWatcherRegistry } from "../../../src/cline-sdk/cline-watcher-registry";
+import { buildShellCommandLine } from "../../../src/core/shell";
 import type { RuntimeTaskImage, RuntimeTaskSessionMode } from "../../../src/core/api-contract";
 
 const originalArgv = [...process.argv];
@@ -1003,7 +1004,7 @@ describe("InMemoryClineTaskSessionService", () => {
 		expect(runtime.startTaskSessionMock).toHaveBeenCalledWith(
 			expect.objectContaining({
 				systemPrompt: expect.stringContaining(
-					"'/usr/local/bin/node' '/Users/example/repo/dist/cli.js' task create",
+					`${buildShellCommandLine("/usr/local/bin/node", ["/Users/example/repo/dist/cli.js"])} task create`,
 				),
 			}),
 		);

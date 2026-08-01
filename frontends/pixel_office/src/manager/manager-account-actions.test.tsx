@@ -1,0 +1,193 @@
+import type { ReactNode } from "react";
+import { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { ManagerAccountActions } from "@/manager/manager-account-actions";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import type { RuntimeManagerAccount } from "@/runtime/types";
+
+function baseAccount(overrides: Partial<RuntimeManagerAccount> = {}): RuntimeManagerAccount {
+	return {
+		id: 1,
+		provider: "claude",
+		email: "claude@example.com",
+		displayName: null,
+		organizationName: null,
+		isActive: true,
+		fiveHourPercent: 10,
+		sevenDayPercent: 5,
+		fiveHourResetsAt: null,
+		sevenDayResetsAt: null,
+		usageCachedAt: null,
+		subscriptionType: null,
+		donateLimitPercent: 100,
+		pressure: 0.1,
+		nextRefreshAt: null,
+		canAutoSwap: true,
+		canTrackUsage: true,
+		hasCcToken: true,
+		ccNeedsAuth: false,
+		isActiveForProvider: false,
+		validationStatus: "valid",
+		lastError: null,
+		...overrides,
+	};
+}
+
+function renderActions(account: RuntimeManagerAccount, handlers: Record<string, () => void>): HTMLElement {
+	const container = document.createElement("div");
+	document.body.appendChild(container);
+	const root: Root = createRoot(container);
+
+	const wrap = (children: ReactNode) => <TooltipProvider>{children}</TooltipProvider>;
+
+	act(() => {
+		root.render(
+			wrap(
+				<ManagerAccountActions
+					account={account}
+					online
+					busy={false}
+					isFirst={false}
+					isLast={false}
+					onReauth={handlers.onReauth ?? vi.fn()}
+					onReauthRemote={handlers.onReauthRemote ?? vi.fn()}
+					onAuthorizeCc={handlers.onAuthorizeCc ?? vi.fn()}
+					onAuthorizeCcRemote={handlers.onAuthorizeCcRemote ?? vi.fn()}
+					onReimport={handlers.onReimport}
+					onValidate={handlers.onValidate ?? vi.fn()}
+					onToggleEnabled={handlers.onToggleEnabled ?? vi.fn()}
+					onDelete={handlers.onDelete ?? vi.fn()}
+					onMoveUp={handlers.onMoveUp ?? vi.fn()}
+					onMoveDown={handlers.onMoveDown ?? vi.fn()}
+				/>,
+			),
+		);
+	});
+
+	return container;
+}
+
+describe("ManagerAccountActions", () => {
+	let roots: Root[] = [];
+
+	beforeEach(() => {
+		roots = [];
+	});
+
+	afterEach(() => {
+		for (const root of roots) {
+			act(() => {
+				root.unmount();
+			});
+		}
+		document.body.replaceChildren();
+	});
+
+	it("shows Claude OAuth controls for Claude accounts", () => {
+		const container = renderActions(baseAccount(), {});
+		expect(container.querySelector('[aria-label="Re-authenticate claude@example.com"]')).not.toBeNull();
+		expect(container.querySelector('[aria-label="Authorize Claude Code tokens for claude@example.com"]')).not.toBeNull();
+	});
+
+	it("hides Claude OAuth controls and shows Re-import for Cursor accounts", () => {
+		const onReimport = vi.fn();
+		const container = renderActions(
+			baseAccount({
+				id: 3,
+				provider: "cursor",
+				email: "cursor@example.com",
+				canAutoSwap: false,
+				hasCcToken: false,
+			}),
+			{ onReimport },
+		);
+		expect(container.querySelector('[aria-label="Re-authenticate cursor@example.com"]')).toBeNull();
+		expect(container.querySelector('[aria-label="Authorize Claude Code tokens for cursor@example.com"]')).toBeNull();
+		const reimport = container.querySelector('[aria-label="Re-import cursor@example.com from Cursor IDE"]');
+		expect(reimport).not.toBeNull();
+		expect(reimport?.textContent).toContain("Re-import");
+		act(() => {
+			(reimport as HTMLButtonElement).click();
+		});
+		expect(onReimport).toHaveBeenCalledTimes(1);
+	});
+
+	it("colors Re-auth green when usage token is valid and CC red when CC token is missing", () => {
+		const container = renderActions(baseAccount({ hasCcToken: false }), {});
+		const reauth = container.querySelector('[aria-label="Re-authenticate claude@example.com"]');
+		const cc = container.querySelector('[aria-label="Authorize Claude Code tokens for claude@example.com"]');
+		expect(reauth?.className).toContain("text-status-green");
+		expect(cc?.className).toContain("text-status-red");
+	});
+
+	it("colors Re-auth red when usage token is invalid and CC green when CC token is healthy", () => {
+		const container = renderActions(
+			baseAccount({ validationStatus: "invalid", hasCcToken: true, ccNeedsAuth: false }),
+			{},
+		);
+		const reauth = container.querySelector('[aria-label="Re-authenticate claude@example.com"]');
+		const cc = container.querySelector('[aria-label="Authorize Claude Code tokens for claude@example.com"]');
+		expect(reauth?.className).toContain("text-status-red");
+		expect(cc?.className).toContain("text-status-green");
+	});
+
+	it("colors CC red when ccNeedsAuth is true", () => {
+		const container = renderActions(
+			baseAccount({ hasCcToken: true, ccNeedsAuth: true }),
+			{},
+		);
+		const cc = container.querySelector('[aria-label="Authorize Claude Code tokens for claude@example.com"]');
+		expect(cc?.className).toContain("text-status-red");
+	});
+
+	it("labels Claude Re-auth / CC actions instead of icon-only controls", () => {
+		const container = renderActions(baseAccount({ hasCcToken: false }), {});
+		const reauth = container.querySelector('[aria-label="Re-authenticate claude@example.com"]');
+		const cc = container.querySelector('[aria-label="Authorize Claude Code tokens for claude@example.com"]');
+		expect(reauth?.textContent).toContain("Re-auth");
+		expect(cc?.textContent).toContain("Add CC");
+	});
+
+	it("hides auto-swap priority controls when canAutoSwap is false", () => {
+		const container = renderActions(
+			baseAccount({
+				provider: "cursor",
+				email: "cursor@example.com",
+				canAutoSwap: false,
+			}),
+			{ onReimport: vi.fn() },
+		);
+		expect(container.querySelector('[aria-label="Raise auto-swap priority of cursor@example.com"]')).toBeNull();
+		expect(container.querySelector('[aria-label="Lower auto-swap priority of cursor@example.com"]')).toBeNull();
+	});
+
+	it("locks seat actions when disabled except On and Delete", () => {
+		const onToggleEnabled = vi.fn();
+		const onDelete = vi.fn();
+		const onValidate = vi.fn();
+		const container = renderActions(baseAccount({ isActive: false }), {
+			onToggleEnabled,
+			onDelete,
+			onValidate,
+		});
+		expect(container.querySelector('[data-testid="manager-account-actions-1"]')?.getAttribute("data-seat-locked")).toBe(
+			"true",
+		);
+		expect((container.querySelector('[aria-label="Validate claude@example.com"]') as HTMLButtonElement).disabled).toBe(
+			true,
+		);
+		expect((container.querySelector('[aria-label="Enable claude@example.com"]') as HTMLButtonElement).disabled).toBe(
+			false,
+		);
+		expect((container.querySelector('[aria-label="Delete claude@example.com"]') as HTMLButtonElement).disabled).toBe(
+			false,
+		);
+		act(() => {
+			(container.querySelector('[aria-label="Enable claude@example.com"]') as HTMLButtonElement).click();
+		});
+		expect(onToggleEnabled).toHaveBeenCalledTimes(1);
+		expect(onValidate).not.toHaveBeenCalled();
+	});
+});

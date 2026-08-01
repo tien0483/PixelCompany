@@ -10,7 +10,7 @@ import type {
 	RuntimeWorkspaceStateResponse,
 } from "@/runtime/types";
 import { fetchWorkspaceState } from "@/runtime/workspace-state-query";
-import { normalizeBoardData } from "@/state/board-state";
+import { normalizeBoardData, shouldPreferLocalBoard } from "@/state/board-state";
 import type { BoardData } from "@/types";
 
 interface UseWorkspaceSyncInput {
@@ -115,8 +115,20 @@ export function useWorkspaceSync({
 			const shouldHydrateBoard = !isSameProject || currentRevision !== nextWorkspaceState.revision;
 			if (shouldHydrateBoard) {
 				const normalized = normalizeBoardData(nextWorkspaceState.board) ?? createInitialBoardData();
-				setBoard(normalized);
-				setWorkspaceHydrationNonce((current) => current + 1);
+				// Save-echo / refresh can arrive after the user already applied a newer
+				// local edit (e.g. added a second skill tag). Prefer the local board so
+				// those edits are not wiped; only bump hydration nonce when we replace.
+				let didReplaceBoard = false;
+				setBoard((currentBoard) => {
+					if (isSameProject && shouldPreferLocalBoard(currentBoard, normalized)) {
+						return currentBoard;
+					}
+					didReplaceBoard = true;
+					return normalized;
+				});
+				if (didReplaceBoard) {
+					setWorkspaceHydrationNonce((current) => current + 1);
+				}
 			}
 			setWorkspaceRevision(nextWorkspaceState.revision);
 			workspaceVersionRef.current = {

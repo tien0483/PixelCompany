@@ -25,8 +25,9 @@ import {
 	getKanbanRuntimeTls,
 	isKanbanRemoteHost,
 } from "../core/runtime-endpoint";
-import type { JackedClient } from "../jacked/jacked-client";
-import type { JackedMonitor } from "../jacked/jacked-monitor";
+import type { ManagerClient } from "../manager/manager-client";
+import { pickDefaultCursorAccountId } from "../manager/manager-account-pin";
+import type { ManagerMonitor } from "../manager/manager-monitor";
 import {
 	createUsageResumeScheduler,
 	isUsageResumeCandidate,
@@ -49,7 +50,7 @@ import type { TerminalSessionManager } from "../terminal/session-manager";
 import { createTerminalWebSocketBridge } from "../terminal/ws-server";
 import { type RuntimeTrpcContext, type RuntimeTrpcWorkspaceScope, runtimeAppRouter } from "../trpc/app-router";
 import { createHooksApi } from "../trpc/hooks-api";
-import { createJackedApi } from "../trpc/jacked-api";
+import { createManagerApi } from "../trpc/manager-api";
 import { createProjectsApi } from "../trpc/projects-api";
 import { createRuntimeApi } from "../trpc/runtime-api";
 import { createWorkspaceApi } from "../trpc/workspace-api";
@@ -66,7 +67,7 @@ interface DisposeTrackedWorkspaceResult {
 export interface CreateRuntimeServerDependencies {
 	workspaceRegistry: WorkspaceRegistry;
 	runtimeStateHub: RuntimeStateHub;
-	jacked: { client: JackedClient; monitor: JackedMonitor };
+	manager: { client: ManagerClient; monitor: ManagerMonitor };
 	warn: (message: string) => void;
 	ensureTerminalManagerForWorkspace: (workspaceId: string, repoPath: string) => Promise<TerminalSessionManager>;
 	resolveInteractiveShellCommand: () => { binary: string; args: string[] };
@@ -203,9 +204,9 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 
 	// Stateless over the jacked client/monitor, so one instance serves every request
 	// and the runtime API can reuse its Claude-only account guards.
-	const jackedApi = createJackedApi({
-		client: deps.jacked.client,
-		monitor: deps.jacked.monitor,
+	const managerApi = createManagerApi({
+		client: deps.manager.client,
+		monitor: deps.manager.monitor,
 	});
 
 	const runtimeApiDeps: Parameters<typeof createRuntimeApi>[0] = {
@@ -216,9 +217,42 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 		getScopedTerminalManager,
 		getScopedClineTaskSessionService,
 		// Lets a board task pin itself to one Claude account. Goes through the
-		// jacked API so the Claude-only guard applies, and resolves to null
-		// (unpinned, global credential) whenever jacked is unreachable.
-		getJackedAccountLaunchDir: async (accountId) => await jackedApi.getAccountLaunchDir({ accountId }),
+		// Manager API so the Claude-only guard applies, and resolves to null
+		// (unpinned, global credential) whenever Manager is unreachable.
+		getManagerAccountLaunchDir: async (accountId) => await managerApi.getAccountLaunchDir({ accountId }),
+		getManagerAccountLaunchCredential: async (accountId) => {
+			const credential = await managerApi.getAccountLaunchCredential({ accountId });
+			return credential ? { apiKey: credential.apiKey } : null;
+		},
+		getManagerAccountProvider: async (accountId) => await managerApi.getAccountProvider(accountId),
+		resolveDefaultCursormanagerAccountId: async () => {
+			const snapshot = deps.manager.monitor.getState();
+			if (!snapshot) {
+				return null;
+			}
+			return pickDefaultCursorAccountId({
+				accounts: snapshot.accounts,
+				activeAccountId: snapshot.activeAccountId,
+			});
+		},
+		resolveActiveClaudemanagerAccountId: async () => {
+			const snapshot = deps.manager.monitor.getState();
+			if (!snapshot) {
+				return null;
+			}
+			if (
+				snapshot.activeAccountId !== null &&
+				snapshot.accounts.some(
+					(account) =>
+						account.id === snapshot.activeAccountId &&
+						account.provider === "claude" &&
+						account.isActive,
+				)
+			) {
+				return snapshot.activeAccountId;
+			}
+			return snapshot.accounts.find((account) => account.provider === "claude" && account.isActive)?.id ?? null;
+		},
 		resolveInteractiveShellCommand: deps.resolveInteractiveShellCommand,
 		runCommand: deps.runCommand,
 		broadcastClineMcpAuthStatusesUpdated: deps.runtimeStateHub.broadcastClineMcpAuthStatusesUpdated,
@@ -244,7 +278,7 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 			baseRef: card?.baseRef ?? "HEAD",
 			resumeFromTrash: true,
 			...(card?.agentId ? { agentId: card.agentId } : {}),
-			...(card?.jackedAccountId ? { jackedAccountId: card.jackedAccountId } : {}),
+			...(card?.managerAccountId ? { managerAccountId: card.managerAccountId } : {}),
 			autoResumeOnUsageLimit: card?.autoResumeOnUsageLimit ?? true,
 		});
 		if (!response.ok) {
@@ -254,7 +288,7 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 
 	const usageResumeScheduler = createUsageResumeScheduler({
 		now: () => Date.now(),
-		refreshSnapshot: async () => await deps.jacked.monitor.refresh(),
+		refreshSnapshot: async () => await deps.manager.monitor.refresh(),
 		log: deps.warn,
 		collectSessions: () => {
 			const out: PausableSession[] = [];
@@ -339,7 +373,7 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 				broadcastRuntimeWorkspaceStateUpdated: deps.runtimeStateHub.broadcastRuntimeWorkspaceStateUpdated,
 				broadcastTaskReadyForReview: deps.runtimeStateHub.broadcastTaskReadyForReview,
 			}),
-			jackedApi,
+			managerApi,
 		};
 	};
 
@@ -496,8 +530,8 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 				await trpcHttpHandler(req, res);
 				return;
 			}
-			if (pathname.startsWith("/api/jacked-proxy/")) {
-				const jackedPath = pathname.slice("/api/jacked-proxy".length) || "/";
+			if (pathname.startsWith("/api/manager-proxy/")) {
+				const jackedPath = pathname.slice("/api/manager-proxy".length) || "/";
 				const query = requestUrl.search;
 				const method = (req.method ?? "GET").toUpperCase();
 				let body: string | null = null;
@@ -510,8 +544,14 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 						return;
 					}
 				}
-				const contentType = typeof req.headers["content-type"] === "string" ? req.headers["content-type"] : null;
-				const proxied = await deps.jacked.client.proxyRequest(method, `${jackedPath}${query}`, body, contentType);
+				const contentType =
+					typeof req.headers["content-type"] === "string" ? req.headers["content-type"] : null;
+				const proxied = await deps.manager.client.proxyRequest(
+					method,
+					`${jackedPath}${query}`,
+					body,
+					contentType,
+				);
 				res.writeHead(proxied.status, {
 					"Content-Type": proxied.contentType,
 					"Cache-Control": "no-store",
@@ -625,7 +665,7 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 			clineTaskSessionServiceByWorkspaceId.clear();
 			await clineWatcherRegistry.close();
 			await deps.runtimeStateHub.close();
-			deps.jacked.monitor.close();
+			deps.manager.monitor.close();
 			await terminalWebSocketBridge.close();
 			await new Promise<void>((resolveClose, rejectClose) => {
 				server.close((error) => {

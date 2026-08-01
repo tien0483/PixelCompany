@@ -117,6 +117,83 @@ describe("TerminalSessionManager auto-restart", () => {
 		expect(manager.getSummary("task-1")?.pid).toBeNull();
 	});
 
+	it("does not restart Cursor sessions that exit after an invalid API key", async () => {
+		const spawnedSessions: Array<ReturnType<typeof createMockPtySession>> = [];
+		ptySessionSpawnMock.mockImplementation((request: MockSpawnRequest) => {
+			const session = createMockPtySession(111, request);
+			spawnedSessions.push(session);
+			return session;
+		});
+
+		const manager = new TerminalSessionManager();
+		manager.attach("task-cursor", {
+			onState: vi.fn(),
+			onOutput: vi.fn(),
+			onExit: vi.fn(),
+		});
+
+		await manager.startTaskSession({
+			taskId: "task-cursor",
+			agentId: "cursor",
+			binary: "agent",
+			args: [],
+			cwd: "/tmp/task-cursor",
+			prompt: "Fix the bug",
+		});
+
+		spawnedSessions[0]?.triggerData(
+			"Error: The provided API key is invalid.\nAPI key was loaded from the CURSOR_API_KEY environment variable.\n",
+		);
+		expect(manager.getSummary("task-cursor")?.state).toBe("awaiting_review");
+		expect(manager.getSummary("task-cursor")?.warningMessage).toMatch(/Cursor authentication failed/i);
+
+		spawnedSessions[0]?.triggerExit(1);
+		await Promise.resolve();
+		await Promise.resolve();
+
+		expect(ptySessionSpawnMock).toHaveBeenCalledTimes(1);
+		expect(manager.getSummary("task-cursor")?.state).toBe("awaiting_review");
+		expect(manager.getSummary("task-cursor")?.reviewReason).toBe("error");
+		expect(manager.getSummary("task-cursor")?.warningMessage).toMatch(/Cursor authentication failed/i);
+	});
+
+	it("moves Claude /login prompts to review and does not restart on exit", async () => {
+		const spawnedSessions: Array<ReturnType<typeof createMockPtySession>> = [];
+		ptySessionSpawnMock.mockImplementation((request: MockSpawnRequest) => {
+			const session = createMockPtySession(111, request);
+			spawnedSessions.push(session);
+			return session;
+		});
+
+		const manager = new TerminalSessionManager();
+		manager.attach("task-claude", {
+			onState: vi.fn(),
+			onOutput: vi.fn(),
+			onExit: vi.fn(),
+		});
+
+		await manager.startTaskSession({
+			taskId: "task-claude",
+			agentId: "claude",
+			binary: "claude",
+			args: [],
+			cwd: "/tmp/task-claude",
+			prompt: "Fix the bug",
+		});
+
+		spawnedSessions[0]?.triggerData("Not logged in. Please run /login to continue.\n");
+		expect(manager.getSummary("task-claude")?.state).toBe("awaiting_review");
+		expect(manager.getSummary("task-claude")?.pid).toBe(111);
+		expect(manager.getSummary("task-claude")?.warningMessage).toMatch(/Claude Code needs login/i);
+
+		spawnedSessions[0]?.triggerExit(1);
+		await Promise.resolve();
+		await Promise.resolve();
+
+		expect(ptySessionSpawnMock).toHaveBeenCalledTimes(1);
+		expect(manager.getSummary("task-claude")?.warningMessage).toMatch(/Claude Code needs login/i);
+	});
+
 	it("sends deferred Codex startup input when the prompt marker appears", async () => {
 		const deferredStartupInput = "\u001b[200~/plan Validate rollout\u001b[201~\r";
 		prepareAgentLaunchMock.mockResolvedValue({

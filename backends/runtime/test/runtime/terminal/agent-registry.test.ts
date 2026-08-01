@@ -49,7 +49,19 @@ describe("agent-registry", () => {
 
 		expect(detected).toEqual(["claude"]);
 		// Detection probes the full catalog (not just launch-supported agents) plus npx.
-		expect(commandDiscoveryMocks.isBinaryAvailableOnPath).toHaveBeenCalledTimes(RUNTIME_AGENT_CATALOG.length + 1);
+		expect(commandDiscoveryMocks.isBinaryAvailableOnPath).toHaveBeenCalledTimes(
+			new Set(RUNTIME_AGENT_CATALOG.flatMap((entry) => [entry.binary, ...(entry.binaryAliases ?? [])])).size + 1,
+		);
+	});
+
+	it("resolves Cursor Agent through the canonical binary before the documented alias", () => {
+		commandDiscoveryMocks.isBinaryAvailableOnPath.mockImplementation((binary: string) => binary === "cursor-agent");
+
+		const resolved = resolveAgentCommand(createRuntimeConfigState({ selectedAgentId: "cursor" }));
+
+		expect(resolved?.agentId).toBe("cursor");
+		expect(resolved?.binary).toBe("cursor-agent");
+		expect(resolved?.command).toBe("cursor-agent");
 	});
 
 	it("treats shell-only agents as unavailable", () => {
@@ -80,10 +92,10 @@ describe("buildRuntimeConfigResponse", () => {
 		});
 
 		expect(response.agentAutonomousModeEnabled).toBe(true);
-		// PixelOffice delta: only launch-supported agents are curated, and the catalog
-		// is Claude-only, so the gated CLIs never reach the UI.
-		expect(response.agents.map((agent) => agent.id)).toEqual(["claude"]);
+		// PixelOffice curates launch-supported agents only (Claude + Cursor).
+		expect(response.agents.map((agent) => agent.id)).toEqual(["claude", "cursor"]);
 		expect(response.agents.find((agent) => agent.id === "claude")?.defaultArgs).toEqual([]);
+		expect(response.agents.find((agent) => agent.id === "cursor")?.defaultArgs).toEqual([]);
 	});
 
 	it("omits autonomous flags from curated agent commands when disabled", () => {
@@ -105,8 +117,9 @@ describe("buildRuntimeConfigResponse", () => {
 		});
 
 		expect(response.agentAutonomousModeEnabled).toBe(false);
-		expect(response.agents.map((agent) => agent.id)).toEqual(["claude"]);
+		expect(response.agents.map((agent) => agent.id)).toEqual(["claude", "cursor"]);
 		expect(response.agents.find((agent) => agent.id === "claude")?.defaultArgs).toEqual([]);
+		expect(response.agents.find((agent) => agent.id === "cursor")?.defaultArgs).toEqual([]);
 		expect(response.agents.find((agent) => agent.id === "claude")?.command).toBe("claude");
 		expect(response.agents.find((agent) => agent.id === "claude")?.installed).toBe(true);
 	});

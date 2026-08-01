@@ -53,29 +53,31 @@ import type {
 	RuntimeGitSyncResponse,
 	RuntimeHookIngestRequest,
 	RuntimeHookIngestResponse,
-	RuntimeJackedAccountAuthorizeCcRequest,
-	RuntimeJackedAccountIdRequest,
-	RuntimeJackedAccountLaunchDir,
-	RuntimeJackedAccountReauthRequest,
-	RuntimeJackedAccountReorderRequest,
-	RuntimeJackedAccountUpdateRequest,
-	RuntimeJackedFeatureToggleRequest,
-	RuntimeJackedHookLogs,
-	RuntimeJackedInstallationsOverview,
-	RuntimeJackedMutationResponse,
-	RuntimeJackedOAuthFlowStatus,
-	RuntimeJackedOAuthFlowStatusRequest,
-	RuntimeJackedOAuthStartRequest,
-	RuntimeJackedOAuthStartResponse,
-	RuntimeJackedOAuthSubmitCodeRequest,
-	RuntimeJackedPacks,
-	RuntimeJackedPackToggleRequest,
-	RuntimeJackedServerLogs,
-	RuntimeJackedSessions,
-	RuntimeJackedState,
-	RuntimeJackedSwapLog,
-	RuntimeJackedSwapPauseRequest,
-	RuntimeJackedUsageOverview,
+	RuntimeManagerAccountAuthorizeCcRequest,
+	RuntimeManagerAccountIdRequest,
+	RuntimeManagerAccountLaunchDir,
+	RuntimeManagerAccountLaunchCredential,
+	RuntimeManagerAccountReauthRequest,
+	RuntimeManagerAccountReorderRequest,
+	RuntimeManagerAccountUpdateRequest,
+	RuntimeManagerFeatureToggleRequest,
+	RuntimeManagerHookLogs,
+	RuntimeManagerInstallationsOverview,
+	RuntimeManagerMutationResponse,
+	RuntimeManagerOAuthFlowStatus,
+	RuntimeManagerOAuthFlowStatusRequest,
+	RuntimeManagerOAuthStartRequest,
+	RuntimeManagerOAuthStartResponse,
+	RuntimeManagerOAuthSubmitCodeRequest,
+	RuntimeManagerPacks,
+	RuntimeManagerPackToggleRequest,
+	RuntimeManagerProvider,
+	RuntimeManagerServerLogs,
+	RuntimeManagerSessions,
+	RuntimeManagerState,
+	RuntimeManagerSwapLog,
+	RuntimeManagerSwapPauseRequest,
+	RuntimeManagerUsageOverview,
 	RuntimeOpenFileRequest,
 	RuntimeOpenFileResponse,
 	RuntimeProjectAddRequest,
@@ -85,8 +87,12 @@ import type {
 	RuntimeProjectRemoveResponse,
 	RuntimeProjectsResponse,
 	RuntimeRunUpdateResponse,
+	RuntimeAgentModelInventory,
+	RuntimeListAgentModelsRequest,
+	RuntimeMcpInventory,
 	RuntimeShellSessionStartRequest,
 	RuntimeShellSessionStartResponse,
+	RuntimeSkillInventory,
 	RuntimeSlashCommandsResponse,
 	RuntimeTaskChatAbortRequest,
 	RuntimeTaskChatAbortResponse,
@@ -167,29 +173,31 @@ import {
 	runtimeGitSyncResponseSchema,
 	runtimeHookIngestRequestSchema,
 	runtimeHookIngestResponseSchema,
-	runtimeJackedAccountAuthorizeCcRequestSchema,
-	runtimeJackedAccountIdRequestSchema,
-	runtimeJackedAccountLaunchDirSchema,
-	runtimeJackedAccountReauthRequestSchema,
-	runtimeJackedAccountReorderRequestSchema,
-	runtimeJackedAccountUpdateRequestSchema,
-	runtimeJackedFeatureToggleRequestSchema,
-	runtimeJackedHookLogsSchema,
-	runtimeJackedInstallationsOverviewSchema,
-	runtimeJackedMutationResponseSchema,
-	runtimeJackedOAuthFlowStatusRequestSchema,
-	runtimeJackedOAuthFlowStatusSchema,
-	runtimeJackedOAuthStartRequestSchema,
-	runtimeJackedOAuthStartResponseSchema,
-	runtimeJackedOAuthSubmitCodeRequestSchema,
-	runtimeJackedPacksSchema,
-	runtimeJackedPackToggleRequestSchema,
-	runtimeJackedServerLogsSchema,
-	runtimeJackedSessionsSchema,
-	runtimeJackedStateSchema,
-	runtimeJackedSwapLogSchema,
-	runtimeJackedSwapPauseRequestSchema,
-	runtimeJackedUsageOverviewSchema,
+	RuntimeManagerAccountAuthorizeCcRequestSchema,
+	RuntimeManagerAccountIdRequestSchema,
+	RuntimeManagerAccountLaunchDirSchema,
+	RuntimeManagerAccountLaunchCredentialSchema,
+	RuntimeManagerAccountReauthRequestSchema,
+	RuntimeManagerAccountReorderRequestSchema,
+	RuntimeManagerAccountUpdateRequestSchema,
+	RuntimeManagerFeatureToggleRequestSchema,
+	RuntimeManagerHookLogsSchema,
+	RuntimeManagerInstallationsOverviewSchema,
+	RuntimeManagerMutationResponseSchema,
+	RuntimeManagerOAuthFlowStatusRequestSchema,
+	RuntimeManagerOAuthFlowStatusSchema,
+	RuntimeManagerOAuthStartRequestSchema,
+	RuntimeManagerOAuthStartResponseSchema,
+	RuntimeManagerOAuthSubmitCodeRequestSchema,
+	RuntimeManagerPacksSchema,
+	RuntimeManagerPackToggleRequestSchema,
+	RuntimeManagerProviderSchema,
+	RuntimeManagerServerLogsSchema,
+	RuntimeManagerSessionsSchema,
+	RuntimeManagerStateSchema,
+	RuntimeManagerSwapLogSchema,
+	RuntimeManagerSwapPauseRequestSchema,
+	RuntimeManagerUsageOverviewSchema,
 	runtimeOpenFileRequestSchema,
 	runtimeOpenFileResponseSchema,
 	runtimeProjectAddRequestSchema,
@@ -199,8 +207,12 @@ import {
 	runtimeProjectRemoveResponseSchema,
 	runtimeProjectsResponseSchema,
 	runtimeRunUpdateResponseSchema,
+	runtimeAgentModelInventorySchema,
+	runtimeListAgentModelsRequestSchema,
+	runtimeMcpInventorySchema,
 	runtimeShellSessionStartRequestSchema,
 	runtimeShellSessionStartResponseSchema,
+	runtimeSkillInventorySchema,
 	runtimeSlashCommandsResponseSchema,
 	runtimeTaskChatAbortRequestSchema,
 	runtimeTaskChatAbortResponseSchema,
@@ -277,6 +289,9 @@ export interface RuntimeTrpcContext {
 			input: RuntimeTaskChatMessagesRequest,
 		) => Promise<RuntimeTaskChatMessagesResponse>;
 		getClineSlashCommands: (scope: RuntimeTrpcWorkspaceScope | null) => Promise<RuntimeSlashCommandsResponse>;
+		listSkillInventory: () => Promise<RuntimeSkillInventory>;
+		listMcpInventory: () => Promise<RuntimeMcpInventory>;
+		listAgentModels: (input: RuntimeListAgentModelsRequest) => Promise<RuntimeAgentModelInventory>;
 		sendTaskChatMessage: (
 			scope: RuntimeTrpcWorkspaceScope,
 			input: RuntimeTaskChatSendRequest,
@@ -416,34 +431,42 @@ export interface RuntimeTrpcContext {
 	hooksApi: {
 		ingest: (input: RuntimeHookIngestRequest) => Promise<RuntimeHookIngestResponse>;
 	};
-	jackedApi: {
-		getState: () => Promise<RuntimeJackedState>;
-		setFeatureEnabled: (input: RuntimeJackedFeatureToggleRequest) => Promise<RuntimeJackedMutationResponse>;
-		pauseSwap: (input: RuntimeJackedSwapPauseRequest) => Promise<RuntimeJackedMutationResponse>;
-		resumeSwap: () => Promise<RuntimeJackedMutationResponse>;
-		useAccount: (input: RuntimeJackedAccountIdRequest) => Promise<RuntimeJackedMutationResponse>;
-		refreshAccount: (input: RuntimeJackedAccountIdRequest) => Promise<RuntimeJackedMutationResponse>;
-		refreshAllUsage: () => Promise<RuntimeJackedMutationResponse>;
-		updateAccount: (input: RuntimeJackedAccountUpdateRequest) => Promise<RuntimeJackedMutationResponse>;
-		deleteAccount: (input: RuntimeJackedAccountIdRequest) => Promise<RuntimeJackedMutationResponse>;
-		validateAccount: (input: RuntimeJackedAccountIdRequest) => Promise<RuntimeJackedMutationResponse>;
-		reorderAccounts: (input: RuntimeJackedAccountReorderRequest) => Promise<RuntimeJackedMutationResponse>;
-		startAccountReauth: (input: RuntimeJackedAccountReauthRequest) => Promise<RuntimeJackedOAuthStartResponse>;
+	managerApi: {
+		getState: () => Promise<RuntimeManagerState>;
+		setFeatureEnabled: (input: RuntimeManagerFeatureToggleRequest) => Promise<RuntimeManagerMutationResponse>;
+		pauseSwap: (input: RuntimeManagerSwapPauseRequest) => Promise<RuntimeManagerMutationResponse>;
+		resumeSwap: () => Promise<RuntimeManagerMutationResponse>;
+		useAccount: (input: RuntimeManagerAccountIdRequest) => Promise<RuntimeManagerMutationResponse>;
+		refreshAccount: (input: RuntimeManagerAccountIdRequest) => Promise<RuntimeManagerMutationResponse>;
+		refreshAllUsage: () => Promise<RuntimeManagerMutationResponse>;
+		updateAccount: (input: RuntimeManagerAccountUpdateRequest) => Promise<RuntimeManagerMutationResponse>;
+		deleteAccount: (input: RuntimeManagerAccountIdRequest) => Promise<RuntimeManagerMutationResponse>;
+		validateAccount: (input: RuntimeManagerAccountIdRequest) => Promise<RuntimeManagerMutationResponse>;
+		reorderAccounts: (input: RuntimeManagerAccountReorderRequest) => Promise<RuntimeManagerMutationResponse>;
+		startAccountReauth: (input: RuntimeManagerAccountReauthRequest) => Promise<RuntimeManagerOAuthStartResponse>;
 		startAccountAuthorizeCc: (
-			input: RuntimeJackedAccountAuthorizeCcRequest,
-		) => Promise<RuntimeJackedOAuthStartResponse>;
-		getActiveSessions: () => Promise<RuntimeJackedSessions | null>;
-		getPacks: () => Promise<RuntimeJackedPacks | null>;
-		setPackEnabled: (input: RuntimeJackedPackToggleRequest) => Promise<RuntimeJackedMutationResponse>;
-		getAccountLaunchDir: (input: RuntimeJackedAccountIdRequest) => Promise<RuntimeJackedAccountLaunchDir | null>;
-		getInstallationsOverview: () => Promise<RuntimeJackedInstallationsOverview | null>;
-		getServerLogs: (limit?: number) => Promise<RuntimeJackedServerLogs | null>;
-		getHookLogs: (limit?: number) => Promise<RuntimeJackedHookLogs | null>;
-		getUsageOverview: (days?: number) => Promise<RuntimeJackedUsageOverview | null>;
-		getSwapLog: (limit?: number) => Promise<RuntimeJackedSwapLog | null>;
-		startClaudeOAuth: (input?: RuntimeJackedOAuthStartRequest) => Promise<RuntimeJackedOAuthStartResponse>;
-		getOAuthFlowStatus: (input: RuntimeJackedOAuthFlowStatusRequest) => Promise<RuntimeJackedOAuthFlowStatus | null>;
-		submitOAuthCode: (input: RuntimeJackedOAuthSubmitCodeRequest) => Promise<RuntimeJackedOAuthFlowStatus | null>;
+			input: RuntimeManagerAccountAuthorizeCcRequest,
+		) => Promise<RuntimeManagerOAuthStartResponse>;
+		getActiveSessions: () => Promise<RuntimeManagerSessions | null>;
+		getPacks: () => Promise<RuntimeManagerPacks | null>;
+		setPackEnabled: (input: RuntimeManagerPackToggleRequest) => Promise<RuntimeManagerMutationResponse>;
+		getAccountLaunchDir: (input: RuntimeManagerAccountIdRequest) => Promise<RuntimeManagerAccountLaunchDir | null>;
+		getAccountLaunchCredential: (
+			input: RuntimeManagerAccountIdRequest,
+		) => Promise<RuntimeManagerAccountLaunchCredential | null>;
+		importCursorAccount: () => Promise<{ ok: boolean; error?: string; accountId?: number; email?: string }>;
+		reimportCursorAccount: (
+			input: RuntimeManagerAccountIdRequest,
+		) => Promise<{ ok: boolean; error?: string; accountId?: number; email?: string }>;
+		getAccountProvider: (accountId: number) => Promise<RuntimeManagerProvider | null>;
+		getInstallationsOverview: () => Promise<RuntimeManagerInstallationsOverview | null>;
+		getServerLogs: (limit?: number) => Promise<RuntimeManagerServerLogs | null>;
+		getHookLogs: (limit?: number) => Promise<RuntimeManagerHookLogs | null>;
+		getUsageOverview: (days?: number) => Promise<RuntimeManagerUsageOverview | null>;
+		getSwapLog: (limit?: number) => Promise<RuntimeManagerSwapLog | null>;
+		startClaudeOAuth: (input?: RuntimeManagerOAuthStartRequest) => Promise<RuntimeManagerOAuthStartResponse>;
+		getOAuthFlowStatus: (input: RuntimeManagerOAuthFlowStatusRequest) => Promise<RuntimeManagerOAuthFlowStatus | null>;
+		submitOAuthCode: (input: RuntimeManagerOAuthSubmitCodeRequest) => Promise<RuntimeManagerOAuthFlowStatus | null>;
 	};
 }
 
@@ -557,6 +580,18 @@ export const runtimeAppRouter = t.router({
 		getClineSlashCommands: t.procedure.output(runtimeSlashCommandsResponseSchema).query(async ({ ctx }) => {
 			return await ctx.runtimeApi.getClineSlashCommands(ctx.workspaceScope);
 		}),
+		listSkillInventory: t.procedure.output(runtimeSkillInventorySchema).query(async ({ ctx }) => {
+			return await ctx.runtimeApi.listSkillInventory();
+		}),
+		listMcpInventory: t.procedure.output(runtimeMcpInventorySchema).query(async ({ ctx }) => {
+			return await ctx.runtimeApi.listMcpInventory();
+		}),
+		listAgentModels: t.procedure
+			.input(runtimeListAgentModelsRequestSchema)
+			.output(runtimeAgentModelInventorySchema)
+			.query(async ({ ctx, input }) => {
+				return await ctx.runtimeApi.listAgentModels(input);
+			}),
 		reloadTaskChatSession: workspaceProcedure
 			.input(runtimeTaskChatReloadRequestSchema)
 			.output(runtimeTaskChatReloadResponseSchema)
@@ -799,140 +834,177 @@ export const runtimeAppRouter = t.router({
 				return await ctx.hooksApi.ingest(input);
 			}),
 	}),
-	jacked: t.router({
-		state: t.procedure.output(runtimeJackedStateSchema).query(async ({ ctx }) => {
-			return await ctx.jackedApi.getState();
+	manager: t.router({
+		state: t.procedure.output(RuntimeManagerStateSchema).query(async ({ ctx }) => {
+			return await ctx.managerApi.getState();
 		}),
 		setFeatureEnabled: t.procedure
-			.input(runtimeJackedFeatureToggleRequestSchema)
-			.output(runtimeJackedMutationResponseSchema)
+			.input(RuntimeManagerFeatureToggleRequestSchema)
+			.output(RuntimeManagerMutationResponseSchema)
 			.mutation(async ({ ctx, input }) => {
-				return await ctx.jackedApi.setFeatureEnabled(input);
+				return await ctx.managerApi.setFeatureEnabled(input);
 			}),
 		pauseSwap: t.procedure
-			.input(runtimeJackedSwapPauseRequestSchema)
-			.output(runtimeJackedMutationResponseSchema)
+			.input(RuntimeManagerSwapPauseRequestSchema)
+			.output(RuntimeManagerMutationResponseSchema)
 			.mutation(async ({ ctx, input }) => {
-				return await ctx.jackedApi.pauseSwap(input);
+				return await ctx.managerApi.pauseSwap(input);
 			}),
-		resumeSwap: t.procedure.output(runtimeJackedMutationResponseSchema).mutation(async ({ ctx }) => {
-			return await ctx.jackedApi.resumeSwap();
+		resumeSwap: t.procedure.output(RuntimeManagerMutationResponseSchema).mutation(async ({ ctx }) => {
+			return await ctx.managerApi.resumeSwap();
 		}),
 		useAccount: t.procedure
-			.input(runtimeJackedAccountIdRequestSchema)
-			.output(runtimeJackedMutationResponseSchema)
+			.input(RuntimeManagerAccountIdRequestSchema)
+			.output(RuntimeManagerMutationResponseSchema)
 			.mutation(async ({ ctx, input }) => {
-				return await ctx.jackedApi.useAccount(input);
+				return await ctx.managerApi.useAccount(input);
 			}),
 		refreshAccount: t.procedure
-			.input(runtimeJackedAccountIdRequestSchema)
-			.output(runtimeJackedMutationResponseSchema)
+			.input(RuntimeManagerAccountIdRequestSchema)
+			.output(RuntimeManagerMutationResponseSchema)
 			.mutation(async ({ ctx, input }) => {
-				return await ctx.jackedApi.refreshAccount(input);
+				return await ctx.managerApi.refreshAccount(input);
 			}),
-		refreshAllUsage: t.procedure.output(runtimeJackedMutationResponseSchema).mutation(async ({ ctx }) => {
-			return await ctx.jackedApi.refreshAllUsage();
+		refreshAllUsage: t.procedure.output(RuntimeManagerMutationResponseSchema).mutation(async ({ ctx }) => {
+			return await ctx.managerApi.refreshAllUsage();
 		}),
 		updateAccount: t.procedure
-			.input(runtimeJackedAccountUpdateRequestSchema)
-			.output(runtimeJackedMutationResponseSchema)
+			.input(RuntimeManagerAccountUpdateRequestSchema)
+			.output(RuntimeManagerMutationResponseSchema)
 			.mutation(async ({ ctx, input }) => {
-				return await ctx.jackedApi.updateAccount(input);
+				return await ctx.managerApi.updateAccount(input);
 			}),
 		deleteAccount: t.procedure
-			.input(runtimeJackedAccountIdRequestSchema)
-			.output(runtimeJackedMutationResponseSchema)
+			.input(RuntimeManagerAccountIdRequestSchema)
+			.output(RuntimeManagerMutationResponseSchema)
 			.mutation(async ({ ctx, input }) => {
-				return await ctx.jackedApi.deleteAccount(input);
+				return await ctx.managerApi.deleteAccount(input);
 			}),
 		validateAccount: t.procedure
-			.input(runtimeJackedAccountIdRequestSchema)
-			.output(runtimeJackedMutationResponseSchema)
+			.input(RuntimeManagerAccountIdRequestSchema)
+			.output(RuntimeManagerMutationResponseSchema)
 			.mutation(async ({ ctx, input }) => {
-				return await ctx.jackedApi.validateAccount(input);
+				return await ctx.managerApi.validateAccount(input);
 			}),
 		reorderAccounts: t.procedure
-			.input(runtimeJackedAccountReorderRequestSchema)
-			.output(runtimeJackedMutationResponseSchema)
+			.input(RuntimeManagerAccountReorderRequestSchema)
+			.output(RuntimeManagerMutationResponseSchema)
 			.mutation(async ({ ctx, input }) => {
-				return await ctx.jackedApi.reorderAccounts(input);
+				return await ctx.managerApi.reorderAccounts(input);
 			}),
 		startAccountReauth: t.procedure
-			.input(runtimeJackedAccountReauthRequestSchema)
-			.output(runtimeJackedOAuthStartResponseSchema)
+			.input(RuntimeManagerAccountReauthRequestSchema)
+			.output(RuntimeManagerOAuthStartResponseSchema)
 			.mutation(async ({ ctx, input }) => {
-				return await ctx.jackedApi.startAccountReauth(input);
+				return await ctx.managerApi.startAccountReauth(input);
 			}),
 		startAccountAuthorizeCc: t.procedure
-			.input(runtimeJackedAccountAuthorizeCcRequestSchema)
-			.output(runtimeJackedOAuthStartResponseSchema)
+			.input(RuntimeManagerAccountAuthorizeCcRequestSchema)
+			.output(RuntimeManagerOAuthStartResponseSchema)
 			.mutation(async ({ ctx, input }) => {
-				return await ctx.jackedApi.startAccountAuthorizeCc(input);
+				return await ctx.managerApi.startAccountAuthorizeCc(input);
 			}),
-		activeSessions: t.procedure.output(runtimeJackedSessionsSchema.nullable()).query(async ({ ctx }) => {
-			return await ctx.jackedApi.getActiveSessions();
+		activeSessions: t.procedure.output(RuntimeManagerSessionsSchema.nullable()).query(async ({ ctx }) => {
+			return await ctx.managerApi.getActiveSessions();
 		}),
-		packs: t.procedure.output(runtimeJackedPacksSchema.nullable()).query(async ({ ctx }) => {
-			return await ctx.jackedApi.getPacks();
+		packs: t.procedure.output(RuntimeManagerPacksSchema.nullable()).query(async ({ ctx }) => {
+			return await ctx.managerApi.getPacks();
 		}),
 		setPackEnabled: t.procedure
-			.input(runtimeJackedPackToggleRequestSchema)
-			.output(runtimeJackedMutationResponseSchema)
+			.input(RuntimeManagerPackToggleRequestSchema)
+			.output(RuntimeManagerMutationResponseSchema)
 			.mutation(async ({ ctx, input }) => {
-				return await ctx.jackedApi.setPackEnabled(input);
+				return await ctx.managerApi.setPackEnabled(input);
 			}),
 		accountLaunchDir: t.procedure
-			.input(runtimeJackedAccountIdRequestSchema)
-			.output(runtimeJackedAccountLaunchDirSchema.nullable())
+			.input(RuntimeManagerAccountIdRequestSchema)
+			.output(RuntimeManagerAccountLaunchDirSchema.nullable())
 			.mutation(async ({ ctx, input }) => {
-				return await ctx.jackedApi.getAccountLaunchDir(input);
+				return await ctx.managerApi.getAccountLaunchDir(input);
+			}),
+		accountLaunchCredential: t.procedure
+			.input(RuntimeManagerAccountIdRequestSchema)
+			.output(RuntimeManagerAccountLaunchCredentialSchema.nullable())
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.managerApi.getAccountLaunchCredential(input);
+			}),
+		importCursorAccount: t.procedure
+			.output(
+				z.object({
+					ok: z.boolean(),
+					error: z.string().optional(),
+					accountId: z.number().int().positive().optional(),
+					email: z.string().optional(),
+				}),
+			)
+			.mutation(async ({ ctx }) => {
+				return await ctx.managerApi.importCursorAccount();
+			}),
+		reimportCursorAccount: t.procedure
+			.input(RuntimeManagerAccountIdRequestSchema)
+			.output(
+				z.object({
+					ok: z.boolean(),
+					error: z.string().optional(),
+					accountId: z.number().int().positive().optional(),
+					email: z.string().optional(),
+				}),
+			)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.managerApi.reimportCursorAccount(input);
+			}),
+		accountProvider: t.procedure
+			.input(RuntimeManagerAccountIdRequestSchema)
+			.output(RuntimeManagerProviderSchema.nullable())
+			.query(async ({ ctx, input }) => {
+				return await ctx.managerApi.getAccountProvider(input.accountId);
 			}),
 		installationsOverview: t.procedure
-			.output(runtimeJackedInstallationsOverviewSchema.nullable())
+			.output(RuntimeManagerInstallationsOverviewSchema.nullable())
 			.query(async ({ ctx }) => {
-				return await ctx.jackedApi.getInstallationsOverview();
+				return await ctx.managerApi.getInstallationsOverview();
 			}),
 		serverLogs: t.procedure
 			.input(z.object({ limit: z.number().int().min(1).max(500).optional() }).optional())
-			.output(runtimeJackedServerLogsSchema.nullable())
+			.output(RuntimeManagerServerLogsSchema.nullable())
 			.query(async ({ ctx, input }) => {
-				return await ctx.jackedApi.getServerLogs(input?.limit);
+				return await ctx.managerApi.getServerLogs(input?.limit);
 			}),
 		hookLogs: t.procedure
 			.input(z.object({ limit: z.number().int().min(1).max(500).optional() }).optional())
-			.output(runtimeJackedHookLogsSchema.nullable())
+			.output(RuntimeManagerHookLogsSchema.nullable())
 			.query(async ({ ctx, input }) => {
-				return await ctx.jackedApi.getHookLogs(input?.limit);
+				return await ctx.managerApi.getHookLogs(input?.limit);
 			}),
 		usageOverview: t.procedure
 			.input(z.object({ days: z.number().int().min(1).max(365).optional() }).optional())
-			.output(runtimeJackedUsageOverviewSchema.nullable())
+			.output(RuntimeManagerUsageOverviewSchema.nullable())
 			.query(async ({ ctx, input }) => {
-				return await ctx.jackedApi.getUsageOverview(input?.days);
+				return await ctx.managerApi.getUsageOverview(input?.days);
 			}),
 		swapLog: t.procedure
 			.input(z.object({ limit: z.number().int().min(1).max(100).optional() }).optional())
-			.output(runtimeJackedSwapLogSchema.nullable())
+			.output(RuntimeManagerSwapLogSchema.nullable())
 			.query(async ({ ctx, input }) => {
-				return await ctx.jackedApi.getSwapLog(input?.limit);
+				return await ctx.managerApi.getSwapLog(input?.limit);
 			}),
 		startClaudeOAuth: t.procedure
-			.input(runtimeJackedOAuthStartRequestSchema.optional())
-			.output(runtimeJackedOAuthStartResponseSchema)
+			.input(RuntimeManagerOAuthStartRequestSchema.optional())
+			.output(RuntimeManagerOAuthStartResponseSchema)
 			.mutation(async ({ ctx, input }) => {
-				return await ctx.jackedApi.startClaudeOAuth(input);
+				return await ctx.managerApi.startClaudeOAuth(input);
 			}),
 		oauthFlowStatus: t.procedure
-			.input(runtimeJackedOAuthFlowStatusRequestSchema)
-			.output(runtimeJackedOAuthFlowStatusSchema.nullable())
+			.input(RuntimeManagerOAuthFlowStatusRequestSchema)
+			.output(RuntimeManagerOAuthFlowStatusSchema.nullable())
 			.query(async ({ ctx, input }) => {
-				return await ctx.jackedApi.getOAuthFlowStatus(input);
+				return await ctx.managerApi.getOAuthFlowStatus(input);
 			}),
 		submitOAuthCode: t.procedure
-			.input(runtimeJackedOAuthSubmitCodeRequestSchema)
-			.output(runtimeJackedOAuthFlowStatusSchema.nullable())
+			.input(RuntimeManagerOAuthSubmitCodeRequestSchema)
+			.output(RuntimeManagerOAuthFlowStatusSchema.nullable())
 			.mutation(async ({ ctx, input }) => {
-				return await ctx.jackedApi.submitOAuthCode(input);
+				return await ctx.managerApi.submitOAuthCode(input);
 			}),
 	}),
 });

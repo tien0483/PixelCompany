@@ -137,7 +137,7 @@ test("jacked accounts view and docked office are visible in the right column chr
 	await waitForOfficeCanvas(page);
 	await expect(page.getByTestId("home-triple-pane")).toBeVisible();
 	await expect(page.getByTestId("home-right-column")).toBeVisible();
-	await expect(page.getByTestId("jacked-accounts-view")).toBeVisible();
+	await expect(page.getByTestId("manager-accounts-view")).toBeVisible();
 	await expect(page.getByTestId("jacked-account-1")).toBeVisible();
 	await expect(page.getByTestId("jacked-accounts-swap-history")).toBeVisible();
 	await expect(page.getByTestId("office-floor")).toBeVisible();

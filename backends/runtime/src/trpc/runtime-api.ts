@@ -43,12 +43,21 @@ import {
 } from "../core/api-validation";
 import { isHomeAgentSessionId } from "../core/home-agent-session";
 import { resolveTaskTitle } from "../core/task-title.js";
-import { resolveJackedAccountPin } from "../jacked/jacked-account-pin";
+import { resolveManagerAccountPin } from "../manager/manager-account-pin";
+import {
+	LEGACY_RUNTIME_HOME_PARENT_DIR_NAME,
+	RUNTIME_HOME_PARENT_DIR_NAME,
+} from "../workspace/task-worktree-path";
 import { openInBrowser } from "../server/browser";
 import { buildRuntimeConfigResponse, resolveAgentCommand } from "../terminal/agent-registry";
 import type { TerminalSessionManager } from "../terminal/session-manager";
+import { listAgentModelInventory } from "../terminal/agent-model-inventory";
+import {
+	hasClaudeScopedConfigAllowlist,
+	listClaudeMcpInventory,
+	listClaudeSkillInventory,
+} from "../terminal/task-launch-settings";
 import { resolveTaskCwd } from "../workspace/task-worktree";
-import { LEGACY_RUNTIME_HOME_PARENT_DIR_NAME, RUNTIME_HOME_PARENT_DIR_NAME } from "../workspace/task-worktree-path";
 import { captureTaskTurnCheckpoint } from "../workspace/turn-checkpoints";
 import type { RuntimeTrpcContext, RuntimeTrpcWorkspaceScope } from "./app-router";
 
@@ -60,11 +69,16 @@ export interface CreateRuntimeApiDependencies {
 	getScopedTerminalManager: (scope: RuntimeTrpcWorkspaceScope) => Promise<TerminalSessionManager>;
 	getScopedClineTaskSessionService: (scope: RuntimeTrpcWorkspaceScope) => Promise<ClineTaskSessionService>;
 	/**
-	 * Prepares the per-account CLAUDE_CONFIG_DIR for a task pinned to a Claude
-	 * account. Returns null when jacked is offline or refuses the account, in which
-	 * case the session falls back to the globally active credential.
+	 * Prepares the per-account CLAUDE_CONFIG_DIR for a task pinned to a Claude account.
 	 */
-	getJackedAccountLaunchDir?: (accountId: number) => Promise<{ configDir: string } | null>;
+	getManagerAccountLaunchDir?: (accountId: number) => Promise<{ configDir: string } | null>;
+	/** Reads the Cursor API key snapshot for a pinned Cursor task. */
+	getManagerAccountLaunchCredential?: (accountId: number) => Promise<{ apiKey: string } | null>;
+	getManagerAccountProvider?: (accountId: number) => Promise<import("../core/api-contract").RuntimeManagerProvider | null>;
+	/** Auto (unpinned) Cursor tasks: pick a Cursor jacked account for CURSOR_API_KEY. */
+	resolveDefaultCursormanagerAccountId?: () => Promise<number | null>;
+	/** Active Claude Jacked seat — used to prep CC creds for skill/MCP-tagged launches. */
+	resolveActiveClaudemanagerAccountId?: () => Promise<number | null>;
 	resolveInteractiveShellCommand: () => { binary: string; args: string[] };
 	runCommand: (command: string, cwd: string) => Promise<RuntimeCommandRunResponse>;
 	broadcastClineMcpAuthStatusesUpdated?: (
@@ -298,11 +312,24 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 				// A pinned card runs on its own credential directory so concurrent tasks
 				// can hold different Claude accounts; unpinned cards keep following
 				// jacked's global auto-swap.
-				const accountPin = await resolveJackedAccountPin({
+				const accountPin = await resolveManagerAccountPin({
 					agentId: resolved.agentId,
-					jackedAccountId: body.jackedAccountId,
-					getAccountLaunchDir: deps.getJackedAccountLaunchDir ?? (async () => null),
+					managerAccountId: body.managerAccountId,
+					getAccountLaunchDir:
+						deps.getManagerAccountLaunchDir ??
+						(async () => null),
+					getAccountLaunchCredential:
+						deps.getManagerAccountLaunchCredential ??
+						(async () => null),
+					getAccountProvider: async (accountId) =>
+						(await deps.getManagerAccountProvider?.(accountId)) ?? null,
+					resolveDefaultCursorAccountId: deps.resolveDefaultCursormanagerAccountId,
+					resolveActiveClaudeAccountId: deps.resolveActiveClaudemanagerAccountId,
+					needsClaudeConfigDirForLaunchTags:
+						resolved.agentId === "claude" && hasClaudeScopedConfigAllowlist(body.taskLaunchSettings),
 				});
+				// Cursor Auto: no CURSOR_API_KEY injection — same auth as interactive
+				// `agent` (`agent login`). Explicit seat pins still inject a key.
 				const summary = await terminalManager.startTaskSession({
 					taskId: body.taskId,
 					agentId: resolved.agentId,
@@ -317,9 +344,10 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 					cols: body.cols,
 					rows: body.rows,
 					workspaceId: workspaceScope.workspaceId,
+					taskLaunchSettings: body.taskLaunchSettings,
 					autoResumeOnUsageLimit: body.autoResumeOnUsageLimit ?? false,
 					...(Object.keys(accountPin.env).length > 0 ? { env: accountPin.env } : {}),
-					...(accountPin.accountId === null ? {} : { jackedAccountId: accountPin.accountId }),
+					...(accountPin.accountId === null ? {} : { managerAccountId: accountPin.accountId }),
 				});
 
 				let nextSummary = summary;
@@ -339,6 +367,7 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 				return {
 					ok: true,
 					summary: nextSummary,
+					...(accountPin.warning ? { warning: accountPin.warning } : {}),
 				};
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);
@@ -446,6 +475,9 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 				commands: await clineTaskSessionService.listSlashCommands(workspaceScope.workspacePath),
 			};
 		},
+		listSkillInventory: async () => listClaudeSkillInventory(),
+		listMcpInventory: async () => listClaudeMcpInventory(),
+		listAgentModels: async (input) => listAgentModelInventory(input.agentId),
 		reloadTaskChatSession: async (workspaceScope, input) => {
 			try {
 				const body = parseTaskChatReloadRequest(input);

@@ -4,7 +4,7 @@
 import type { Dispatch, SetStateAction } from "react";
 import { useCallback } from "react";
 
-import { notifyError } from "@/components/app-toaster";
+import { notifyError, showAppToast } from "@/components/app-toaster";
 import { selectNewestTaskSessionSummary } from "@/hooks/home-sidebar-agent-panel-session-summary";
 import { type ClineChatActionResult, useClineChatRuntimeActions } from "@/hooks/use-cline-chat-runtime-actions";
 import { estimateTaskSessionGeometry } from "@/runtime/task-session-geometry";
@@ -174,9 +174,10 @@ export function useTaskSessions({ currentProjectId, setSessions }: UseTaskSessio
 					rows: geometry.rows,
 					agentId: task.agentId,
 					clineSettings: task.clineSettings,
+					taskLaunchSettings: task.taskLaunchSettings,
 					// Pins this session to one Claude account (own CLAUDE_CONFIG_DIR) so
 					// cards on different accounts can run at the same time.
-					jackedAccountId: task.jackedAccountId,
+					managerAccountId: task.managerAccountId,
 					// Opt this task into auto-pause/continue across a Claude usage-limit reset.
 					autoResumeOnUsageLimit: task.autoResumeOnUsageLimit,
 				});
@@ -187,6 +188,9 @@ export function useTaskSessions({ currentProjectId, setSessions }: UseTaskSessio
 					};
 				}
 				upsertSession(payload.summary);
+				if (payload.warning) {
+					showAppToast({ intent: "warning", message: payload.warning, timeout: 8000 });
+				}
 				if (options?.resumeFromTrash) {
 					trackTaskResumedFromTrash();
 				}

@@ -19,7 +19,7 @@ function erroredSummary(overrides: Partial<RuntimeTaskSessionSummary> = {}): Run
 		lastHookAt: null,
 		latestHookActivity: null,
 		warningMessage: "Claude usage limit reached",
-		jackedAccountId: null,
+		managerAccountId: null,
 		autoResumeOnUsageLimit: true,
 		resumeAt: null,
 		latestTurnCheckpoint: null,

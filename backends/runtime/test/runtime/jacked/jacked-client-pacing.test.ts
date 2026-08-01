@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { parsePacing } from "../../../src/jacked/jacked-client";
+import { parsePacing } from "../../../src/manager/manager-client";
 
 describe("parsePacing", () => {
 	it("maps a constrained summary to allExhausted with the reset in epoch ms", () => {

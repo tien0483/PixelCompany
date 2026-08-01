@@ -1,5 +1,5 @@
 /**
- * Starts runtime + Vite web UI + Jacked companion on free ports.
+ * Starts runtime + Vite web UI + Manager companion on free ports.
  * Use via `npm run dev:full` or the VS Code "Dev (Full Stack)" launch config.
  */
 import { createServer, connect } from "node:net";
@@ -12,8 +12,8 @@ import { dirname } from "node:path";
 const isWindows = process.platform === "win32";
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const runtimeRoot = join(scriptDir, "..");
-const jackedRoot = join(runtimeRoot, "..", "jacked");
-const JACKED_PORT = 8321;
+const managerRoot = join(runtimeRoot, "..", "manager");
+const MANAGER_PORT = Number(process.env.MANAGER_PORT ?? process.env.JACKED_PORT ?? 8321);
 
 async function pathExists(target) {
 	try {
@@ -102,7 +102,7 @@ const runtimeCliArgs = [
 
 console.log(`\n  Runtime port: ${runtimePort}`);
 console.log(`  Web UI:       http://127.0.0.1:${webUiPort}`);
-console.log(`  Jacked:       http://127.0.0.1:${JACKED_PORT}\n`);
+console.log(`  Manager:       http://127.0.0.1:${MANAGER_PORT}\n`);
 
 const env = {
 	NODE_ENV: "development",
@@ -118,7 +118,7 @@ const runtime = spawn(tsxBin, ["watch", "src/cli.ts", ...runtimeCliArgs], {
 });
 
 let vite;
-let jacked;
+let manager;
 let exiting = false;
 
 function cleanup(exitCode = 0) {
@@ -126,7 +126,7 @@ function cleanup(exitCode = 0) {
 	exiting = true;
 	if (runtime.pid) treeKill(runtime.pid);
 	if (vite?.pid) treeKill(vite.pid);
-	if (jacked?.pid) treeKill(jacked.pid);
+	if (manager?.pid) treeKill(manager.pid);
 	process.exit(exitCode);
 }
 
@@ -134,7 +134,7 @@ process.on("SIGTERM", () => cleanup(0));
 process.on("SIGINT", () => cleanup(0));
 runtime.on("exit", () => cleanup(1));
 
-// Wait for runtime to accept connections before starting Vite / Jacked
+// Wait for runtime to accept connections before starting Vite / Manager
 try {
 	await waitForPort(runtimePort);
 } catch (error) {
@@ -143,33 +143,33 @@ try {
 	cleanup(1);
 }
 
-const jackedPresent = await pathExists(join(jackedRoot, "jacked"));
-if (jackedPresent) {
-	jacked = spawn(
+const managerPresent = await pathExists(join(managerRoot, "manager"));
+if (managerPresent) {
+	manager = spawn(
 		"python",
-		["-m", "jacked", "webux", "--host", "127.0.0.1", "--port", String(JACKED_PORT), "--no-browser"],
+		["-m", "manager", "webux", "--host", "127.0.0.1", "--port", String(MANAGER_PORT), "--no-browser"],
 		{
-			cwd: jackedRoot,
-			env: { ...process.env, PYTHONPATH: jackedRoot },
+			cwd: managerRoot,
+			env: { ...process.env, PYTHONPATH: managerRoot },
 			stdio: "inherit",
 			shell: isWindows,
 		},
 	);
-	jacked.on("exit", (code) => {
+	manager.on("exit", (code) => {
 		if (!exiting) {
-			console.warn(`Jacked exited (code ${code ?? "?"}) — UI/runtime still running.`);
+			console.warn(`Manager exited (code ${code ?? "?"}) — UI/runtime still running.`);
 		}
 	});
 	try {
-		await waitForPort(JACKED_PORT, 20000);
+		await waitForPort(MANAGER_PORT, 20000);
 	} catch {
-		console.warn(`Jacked did not open port ${JACKED_PORT} in time.`);
-		console.warn("  Install deps: cd backends/jacked && pip install -e .");
-		console.warn("  (or: cd backends/jacked && uv sync)");
-		console.warn("  Board/office will keep running; Accounts stay offline until Jacked is up.");
+		console.warn(`Manager did not open port ${MANAGER_PORT} in time.`);
+		console.warn("  Install deps: cd backends/manager && pip install -e .");
+		console.warn("  (or: cd backends/manager && uv sync)");
+		console.warn("  Board/office will keep running; Accounts stay offline until Manager is up.");
 	}
 } else {
-	console.warn(`Jacked not found at ${jackedRoot} — skipping.`);
+	console.warn(`Manager not found at ${managerRoot} — skipping.`);
 }
 
 vite = spawn("npm", ["run", "web:dev"], {

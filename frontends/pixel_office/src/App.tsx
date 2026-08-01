@@ -57,7 +57,7 @@ import { useTerminalPanels } from "@/hooks/use-terminal-panels";
 import { useWorkspaceSync } from "@/hooks/use-workspace-sync";
 import { OfficeView } from "@/office/office-view";
 import { useOfficeViewState } from "@/office/use-office-view-state";
-import { JackedAccountsView } from "@/jacked/jacked-accounts-view";
+import { ManagerAccountsView } from "@/manager/manager-accounts-view";
 import { LayoutCustomizationsProvider } from "@/resize/layout-customizations";
 import { ResizableBottomPane } from "@/resize/resizable-bottom-pane";
 import { useProjectNavigationLayout } from "@/resize/use-project-navigation-layout";
@@ -67,7 +67,11 @@ import {
 	selectLatestTaskChatMessageForTask,
 	selectTaskChatMessagesForTask,
 } from "@/runtime/native-agent";
-import type { RuntimeClineReasoningEffort, RuntimeTaskSessionSummary } from "@/runtime/types";
+import type {
+	RuntimeClineReasoningEffort,
+	RuntimeTaskLaunchSettings,
+	RuntimeTaskSessionSummary,
+} from "@/runtime/types";
 import { useRuntimeProjectConfig } from "@/runtime/use-runtime-project-config";
 import { useTerminalConnectionReady } from "@/runtime/use-terminal-connection-ready";
 import { useWorkspacePersistence } from "@/runtime/use-workspace-persistence";
@@ -75,8 +79,10 @@ import { saveWorkspaceState } from "@/runtime/workspace-state-query";
 import {
 	applyTaskDetailClineSettingsChange,
 	findCardSelection,
-	setTaskJackedAccount,
+	setTaskManagerAccount,
+	setTaskLaunchSettings,
 } from "@/state/board-state";
+import { buildLaunchTagAllowlistUpdateNotice } from "@runtime-task-launch-tag-messages";
 import {
 	getTaskWorkspaceInfo,
 	getTaskWorkspaceSnapshot,
@@ -93,8 +99,8 @@ export default function App(): ReactElement {
 	const [canPersistWorkspaceState, setCanPersistWorkspaceState] = useState(false);
 	const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 	const [settingsInitialSection, setSettingsInitialSection] = useState<RuntimeSettingsSection | null>(null);
-	const [homeSidebarSection, setHomeSidebarSection] = useState<"projects" | "jacked">("projects");
-	const [jackedSettingsFocusToken, setJackedSettingsFocusToken] = useState(0);
+	const [homeSidebarSection, setHomeSidebarSection] = useState<"projects" | "manager">("projects");
+	const [managerSettingsFocusToken, setManagerSettingsFocusToken] = useState(0);
 	const [isClearTrashDialogOpen, setIsClearTrashDialogOpen] = useState(false);
 	const [isGitHistoryOpen, setIsGitHistoryOpen] = useState(false);
 	const [pendingTaskStartAfterEditId, setPendingTaskStartAfterEditId] = useState<string | null>(null);
@@ -116,7 +122,7 @@ export default function App(): ReactElement {
 		latestTaskReadyForReview,
 		latestMcpAuthStatuses,
 		clineSessionContextVersion,
-		jacked,
+		manager,
 		streamError,
 		isRuntimeDisconnected,
 		hasReceivedSnapshot,
@@ -314,6 +320,8 @@ export default function App(): ReactElement {
 		setNewTaskAgentId,
 		newTaskClineSettings,
 		setNewTaskClineSettings,
+		newTaskLaunchSettings,
+		setNewTaskLaunchSettings,
 		editingTaskId,
 		editTaskPrompt,
 		setEditTaskPrompt,
@@ -332,6 +340,8 @@ export default function App(): ReactElement {
 		setEditTaskAgentId,
 		editTaskClineSettings,
 		setEditTaskClineSettings,
+		editTaskLaunchSettings,
+		setEditTaskLaunchSettings,
 		handleOpenCreateTask,
 		handleCancelCreateTask,
 		handleOpenEditTask,
@@ -769,19 +779,21 @@ export default function App(): ReactElement {
 		[defaultTaskClineProviderId, runtimeProjectConfig, selectedCard, setBoard],
 	);
 
-	// Only Claude accounts can be pinned to a task; jacked's snapshot is already
-	// Claude-filtered by the bridge, but keep the guard local to the picker input.
-	const claudeJackedAccounts = useMemo(
-		() => (jacked?.accounts ?? []).filter((account) => account.provider === "claude"),
-		[jacked?.accounts],
+	// Claude + Cursor accounts can be pinned to tasks; jacked's snapshot includes both.
+	const managedManagerAccounts = useMemo(
+		() =>
+			(manager?.accounts ?? []).filter(
+				(account) => account.provider === "claude" || account.provider === "cursor",
+			),
+		[manager?.accounts],
 	);
 
-	const handleTaskJackedAccountChanged = useCallback(
-		(taskId: string, jackedAccountId: number | null) => {
+	const handleTaskManagerAccountChanged = useCallback(
+		(taskId: string, managerAccountId: number | null) => {
 			// Pins the card, not the running session: a live session keeps the account
 			// it launched with until it is restarted.
 			setBoard((currentBoard) => {
-				const result = setTaskJackedAccount(currentBoard, taskId, jackedAccountId);
+				const result = setTaskManagerAccount(currentBoard, taskId, managerAccountId);
 				return result.updated ? result.board : currentBoard;
 			});
 		},
@@ -803,6 +815,51 @@ export default function App(): ReactElement {
 			}));
 		},
 		[setBoard],
+	);
+
+	const handleTaskLaunchSettingsChanged = useCallback(
+		(taskId: string, nextLaunchSettings: RuntimeTaskLaunchSettings | null) => {
+			let previousSettings: RuntimeTaskLaunchSettings | undefined;
+			let didUpdate = false;
+			setBoard((currentBoard) => {
+				previousSettings = findCardSelection(currentBoard, taskId)?.card.taskLaunchSettings;
+				const result = setTaskLaunchSettings(currentBoard, taskId, nextLaunchSettings);
+				didUpdate = result.updated;
+				return result.updated ? result.board : currentBoard;
+			});
+			if (!didUpdate) {
+				return;
+			}
+			// Cursor (and Claude prompt-level) skill/MCP tags are enforced via the
+			// conversation. Push an allowlist update into the live session so removing
+			// a chip mid-run is reflected without a full restart.
+			const summary = sessions[taskId];
+			if (summary?.state !== "running" && summary?.state !== "awaiting_review") {
+				return;
+			}
+			const notice = buildLaunchTagAllowlistUpdateNotice(previousSettings, nextLaunchSettings);
+			if (!notice) {
+				return;
+			}
+			void (async () => {
+				// Paste + Enter matches other long prompt injections into Cursor/Claude PTYs.
+				const pasted = await sendTaskSessionInput(taskId, notice, {
+					mode: "paste",
+					appendNewline: false,
+				});
+				if (!pasted.ok) {
+					if (pasted.message) {
+						notifyError(pasted.message);
+					}
+					return;
+				}
+				const submitted = await sendTaskSessionInput(taskId, "\r", { appendNewline: false });
+				if (!submitted.ok && submitted.message) {
+					notifyError(submitted.message);
+				}
+			})();
+		},
+		[sendTaskSessionInput, sessions, setBoard],
 	);
 
 	const handleCreateDialogOpenChange = useCallback(
@@ -838,6 +895,8 @@ export default function App(): ReactElement {
 			onAgentIdChange={setEditTaskAgentId}
 			clineSettings={editTaskClineSettings}
 			onClineSettingsChange={setEditTaskClineSettings}
+			taskLaunchSettings={editTaskLaunchSettings}
+			onTaskLaunchSettingsChange={setEditTaskLaunchSettings}
 			defaultAgentId={runtimeProjectConfig?.selectedAgentId ?? null}
 			defaultProviderId={defaultTaskClineProviderId}
 			defaultModelId={runtimeProjectConfig?.clineProviderSettings?.modelId ?? null}
@@ -865,8 +924,8 @@ export default function App(): ReactElement {
 						removingProjectId={removingProjectId}
 						activeSection={homeSidebarSection}
 						onActiveSectionChange={setHomeSidebarSection}
-						jackedOnline={jacked !== null && jacked.stale !== true}
-						jackedState={jacked}
+						managerOnline={manager !== null && manager.stale !== true}
+						managerState={manager}
 						selectedAgentId={settingsRuntimeProjectConfig?.selectedAgentId ?? null}
 						clineProviderSettings={settingsRuntimeProjectConfig?.clineProviderSettings ?? null}
 						featurebaseFeedbackState={featurebaseFeedbackState}
@@ -881,7 +940,7 @@ export default function App(): ReactElement {
 						setExpandedSidebarWidth={sidebarLayout.setExpandedSidebarWidth}
 						isCollapsed={sidebarLayout.isCollapsed}
 						setSidebarCollapsed={sidebarLayout.setSidebarCollapsed}
-						jackedSettingsFocusToken={jackedSettingsFocusToken}
+						managerSettingsFocusToken={managerSettingsFocusToken}
 					/>
 				) : null}
 				<div className="flex flex-col flex-1 min-w-0 overflow-hidden">
@@ -1030,9 +1089,9 @@ export default function App(): ReactElement {
 													/>
 												}
 												watch={
-													<JackedAccountsView
-														online={jacked !== null && jacked.stale !== true}
-														jacked={jacked}
+													<ManagerAccountsView
+														online={manager !== null && manager.stale !== true}
+														manager={manager}
 													/>
 												}
 												office={
@@ -1040,7 +1099,7 @@ export default function App(): ReactElement {
 														board={board}
 														sessions={sessions}
 														workspaceId={currentProjectId}
-														jacked={jacked}
+														manager={manager}
 														onSelectTask={handleCardSelect}
 														onCreateTask={handleOpenCreateTask}
 													/>
@@ -1161,10 +1220,11 @@ export default function App(): ReactElement {
 									isDocumentVisible={isDocumentVisible}
 									onClineSettingsSaved={refreshRuntimeProjectConfig}
 									onTaskClineSettingsChanged={handleClineTaskSettingsChangedForTask}
-									jackedAccounts={claudeJackedAccounts}
-									jackedActiveAccountId={jacked?.activeAccountId ?? null}
-									onTaskJackedAccountChanged={handleTaskJackedAccountChanged}
-								onTaskAutoResumeOnUsageLimitChanged={handleTaskAutoResumeOnUsageLimitChanged}
+									managerAccounts={managedManagerAccounts}
+									managerActiveAccountId={manager?.activeAccountId ?? null}
+									onTaskManagerAccountChanged={handleTaskManagerAccountChanged}
+									onTaskLaunchSettingsChanged={handleTaskLaunchSettingsChanged}
+									onTaskAutoResumeOnUsageLimitChanged={handleTaskAutoResumeOnUsageLimitChanged}
 								/>
 							</div>
 						) : null}
@@ -1222,6 +1282,8 @@ export default function App(): ReactElement {
 					onAgentIdChange={setNewTaskAgentId}
 					clineSettings={newTaskClineSettings}
 					onClineSettingsChange={setNewTaskClineSettings}
+					taskLaunchSettings={newTaskLaunchSettings}
+					onTaskLaunchSettingsChange={setNewTaskLaunchSettings}
 					defaultAgentId={runtimeProjectConfig?.selectedAgentId ?? null}
 					defaultProviderId={defaultTaskClineProviderId}
 					defaultModelId={runtimeProjectConfig?.clineProviderSettings?.modelId ?? null}

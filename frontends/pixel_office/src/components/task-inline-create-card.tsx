@@ -6,10 +6,16 @@ import { useHotkeys } from "react-hotkeys-hook";
 
 import { BranchSelectDropdown, type BranchSelectOption } from "@/components/branch-select-dropdown";
 import { TaskAgentModelPicker, useTaskAgentModelPicker } from "@/components/task-agent-model-picker";
+import { TaskLaunchSettingsPicker } from "@/components/task-launch-settings";
 import { TaskPromptComposer } from "@/components/task-prompt-composer";
 import { Button } from "@/components/ui/button";
 import { NativeSelect } from "@/components/ui/native-select";
-import type { RuntimeAgentId, RuntimeClineReasoningEffort, RuntimeTaskClineSettings } from "@/runtime/types";
+import type {
+	RuntimeAgentId,
+	RuntimeClineReasoningEffort,
+	RuntimeTaskClineSettings,
+	RuntimeTaskLaunchSettings,
+} from "@/runtime/types";
 import type { TaskAutoReviewMode, TaskImage } from "@/types";
 import { pasteShortcutLabel } from "@/utils/platform";
 import { useDocumentEvent, useMeasure } from "@/utils/react-use";
@@ -71,6 +77,8 @@ export function TaskInlineCreateCard({
 	onAgentIdChange,
 	clineSettings,
 	onClineSettingsChange,
+	taskLaunchSettings,
+	onTaskLaunchSettingsChange,
 	defaultAgentId,
 	defaultProviderId,
 	defaultModelId,
@@ -103,6 +111,8 @@ export function TaskInlineCreateCard({
 	onAgentIdChange?: (value: RuntimeAgentId | undefined) => void;
 	clineSettings?: RuntimeTaskClineSettings | undefined;
 	onClineSettingsChange?: (value: RuntimeTaskClineSettings | undefined) => void;
+	taskLaunchSettings?: RuntimeTaskLaunchSettings | undefined;
+	onTaskLaunchSettingsChange?: (value: RuntimeTaskLaunchSettings | undefined) => void;
 	/** Default agent ID from runtimeConfig.selectedAgentId, used to show "Default (AgentName)" in picker */
 	defaultAgentId?: RuntimeAgentId | null;
 	/** Default Cline provider ID from runtimeConfig.clineProviderSettings.providerId */
@@ -326,6 +336,15 @@ export function TaskInlineCreateCard({
 						defaultReasoningEffort={defaultReasoningEffort}
 						providerDefaultModels={providerDefaultModels}
 						onPopoverOpenChange={setIsModelPickerPopoverOpen}
+					/>
+				) : null}
+				{onTaskLaunchSettingsChange ? (
+					<TaskLaunchSettingsPicker
+						active
+						agentId={agentId}
+						defaultAgentId={defaultAgentId}
+						value={taskLaunchSettings}
+						onChange={onTaskLaunchSettingsChange}
 					/>
 				) : null}
 			</div>

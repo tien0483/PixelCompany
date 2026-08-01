@@ -18,12 +18,14 @@ import { ResizeHandle } from "@/resize/resize-handle";
 import { useCardDetailLayout } from "@/resize/use-card-detail-layout";
 import { useResizeDrag } from "@/resize/use-resize-drag";
 import { isNativeClineAgentSelected } from "@/runtime/native-agent";
-import { TaskAccountPicker } from "@/jacked/task-account-picker";
+import { TaskLaunchSettingsPicker } from "@/components/task-launch-settings";
+import { TaskAccountPicker, filterManagerAccountsForAgent } from "@/manager/task-account-picker";
 import type {
 	RuntimeAgentId,
 	RuntimeClineReasoningEffort,
 	RuntimeConfigResponse,
-	RuntimeJackedAccount,
+	RuntimeManagerAccount,
+	RuntimeTaskLaunchSettings,
 	RuntimeTaskSessionMode,
 	RuntimeTaskSessionSummary,
 	RuntimeWorkspaceChangesMode,
@@ -368,9 +370,10 @@ export function CardDetailView({
 	isDocumentVisible = true,
 	onClineSettingsSaved,
 	onTaskClineSettingsChanged,
-	jackedAccounts,
-	jackedActiveAccountId = null,
-	onTaskJackedAccountChanged,
+	managerAccounts,
+	managerActiveAccountId = null,
+	onTaskManagerAccountChanged,
+	onTaskLaunchSettingsChanged,
 	onTaskAutoResumeOnUsageLimitChanged,
 }: {
 	selection: CardSelection;
@@ -439,10 +442,11 @@ export function CardDetailView({
 		reasoningEffort: RuntimeClineReasoningEffort | "";
 	}) => void;
 	/** Claude accounts jacked knows about; enables per-task account pinning when non-empty. */
-	jackedAccounts?: RuntimeJackedAccount[];
+	managerAccounts?: RuntimeManagerAccount[];
 	/** Account jacked currently has active, used to label the Auto option. */
-	jackedActiveAccountId?: number | null;
-	onTaskJackedAccountChanged?: (taskId: string, jackedAccountId: number | null) => void;
+	managerActiveAccountId?: number | null;
+	onTaskManagerAccountChanged?: (taskId: string, managerAccountId: number | null) => void;
+	onTaskLaunchSettingsChanged?: (taskId: string, settings: RuntimeTaskLaunchSettings | null) => void;
 	onTaskAutoResumeOnUsageLimitChanged?: (taskId: string, enabled: boolean) => void;
 }): React.ReactElement {
 	const isMobile = useIsMobile();
@@ -525,6 +529,33 @@ export function CardDetailView({
 	const showMoveToTrashActions = selection.column.id === "review" || selection.column.id === "in_progress";
 	const isTaskTerminalEnabled = selection.column.id === "in_progress" || selection.column.id === "review";
 	const effectiveTaskAgentId = sessionSummary?.agentId ?? selection.card.agentId ?? selectedAgentId;
+	const taskManagerAccounts = useMemo(
+		() =>
+			filterManagerAccountsForAgent(managerAccounts ?? [], effectiveTaskAgentId, {
+				kanbanEligibleOnly: true,
+			}),
+		[effectiveTaskAgentId, managerAccounts],
+	);
+	// Clear a pin that belongs to the other provider (e.g. Claude seat left on a
+	// Cursor task after an agent switch) so Auto can resolve the right fleet.
+	useEffect(() => {
+		if (!onTaskManagerAccountChanged) {
+			return;
+		}
+		const pinnedId = selection.card.managerAccountId;
+		if (typeof pinnedId !== "number") {
+			return;
+		}
+		if (taskManagerAccounts.some((account) => account.id === pinnedId)) {
+			return;
+		}
+		onTaskManagerAccountChanged(selection.card.id, null);
+	}, [
+		onTaskManagerAccountChanged,
+		selection.card.id,
+		selection.card.managerAccountId,
+		taskManagerAccounts,
+	]);
 	const showClineAgentChatPanel = isNativeClineAgentSelected(effectiveTaskAgentId);
 	const availablePaths = useMemo(() => {
 		if (!runtimeFiles || runtimeFiles.length === 0) {
@@ -852,24 +883,26 @@ export function CardDetailView({
 					<div className="flex min-h-0 flex-1 overflow-hidden">{gitHistoryPanel}</div>
 				) : (
 					<>
-						{onTaskJackedAccountChanged && (jackedAccounts?.length ?? 0) > 0 ? (
+						{onTaskManagerAccountChanged && taskManagerAccounts.length > 0 ? (
 							<div
 								data-testid="task-account-pin-strip"
 								className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border bg-surface-1 px-2 py-1"
 							>
 								<TaskAccountPicker
-									accounts={jackedAccounts ?? []}
-									value={selection.card.jackedAccountId}
-									activeAccountId={jackedActiveAccountId}
-									onChange={(jackedAccountId) => {
-										onTaskJackedAccountChanged(selection.card.id, jackedAccountId);
+									accounts={taskManagerAccounts}
+									value={selection.card.managerAccountId}
+									activeAccountId={managerActiveAccountId}
+									agentId={effectiveTaskAgentId}
+									onChange={(managerAccountId) => {
+										onTaskManagerAccountChanged(selection.card.id, managerAccountId);
 									}}
 								/>
-								{/* A running session keeps the account it started on until it is restarted. */}
-								{typeof sessionSummary?.jackedAccountId === "number" &&
-								sessionSummary.jackedAccountId !== selection.card.jackedAccountId ? (
+								{/* Only warn when the card has an explicit pin that differs from the running session. */}
+								{typeof sessionSummary?.managerAccountId === "number" &&
+								typeof selection.card.managerAccountId === "number" &&
+								sessionSummary.managerAccountId !== selection.card.managerAccountId ? (
 									<span className="text-[10px] text-text-tertiary">
-										running on account {sessionSummary.jackedAccountId} — restart to apply
+										running on account {sessionSummary.managerAccountId} — restart to apply
 									</span>
 								) : null}
 							</div>
@@ -890,6 +923,25 @@ export function CardDetailView({
 									/>
 									Auto-resume on usage limit
 								</label>
+							</div>
+						) : null}
+						{onTaskLaunchSettingsChanged ? (
+							<div
+								data-testid="task-launch-settings-strip"
+								className="shrink-0 border-b border-border bg-surface-1 px-2 py-2"
+							>
+								<TaskLaunchSettingsPicker
+									active
+									agentId={selection.card.agentId}
+									defaultAgentId={selectedAgentId}
+									value={selection.card.taskLaunchSettings}
+									sessionAppliesOnRestart={
+										sessionSummary?.state === "running" || sessionSummary?.state === "awaiting_review"
+									}
+									onChange={(next) => {
+										onTaskLaunchSettingsChanged(selection.card.id, next ?? null);
+									}}
+								/>
 							</div>
 						) : null}
 						<div ref={mainRowRef} className="flex min-h-0 flex-1 overflow-hidden">

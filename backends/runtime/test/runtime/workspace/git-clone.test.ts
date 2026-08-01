@@ -75,40 +75,44 @@ describe("deriveRepoNameFromUrl", () => {
 });
 
 describe("validateCloneDestination", () => {
-	const serverCwd = "/home/user/workspace";
+	const serverCwd = resolve("/home/user/workspace");
 
 	it("accepts a path within the CWD", () => {
-		expect(validateCloneDestination("/home/user/workspace/my-repo", serverCwd)).toBe("/home/user/workspace/my-repo");
+		const destination = resolve(serverCwd, "my-repo");
+		expect(validateCloneDestination(destination, serverCwd)).toBe(destination);
 	});
 
 	it("accepts a deeply nested path within the CWD", () => {
-		expect(validateCloneDestination("/home/user/workspace/a/b/c", serverCwd)).toBe("/home/user/workspace/a/b/c");
+		const destination = resolve(serverCwd, "a", "b", "c");
+		expect(validateCloneDestination(destination, serverCwd)).toBe(destination);
 	});
 
 	it("accepts the CWD itself", () => {
-		expect(validateCloneDestination("/home/user/workspace", serverCwd)).toBe("/home/user/workspace");
+		expect(validateCloneDestination(serverCwd, serverCwd)).toBe(serverCwd);
 	});
 
 	it("rejects a path outside the CWD", () => {
-		expect(() => validateCloneDestination("/home/user/other", serverCwd)).toThrow(
+		expect(() => validateCloneDestination(resolve("/home/user/other"), serverCwd)).toThrow(
 			"outside the server working directory",
 		);
 	});
 
 	it("rejects a parent traversal that escapes CWD", () => {
-		expect(() => validateCloneDestination("/home/user/workspace/../other", serverCwd)).toThrow(
+		expect(() => validateCloneDestination(resolve(serverCwd, "..", "other"), serverCwd)).toThrow(
 			"outside the server working directory",
 		);
 	});
 
 	it("rejects a sibling directory with similar prefix", () => {
-		expect(() => validateCloneDestination("/home/user/workspace-other/repo", serverCwd)).toThrow(
+		expect(() => validateCloneDestination(resolve("/home/user/workspace-other/repo"), serverCwd)).toThrow(
 			"outside the server working directory",
 		);
 	});
 
 	it("rejects absolute path to root", () => {
-		expect(() => validateCloneDestination("/tmp/repo", serverCwd)).toThrow("outside the server working directory");
+		expect(() => validateCloneDestination(resolve("/tmp/repo"), serverCwd)).toThrow(
+			"outside the server working directory",
+		);
 	});
 });
 
@@ -201,7 +205,8 @@ describe("cloneGitRepository", () => {
 	});
 
 	it("returns error when destination is outside CWD", async () => {
-		const result = await cloneGitRepository("https://github.com/user/my-repo.git", testCwd, "/tmp/outside-repo");
+		const outsidePath = resolve("/tmp/outside-repo");
+		const result = await cloneGitRepository("https://github.com/user/my-repo.git", testCwd, outsidePath);
 
 		expect(result.ok).toBe(false);
 		expect(result.error).toContain("outside the server working directory");
@@ -209,12 +214,17 @@ describe("cloneGitRepository", () => {
 	});
 
 	it("allows destination outside CWD when allowedRootPath is broader", async () => {
-		const outsidePath = "/tmp/outside-repo";
+		const outsidePath = resolve("/tmp/outside-repo");
 		fsMocks.access.mockRejectedValueOnce(new Error("ENOENT"));
 		fsMocks.mkdir.mockResolvedValueOnce(undefined);
 		childProcessMocks.execFilePromise.mockResolvedValueOnce({ stdout: "", stderr: "" });
 
-		const result = await cloneGitRepository("https://github.com/user/my-repo.git", testCwd, outsidePath, "/");
+		const result = await cloneGitRepository(
+			"https://github.com/user/my-repo.git",
+			testCwd,
+			outsidePath,
+			resolve("/"),
+		);
 
 		expect(result.ok).toBe(true);
 		expect(result.clonedPath).toBe(outsidePath);

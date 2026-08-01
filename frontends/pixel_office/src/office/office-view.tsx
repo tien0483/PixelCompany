@@ -3,25 +3,25 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
-import type { RuntimeJackedState, RuntimeTaskSessionSummary } from "@/runtime/types";
+import type { RuntimeManagerState, RuntimeTaskSessionSummary } from "@/runtime/types";
 import type { BoardData } from "@/types";
 import { loadOfficeAssets } from "./assets/load-office-assets.js";
 import { OfficeCanvas } from "./components/OfficeCanvas.js";
 import { ZOOM_DEFAULT_DPR_FACTOR, ZOOM_MAX, ZOOM_MIN } from "./constants.js";
 import { EditorState } from "./editor/editorState.js";
 import { OfficeState } from "./engine/officeState.js";
-import { OfficeAtmosphere } from "./jacked/office-atmosphere.js";
-import { deriveOfficeJackedSemantics } from "./jacked/office-jacked-semantics.js";
-import { OfficeMeterWall } from "./jacked/office-meter-wall.js";
-import { reconcileReviewerNpcs } from "./jacked/reconcile-reviewer-npcs.js";
+import { OfficeAtmosphere } from "./manager/office-atmosphere.js";
+import { deriveOfficeManagerSemantics } from "./manager/office-manager-semantics.js";
+import { OfficeMeterWall } from "./manager/office-meter-wall.js";
+import { reconcileReviewerNpcs } from "./manager/reconcile-reviewer-npcs.js";
 import { useOfficeSync } from "./use-office-sync.js";
 
 interface OfficeViewProps {
 	board: BoardData;
 	sessions: Record<string, RuntimeTaskSessionSummary>;
 	workspaceId: string | null;
-	/** claude-jacked vitality data, or null when the companion process is not running. */
-	jacked: RuntimeJackedState;
+	/** Manager vitality data, or null when the companion process is not running. */
+	manager: RuntimeManagerState;
 	/** Opens the task's detail view, the same target a board card click has. */
 	onSelectTask: (taskId: string) => void;
 	/** The intake desk: opens Kanban's normal task creation dialog. */
@@ -41,7 +41,7 @@ export function OfficeView({
 	board,
 	sessions,
 	workspaceId,
-	jacked,
+	manager,
 	onSelectTask,
 	onCreateTask,
 }: OfficeViewProps): ReactElement {
@@ -54,9 +54,9 @@ export function OfficeView({
 	const panRef = useRef({ x: 0, y: 0 });
 	const editorState = useMemo(() => new EditorState(), []);
 	const { resolveTaskId, handleSeatsPersist } = useOfficeSync({ officeState, board, sessions, workspaceId });
-	const semantics = useMemo(() => deriveOfficeJackedSemantics(jacked), [jacked]);
-	const jackedStale = jacked?.stale === true;
-	const jackedReachable = jacked !== null && !jackedStale;
+	const semantics = useMemo(() => deriveOfficeManagerSemantics(manager), [manager]);
+	const managerStale = manager?.stale === true;
+	const managerReachable = manager !== null && !managerStale;
 	const lastSwapAtRef = useRef<number | null>(null);
 	const reviewerNpcIdsRef = useRef<Set<number>>(new Set());
 
@@ -102,7 +102,7 @@ export function OfficeView({
 		}
 	}, [officeState, semantics.latestSwap]);
 
-	// Reviewer NPCs from jacked agent features.
+	// Reviewer NPCs from Manager agent features.
 	useEffect(() => {
 		if (!officeState) {
 			return;
@@ -191,13 +191,13 @@ export function OfficeView({
 					showAreas={false}
 					activeAreaLabel={null}
 				/>
-				<OfficeAtmosphere jacked={jacked} />
+				<OfficeAtmosphere manager={manager} />
 				<div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex items-start justify-between gap-2 p-3">
 					<div className="pointer-events-auto min-w-0 flex-1">
 						<OfficeMeterWall
 							semantics={semantics}
-							jackedOnline={jackedReachable}
-							jackedStale={jackedStale}
+							managerOnline={managerReachable}
+							managerStale={managerStale}
 						/>
 					</div>
 				</div>

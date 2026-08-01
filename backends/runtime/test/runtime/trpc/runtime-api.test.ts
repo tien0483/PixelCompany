@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { RuntimeConfigState } from "../../../src/config/runtime-config";
@@ -256,8 +256,10 @@ describe("createRuntimeApi startTaskSession", () => {
 	let mcpOauthSettingsPath = "";
 
 	beforeEach(() => {
-		mcpSettingsPath = `/tmp/kanban-mcp-settings-${Date.now()}-${Math.random().toString(16).slice(2)}.json`;
-		mcpOauthSettingsPath = `/tmp/kanban-mcp-oauth-settings-${Date.now()}-${Math.random().toString(16).slice(2)}.json`;
+		mcpSettingsPath = resolve(`/tmp/kanban-mcp-settings-${Date.now()}-${Math.random().toString(16).slice(2)}.json`);
+		mcpOauthSettingsPath = resolve(
+			`/tmp/kanban-mcp-oauth-settings-${Date.now()}-${Math.random().toString(16).slice(2)}.json`,
+		);
 		process.env.CLINE_MCP_SETTINGS_PATH = mcpSettingsPath;
 		process.env.CLINE_MCP_OAUTH_SETTINGS_PATH = mcpOauthSettingsPath;
 		agentRegistryMocks.resolveAgentCommand.mockReset();
@@ -454,6 +456,56 @@ describe("createRuntimeApi startTaskSession", () => {
 		expect(terminalManager.startTaskSession).toHaveBeenCalledWith(
 			expect.objectContaining({
 				cwd: "/tmp/existing-worktree",
+			}),
+		);
+	});
+
+	it("forwards taskLaunchSettings to the terminal session manager", async () => {
+		taskWorktreeMocks.resolveTaskCwd.mockResolvedValue("/tmp/existing-worktree");
+
+		const terminalManager = {
+			startTaskSession: vi.fn(async () => createSummary()),
+			applyTurnCheckpoint: vi.fn(),
+		};
+		const clineTaskSessionService = createClineTaskSessionServiceMock();
+		const api = createTestRuntimeApi({
+			getActiveWorkspaceId: vi.fn(() => "workspace-1"),
+			loadScopedRuntimeConfig: vi.fn(async () => createRuntimeConfigState()),
+			setActiveRuntimeConfig: vi.fn(),
+			getScopedTerminalManager: vi.fn(async () => terminalManager as never),
+			getScopedClineTaskSessionService: vi.fn(async () => clineTaskSessionService as never),
+			resolveInteractiveShellCommand: vi.fn(),
+			runCommand: vi.fn(),
+		});
+
+		const response = await api.startTaskSession(
+			{
+				workspaceId: "workspace-1",
+				workspacePath: "/tmp/repo",
+			},
+			{
+				taskId: "task-1",
+				baseRef: "main",
+				prompt: "Use tagged launch settings",
+				agentId: "claude",
+				taskLaunchSettings: {
+					modelId: "opus",
+					effort: "high",
+					skillIds: ["review"],
+					mcpServerIds: ["filesystem"],
+				},
+			},
+		);
+
+		expect(response.ok).toBe(true);
+		expect(terminalManager.startTaskSession).toHaveBeenCalledWith(
+			expect.objectContaining({
+				taskLaunchSettings: {
+					modelId: "opus",
+					effort: "high",
+					skillIds: ["review"],
+					mcpServerIds: ["filesystem"],
+				},
 			}),
 		);
 	});
@@ -2632,8 +2684,10 @@ describe("createRuntimeApi startTaskSession", () => {
 
 	it("runs reset teardown before deleting debug state paths", async () => {
 		const originalHome = process.env.HOME;
-		const tempHome = `/tmp/kanban-reset-home-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+		const originalUserProfile = process.env.USERPROFILE;
+		const tempHome = resolve(`/tmp/kanban-reset-home-${Date.now()}-${Math.random().toString(16).slice(2)}`);
 		process.env.HOME = tempHome;
+		process.env.USERPROFILE = tempHome;
 		mkdirSync(tempHome, { recursive: true });
 		const debugPaths = [
 			join(tempHome, ".cline", "data"),
@@ -2673,6 +2727,11 @@ describe("createRuntimeApi startTaskSession", () => {
 				delete process.env.HOME;
 			} else {
 				process.env.HOME = originalHome;
+			}
+			if (originalUserProfile === undefined) {
+				delete process.env.USERPROFILE;
+			} else {
+				process.env.USERPROFILE = originalUserProfile;
 			}
 			rmSync(tempHome, { recursive: true, force: true });
 		}
@@ -2717,6 +2776,190 @@ describe("createRuntimeApi startTaskSession", () => {
 				process.env.HOME = originalHome;
 			}
 			rmSync(tempHome, { recursive: true, force: true });
+		}
+	});
+
+	it("injects CURSOR_API_KEY when starting a pinned Cursor task", async () => {
+		taskWorktreeMocks.resolveTaskCwd.mockResolvedValue("/tmp/cursor-worktree");
+		agentRegistryMocks.resolveAgentCommand.mockReturnValue({
+			agentId: "cursor",
+			label: "Cursor Agent",
+			command: "agent",
+			binary: "agent",
+			args: [],
+		});
+
+		const terminalManager = {
+			startTaskSession: vi.fn(async () => createSummary({ agentId: "cursor" })),
+			applyTurnCheckpoint: vi.fn(),
+		};
+
+		const api = createTestRuntimeApi({
+			getActiveWorkspaceId: vi.fn(() => "workspace-1"),
+			loadScopedRuntimeConfig: vi.fn(async () => {
+				const runtimeConfigState = createRuntimeConfigState();
+				runtimeConfigState.selectedAgentId = "cursor";
+				return runtimeConfigState;
+			}),
+			setActiveRuntimeConfig: vi.fn(),
+			getScopedTerminalManager: vi.fn(async () => terminalManager as never),
+			getScopedClineTaskSessionService: vi.fn(async () => createClineTaskSessionServiceMock() as never),
+			resolveInteractiveShellCommand: vi.fn(),
+			runCommand: vi.fn(),
+			getManagerAccountLaunchCredential: vi.fn(async () => ({ apiKey: "cursor-pinned-key" })),
+			getManagerAccountProvider: vi.fn(async () => "cursor" as const),
+		});
+
+		const response = await api.startTaskSession(
+			{
+				workspaceId: "workspace-1",
+				workspacePath: "/tmp/repo",
+			},
+			{
+				taskId: "task-cursor",
+				baseRef: "main",
+				prompt: "Run cursor agent",
+				managerAccountId: 11,
+			},
+		);
+
+		expect(response.ok).toBe(true);
+		expect(response.warning).toBeUndefined();
+		expect(terminalManager.startTaskSession).toHaveBeenCalledWith(
+			expect.objectContaining({
+				agentId: "cursor",
+				managerAccountId: 11,
+				env: { CURSOR_API_KEY: "cursor-pinned-key" },
+			}),
+		);
+	});
+
+	it("returns a pin warning when Cursor credentials fail but process env has a fallback key", async () => {
+		const originalCursorApiKey = process.env.CURSOR_API_KEY;
+		process.env.CURSOR_API_KEY = "process-fallback-key";
+
+		taskWorktreeMocks.resolveTaskCwd.mockResolvedValue("/tmp/cursor-worktree");
+		agentRegistryMocks.resolveAgentCommand.mockReturnValue({
+			agentId: "cursor",
+			label: "Cursor Agent",
+			command: "agent",
+			binary: "agent",
+			args: [],
+		});
+
+		const terminalManager = {
+			startTaskSession: vi.fn(async () => createSummary({ agentId: "cursor" })),
+			applyTurnCheckpoint: vi.fn(),
+		};
+
+		const api = createTestRuntimeApi({
+			getActiveWorkspaceId: vi.fn(() => "workspace-1"),
+			loadScopedRuntimeConfig: vi.fn(async () => {
+				const runtimeConfigState = createRuntimeConfigState();
+				runtimeConfigState.selectedAgentId = "cursor";
+				return runtimeConfigState;
+			}),
+			setActiveRuntimeConfig: vi.fn(),
+			getScopedTerminalManager: vi.fn(async () => terminalManager as never),
+			getScopedClineTaskSessionService: vi.fn(async () => createClineTaskSessionServiceMock() as never),
+			resolveInteractiveShellCommand: vi.fn(),
+			runCommand: vi.fn(),
+			getManagerAccountLaunchCredential: vi.fn(async () => null),
+			getManagerAccountProvider: vi.fn(async () => "cursor" as const),
+		});
+
+		try {
+			const response = await api.startTaskSession(
+				{
+					workspaceId: "workspace-1",
+					workspacePath: "/tmp/repo",
+				},
+				{
+					taskId: "task-cursor-fallback",
+					baseRef: "main",
+					prompt: "Run cursor agent",
+					managerAccountId: 11,
+				},
+			);
+
+			expect(response.ok).toBe(true);
+			expect(response.warning).toContain("using the active credential");
+			expect(terminalManager.startTaskSession).toHaveBeenCalledWith(
+				expect.objectContaining({
+					agentId: "cursor",
+				}),
+			);
+			expect(terminalManager.startTaskSession).toHaveBeenCalledWith(
+				expect.not.objectContaining({
+					env: expect.anything(),
+				}),
+			);
+		} finally {
+			restoreEnvVar("CURSOR_API_KEY", originalCursorApiKey);
+		}
+	});
+
+	it("starts unpinned Cursor tasks without CURSOR_API_KEY so agent CLI login applies", async () => {
+		const originalCursorApiKey = process.env.CURSOR_API_KEY;
+		delete process.env.CURSOR_API_KEY;
+
+		taskWorktreeMocks.resolveTaskCwd.mockResolvedValue("/tmp/cursor-worktree");
+		agentRegistryMocks.resolveAgentCommand.mockReturnValue({
+			agentId: "cursor",
+			label: "Cursor Agent",
+			command: "agent",
+			binary: "agent",
+			args: [],
+		});
+
+		const terminalManager = {
+			startTaskSession: vi.fn(async () => createSummary({ agentId: "cursor" })),
+			applyTurnCheckpoint: vi.fn(),
+		};
+
+		const api = createTestRuntimeApi({
+			getActiveWorkspaceId: vi.fn(() => "workspace-1"),
+			loadScopedRuntimeConfig: vi.fn(async () => {
+				const runtimeConfigState = createRuntimeConfigState();
+				runtimeConfigState.selectedAgentId = "cursor";
+				return runtimeConfigState;
+			}),
+			setActiveRuntimeConfig: vi.fn(),
+			getScopedTerminalManager: vi.fn(async () => terminalManager as never),
+			getScopedClineTaskSessionService: vi.fn(async () => createClineTaskSessionServiceMock() as never),
+			resolveInteractiveShellCommand: vi.fn(),
+			runCommand: vi.fn(),
+			getManagerAccountLaunchCredential: vi.fn(async () => null),
+			getManagerAccountProvider: vi.fn(async () => "cursor" as const),
+			resolveDefaultCursormanagerAccountId: vi.fn(async () => 99),
+		});
+
+		try {
+			const response = await api.startTaskSession(
+				{
+					workspaceId: "workspace-1",
+					workspacePath: "/tmp/repo",
+				},
+				{
+					taskId: "task-cursor-cli-login",
+					baseRef: "main",
+					prompt: "Run cursor agent",
+				},
+			);
+
+			expect(response.ok).toBe(true);
+			expect(terminalManager.startTaskSession).toHaveBeenCalledWith(
+				expect.objectContaining({
+					agentId: "cursor",
+				}),
+			);
+			expect(terminalManager.startTaskSession).toHaveBeenCalledWith(
+				expect.not.objectContaining({
+					env: expect.anything(),
+				}),
+			);
+		} finally {
+			restoreEnvVar("CURSOR_API_KEY", originalCursorApiKey);
 		}
 	});
 });

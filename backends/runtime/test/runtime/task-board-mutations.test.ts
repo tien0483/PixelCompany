@@ -61,6 +61,77 @@ describe("deleteTasksFromBoard", () => {
 	});
 });
 
+describe("taskLaunchSettings", () => {
+	it("persists tags on create and update, and clears with null", () => {
+		const created = addTaskToColumn(
+			createBoard(),
+			"backlog",
+			{
+				prompt: "Tagged task",
+				baseRef: "main",
+				agentId: "claude",
+				taskLaunchSettings: {
+					modelId: "sonnet",
+					effort: "high",
+					skillIds: ["review", "review", ""],
+					mcpServerIds: ["filesystem"],
+				},
+			},
+			() => "aaaaa111",
+		);
+
+		expect(created.task.taskLaunchSettings).toEqual({
+			modelId: "sonnet",
+			effort: "high",
+			skillIds: ["review"],
+			mcpServerIds: ["filesystem"],
+		});
+
+		const updated = updateTask(created.board, "aaaaa", {
+			prompt: "Tagged task",
+			baseRef: "main",
+			taskLaunchSettings: {
+				modelId: "opus",
+				skillIds: ["plan"],
+			},
+		});
+		expect(updated.task?.taskLaunchSettings).toEqual({
+			modelId: "opus",
+			skillIds: ["plan"],
+		});
+
+		const cleared = updateTask(updated.board, "aaaaa", {
+			prompt: "Tagged task",
+			baseRef: "main",
+			taskLaunchSettings: null,
+		});
+		expect(cleared.task?.taskLaunchSettings).toBeUndefined();
+	});
+
+	it("preserves existing tags when update omits taskLaunchSettings", () => {
+		const created = addTaskToColumn(
+			createBoard(),
+			"backlog",
+			{
+				prompt: "Tagged task",
+				baseRef: "main",
+				taskLaunchSettings: { modelId: "sonnet", skillIds: ["review"] },
+			},
+			() => "bbbbb111",
+		);
+
+		const updated = updateTask(created.board, "bbbbb", {
+			prompt: "Tagged task edited",
+			baseRef: "main",
+		});
+
+		expect(updated.task?.taskLaunchSettings).toEqual({
+			modelId: "sonnet",
+			skillIds: ["review"],
+		});
+	});
+});
+
 describe("task images", () => {
 	it("preserves images when creating and updating tasks", () => {
 		const created = addTaskToColumn(
