@@ -8,3 +8,7 @@ graphify-out/
 
 # Build output
 frontends/pixel_office/dist/
+
+# Python
+__pycache__/
+*.pyc
