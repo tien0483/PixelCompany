@@ -37,6 +37,41 @@ export function isCreditLimitError(errorMessage: string | null): boolean {
 	return normalized.includes("402") && (normalized.includes("balance") || normalized.includes("credit"));
 }
 
+/**
+ * Detect a Claude *usage-limit* (5h / 7d session-window) exhaustion from an error/output
+ * string. Distinct from {@link isCreditLimitError}: a usage limit resets on a schedule
+ * (so the task can auto-resume), whereas a credit limit is a balance problem that does not.
+ *
+ * This is a SECONDARY signal — the primary source of truth for "the window is walled" is
+ * jacked's usage snapshot (see the usage-pause classifier). It exists mainly for terminal
+ * (PTY) agents, where the CLI prints a limit notice and exits without a structured code.
+ */
+const USAGE_LIMIT_PATTERNS = [
+	"usage limit reached",
+	"reached your usage limit",
+	"usage limit",
+	"rate limit",
+	"rate_limit",
+	"resets at",
+	"5-hour limit",
+	"5 hour limit",
+	"weekly limit",
+	"try again after",
+	"try again later",
+] as const;
+
+export function isUsageLimitError(errorMessage: string | null): boolean {
+	if (!errorMessage) {
+		return false;
+	}
+	// A credit/balance problem is NOT a resettable usage limit — never misclassify it as one.
+	if (isCreditLimitError(errorMessage)) {
+		return false;
+	}
+	const normalized = errorMessage.toLowerCase();
+	return USAGE_LIMIT_PATTERNS.some((pattern) => normalized.includes(pattern));
+}
+
 const WINDOWS_INVALID_SESSION_ID_CHARS = /[<>:"/\\|?*]/g;
 
 export interface ClineTaskSessionEntry {
@@ -102,6 +137,7 @@ export function createDefaultSummary(taskId: string): RuntimeTaskSessionSummary 
 		lastHookAt: null,
 		latestHookActivity: null,
 		warningMessage: null,
+		resumeAt: null,
 		latestTurnCheckpoint: null,
 		previousTurnCheckpoint: null,
 	};

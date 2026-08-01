@@ -92,6 +92,8 @@ export interface StartTaskSessionRequest {
 	workspaceId?: string;
 	/** Claude account this session is pinned to; recorded on the summary for the UI. */
 	jackedAccountId?: number;
+	/** Card opt-in: a usage-limit exit parks as "usage_paused" and auto-resumes at the reset. */
+	autoResumeOnUsageLimit?: boolean;
 }
 
 export interface StartShellSessionRequest {
@@ -124,6 +126,7 @@ function createDefaultSummary(taskId: string): RuntimeTaskSessionSummary {
 		latestHookActivity: null,
 		warningMessage: null,
 		jackedAccountId: null,
+		resumeAt: null,
 		latestTurnCheckpoint: null,
 		previousTurnCheckpoint: null,
 	};
@@ -268,6 +271,36 @@ export class TerminalSessionManager implements TerminalSessionService {
 
 	listSummaries(): RuntimeTaskSessionSummary[] {
 		return Array.from(this.entries.values()).map((entry) => cloneSummary(entry.summary));
+	}
+
+	/**
+	 * Park a task that hit the Claude usage limit as "usage_paused" with the epoch-ms reset it
+	 * should auto-resume at. Called by the usage-resume scheduler after it classifies an
+	 * awaiting_review/error exit as usage-caused; the scheduler relaunches (--continue) at
+	 * resumeAt. No-op when the task is unknown, still has a live process, or is already parked
+	 * at the same resumeAt (keeps the poll idempotent). Returns the updated summary, or null.
+	 */
+	markUsagePaused(taskId: string, resumeAt: number): RuntimeTaskSessionSummary | null {
+		const entry = this.entries.get(taskId);
+		if (!entry || entry.active) {
+			return null;
+		}
+		if (
+			entry.summary.state === "awaiting_review" &&
+			entry.summary.reviewReason === "usage_paused" &&
+			entry.summary.resumeAt === resumeAt
+		) {
+			return null;
+		}
+		// A usage pause is a deliberate wait, not a crash — never let the flap throttle relaunch it.
+		entry.suppressAutoRestartOnExit = true;
+		const summary = updateSummary(entry, {
+			state: "awaiting_review",
+			reviewReason: "usage_paused",
+			resumeAt,
+		});
+		this.emitSummary(summary);
+		return cloneSummary(summary);
 	}
 
 	attach(taskId: string, listener: TerminalSessionListener): (() => void) | null {
@@ -501,6 +534,7 @@ export class TerminalSessionManager implements TerminalSessionService {
 				lastHookAt: null,
 				latestHookActivity: null,
 				jackedAccountId: request.jackedAccountId ?? null,
+				resumeAt: null,
 				latestTurnCheckpoint: null,
 				previousTurnCheckpoint: null,
 			});
@@ -547,6 +581,8 @@ export class TerminalSessionManager implements TerminalSessionService {
 			latestHookActivity: null,
 			warningMessage: null,
 			jackedAccountId: request.jackedAccountId ?? null,
+			autoResumeOnUsageLimit: request.autoResumeOnUsageLimit ?? false,
+			resumeAt: null,
 			latestTurnCheckpoint: null,
 			previousTurnCheckpoint: null,
 		});

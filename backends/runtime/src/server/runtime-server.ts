@@ -13,6 +13,7 @@ import { createClineWatcherRegistry } from "../cline-sdk/cline-watcher-registry"
 import type {
 	RuntimeCommandRunResponse,
 	RuntimeRunUpdateResponse,
+	RuntimeTaskSessionSummary,
 	RuntimeUpdateStatusResponse,
 	RuntimeWorkspaceStateResponse,
 } from "../core/api-contract";
@@ -27,6 +28,11 @@ import {
 import type { JackedClient } from "../jacked/jacked-client";
 import type { JackedMonitor } from "../jacked/jacked-monitor";
 import {
+	createUsageResumeScheduler,
+	isUsageResumeCandidate,
+	type PausableSession,
+} from "../jacked/usage-resume-scheduler";
+import {
 	checkRateLimit,
 	clearRateLimit,
 	extractBearerToken,
@@ -38,7 +44,7 @@ import {
 	validatePasscode,
 	validateSession,
 } from "../security/passcode-manager";
-import { loadWorkspaceContextById } from "../state/workspace-state";
+import { loadWorkspaceContextById, loadWorkspaceState } from "../state/workspace-state";
 import type { TerminalSessionManager } from "../terminal/session-manager";
 import { createTerminalWebSocketBridge } from "../terminal/ws-server";
 import { type RuntimeTrpcContext, type RuntimeTrpcWorkspaceScope, runtimeAppRouter } from "../trpc/app-router";
@@ -202,32 +208,101 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 		monitor: deps.jacked.monitor,
 	});
 
+	const runtimeApiDeps: Parameters<typeof createRuntimeApi>[0] = {
+		getActiveWorkspaceId: deps.workspaceRegistry.getActiveWorkspaceId,
+		getActiveRuntimeConfig: deps.workspaceRegistry.getActiveRuntimeConfig,
+		loadScopedRuntimeConfig: deps.workspaceRegistry.loadScopedRuntimeConfig,
+		setActiveRuntimeConfig: deps.workspaceRegistry.setActiveRuntimeConfig,
+		getScopedTerminalManager,
+		getScopedClineTaskSessionService,
+		// Lets a board task pin itself to one Claude account. Goes through the
+		// jacked API so the Claude-only guard applies, and resolves to null
+		// (unpinned, global credential) whenever jacked is unreachable.
+		getJackedAccountLaunchDir: async (accountId) => await jackedApi.getAccountLaunchDir({ accountId }),
+		resolveInteractiveShellCommand: deps.resolveInteractiveShellCommand,
+		runCommand: deps.runCommand,
+		broadcastClineMcpAuthStatusesUpdated: deps.runtimeStateHub.broadcastClineMcpAuthStatusesUpdated,
+		broadcastTaskChatCleared: deps.runtimeStateHub.broadcastTaskChatCleared,
+		bumpClineSessionContextVersion: deps.runtimeStateHub.bumpClineSessionContextVersion,
+		prepareForStateReset,
+		getUpdateStatus: deps.getUpdateStatus,
+		runUpdateNow: deps.runUpdateNow,
+	};
+
+	// One long-lived runtimeApi instance the usage-resume scheduler uses to relaunch
+	// (--continue) a task whose Claude usage window has reset. Separate from the
+	// per-request instances so it never depends on an inbound HTTP request being in flight.
+	const usageResumeRuntimeApi = createRuntimeApi(runtimeApiDeps);
+
+	const resumeUsagePausedTask = async (scope: RuntimeTrpcWorkspaceScope, taskId: string): Promise<void> => {
+		// The resume needs the card's baseRef (+ its pin/flag so they persist across the relaunch).
+		const workspaceState = await loadWorkspaceState(scope.workspacePath).catch(() => null);
+		const card = workspaceState?.board.columns.flatMap((column) => column.cards).find((c) => c.id === taskId) ?? null;
+		const response = await usageResumeRuntimeApi.startTaskSession(scope, {
+			taskId,
+			prompt: "",
+			baseRef: card?.baseRef ?? "HEAD",
+			resumeFromTrash: true,
+			...(card?.agentId ? { agentId: card.agentId } : {}),
+			...(card?.jackedAccountId ? { jackedAccountId: card.jackedAccountId } : {}),
+			autoResumeOnUsageLimit: card?.autoResumeOnUsageLimit ?? true,
+		});
+		if (!response.ok) {
+			throw new Error(response.error ?? "usage-resume relaunch failed");
+		}
+	};
+
+	const usageResumeScheduler = createUsageResumeScheduler({
+		now: () => Date.now(),
+		refreshSnapshot: async () => await deps.jacked.monitor.refresh(),
+		log: deps.warn,
+		collectSessions: () => {
+			const out: PausableSession[] = [];
+			const seen = new Set<string>();
+			const addFrom = (
+				scope: RuntimeTrpcWorkspaceScope,
+				summaries: RuntimeTaskSessionSummary[],
+				mark: (taskId: string, resumeAt: number) => void,
+			): void => {
+				for (const summary of summaries) {
+					if (seen.has(summary.taskId) || !isUsageResumeCandidate(summary)) {
+						continue;
+					}
+					seen.add(summary.taskId);
+					out.push({
+						taskId: summary.taskId,
+						summary,
+						markUsagePaused: (resumeAt: number) => mark(summary.taskId, resumeAt),
+						resume: () => resumeUsagePausedTask(scope, summary.taskId),
+					});
+				}
+			};
+			for (const { workspaceId, workspacePath, terminalManager } of deps.workspaceRegistry.listManagedWorkspaces()) {
+				if (!workspacePath) {
+					continue;
+				}
+				const scope: RuntimeTrpcWorkspaceScope = { workspaceId, workspacePath };
+				addFrom(scope, terminalManager.listSummaries(), (taskId, resumeAt) =>
+					terminalManager.markUsagePaused(taskId, resumeAt),
+				);
+				const clineService = clineTaskSessionServiceByWorkspaceId.get(workspaceId);
+				if (clineService) {
+					addFrom(scope, clineService.listSummaries(), (taskId, resumeAt) =>
+						clineService.markUsagePaused(taskId, resumeAt),
+					);
+				}
+			}
+			return out;
+		},
+	});
+
 	const createTrpcContext = async (req: IncomingMessage): Promise<RuntimeTrpcContext> => {
 		const requestUrl = new URL(req.url ?? "/", "http://localhost");
 		const scope = await resolveWorkspaceScopeFromRequest(req, requestUrl);
 		return {
 			requestedWorkspaceId: scope.requestedWorkspaceId,
 			workspaceScope: scope.workspaceScope,
-			runtimeApi: createRuntimeApi({
-				getActiveWorkspaceId: deps.workspaceRegistry.getActiveWorkspaceId,
-				getActiveRuntimeConfig: deps.workspaceRegistry.getActiveRuntimeConfig,
-				loadScopedRuntimeConfig: deps.workspaceRegistry.loadScopedRuntimeConfig,
-				setActiveRuntimeConfig: deps.workspaceRegistry.setActiveRuntimeConfig,
-				getScopedTerminalManager,
-				getScopedClineTaskSessionService,
-				// Lets a board task pin itself to one Claude account. Goes through the
-				// jacked API so the Claude-only guard applies, and resolves to null
-				// (unpinned, global credential) whenever jacked is unreachable.
-				getJackedAccountLaunchDir: async (accountId) => await jackedApi.getAccountLaunchDir({ accountId }),
-				resolveInteractiveShellCommand: deps.resolveInteractiveShellCommand,
-				runCommand: deps.runCommand,
-				broadcastClineMcpAuthStatusesUpdated: deps.runtimeStateHub.broadcastClineMcpAuthStatusesUpdated,
-				broadcastTaskChatCleared: deps.runtimeStateHub.broadcastTaskChatCleared,
-				bumpClineSessionContextVersion: deps.runtimeStateHub.bumpClineSessionContextVersion,
-				prepareForStateReset,
-				getUpdateStatus: deps.getUpdateStatus,
-				runUpdateNow: deps.runUpdateNow,
-			}),
+			runtimeApi: createRuntimeApi(runtimeApiDeps),
 			workspaceApi: createWorkspaceApi({
 				ensureTerminalManagerForWorkspace: deps.ensureTerminalManagerForWorkspace,
 				getScopedClineTaskSessionService,
@@ -530,6 +605,9 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 	if (!address || typeof address === "string") {
 		throw new Error("Failed to start local server.");
 	}
+	// Drive auto-pause/continue for usage-limited tasks. Safe no-op when nothing opts in:
+	// the poll skips jacked entirely on ticks with no candidate sessions.
+	usageResumeScheduler.start();
 	const activeWorkspaceId = deps.workspaceRegistry.getActiveWorkspaceId();
 	const url = activeWorkspaceId
 		? buildKanbanRuntimeUrl(`/${encodeURIComponent(activeWorkspaceId)}`)
@@ -538,6 +616,7 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 	return {
 		url,
 		close: async () => {
+			usageResumeScheduler.stop();
 			await Promise.all(
 				Array.from(clineTaskSessionServiceByWorkspaceId.values()).map(async (service) => {
 					await service.dispose();

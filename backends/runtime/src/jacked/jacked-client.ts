@@ -13,6 +13,7 @@ import type {
 	RuntimeJackedInstallationsOverview,
 	RuntimeJackedOAuthFlowStatus,
 	RuntimeJackedOAuthStartResponse,
+	RuntimeJackedPacing,
 	RuntimeJackedPack,
 	RuntimeJackedPacks,
 	RuntimeJackedProvider,
@@ -157,6 +158,34 @@ function toPressure(percentages: (number | null)[]): number {
 	return Math.min(1, Math.max(0, worst));
 }
 
+/** jacked stores window resets as ISO-8601 strings; the runtime contract wants epoch ms. */
+function parseIsoToEpochMs(source: Record<string, unknown>, key: string): number | null {
+	const value = source[key];
+	if (typeof value !== "string" || value.length === 0) {
+		return null;
+	}
+	const parsed = Date.parse(value);
+	return Number.isFinite(parsed) ? parsed : null;
+}
+
+/** Constrained-window threshold; mirrors jacked usage_pacing's default (compute_best_account_summary). */
+const PACING_CONSTRAINED_THRESHOLD = 90;
+
+/**
+ * Map jacked's `compute_best_account_summary` payload onto the runtime pacing shape.
+ * `allExhausted` is derived: the summary's best-account worst window is the most-headroom
+ * account, so once it is at/above the constrained threshold every eligible seat is walled.
+ */
+export function parsePacing(raw: unknown): RuntimeJackedPacing | null {
+	if (!isRecord(raw)) {
+		return null;
+	}
+	const worstWindowPct = readNumber(raw, "best_account_worst_window_pct");
+	const pauseUntil = parseIsoToEpochMs(raw, "pause_until");
+	const allExhausted = worstWindowPct !== null && worstWindowPct >= PACING_CONSTRAINED_THRESHOLD;
+	return { pauseUntil, worstWindowPct, allExhausted };
+}
+
 function parseAccount(raw: unknown): RuntimeJackedAccount | null {
 	if (!isRecord(raw)) {
 		return null;
@@ -184,6 +213,8 @@ function parseAccount(raw: unknown): RuntimeJackedAccount | null {
 		isActive: readBoolean(raw, "is_active"),
 		fiveHourPercent,
 		sevenDayPercent,
+		fiveHourResetsAt: parseIsoToEpochMs(raw, "cached_5h_resets_at"),
+		sevenDayResetsAt: parseIsoToEpochMs(raw, "cached_7d_resets_at"),
 		pressure: toPressure([fiveHourPercent, sevenDayPercent]),
 		nextRefreshAt: readNumber(raw, "next_refresh_at"),
 		canAutoSwap,
@@ -367,7 +398,7 @@ export function createJackedClient(deps: CreateJackedClientDependencies): Jacked
 		}
 		didWarnUnreachable = false;
 
-		const [accountsRaw, menubarRaw, swapSettingsRaw, featuresRaw, swapLogRaw, lessonsRaw, versionRaw] =
+		const [accountsRaw, menubarRaw, swapSettingsRaw, featuresRaw, swapLogRaw, lessonsRaw, versionRaw, pacingRaw] =
 			await Promise.all([
 				request("/api/auth/accounts"),
 				request("/api/menubar-summary"),
@@ -376,6 +407,7 @@ export function createJackedClient(deps: CreateJackedClientDependencies): Jacked
 				request("/api/settings/swap-log?limit=1"),
 				request("/api/analytics/lessons"),
 				request("/api/version"),
+				request("/api/usage-pacing"),
 			]);
 
 		const accounts: RuntimeJackedAccount[] = [];
@@ -407,6 +439,7 @@ export function createJackedClient(deps: CreateJackedClientDependencies): Jacked
 			pressure: accounts.reduce((worst, account) => Math.max(worst, account.pressure), 0),
 			swapPausedUntil: swapSettings ? readString(swapSettings, "auto_swap_paused_until") : null,
 			autoSwapEnabled: swapSettings ? readBoolean(swapSettings, "auto_swap_enabled") : false,
+			pacing: parsePacing(pacingRaw),
 			features: parseFeatures(featuresRaw),
 			latestSwap: parseLatestSwap(swapLogRaw),
 			lessonsActive: isRecord(lessonsRaw) ? readNumber(lessonsRaw, "active") : null,

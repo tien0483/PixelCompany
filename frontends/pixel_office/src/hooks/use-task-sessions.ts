@@ -169,6 +169,8 @@ export function useTaskSessions({ currentProjectId, setSessions }: UseTaskSessio
 					// Pins this session to one Claude account (own CLAUDE_CONFIG_DIR) so
 					// cards on different accounts can run at the same time.
 					jackedAccountId: task.jackedAccountId,
+					// Opt this task into auto-pause/continue across a Claude usage-limit reset.
+					autoResumeOnUsageLimit: task.autoResumeOnUsageLimit,
 				});
 				if (!payload.ok || !payload.summary) {
 					return {

@@ -74,6 +74,8 @@ export interface StartClineTaskSessionRequest {
 	baseUrl?: string | null;
 	reasoningEffort?: RuntimeClineReasoningEffort | null;
 	systemPrompt?: string | null;
+	/** Card opt-in: a usage-limit exit parks as "usage_paused" and auto-resumes at the reset. */
+	autoResumeOnUsageLimit?: boolean;
 }
 
 export interface ClineTaskSessionService {
@@ -93,6 +95,8 @@ export interface ClineTaskSessionService {
 	clearTaskSession(taskId: string): Promise<RuntimeTaskSessionSummary | null>;
 	rebindPersistedTaskSession(taskId: string): Promise<RuntimeTaskSessionSummary | null>;
 	getSummary(taskId: string): RuntimeTaskSessionSummary | null;
+	/** Park a usage-limit-exhausted task as "usage_paused" with its epoch-ms resume time. */
+	markUsagePaused(taskId: string, resumeAt: number): RuntimeTaskSessionSummary | null;
 	listSummaries(): RuntimeTaskSessionSummary[];
 	listMessages(taskId: string): ClineTaskMessage[];
 	listSlashCommands(workspacePath: string): Promise<ClineSdkSlashCommand[]>;
@@ -370,6 +374,7 @@ export class InMemoryClineTaskSessionService implements ClineTaskSessionService 
 					toolMessageIdByToolCallId: new Map<string, string>(),
 					toolInputByToolCallId: new Map<string, unknown>(),
 				} satisfies ClineTaskSessionEntry);
+		entry.summary.autoResumeOnUsageLimit = request.autoResumeOnUsageLimit ?? false;
 		this.messageRepository.setTaskEntry(request.taskId, entry);
 		this.pendingTurnCancelTaskIds.delete(request.taskId);
 
@@ -761,6 +766,28 @@ export class InMemoryClineTaskSessionService implements ClineTaskSessionService 
 
 	getSummary(taskId: string): RuntimeTaskSessionSummary | null {
 		return this.messageRepository.getSummary(taskId);
+	}
+
+	markUsagePaused(taskId: string, resumeAt: number): RuntimeTaskSessionSummary | null {
+		const entry = this.messageRepository.getTaskEntry(taskId);
+		// Only park a settled task; never yank a running turn out from under itself.
+		if (!entry || entry.summary.state === "running") {
+			return null;
+		}
+		if (
+			entry.summary.state === "awaiting_review" &&
+			entry.summary.reviewReason === "usage_paused" &&
+			entry.summary.resumeAt === resumeAt
+		) {
+			return null;
+		}
+		const summary = updateSummary(entry, {
+			state: "awaiting_review",
+			reviewReason: "usage_paused",
+			resumeAt,
+		});
+		this.emitSummary(summary);
+		return cloneSummary(summary);
 	}
 
 	listSummaries(): RuntimeTaskSessionSummary[] {

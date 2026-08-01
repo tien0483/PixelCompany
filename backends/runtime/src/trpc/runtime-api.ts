@@ -248,6 +248,7 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 						taskTitle: resolvedClineTitle.length > 0 ? resolvedClineTitle : undefined,
 						images: body.images,
 						resumeFromTrash: body.resumeFromTrash,
+						autoResumeOnUsageLimit: body.autoResumeOnUsageLimit ?? false,
 						providerId: clineLaunchConfig.providerId,
 						modelId: clineLaunchConfig.modelId,
 						mode: requestedClineTaskMode,
@@ -312,6 +313,7 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 					cols: body.cols,
 					rows: body.rows,
 					workspaceId: workspaceScope.workspaceId,
+					autoResumeOnUsageLimit: body.autoResumeOnUsageLimit ?? false,
 					...(Object.keys(accountPin.env).length > 0 ? { env: accountPin.env } : {}),
 					...(accountPin.accountId === null ? {} : { jackedAccountId: accountPin.accountId }),
 				});

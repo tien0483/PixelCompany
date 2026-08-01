@@ -141,9 +141,21 @@ function isCardCreditLimitError(summary: RuntimeTaskSessionSummary | undefined):
 	return summary.latestHookActivity?.notificationType === "credit_limit";
 }
 
+/** "Paused · resumes 5:00 PM" for a usage-limit-paused card; bare "Paused" when the reset is unknown. */
+function formatUsagePausedLabel(resumeAt: number | null | undefined): string {
+	if (typeof resumeAt !== "number" || !Number.isFinite(resumeAt)) {
+		return "Paused — waiting for usage reset";
+	}
+	const resetTime = new Date(resumeAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+	return `Paused · resumes ${resetTime}`;
+}
+
 function getCardSessionActivity(summary: RuntimeTaskSessionSummary | undefined): CardSessionActivity | null {
 	if (!summary) {
 		return null;
+	}
+	if (summary.state === "awaiting_review" && summary.reviewReason === "usage_paused") {
+		return { dotColor: SESSION_ACTIVITY_COLOR.waiting, text: formatUsagePausedLabel(summary.resumeAt) };
 	}
 	if (isCardCreditLimitError(summary)) {
 		return { dotColor: SESSION_ACTIVITY_COLOR.warning, text: "Out of credits" };

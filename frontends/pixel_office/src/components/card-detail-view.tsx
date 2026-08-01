@@ -371,6 +371,7 @@ export function CardDetailView({
 	jackedAccounts,
 	jackedActiveAccountId = null,
 	onTaskJackedAccountChanged,
+	onTaskAutoResumeOnUsageLimitChanged,
 }: {
 	selection: CardSelection;
 	currentProjectId: string | null;
@@ -442,6 +443,7 @@ export function CardDetailView({
 	/** Account jacked currently has active, used to label the Auto option. */
 	jackedActiveAccountId?: number | null;
 	onTaskJackedAccountChanged?: (taskId: string, jackedAccountId: number | null) => void;
+	onTaskAutoResumeOnUsageLimitChanged?: (taskId: string, enabled: boolean) => void;
 }): React.ReactElement {
 	const isMobile = useIsMobile();
 	const [mobileTab, setMobileTab] = useState<MobileTab>("chat");
@@ -870,6 +872,24 @@ export function CardDetailView({
 										running on account {sessionSummary.jackedAccountId} — restart to apply
 									</span>
 								) : null}
+							</div>
+						) : null}
+						{onTaskAutoResumeOnUsageLimitChanged ? (
+							<div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border bg-surface-1 px-2 py-1">
+								<label
+									className="flex cursor-pointer items-center gap-1.5 text-[11px] text-text-secondary"
+									title="If this task hits the Claude usage limit, park it and auto-continue once the window resets."
+								>
+									<input
+										type="checkbox"
+										className="accent-accent"
+										checked={selection.card.autoResumeOnUsageLimit === true}
+										onChange={(event) => {
+											onTaskAutoResumeOnUsageLimitChanged(selection.card.id, event.target.checked);
+										}}
+									/>
+									Auto-resume on usage limit
+								</label>
 							</div>
 						) : null}
 						<div ref={mainRowRef} className="flex min-h-0 flex-1 overflow-hidden">

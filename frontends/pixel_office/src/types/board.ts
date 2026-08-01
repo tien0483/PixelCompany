@@ -50,6 +50,11 @@ export interface BoardCard {
 	 * follows jacked's globally active account and its auto-swap rotation.
 	 */
 	jackedAccountId?: number;
+	/**
+	 * When true, a session that hits the Claude usage limit parks as "Paused" and the runtime
+	 * auto-resumes it (--continue) once its window resets, instead of stopping in Review.
+	 */
+	autoResumeOnUsageLimit?: boolean;
 	clineSettings?: RuntimeTaskClineSettings;
 	baseRef: string;
 	createdAt: number;

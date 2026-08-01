@@ -785,6 +785,23 @@ export default function App(): ReactElement {
 		[setBoard],
 	);
 
+	const handleTaskAutoResumeOnUsageLimitChanged = useCallback(
+		(taskId: string, enabled: boolean) => {
+			// Card-level opt-in; the running session reads it at launch, so a live session
+			// keeps its prior setting until restarted (same semantics as the account pin).
+			setBoard((currentBoard) => ({
+				...currentBoard,
+				columns: currentBoard.columns.map((column) => ({
+					...column,
+					cards: column.cards.map((card) =>
+						card.id === taskId ? { ...card, autoResumeOnUsageLimit: enabled } : card,
+					),
+				})),
+			}));
+		},
+		[setBoard],
+	);
+
 	const handleCreateDialogOpenChange = useCallback(
 		(open: boolean) => {
 			if (!open) {
@@ -1141,6 +1158,7 @@ export default function App(): ReactElement {
 									jackedAccounts={claudeJackedAccounts}
 									jackedActiveAccountId={jacked?.activeAccountId ?? null}
 									onTaskJackedAccountChanged={handleTaskJackedAccountChanged}
+								onTaskAutoResumeOnUsageLimitChanged={handleTaskAutoResumeOnUsageLimitChanged}
 								/>
 							</div>
 						) : null}

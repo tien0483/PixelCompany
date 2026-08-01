@@ -150,6 +150,11 @@ export const runtimeBoardCardSchema = z
 		agentId: runtimeAgentIdSchema.optional(),
 		/** Claude account (jacked id) this card's session runs on; unset follows auto-swap. */
 		jackedAccountId: z.number().int().positive().optional(),
+		/**
+		 * When true, a session that hits the Claude usage limit parks as "usage_paused" and the
+		 * runtime auto-resumes it (--continue) once its window resets, instead of stopping in Review.
+		 */
+		autoResumeOnUsageLimit: z.boolean().optional(),
 		clineSettings: runtimeTaskClineSettingsSchema.optional(),
 		clineProviderId: z.string().optional(),
 		clineModelId: z.string().optional(),
@@ -267,7 +272,7 @@ export const runtimeTaskSessionModeSchema = z.enum(["act", "plan"]);
 export type RuntimeTaskSessionMode = z.infer<typeof runtimeTaskSessionModeSchema>;
 
 export const runtimeTaskSessionReviewReasonSchema = z
-	.enum(["attention", "exit", "error", "interrupted", "hook"])
+	.enum(["attention", "exit", "error", "interrupted", "hook", "usage_paused"])
 	.nullable();
 export type RuntimeTaskSessionReviewReason = z.infer<typeof runtimeTaskSessionReviewReasonSchema>;
 
@@ -307,6 +312,14 @@ export const runtimeTaskSessionSummarySchema = z.object({
 	warningMessage: z.string().nullable().optional(),
 	/** Claude account this session was pinned to via CLAUDE_CONFIG_DIR, if any. */
 	jackedAccountId: z.number().int().positive().nullable().optional(),
+	/** Carried from the card: when true, a usage-limit exit parks as "usage_paused" and auto-resumes. */
+	autoResumeOnUsageLimit: z.boolean().optional(),
+	/**
+	 * Epoch ms at which a usage-limit-paused session should auto-resume (its window's reset).
+	 * Set only alongside reviewReason "usage_paused"; the usage-resume scheduler reads it and
+	 * relaunches with --continue once the window clears. Null on every other state.
+	 */
+	resumeAt: z.number().nullable().optional(),
 	latestTurnCheckpoint: runtimeTaskTurnCheckpointSchema.nullable().optional(),
 	previousTurnCheckpoint: runtimeTaskTurnCheckpointSchema.nullable().optional(),
 });
@@ -493,6 +506,9 @@ export const runtimeJackedAccountSchema = z.object({
 	/** Percentages 0-100 as reported by the provider, or null when it exposes no window. */
 	fiveHourPercent: z.number().nullable(),
 	sevenDayPercent: z.number().nullable(),
+	/** Epoch ms at which this account's 5h / 7d window resets, or null/absent when unknown. */
+	fiveHourResetsAt: z.number().nullable().optional(),
+	sevenDayResetsAt: z.number().nullable().optional(),
 	/** Normalized 0-1 usage pressure across every window the provider reports. */
 	pressure: z.number().min(0).max(1),
 	/** Unix seconds until the tightest window resets. */
@@ -561,6 +577,24 @@ export const runtimeJackedSwapSchema = z.object({
 });
 export type RuntimeJackedSwap = z.infer<typeof runtimeJackedSwapSchema>;
 
+/**
+ * Fleet pacing summary mirrored from jacked's `compute_best_account_summary`
+ * (usage_pacing.py). Drives the runtime's auto-pause-until-reset for unpinned tasks.
+ */
+export const runtimeJackedPacingSchema = z.object({
+	/** Epoch ms of the earliest future reset among genuinely constrained windows; null when unknown. */
+	pauseUntil: z.number().nullable(),
+	/** Worst-window percent (0-100) of the most-headroom eligible account; null when no usage data. */
+	worstWindowPct: z.number().nullable(),
+	/**
+	 * True when even the most-headroom account is walled (worstWindowPct at/above the
+	 * constrained threshold), i.e. no seat to swap to. `pauseUntil` may still be null here
+	 * (wake time unknown) — consumers pause with backoff in that case.
+	 */
+	allExhausted: z.boolean(),
+});
+export type RuntimeJackedPacing = z.infer<typeof runtimeJackedPacingSchema>;
+
 export const runtimeJackedSnapshotSchema = z.object({
 	version: z.string().nullable(),
 	accounts: z.array(runtimeJackedAccountSchema),
@@ -570,6 +604,8 @@ export const runtimeJackedSnapshotSchema = z.object({
 	/** ISO timestamp while auto-swap is paused, null when it is running. */
 	swapPausedUntil: z.string().nullable(),
 	autoSwapEnabled: z.boolean(),
+	/** Fleet pacing (pause-until-reset target). Null/absent when jacked exposes no pacing summary. */
+	pacing: runtimeJackedPacingSchema.nullable().optional(),
 	features: z.array(runtimeJackedFeatureSchema),
 	latestSwap: runtimeJackedSwapSchema.nullable(),
 	lessonsActive: z.number().int().nonnegative().nullable(),
@@ -1344,6 +1380,8 @@ export const runtimeTaskSessionStartRequestSchema = z.object({
 	 * different accounts run concurrently. Omit to follow jacked's global auto-swap.
 	 */
 	jackedAccountId: z.number().int().positive().optional(),
+	/** Carry the card's auto-resume-on-usage-limit intent onto the session so exits can pause+reschedule. */
+	autoResumeOnUsageLimit: z.boolean().optional(),
 });
 export type RuntimeTaskSessionStartRequest = z.infer<typeof runtimeTaskSessionStartRequestSchema>;
 
