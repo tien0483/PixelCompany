@@ -1,7 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { RuntimeTaskSessionSummary } from "../../../src/core/api-contract";
-import { createCursorOutputTransitionDetector } from "../../../src/terminal/cursor-output-transition";
+import {
+	createCursorOutputTransitionDetector,
+	CURSOR_IDLE_QUIET_MS,
+} from "../../../src/terminal/cursor-output-transition";
 
 function summary(state: RuntimeTaskSessionSummary["state"]): RuntimeTaskSessionSummary {
 	return {
@@ -24,13 +27,64 @@ function summary(state: RuntimeTaskSessionSummary["state"]): RuntimeTaskSessionS
 }
 
 describe("createCursorOutputTransitionDetector", () => {
-	it("moves to review after work when the idle follow-up prompt appears", () => {
-		const detect = createCursorOutputTransitionDetector();
-		expect(detect("Cursor Agent\nv2026.07.23-e383d2b\n", summary("running"))).toBeNull();
+	it("does not move to review while work signals still appear with the idle chrome", () => {
+		const detect = createCursorOutputTransitionDetector({ quietMs: 1_000 });
 		expect(detect("Thinking...\n", summary("running"))).toBeNull();
 		expect(
-			detect("Hello. How can I help with PixelOffice today?\nAdd a follow-up\n", summary("running")),
+			detect("Thinking...\nAdd a follow-up\n", summary("running")),
+		).toBeNull();
+		detect.dispose();
+	});
+
+	it("moves to review only after a quiet gap past the last work signal", () => {
+		let nowMs = 1_000;
+		const timers: Array<{ at: number; fn: () => void }> = [];
+		const deferred = vi.fn();
+		const detect = createCursorOutputTransitionDetector({
+			quietMs: 1_000,
+			now: () => nowMs,
+			schedule: (fn, ms) => {
+				const at = nowMs + ms;
+				timers.push({ at, fn });
+				return () => {
+					const index = timers.findIndex((timer) => timer.fn === fn);
+					if (index >= 0) {
+						timers.splice(index, 1);
+					}
+				};
+			},
+		});
+		detect.bindDeferredEmit(deferred);
+
+		expect(detect("Thinking...\n", summary("running"))).toBeNull();
+		nowMs += 100;
+		expect(
+			detect("Hello. How can I help?\nAdd a follow-up\n", summary("running")),
+		).toBeNull();
+		expect(deferred).not.toHaveBeenCalled();
+
+		nowMs += 1_000;
+		for (const timer of [...timers]) {
+			if (timer.at <= nowMs) {
+				timer.fn();
+			}
+		}
+		expect(deferred).toHaveBeenCalledWith({ type: "hook.to_review" });
+		detect.dispose();
+	});
+
+	it("can emit immediately when the quiet gap already elapsed", () => {
+		let nowMs = 1_000;
+		const detect = createCursorOutputTransitionDetector({
+			quietMs: 500,
+			now: () => nowMs,
+		});
+		expect(detect("Thinking...\n", summary("running"))).toBeNull();
+		nowMs += 600;
+		expect(
+			detect("Done.\nAdd a follow-up\n", summary("running")),
 		).toEqual({ type: "hook.to_review" });
+		detect.dispose();
 	});
 
 	it("does not treat startup banner + idle placeholder as review before work", () => {
@@ -38,12 +92,53 @@ describe("createCursorOutputTransitionDetector", () => {
 		expect(
 			detect("Cursor Agent\nv2026.07.23-e383d2b\nTip: Use /plan\nAdd a follow-up\n", summary("running")),
 		).toBeNull();
+		detect.dispose();
 	});
 
 	it("returns to in-progress from review when work resumes", () => {
-		const detect = createCursorOutputTransitionDetector();
+		let nowMs = 1_000;
+		const detect = createCursorOutputTransitionDetector({
+			quietMs: 100,
+			now: () => nowMs,
+		});
 		detect("Thinking...\n", summary("running"));
+		nowMs += 200;
 		detect("Done.\nAdd a follow-up\n", summary("running"));
 		expect(detect("Thinking...\n", summary("awaiting_review"))).toEqual({ type: "hook.to_in_progress" });
+		detect.dispose();
+	});
+
+	it("cancels a pending review when work resumes before the quiet gap ends", () => {
+		let nowMs = 1_000;
+		const timers: Array<{ at: number; fn: () => void }> = [];
+		const deferred = vi.fn();
+		const detect = createCursorOutputTransitionDetector({
+			quietMs: CURSOR_IDLE_QUIET_MS,
+			now: () => nowMs,
+			schedule: (fn, ms) => {
+				const at = nowMs + ms;
+				timers.push({ at, fn });
+				return () => {
+					const index = timers.findIndex((timer) => timer.fn === fn);
+					if (index >= 0) {
+						timers.splice(index, 1);
+					}
+				};
+			},
+		});
+		detect.bindDeferredEmit(deferred);
+		detect("Thinking...\n", summary("running"));
+		nowMs += 50;
+		detect("Add a follow-up\n", summary("running"));
+		expect(timers).toHaveLength(1);
+		nowMs += 100;
+		detect("Thinking...\n", summary("running"));
+		expect(timers).toHaveLength(0);
+		nowMs += CURSOR_IDLE_QUIET_MS;
+		for (const timer of [...timers]) {
+			timer.fn();
+		}
+		expect(deferred).not.toHaveBeenCalled();
+		detect.dispose();
 	});
 });

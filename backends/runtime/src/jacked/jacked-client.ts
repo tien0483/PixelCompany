@@ -61,6 +61,7 @@ export interface JackedClient {
 	pauseSwap: (minutes: number) => Promise<{ ok: boolean; error?: string }>;
 	resumeSwap: () => Promise<{ ok: boolean; error?: string }>;
 	useAccount: (accountId: number) => Promise<{ ok: boolean; error?: string }>;
+	/** Refresh cached usage windows for one account (jacked POST …/refresh-usage). */
 	refreshAccount: (accountId: number) => Promise<{ ok: boolean; error?: string }>;
 	refreshAllUsage: () => Promise<{ ok: boolean; error?: string }>;
 	/** Enable/disable, relabel, or set donate limit on an account. */
@@ -630,8 +631,14 @@ export function createJackedClient(deps: CreateJackedClientDependencies): Jacked
 		resumeSwap: async () => await mutate("/api/settings/swap-resume", { method: "POST" }),
 		useAccount: async (accountId) =>
 			await mutate(`/api/auth/accounts/${String(accountId)}/use`, { method: "POST" }, LONG_REQUEST_TIMEOUT_MS),
+		// Seats "Refresh" is usage refresh. Token re-auth / Cursor re-import use
+		// dedicated endpoints (startAccountReauth / reimportCursorAccount).
 		refreshAccount: async (accountId) =>
-			await mutate(`/api/auth/accounts/${String(accountId)}/refresh`, { method: "POST" }, LONG_REQUEST_TIMEOUT_MS),
+			await mutate(
+				`/api/auth/accounts/${String(accountId)}/refresh-usage`,
+				{ method: "POST" },
+				LONG_REQUEST_TIMEOUT_MS,
+			),
 		refreshAllUsage: async () =>
 			await mutate("/api/auth/accounts/refresh-all-usage", { method: "POST" }, LONG_REQUEST_TIMEOUT_MS),
 		updateAccount: async ({ accountId, isActive, displayName, donateLimitPercent }) => {

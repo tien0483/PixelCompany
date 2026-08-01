@@ -988,12 +988,16 @@ async def refresh_usage(account_id: int, request: Request):
         )
 
     if usage_data is None:
-        is_codex = (account.get("provider") or "claude") == "codex"
-        msg = (
-            "Failed to read Codex usage — is `codex` installed and signed in?"
-            if is_codex
-            else "Failed to fetch usage from Anthropic API"
-        )
+        provider = account.get("provider") or "claude"
+        if provider == "codex":
+            msg = "Failed to read Codex usage — is `codex` installed and signed in?"
+        elif provider == "cursor":
+            msg = (
+                "Failed to fetch Cursor usage — re-import the seat if the "
+                "IDE session changed, then try Refresh again."
+            )
+        else:
+            msg = "Failed to fetch usage from Anthropic API"
         return JSONResponse(
             status_code=status.HTTP_502_BAD_GATEWAY,
             content={"error": {"message": msg, "code": "USAGE_FETCH_FAILED"}},
@@ -1479,6 +1483,13 @@ async def reimport_account(account_id: int, request: Request, provider: str = "c
             content={"error": {"message": str(exc), "code": "REIMPORT_FAILED"}},
         )
 
+    # Slot token just changed — pull Plan & Usage so Seats is not stuck on "never".
+    try:
+        await fetch_usage(account_id, db, manual=True)
+    except Exception:
+        logger.debug("post-reimport usage fetch failed for %s", account_id, exc_info=True)
+
+    updated = db.get_account(account_id) or updated
     return _account_to_response(updated, db=db)
 
 

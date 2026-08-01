@@ -256,14 +256,16 @@ function AccountRow({
 			</div>
 			{account.canTrackUsage ? (
 				<div className="mt-2 flex flex-col gap-1.5" data-testid={`jacked-account-usage-${account.id}`}>
+					{/* Cursor Plan & Usage uses Cursor Models / Other Models pools (monthly),
+					    stored in the shared five_hour / seven_day columns. Claude keeps 5h/7d. */}
 					<UsageWindowBar
-						label="5h"
+						label={isCursorAccount ? "Cursor" : "5h"}
 						percent={account.fiveHourPercent}
 						resetsAt={account.fiveHourResetsAt}
 						canAutoSwap={account.canAutoSwap}
 					/>
 					<UsageWindowBar
-						label="7d"
+						label={isCursorAccount ? "Other" : "7d"}
 						percent={account.sevenDayPercent}
 						resetsAt={account.sevenDayResetsAt}
 						canAutoSwap={account.canAutoSwap}

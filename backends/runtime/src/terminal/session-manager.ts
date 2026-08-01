@@ -23,6 +23,7 @@ import {
 	WORKSPACE_TRUST_CONFIRM_DELAY_MS,
 } from "./claude-workspace-trust";
 import { hasCodexWorkspaceTrustPrompt, shouldAutoConfirmCodexWorkspaceTrust } from "./codex-workspace-trust";
+import { isCursorOutputTransitionDetector } from "./cursor-output-transition";
 import { stripAnsi } from "./output-utils";
 import { PtySession } from "./pty-session";
 import { reduceSessionTransition, type SessionTransitionEvent } from "./session-state-machine";
@@ -311,6 +312,10 @@ export class TerminalSessionManager implements TerminalSessionService {
 		}
 
 		if (entry.active) {
+			const previousDetect = entry.active.detectOutputTransition;
+			if (isCursorOutputTransitionDetector(previousDetect)) {
+				previousDetect.dispose();
+			}
 			stopWorkspaceTrustTimers(entry.active);
 			entry.active.session.stop();
 			entry.active = null;
@@ -551,6 +556,7 @@ export class TerminalSessionManager implements TerminalSessionService {
 			throw new Error(formatSpawnFailure(commandBinary, error));
 		}
 
+		const detectOutputTransition = launch.detectOutputTransition ?? null;
 		const active: ActiveProcessState = {
 			session,
 			workspaceTrustBuffer:
@@ -569,7 +575,7 @@ export class TerminalSessionManager implements TerminalSessionService {
 			}),
 			onSessionCleanup: launch.cleanup ?? null,
 			deferredStartupInput: launch.deferredStartupInput ?? null,
-			detectOutputTransition: launch.detectOutputTransition ?? null,
+			detectOutputTransition,
 			shouldInspectOutputForTransition: launch.shouldInspectOutputForTransition ?? null,
 			awaitingCodexPromptAfterEnter: false,
 			autoConfirmedWorkspaceTrust: false,
@@ -577,6 +583,29 @@ export class TerminalSessionManager implements TerminalSessionService {
 		};
 		entry.active = active;
 		entry.terminalStateMirror = terminalStateMirror;
+
+		// Cursor idle→review waits for a quiet gap after the last work signal; the
+		// timer may fire when no further PTY chunks arrive, so bind a deferred emit.
+		if (isCursorOutputTransitionDetector(detectOutputTransition)) {
+			detectOutputTransition.bindDeferredEmit((event) => {
+				const current = this.entries.get(request.taskId);
+				if (!current?.active || current.active.detectOutputTransition !== detectOutputTransition) {
+					return;
+				}
+				const summary = this.applySessionEvent(current, event);
+				for (const taskListener of current.listeners.values()) {
+					taskListener.onState?.(cloneSummary(summary));
+				}
+				this.emitSummary(summary);
+			});
+			const previousCleanup = active.onSessionCleanup;
+			active.onSessionCleanup = async () => {
+				detectOutputTransition.dispose();
+				if (previousCleanup) {
+					await previousCleanup();
+				}
+			};
+		}
 
 		const startedAt = now();
 		updateSummary(entry, {
