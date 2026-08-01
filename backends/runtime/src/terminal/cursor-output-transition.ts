@@ -31,9 +31,9 @@ function nonBannerTextLength(sample: string): number {
 }
 
 /**
- * Cursor Agent CLI only partially supports `.cursor/hooks.json` lifecycle hooks
- * (`stop` / `afterAgentResponse` are unreliable in the TUI). Detect turn completion
- * from the idle prompt so Kanban can move the card to Review like Claude Stop hooks.
+ * Cursor review transitions are driven from TUI output (not `.cursor/hooks.json`).
+ * Baking absolute kanban/node paths into project hooks breaks WSL and shipped copies
+ * on other machines. Detect turn completion from the idle follow-up prompt instead.
  */
 export function createCursorOutputTransitionDetector(): AgentOutputTransitionDetector {
 	let recent = "";

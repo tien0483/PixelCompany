@@ -597,92 +597,6 @@ async function readOptionalTextFile(filePath: string): Promise<string | null> {
 	}
 }
 
-function parseJsonRecord(raw: string | null): Record<string, unknown> {
-	if (!raw) {
-		return {};
-	}
-	try {
-		const parsed: unknown = JSON.parse(raw);
-		if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-			return parsed as Record<string, unknown>;
-		}
-	} catch {
-		// Invalid existing hook configs are preserved during cleanup.
-	}
-	return {};
-}
-
-function normalizeHookEntries(value: unknown): Array<Record<string, unknown>> {
-	return Array.isArray(value)
-		? value.filter((entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === "object")
-		: [];
-}
-
-function buildCursorHookCommand(event: RuntimeHookEvent, hookEventName: string, activityText?: string): string {
-	return buildHookCommand(event, {
-		source: "cursor",
-		hookEventName,
-		activityText,
-	});
-}
-
-function mergeCursorHooksConfig(rawConfig: string | null): string {
-	const config = parseJsonRecord(rawConfig);
-	const hooksRecord =
-		config.hooks && typeof config.hooks === "object" && !Array.isArray(config.hooks)
-			? (config.hooks as Record<string, unknown>)
-			: {};
-	const hooksToAdd: Record<string, Array<Record<string, string>>> = {
-		beforeSubmitPrompt: [{ command: buildCursorHookCommand("to_in_progress", "beforeSubmitPrompt") }],
-		beforeShellExecution: [{ command: buildCursorHookCommand("to_in_progress", "beforeShellExecution") }],
-		beforeMCPExecution: [{ command: buildCursorHookCommand("to_in_progress", "beforeMCPExecution") }],
-		beforeReadFile: [{ command: buildCursorHookCommand("activity", "beforeReadFile") }],
-		afterFileEdit: [{ command: buildCursorHookCommand("activity", "afterFileEdit") }],
-		// Lifecycle hooks are still best-effort on Cursor CLI; TUI idle detection backs them up.
-		stop: [{ command: buildCursorHookCommand("to_review", "stop", "Waiting for review") }],
-		afterAgentResponse: [
-			{ command: buildCursorHookCommand("to_review", "afterAgentResponse", "Waiting for review") },
-		],
-	};
-
-	const nextHooks: Record<string, Array<Record<string, unknown>>> = {};
-	for (const [hookName, existingEntries] of Object.entries(hooksRecord)) {
-		nextHooks[hookName] = normalizeHookEntries(existingEntries);
-	}
-	for (const [hookName, entries] of Object.entries(hooksToAdd)) {
-		nextHooks[hookName] = [...(nextHooks[hookName] ?? []), ...entries];
-	}
-
-	return JSON.stringify(
-		{
-			...config,
-			version: typeof config.version === "number" ? config.version : 1,
-			hooks: nextHooks,
-		},
-		null,
-		2,
-	);
-}
-
-async function configureCursorHooks(cwd: string): Promise<(() => Promise<void>) | null> {
-	const hooksPath = join(cwd, ".cursor", "hooks.json");
-	const originalContent = await readOptionalTextFile(hooksPath);
-	const nextContent = mergeCursorHooksConfig(originalContent);
-	await ensureTextFile(hooksPath, nextContent);
-
-	return async () => {
-		const currentContent = await readOptionalTextFile(hooksPath);
-		if (currentContent !== nextContent) {
-			return;
-		}
-		if (originalContent === null) {
-			await rm(hooksPath, { force: true });
-			return;
-		}
-		await ensureTextFile(hooksPath, originalContent);
-	};
-}
-
 function mergeCursorPromptWithHomeSystemPrompt(prompt: string, appendedSystemPrompt: string | null): string {
 	if (!appendedSystemPrompt) {
 		return prompt;
@@ -1592,13 +1506,15 @@ const clineAdapter: AgentSessionAdapter = {
  *
  * Explicit seat pins inject CURSOR_API_KEY. Unpinned tasks leave auth alone so
  * the CLI uses the same `agent login` session as an interactive terminal.
- * Task lifecycle hooks are merged into `.cursor/hooks.json` when workspace context exists.
+ *
+ * Do not write `.cursor/hooks.json`: `buildKanbanCommandParts` embeds absolute
+ * node/entrypoint paths from the current machine, which break WSL and shipped
+ * copies on other hosts. Review/in-progress transitions use TUI output detection.
  */
 const cursorAdapter: AgentSessionAdapter = {
 	async prepare(input) {
 		const args = [...input.args];
 		const env: Record<string, string | undefined> = { ...input.env };
-		let cleanup: (() => Promise<void>) | null = null;
 
 		// Only honor an explicitly pinned key from the task pin. Do not fall back
 		// to process.env.CURSOR_API_KEY here — a stale shell export would override
@@ -1631,25 +1547,10 @@ const cursorAdapter: AgentSessionAdapter = {
 			args.push("--continue");
 		}
 
-		const hooks = resolveHookContext(input);
-		if (hooks) {
-			cleanup = await configureCursorHooks(input.cwd);
-			Object.assign(
-				env,
-				createHookRuntimeEnv({
-					taskId: hooks.taskId,
-					workspaceId: hooks.workspaceId,
-				}),
-			);
-		}
-
 		const prompt = mergeCursorPromptWithHomeSystemPrompt(
 			input.prompt,
 			resolveHomeAgentAppendSystemPrompt(input.taskId),
 		);
-		// Interactive TUI in the Kanban agent panel (same idea as Claude Code).
-		// Prefer .cursor/hooks.json stop/afterAgentResponse when the CLI fires them;
-		// fall back to TUI idle-prompt detection because Cursor CLI hook coverage is partial.
 		const withPromptLaunch = withPrompt(args, prompt, "append");
 		return {
 			...withPromptLaunch,
@@ -1657,7 +1558,6 @@ const cursorAdapter: AgentSessionAdapter = {
 				...withPromptLaunch.env,
 				...env,
 			},
-			cleanup: cleanup ?? undefined,
 			detectOutputTransition: createCursorOutputTransitionDetector(),
 			shouldInspectOutputForTransition: cursorOutputTransitionInspection,
 		};
