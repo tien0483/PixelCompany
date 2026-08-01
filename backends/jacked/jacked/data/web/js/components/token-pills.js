@@ -102,6 +102,29 @@ function _renderCodexPill(acct) {
     return `<span class="token-pills-container"><span class="token-pill" title="${escapeHtml(title)}"><span class="pill-dot ${dot}"></span><span class="pill-label">${text}</span></span></span>`;
 }
 
+function _renderCursorPill(acct) {
+    const vs = acct.validation_status;
+    let dot, text, title, actionable = false;
+    if (vs === 'invalid') {
+        dot = 'triangle';
+        text = 're-import';
+        title = 'Sign in to Cursor IDE, then Re-import this account';
+        actionable = true;
+    } else if (vs === 'checking') {
+        dot = 'pulse';
+        text = 'checking…';
+        title = 'Checking Cursor session';
+    } else {
+        dot = 'filled green';
+        text = 'signed in';
+        title = 'Signed in to Cursor';
+    }
+    if (actionable) {
+        return `<span class="token-pills-container"><button type="button" class="token-pill actionable pill-error" data-action="reimport-cursor" data-account-id="${acct.id}" data-email="${escapeHtml(acct.email || '')}" title="${escapeHtml(title)}" aria-label="Re-import Cursor session for ${escapeHtml(acct.email || '')}"><span class="pill-dot ${dot}"></span><span class="pill-label">Session</span><span class="pill-status">${PILL_SEP} ${text}</span><span class="pill-chevron">\u203A</span></button></span>`;
+    }
+    return `<span class="token-pills-container"><span class="token-pill" title="${escapeHtml(title)}"><span class="pill-dot ${dot}"></span><span class="pill-label">${text}</span></span></span>`;
+}
+
 /**
  * Render the token pills for an account card. Codex accounts get a single
  * signed-in pill; Claude accounts get the Usage Token (+ CC Token) pills.
@@ -109,6 +132,9 @@ function _renderCodexPill(acct) {
 function renderTokenPills(acct) {
     if ((acct.provider || 'claude') === 'codex') {
         return _renderCodexPill(acct);
+    }
+    if ((acct.provider || 'claude') === 'cursor') {
+        return _renderCursorPill(acct);
     }
     const primaryPill = _renderSinglePill({
         label: PRIMARY_LABEL,

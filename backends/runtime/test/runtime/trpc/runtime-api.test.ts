@@ -2719,6 +2719,190 @@ describe("createRuntimeApi startTaskSession", () => {
 			rmSync(tempHome, { recursive: true, force: true });
 		}
 	});
+
+	it("injects CURSOR_API_KEY when starting a pinned Cursor task", async () => {
+		taskWorktreeMocks.resolveTaskCwd.mockResolvedValue("/tmp/cursor-worktree");
+		agentRegistryMocks.resolveAgentCommand.mockReturnValue({
+			agentId: "cursor",
+			label: "Cursor Agent",
+			command: "agent",
+			binary: "agent",
+			args: [],
+		});
+
+		const terminalManager = {
+			startTaskSession: vi.fn(async () => createSummary({ agentId: "cursor" })),
+			applyTurnCheckpoint: vi.fn(),
+		};
+
+		const api = createTestRuntimeApi({
+			getActiveWorkspaceId: vi.fn(() => "workspace-1"),
+			loadScopedRuntimeConfig: vi.fn(async () => {
+				const runtimeConfigState = createRuntimeConfigState();
+				runtimeConfigState.selectedAgentId = "cursor";
+				return runtimeConfigState;
+			}),
+			setActiveRuntimeConfig: vi.fn(),
+			getScopedTerminalManager: vi.fn(async () => terminalManager as never),
+			getScopedClineTaskSessionService: vi.fn(async () => createClineTaskSessionServiceMock() as never),
+			resolveInteractiveShellCommand: vi.fn(),
+			runCommand: vi.fn(),
+			getJackedAccountLaunchCredential: vi.fn(async () => ({ apiKey: "cursor-pinned-key" })),
+			getJackedAccountProvider: vi.fn(async () => "cursor" as const),
+		});
+
+		const response = await api.startTaskSession(
+			{
+				workspaceId: "workspace-1",
+				workspacePath: "/tmp/repo",
+			},
+			{
+				taskId: "task-cursor",
+				baseRef: "main",
+				prompt: "Run cursor agent",
+				jackedAccountId: 11,
+			},
+		);
+
+		expect(response.ok).toBe(true);
+		expect(response.warning).toBeUndefined();
+		expect(terminalManager.startTaskSession).toHaveBeenCalledWith(
+			expect.objectContaining({
+				agentId: "cursor",
+				jackedAccountId: 11,
+				env: { CURSOR_API_KEY: "cursor-pinned-key" },
+			}),
+		);
+	});
+
+	it("returns a pin warning when Cursor credentials fail but process env has a fallback key", async () => {
+		const originalCursorApiKey = process.env.CURSOR_API_KEY;
+		process.env.CURSOR_API_KEY = "process-fallback-key";
+
+		taskWorktreeMocks.resolveTaskCwd.mockResolvedValue("/tmp/cursor-worktree");
+		agentRegistryMocks.resolveAgentCommand.mockReturnValue({
+			agentId: "cursor",
+			label: "Cursor Agent",
+			command: "agent",
+			binary: "agent",
+			args: [],
+		});
+
+		const terminalManager = {
+			startTaskSession: vi.fn(async () => createSummary({ agentId: "cursor" })),
+			applyTurnCheckpoint: vi.fn(),
+		};
+
+		const api = createTestRuntimeApi({
+			getActiveWorkspaceId: vi.fn(() => "workspace-1"),
+			loadScopedRuntimeConfig: vi.fn(async () => {
+				const runtimeConfigState = createRuntimeConfigState();
+				runtimeConfigState.selectedAgentId = "cursor";
+				return runtimeConfigState;
+			}),
+			setActiveRuntimeConfig: vi.fn(),
+			getScopedTerminalManager: vi.fn(async () => terminalManager as never),
+			getScopedClineTaskSessionService: vi.fn(async () => createClineTaskSessionServiceMock() as never),
+			resolveInteractiveShellCommand: vi.fn(),
+			runCommand: vi.fn(),
+			getJackedAccountLaunchCredential: vi.fn(async () => null),
+			getJackedAccountProvider: vi.fn(async () => "cursor" as const),
+		});
+
+		try {
+			const response = await api.startTaskSession(
+				{
+					workspaceId: "workspace-1",
+					workspacePath: "/tmp/repo",
+				},
+				{
+					taskId: "task-cursor-fallback",
+					baseRef: "main",
+					prompt: "Run cursor agent",
+					jackedAccountId: 11,
+				},
+			);
+
+			expect(response.ok).toBe(true);
+			expect(response.warning).toContain("using the active credential");
+			expect(terminalManager.startTaskSession).toHaveBeenCalledWith(
+				expect.objectContaining({
+					agentId: "cursor",
+				}),
+			);
+			expect(terminalManager.startTaskSession).toHaveBeenCalledWith(
+				expect.not.objectContaining({
+					env: expect.anything(),
+				}),
+			);
+		} finally {
+			restoreEnvVar("CURSOR_API_KEY", originalCursorApiKey);
+		}
+	});
+
+	it("starts unpinned Cursor tasks without CURSOR_API_KEY so agent CLI login applies", async () => {
+		const originalCursorApiKey = process.env.CURSOR_API_KEY;
+		delete process.env.CURSOR_API_KEY;
+
+		taskWorktreeMocks.resolveTaskCwd.mockResolvedValue("/tmp/cursor-worktree");
+		agentRegistryMocks.resolveAgentCommand.mockReturnValue({
+			agentId: "cursor",
+			label: "Cursor Agent",
+			command: "agent",
+			binary: "agent",
+			args: [],
+		});
+
+		const terminalManager = {
+			startTaskSession: vi.fn(async () => createSummary({ agentId: "cursor" })),
+			applyTurnCheckpoint: vi.fn(),
+		};
+
+		const api = createTestRuntimeApi({
+			getActiveWorkspaceId: vi.fn(() => "workspace-1"),
+			loadScopedRuntimeConfig: vi.fn(async () => {
+				const runtimeConfigState = createRuntimeConfigState();
+				runtimeConfigState.selectedAgentId = "cursor";
+				return runtimeConfigState;
+			}),
+			setActiveRuntimeConfig: vi.fn(),
+			getScopedTerminalManager: vi.fn(async () => terminalManager as never),
+			getScopedClineTaskSessionService: vi.fn(async () => createClineTaskSessionServiceMock() as never),
+			resolveInteractiveShellCommand: vi.fn(),
+			runCommand: vi.fn(),
+			getJackedAccountLaunchCredential: vi.fn(async () => null),
+			getJackedAccountProvider: vi.fn(async () => "cursor" as const),
+			resolveDefaultCursorJackedAccountId: vi.fn(async () => 99),
+		});
+
+		try {
+			const response = await api.startTaskSession(
+				{
+					workspaceId: "workspace-1",
+					workspacePath: "/tmp/repo",
+				},
+				{
+					taskId: "task-cursor-cli-login",
+					baseRef: "main",
+					prompt: "Run cursor agent",
+				},
+			);
+
+			expect(response.ok).toBe(true);
+			expect(terminalManager.startTaskSession).toHaveBeenCalledWith(
+				expect.objectContaining({
+					agentId: "cursor",
+				}),
+			);
+			expect(terminalManager.startTaskSession).toHaveBeenCalledWith(
+				expect.not.objectContaining({
+					env: expect.anything(),
+				}),
+			);
+		} finally {
+			restoreEnvVar("CURSOR_API_KEY", originalCursorApiKey);
+		}
+	});
 });
 
 describe("createRuntimeApi getFeaturebaseToken", () => {

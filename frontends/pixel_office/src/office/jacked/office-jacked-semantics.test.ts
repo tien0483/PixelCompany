@@ -25,7 +25,7 @@ describe("deriveOfficeJackedSemantics", () => {
 		expect(semantics.pressure).toBe(0);
 	});
 
-	it("builds Claude-only meters and ignores other providers", () => {
+	it("builds Claude and Cursor meters and ignores other providers", () => {
 		const semantics = deriveOfficeJackedSemantics(
 			snapshot({
 				pressure: 0.8,
@@ -45,6 +45,9 @@ describe("deriveOfficeJackedSemantics", () => {
 						canAutoSwap: true,
 						canTrackUsage: true,
 						hasCcToken: true,
+						isActiveForProvider: true,
+						validationStatus: "valid",
+						lastError: null,
 					},
 					{
 						id: 2,
@@ -60,6 +63,9 @@ describe("deriveOfficeJackedSemantics", () => {
 						canAutoSwap: false,
 						canTrackUsage: true,
 						hasCcToken: true,
+						isActiveForProvider: false,
+						validationStatus: "valid",
+						lastError: null,
 					},
 				],
 				features: [
@@ -81,9 +87,11 @@ describe("deriveOfficeJackedSemantics", () => {
 				lessonsActive: 4,
 			}),
 		);
-		expect(semantics.meters).toHaveLength(1);
+		expect(semantics.meters).toHaveLength(2);
 		expect(semantics.meters[0]?.provider).toBe("claude");
 		expect(semantics.meters[0]?.canAutoSwap).toBe(true);
+		expect(semantics.meters[1]?.provider).toBe("cursor");
+		expect(semantics.meters[1]?.canAutoSwap).toBe(false);
 		expect(semantics.reviewers).toHaveLength(1);
 		expect(semantics.memoryVault.enabled).toBe(true);
 		expect(semantics.memoryVault.lessonsActive).toBe(4);
@@ -108,6 +116,9 @@ describe("deriveOfficeJackedSemantics", () => {
 						canAutoSwap: true,
 						canTrackUsage: true,
 						hasCcToken: true,
+						isActiveForProvider: true,
+						validationStatus: "valid",
+						lastError: null,
 					},
 					{
 						id: 2,
@@ -123,6 +134,9 @@ describe("deriveOfficeJackedSemantics", () => {
 						canAutoSwap: true,
 						canTrackUsage: true,
 						hasCcToken: true,
+						isActiveForProvider: false,
+						validationStatus: "valid",
+						lastError: null,
 					},
 				],
 			}),

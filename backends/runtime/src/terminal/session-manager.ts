@@ -9,6 +9,7 @@ import type {
 	RuntimeTaskSessionSummary,
 	RuntimeTaskTurnCheckpoint,
 } from "../core/api-contract";
+import { detectAgentAuthFailure } from "./agent-auth-failure";
 import {
 	type AgentAdapterLaunchInput,
 	type AgentOutputTransitionDetector,
@@ -35,6 +36,7 @@ import type { TerminalSessionListener, TerminalSessionService } from "./terminal
 import { TerminalStateMirror } from "./terminal-state-mirror";
 
 const MAX_WORKSPACE_TRUST_BUFFER_CHARS = 16_384;
+const MAX_RECENT_OUTPUT_CHARS = 12_288;
 const AUTO_RESTART_WINDOW_MS = 5_000;
 const MAX_AUTO_RESTARTS_PER_WINDOW = 3;
 // TUI apps (Codex, OpenCode) can query OSC 10/11 before the browser terminal is attached
@@ -51,6 +53,9 @@ type RestartableSessionRequest =
 interface ActiveProcessState {
 	session: PtySession;
 	workspaceTrustBuffer: string | null;
+	/** Rolling plain-text PTY output used to detect auth/login failures. */
+	recentOutputText: string;
+	authFailureMessage: string | null;
 	cols: number;
 	rows: number;
 	terminalProtocolFilter: TerminalProtocolFilterState;
@@ -376,6 +381,32 @@ export class TerminalSessionManager implements TerminalSessionService {
 						(entry.active.detectOutputTransition !== null &&
 							(entry.active.shouldInspectOutputForTransition?.(entry.summary) ?? true));
 					const data = needsDecodedOutput ? filteredChunk.toString("utf8") : "";
+					const plainOutput = stripAnsi(filteredChunk.toString("utf8"));
+					if (plainOutput.length > 0) {
+						entry.active.recentOutputText = `${entry.active.recentOutputText}${plainOutput}`.slice(
+							-MAX_RECENT_OUTPUT_CHARS,
+						);
+						if (entry.active.authFailureMessage === null) {
+							const authFailure = detectAgentAuthFailure(entry.summary.agentId, entry.active.recentOutputText);
+							if (authFailure) {
+								entry.active.authFailureMessage = authFailure;
+								// Stop relaunch loops: auth will keep failing until the user re-auths.
+								entry.suppressAutoRestartOnExit = true;
+								entry.restartRequest = null;
+								const summary = updateSummary(entry, {
+									warningMessage: authFailure,
+									// Keep the PTY alive (Claude /login) but pull the card out of
+									// in-progress so it doesn't look like the agent is still working.
+									state: "awaiting_review",
+									reviewReason: "error",
+								});
+								for (const taskListener of entry.listeners.values()) {
+									taskListener.onState?.(cloneSummary(summary));
+								}
+								this.emitSummary(summary);
+							}
+						}
+					}
 
 					if (entry.active.workspaceTrustBuffer !== null) {
 						entry.active.workspaceTrustBuffer += data;
@@ -456,11 +487,23 @@ export class TerminalSessionManager implements TerminalSessionService {
 					}
 					stopWorkspaceTrustTimers(currentActive);
 
-					const summary = this.applySessionEvent(currentEntry, {
+					const authFailure =
+						currentActive.authFailureMessage ??
+						detectAgentAuthFailure(currentEntry.summary.agentId, currentActive.recentOutputText);
+					if (authFailure) {
+						currentActive.authFailureMessage = authFailure;
+						currentEntry.suppressAutoRestartOnExit = true;
+						currentEntry.restartRequest = null;
+					}
+
+					let summary = this.applySessionEvent(currentEntry, {
 						type: "process.exit",
 						exitCode: event.exitCode,
 						interrupted: currentActive.session.wasInterrupted(),
 					});
+					if (authFailure) {
+						summary = updateSummary(currentEntry, { warningMessage: authFailure });
+					}
 					const shouldAutoRestart = this.shouldAutoRestart(currentEntry);
 
 					for (const taskListener of currentEntry.listeners.values()) {
@@ -516,6 +559,8 @@ export class TerminalSessionManager implements TerminalSessionService {
 				hasCodexLaunchSignature
 					? ""
 					: null,
+			recentOutputText: "",
+			authFailureMessage: null,
 			cols,
 			rows,
 			terminalProtocolFilter: createTerminalProtocolFilterState({

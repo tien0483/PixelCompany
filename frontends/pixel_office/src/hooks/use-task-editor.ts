@@ -350,7 +350,9 @@ export function useTaskEditor({
 				autoReviewEnabled: newTaskAutoReviewEnabled,
 				autoReviewMode: newTaskAutoReviewMode,
 				images: newTaskImages,
-				agentId: newTaskAgentId,
+				// Stamp the effective agent onto the card so launches do not silently
+				// fall back to Claude when Settings still points at the old default.
+				agentId: newTaskAgentId ?? selectedAgentId ?? undefined,
 				clineSettings: newTaskClineSettings,
 				baseRef,
 			});
@@ -416,7 +418,7 @@ export function useTaskEditor({
 					autoReviewEnabled: newTaskAutoReviewEnabled,
 					autoReviewMode: newTaskAutoReviewMode,
 					images: newTaskImages,
-					agentId: newTaskAgentId,
+					agentId: newTaskAgentId ?? selectedAgentId ?? undefined,
 					clineSettings: newTaskClineSettings,
 					baseRef,
 				});

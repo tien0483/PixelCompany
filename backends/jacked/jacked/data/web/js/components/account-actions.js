@@ -97,19 +97,17 @@ function _formatCountdown(seconds) {
 async function _confirmAddAccount() {
     return Swal.fire({
         title: 'Add account',
-        html: `Which provider?<br><br>
-               <b>Claude</b> — opens browser tabs to authorize (usage + Claude Code tokens).<br><br>
-               <b>Codex</b> — imports your signed-in OpenAI Codex account
-               (run <code>codex login</code> in a terminal first if you're not signed in).`,
-        showDenyButton: true,
+        input: 'select',
+        inputOptions: {
+            claude: 'Claude — browser OAuth (usage + Claude Code tokens)',
+            codex: 'Codex — import signed-in CLI (run codex login first)',
+            cursor: 'Cursor — import signed-in IDE',
+        },
+        inputPlaceholder: 'Choose provider',
         showCancelButton: true,
-        confirmButtonText: 'Claude',
-        denyButtonText: 'Codex',
+        confirmButtonText: 'Continue',
         cancelButtonText: 'Cancel',
-        // SweetAlert's deny button is RED by default — that reads as danger for a
-        // benign choice. Color both buttons with their provider hue instead.
-        confirmButtonColor: '#a78bfa',  // Claude violet
-        denyButtonColor: '#60a5fa',     // Codex blue
+        confirmButtonColor: '#a78bfa',
     });
 }
 
@@ -178,6 +176,12 @@ function initPillHandlers() {
                     return;
                 }
                 startCcAuthFlow(id, email);
+            } else if (action === 'reimport-cursor') {
+                if (window.jackedState._accountActionInFlight) {
+                    showToast('Another action started — please try again', 'warning', 2000);
+                    return;
+                }
+                startReimportCursorFlow(id, email);
             }
         } catch (err) {
             console.error('Auth confirmation error:', err);
@@ -199,15 +203,17 @@ function bindAccountEvents() {
             }
             try {
                 const result = await _confirmAddAccount();
-                if (!result.isConfirmed && !result.isDenied) return;  // cancelled
+                if (!result.isConfirmed || !result.value) return;
                 if (window.jackedState._accountActionInFlight) {
                     showToast('Another action started — please try again', 'warning', 2000);
                     return;
                 }
-                if (result.isDenied) {
-                    startAddCodexFlow();   // Codex
+                if (result.value === 'codex') {
+                    startAddCodexFlow();
+                } else if (result.value === 'cursor') {
+                    startAddCursorFlow();
                 } else {
-                    startAddAccountFlow(); // Claude
+                    startAddAccountFlow();
                 }
             } catch (err) {
                 console.error('Add account confirmation error:', err);
@@ -216,13 +222,14 @@ function bindAccountEvents() {
         });
     });
 
-    // Re-auth buttons
+    // Re-auth buttons (Claude OAuth only)
     document.querySelectorAll('.btn-reauth').forEach(btn => {
         btn.addEventListener('click', async () => {
             if (window.jackedState._accountActionInFlight) {
                 showToast('Another action is in progress', 'warning', 2000);
                 return;
             }
+            const id = btn.dataset.id;
             const email = btn.dataset.email || '';
             try {
                 const result = await _confirmReauth(email);
@@ -231,11 +238,24 @@ function bindAccountEvents() {
                     showToast('Another action started — please try again', 'warning', 2000);
                     return;
                 }
-                startAddAccountFlow();
+                startReauthFlow(id, email);
             } catch (err) {
                 console.error('Reauth confirmation error:', err);
                 showToast('Something went wrong — please try again', 'error');
             }
+        });
+    });
+
+    // Cursor re-import buttons
+    document.querySelectorAll('.btn-reimport-cursor').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            if (window.jackedState._accountActionInFlight) {
+                showToast('Another action is in progress', 'warning', 2000);
+                return;
+            }
+            const id = btn.dataset.id;
+            const email = btn.dataset.email || '';
+            startReimportCursorFlow(id, email);
         });
     });
 

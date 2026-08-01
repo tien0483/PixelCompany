@@ -30,8 +30,8 @@ function getAccountStatus(acct) {
         return 'warning';
     }
 
-    // CC worst-of-two (only if CC fields present — backward compat)
-    if (acct.has_cc_token !== undefined) {
+    // CC worst-of-two (Claude only — Cursor/Codex have no CC tokens)
+    if ((acct.provider || 'claude') === 'claude' && acct.has_cc_token !== undefined) {
         if (!acct.has_cc_token) return 'cc-missing';
         if (acct.cc_needs_auth) return 'warning';
         // CC expiry check — only flag for non-refreshable CC tokens
@@ -215,21 +215,25 @@ function renderExpandableDetails(acct) {
     `;
 }
 
+function activeBadgeLabel(provider) {
+    if (provider === 'cursor') return 'Active in Cursor';
+    if (provider === 'codex') return 'Active in Codex';
+    return 'Active in Claude Code';
+}
+
 /**
  * Render action buttons for an account card.
  */
 function renderActionButtons(acct) {
     const status = getAccountStatus(acct);
-    const isActiveInCC = window.jackedState.activeCredentialAccountId === acct.id;
+    const provider = acct.provider || 'claude';
+    const isActiveForProvider = acct.is_active_for_provider === true;
+    const isActiveInCC = provider === 'claude' && window.jackedState.activeCredentialAccountId === acct.id;
 
-    // "Use Account" button or "Active" badge.
-    // Show on all enabled accounts — backend validates and returns clear
-    // error messages for cc-missing, invalid, etc.
-    // Capability registry: Cursor (can_auto_swap=false) still allows manual
-    // Use Account, but the click handler must surface manual_switch_warning.
+    // "Use Account" button or provider-specific active badge.
     let setActiveHtml = '';
-    if (isActiveInCC) {
-        setActiveHtml = '<span class="text-xs px-3 py-1.5 bg-green-600/20 text-green-400 border border-green-600/30 rounded font-medium">Active in Claude Code</span>';
+    if (isActiveForProvider || isActiveInCC) {
+        setActiveHtml = `<span class="text-xs px-3 py-1.5 bg-green-600/20 text-green-400 border border-green-600/30 rounded font-medium">${activeBadgeLabel(provider)}</span>`;
     } else if (acct.is_active) {
         const warning = acct.manual_switch_warning
             ? escapeHtml(acct.manual_switch_warning)
@@ -248,13 +252,12 @@ function renderActionButtons(acct) {
     // const copyHtml = `<button class="btn-copy-cmd ...">...</button>`;
     const copyHtml = '';
 
-    // Re-auth button (if invalid/expired) — pills also handle this, keep for
-    // backward compat. NOT for Codex: its re-auth is `codex login` (the Codex
-    // pill's "re-login" tooltip guides that), not the Claude browser OAuth.
-    const showReauth = (status === 'invalid' || status === 'expired')
-        && (acct.provider || 'claude') !== 'codex';
+    const showReimport = (status === 'invalid' || status === 'expired') && provider === 'cursor';
+    const showReauth = (status === 'invalid' || status === 'expired') && provider === 'claude';
     let reauthHtml = '';
-    if (showReauth) {
+    if (showReimport) {
+        reauthHtml = `<button class="btn-reimport-cursor text-xs px-3 py-1.5 bg-blue-600/20 text-blue-400 hover:bg-blue-600/40 rounded transition active:scale-[0.96]" data-id="${acct.id}" data-email="${escapeHtml(acct.email || '')}">Re-import</button>`;
+    } else if (showReauth) {
         reauthHtml = `<button class="btn-reauth text-xs px-3 py-1.5 bg-blue-600/20 text-blue-400 hover:bg-blue-600/40 rounded transition active:scale-[0.96]" data-id="${acct.id}" data-email="${escapeHtml(acct.email || '')}">Re-auth</button>`;
     }
 
@@ -487,7 +490,7 @@ function renderEmptyState() {
                 <svg class="w-8 h-8 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"/></svg>
             </div>
             <h3 class="text-lg font-semibold text-white mb-1">No accounts connected</h3>
-            <p class="text-sm text-slate-400 mb-6">Connect a Claude or Codex account to get started</p>
+            <p class="text-sm text-slate-400 mb-6">Connect a Claude, Codex, or Cursor account to get started</p>
             <button id="btn-add-account" class="flex items-center gap-2 px-6 py-3 bg-blue-600 hover:bg-blue-500 text-white font-medium rounded-lg transition active:scale-[0.96]">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
                 Add Account

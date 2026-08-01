@@ -129,19 +129,13 @@ export function useTaskAgentModelPicker({
 
 	const agentOptions = useMemo(() => {
 		const catalog = getRuntimeLaunchSupportedAgentCatalog();
-		let firstLabel = "Default";
-		if (defaultAgentId) {
-			const defaultAgent = catalog.find((a) => a.id === defaultAgentId);
-			if (defaultAgent) {
-				firstLabel = defaultAgent.label;
-			}
-		}
+		const defaultAgent = defaultAgentId ? catalog.find((a) => a.id === defaultAgentId) : null;
+		const firstLabel = defaultAgent ? `Default (${defaultAgent.label})` : "Default";
 		return [
 			{ value: "", label: firstLabel },
-			// Exclude the default agent from the explicit list — it's already represented by the first option
-			...catalog
-				.filter((agent) => agent.id !== defaultAgentId)
-				.map((agent) => ({ value: agent.id, label: agent.label })),
+			// Always list every launchable agent, including the current default, so Cursor
+			// is selectable without opening Settings first.
+			...catalog.map((agent) => ({ value: agent.id, label: agent.label })),
 		];
 	}, [defaultAgentId]);
 
@@ -449,44 +443,45 @@ export function TaskAgentModelPicker({
 
 	return (
 		<div className="flex flex-col gap-2">
-			<Collapsible.Root open={isSettingsExpanded} onOpenChange={setIsSettingsExpanded}>
-				<Collapsible.Trigger asChild>
-					<button
-						type="button"
-						className="inline-flex w-fit items-center gap-1 text-[12px] text-text-secondary hover:text-text-primary cursor-pointer bg-transparent border-none p-0"
-					>
-						<ChevronDown
-							size={12}
-							className={cn("transition-transform", isSettingsExpanded ? "rotate-0" : "-rotate-90")}
-						/>
-						Override Agent Settings
-					</button>
-				</Collapsible.Trigger>
-				<Collapsible.Content className="pt-2">
-					<div className="flex flex-col gap-2">
-						<div className="w-full sm:w-1/2 min-w-0">
-							<span className="text-[11px] text-text-secondary block mb-1">Agent</span>
-							<NativeSelect
-								size="sm"
-								fill
-								value={agentId ?? ""}
-								onChange={(e) => {
-									const value = e.currentTarget.value;
-									onAgentIdChange(value ? (value as RuntimeAgentId) : undefined);
-									if (value !== "cline") {
-										onClineSettingsChange?.(undefined);
-										setReasoningEffort("");
-									}
-								}}
-							>
-								{agentOptions.map((option) => (
-									<option key={option.value} value={option.value}>
-										{option.label}
-									</option>
-								))}
-							</NativeSelect>
-						</div>
-						{showClineProviderPicker ? (
+			<div className="w-full sm:w-1/2 min-w-0">
+				<span className="text-[11px] text-text-secondary block mb-1">Agent</span>
+				<NativeSelect
+					size="sm"
+					fill
+					data-testid="task-agent-picker"
+					value={agentId ?? ""}
+					onChange={(e) => {
+						const value = e.currentTarget.value;
+						onAgentIdChange(value ? (value as RuntimeAgentId) : undefined);
+						if (value !== "cline") {
+							onClineSettingsChange?.(undefined);
+							setReasoningEffort("");
+						}
+					}}
+				>
+					{agentOptions.map((option) => (
+						<option key={option.value || "default"} value={option.value}>
+							{option.label}
+						</option>
+					))}
+				</NativeSelect>
+			</div>
+			{showClineProviderPicker ? (
+				<Collapsible.Root open={isSettingsExpanded} onOpenChange={setIsSettingsExpanded}>
+					<Collapsible.Trigger asChild>
+						<button
+							type="button"
+							className="inline-flex w-fit items-center gap-1 text-[12px] text-text-secondary hover:text-text-primary cursor-pointer bg-transparent border-none p-0"
+						>
+							<ChevronDown
+								size={12}
+								className={cn("transition-transform", isSettingsExpanded ? "rotate-0" : "-rotate-90")}
+							/>
+							Cline model settings
+						</button>
+					</Collapsible.Trigger>
+					<Collapsible.Content className="pt-2">
+						<div className="flex flex-col gap-2">
 							<div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
 								<div className="min-w-0">
 									<span className="text-[11px] text-text-secondary block mb-1">
@@ -598,10 +593,10 @@ export function TaskAgentModelPicker({
 									</div>
 								) : null}
 							</div>
-						) : null}
-					</div>
-				</Collapsible.Content>
-			</Collapsible.Root>
+						</div>
+					</Collapsible.Content>
+				</Collapsible.Root>
+			) : null}
 		</div>
 	);
 }

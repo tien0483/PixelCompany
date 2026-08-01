@@ -71,13 +71,20 @@ function orgBarsHtml(org) {
     return html;
 }
 
+function activeBadgeTitle(provider) {
+    if (provider === 'cursor') return 'Active in Cursor';
+    if (provider === 'codex') return 'Active in Codex';
+    return 'Active in Claude Code';
+}
+
 /** Trailing meta on an identity line: plan badge, active marker, freshness age,
  * and — for the active account — a live "next refresh" countdown. */
 function orgMetaHtml(org, nextRefreshAt) {
     const plan = planLabel(org);
     const planHtml = plan ? `<span class="plan-badge">${escapeHtml(plan)}</span>` : '';
+    const provider = org.provider || 'claude';
     const activeHtml = org.isActive
-        ? '<span class="active-badge" title="Active in Claude Code">active</span>'
+        ? `<span class="active-badge" title="${escapeHtml(activeBadgeTitle(provider))}">active</span>`
         : '';
     const age = freshnessLabel(org);
     const ageHtml = age

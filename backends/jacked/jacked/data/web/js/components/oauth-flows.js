@@ -400,3 +400,66 @@ async function startAddCodexFlow() {
         window.jackedState._accountActionInFlight = false;
     }
 }
+
+// ---------------------------------------------------------------------------
+// Cursor add / re-import — imports the signed-in IDE session (no browser OAuth).
+// ---------------------------------------------------------------------------
+async function startAddCursorFlow() {
+    window.jackedState._accountActionInFlight = true;
+    const statusEl = document.getElementById('oauth-flow-status');
+    if (statusEl) {
+        statusEl.innerHTML = `
+            <div class="bg-teal-900/30 border border-teal-700 rounded-lg px-4 py-3 text-sm text-teal-200 flex items-center gap-3">
+                <div class="spinner"></div>
+                <div>Importing your signed-in Cursor account…</div>
+            </div>`;
+    }
+    try {
+        const result = await api.post('/api/auth/accounts/add?provider=cursor');
+        if (statusEl) statusEl.innerHTML = '';
+        showToast(`Added Cursor account ${result.email || ''}`.trim(), 'success');
+        await refreshAndRender();
+    } catch (e) {
+        const msg = (e && e.message) || 'Failed to add Cursor account';
+        if (statusEl) {
+            statusEl.innerHTML = `
+                <div class="bg-amber-900/30 border border-amber-700 rounded-lg px-4 py-3 text-sm text-amber-200">
+                    ${escapeHtml(msg)}
+                </div>`;
+        } else {
+            showToast(msg, 'error');
+        }
+    } finally {
+        window.jackedState._accountActionInFlight = false;
+    }
+}
+
+async function startReimportCursorFlow(accountId, email) {
+    window.jackedState._accountActionInFlight = true;
+    const statusEl = document.getElementById('oauth-flow-status');
+    if (statusEl) {
+        statusEl.innerHTML = `
+            <div class="bg-teal-900/30 border border-teal-700 rounded-lg px-4 py-3 text-sm text-teal-200 flex items-center gap-3">
+                <div class="spinner"></div>
+                <div>Re-importing Cursor session for ${escapeHtml(email || 'account')}…</div>
+            </div>`;
+    }
+    try {
+        const result = await api.post(`/api/auth/accounts/${accountId}/reimport?provider=cursor`);
+        if (statusEl) statusEl.innerHTML = '';
+        showToast(`Re-imported Cursor account ${result.email || email || ''}`.trim(), 'success');
+        await refreshAndRender();
+    } catch (e) {
+        const msg = (e && e.message) || 'Failed to re-import Cursor account';
+        if (statusEl) {
+            statusEl.innerHTML = `
+                <div class="bg-amber-900/30 border border-amber-700 rounded-lg px-4 py-3 text-sm text-amber-200">
+                    ${escapeHtml(msg)}
+                </div>`;
+        } else {
+            showToast(msg, 'error');
+        }
+    } finally {
+        window.jackedState._accountActionInFlight = false;
+    }
+}

@@ -766,10 +766,12 @@ export default function App(): ReactElement {
 		[defaultTaskClineProviderId, runtimeProjectConfig, selectedCard, setBoard],
 	);
 
-	// Only Claude accounts can be pinned to a task; jacked's snapshot is already
-	// Claude-filtered by the bridge, but keep the guard local to the picker input.
-	const claudeJackedAccounts = useMemo(
-		() => (jacked?.accounts ?? []).filter((account) => account.provider === "claude"),
+	// Claude + Cursor accounts can be pinned to tasks; jacked's snapshot includes both.
+	const managedJackedAccounts = useMemo(
+		() =>
+			(jacked?.accounts ?? []).filter(
+				(account) => account.provider === "claude" || account.provider === "cursor",
+			),
 		[jacked?.accounts],
 	);
 
@@ -1138,7 +1140,7 @@ export default function App(): ReactElement {
 									isDocumentVisible={isDocumentVisible}
 									onClineSettingsSaved={refreshRuntimeProjectConfig}
 									onTaskClineSettingsChanged={handleClineTaskSettingsChangedForTask}
-									jackedAccounts={claudeJackedAccounts}
+									jackedAccounts={managedJackedAccounts}
 									jackedActiveAccountId={jacked?.activeAccountId ?? null}
 									onTaskJackedAccountChanged={handleTaskJackedAccountChanged}
 								/>

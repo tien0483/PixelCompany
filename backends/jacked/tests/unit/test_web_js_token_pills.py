@@ -62,3 +62,19 @@ def test_claude_still_renders_usage_and_cc_pills(tmp_path):
         "has_cc_refresh_token": True, "cc_needs_auth": False,
     })
     assert "Usage Token" in html and "CC Token" in html
+
+
+def test_cursor_valid_renders_signed_in_only(tmp_path):
+    html = _render(tmp_path, {"provider": "cursor", "validation_status": "valid",
+                              "id": 3, "email": "c@cursor.com"})
+    assert "signed in" in html
+    assert "Usage Token" not in html
+    assert "CC Token" not in html
+
+
+def test_cursor_invalid_renders_reimport(tmp_path):
+    html = _render(tmp_path, {"provider": "cursor", "validation_status": "invalid",
+                              "id": 3, "email": "c@cursor.com"})
+    assert "re-import" in html
+    assert "data-action=\"reimport-cursor\"" in html
+    assert "Usage Token" not in html and "CC Token" not in html

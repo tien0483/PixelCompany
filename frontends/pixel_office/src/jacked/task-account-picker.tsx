@@ -1,6 +1,6 @@
 import type { ReactElement } from "react";
 
-import type { RuntimeJackedAccount } from "@/runtime/types";
+import type { RuntimeAgentId, RuntimeJackedAccount } from "@/runtime/types";
 
 import { NativeSelect } from "@/components/ui/native-select";
 import { formatPercent } from "@/jacked/jacked-format";
@@ -8,12 +8,10 @@ import { formatPercent } from "@/jacked/jacked-format";
 const AUTO_VALUE = "auto";
 
 export interface TaskAccountPickerProps {
-	/** Claude accounts from the jacked snapshot; already provider-filtered by the caller. */
 	accounts: RuntimeJackedAccount[];
-	/** Account currently pinned to the card, or undefined to follow auto-swap. */
 	value: number | undefined;
-	/** Account jacked reports as globally active, used to label the auto option. */
 	activeAccountId: number | null;
+	agentId: RuntimeAgentId | null;
 	disabled?: boolean;
 	onChange: (jackedAccountId: number | null) => void;
 }
@@ -25,25 +23,46 @@ function accountLabel(account: RuntimeJackedAccount): string {
 	return `${name}${usage}${disabled}`;
 }
 
+function agentAccountLabel(agentId: RuntimeAgentId | null): string {
+	if (agentId === "cursor") {
+		return "Cursor account for this task";
+	}
+	return "Claude account for this task";
+}
+
+function autoFallbackAccount(
+	accounts: RuntimeJackedAccount[],
+	activeAccountId: number | null,
+	agentId: RuntimeAgentId | null,
+): RuntimeJackedAccount | null {
+	if (agentId === "cursor") {
+		return accounts.find((account) => account.isActiveForProvider) ?? accounts[0] ?? null;
+	}
+	return accounts.find((account) => account.id === activeAccountId) ?? accounts[0] ?? null;
+}
+
 /**
- * Pins one board task to a specific Claude account.
+ * Pins one board task to a specific Jacked account for the task's agent.
  *
- * A pinned task launches Claude Code against that account's own credential
- * directory (CLAUDE_CONFIG_DIR), so several tasks can run on different accounts
- * simultaneously. Left on "Auto", the task uses whichever account jacked has
- * active and follows its auto-swap rotation.
+ * Claude tasks use CLAUDE_CONFIG_DIR. Cursor Auto uses the same `agent login`
+ * as a normal terminal; an explicit Cursor pin injects CURSOR_API_KEY.
  */
 export function TaskAccountPicker({
 	accounts,
 	value,
 	activeAccountId,
+	agentId,
 	disabled = false,
 	onChange,
 }: TaskAccountPickerProps): ReactElement {
-	const activeAccount = accounts.find((account) => account.id === activeAccountId) ?? null;
-	const autoLabel = activeAccount
-		? `Auto · ${activeAccount.displayName ?? activeAccount.email}`
+	const fallbackAccount = autoFallbackAccount(accounts, activeAccountId, agentId);
+	const autoLabel = fallbackAccount
+		? `Auto · ${fallbackAccount.displayName ?? fallbackAccount.email}`
 		: "Auto (active account)";
+	// Orphaned pins (wrong provider after an agent switch) must not stick as a
+	// select value — fall back to Auto so the next start can resolve correctly.
+	const valueInFleet = value !== undefined && accounts.some((account) => account.id === value);
+	const selectValue = valueInFleet ? String(value) : AUTO_VALUE;
 
 	return (
 		<label className="flex min-w-0 items-center gap-1.5 text-[11px] text-text-secondary">
@@ -51,9 +70,9 @@ export function TaskAccountPicker({
 			<NativeSelect
 				size="sm"
 				data-testid="task-account-picker"
-				aria-label="Claude account for this task"
+				aria-label={agentAccountLabel(agentId)}
 				disabled={disabled || accounts.length === 0}
-				value={value === undefined ? AUTO_VALUE : String(value)}
+				value={selectValue}
 				onChange={(event) => {
 					const next = event.target.value;
 					onChange(next === AUTO_VALUE ? null : Number(next));
@@ -68,4 +87,25 @@ export function TaskAccountPicker({
 			</NativeSelect>
 		</label>
 	);
+}
+
+export function jackedProviderForAgent(agentId: RuntimeAgentId | null | undefined): RuntimeJackedAccount["provider"] | null {
+	if (agentId === "claude") {
+		return "claude";
+	}
+	if (agentId === "cursor") {
+		return "cursor";
+	}
+	return null;
+}
+
+export function filterJackedAccountsForAgent(
+	accounts: RuntimeJackedAccount[],
+	agentId: RuntimeAgentId | null | undefined,
+): RuntimeJackedAccount[] {
+	const provider = jackedProviderForAgent(agentId);
+	if (provider === null) {
+		return [];
+	}
+	return accounts.filter((account) => account.provider === provider);
 }

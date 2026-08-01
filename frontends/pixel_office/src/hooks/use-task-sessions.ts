@@ -4,7 +4,7 @@
 import type { Dispatch, SetStateAction } from "react";
 import { useCallback } from "react";
 
-import { notifyError } from "@/components/app-toaster";
+import { notifyError, showAppToast } from "@/components/app-toaster";
 import { selectNewestTaskSessionSummary } from "@/hooks/home-sidebar-agent-panel-session-summary";
 import { type ClineChatActionResult, useClineChatRuntimeActions } from "@/hooks/use-cline-chat-runtime-actions";
 import { estimateTaskSessionGeometry } from "@/runtime/task-session-geometry";
@@ -177,6 +177,9 @@ export function useTaskSessions({ currentProjectId, setSessions }: UseTaskSessio
 					};
 				}
 				upsertSession(payload.summary);
+				if (payload.warning) {
+					showAppToast({ intent: "warning", message: payload.warning, timeout: 8000 });
+				}
 				if (options?.resumeFromTrash) {
 					trackTaskResumedFromTrash();
 				}

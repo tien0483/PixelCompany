@@ -11,6 +11,7 @@ import json
 import logging
 import os
 import tempfile
+import time
 from pathlib import Path
 from typing import Mapping, Optional
 
@@ -27,6 +28,10 @@ CURSOR_EXPIRES_SENTINEL = 4102444800  # 2100-01-01T00:00:00Z
 
 class CursorImportError(Exception):
     """A Cursor account could not be added."""
+
+
+class CursorReimportError(Exception):
+    """An existing Cursor account could not be re-imported from the IDE."""
 
 
 def cursor_jacked_home(env: Optional[Mapping[str, str]] = None) -> Path:
@@ -118,3 +123,97 @@ def add_cursor_account(
     poll from a background API without racing the running app.
     """
     return import_cursor_account(db, db_path=db_path, env=env, make_active=make_active)
+
+
+def _normalize_cursor_email(email: str | None) -> str:
+    return (email or "cursor-user@local").strip().lower()
+
+
+def reimport_cursor_account(
+    account_id: int,
+    db,
+    db_path: Optional[Path] = None,
+    env: Optional[Mapping[str, str]] = None,
+) -> dict:
+    """Refresh an existing Cursor row's slot snapshot from the live IDE session."""
+    account = db.get_account(account_id)
+    if not account:
+        raise CursorReimportError(f"No account with id={account_id}")
+    if (account.get("provider") or "") != "cursor":
+        raise CursorReimportError(
+            f"Account {account_id} is not a Cursor account — re-import is Cursor-only."
+        )
+
+    status = detect_cursor_account(db_path, env)
+    ident = status.identity
+    if not status.present or ident is None:
+        raise CursorReimportError(
+            status.reason or "no Cursor account found — sign in to Cursor first"
+        )
+
+    live_email = _normalize_cursor_email(ident.email)
+    row_email = _normalize_cursor_email(account.get("email"))
+    if live_email != row_email:
+        raise CursorReimportError(
+            f"Cursor IDE is signed in as {ident.email or live_email}, "
+            f"but account {account_id} is {account.get('email')}. "
+            "Sign in to the matching account or import a new seat."
+        )
+
+    auth = read_cursor_auth(db_path or cursor_state_db_path(env), env)
+    if auth is None:
+        raise CursorReimportError("Cursor auth keys disappeared during re-import")
+
+    _write_slot(account_id, auth, env)
+    db.clear_account_errors(account_id)
+    db.update_account(account_id, validation_status="valid", last_validated_at=int(time.time()))
+    logger.info("Re-imported cursor account %s (%s)", account_id, account.get("email"))
+    updated = db.get_account(account_id)
+    return updated or account
+
+
+def read_cursor_slot_auth(account_id: int, env: Optional[Mapping[str, str]] = None) -> dict | None:
+    """Read the persisted slot snapshot for a Cursor account."""
+    path = cursor_account_slot(account_id, env)
+    if not path.is_file():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    return payload
+
+
+def ensure_cursor_launch_credential(
+    account_id: int,
+    db,
+    db_path: Optional[Path] = None,
+    env: Optional[Mapping[str, str]] = None,
+) -> str:
+    """Return a non-empty Cursor API key, refreshing the slot from IDE when needed."""
+    account = db.get_account(account_id)
+    if not account or (account.get("provider") or "") != "cursor":
+        raise CursorReimportError(f"Account {account_id} is not a Cursor account")
+
+    slot_auth = read_cursor_slot_auth(account_id, env)
+    api_key = ""
+    if isinstance(slot_auth, dict) and isinstance(slot_auth.get("access_token"), str):
+        api_key = slot_auth["access_token"].strip()
+    if len(api_key) > 0:
+        return api_key
+
+    try:
+        reimport_cursor_account(account_id, db, db_path=db_path, env=env)
+    except CursorReimportError:
+        raise
+    slot_auth = read_cursor_slot_auth(account_id, env)
+    api_key = ""
+    if isinstance(slot_auth, dict) and isinstance(slot_auth.get("access_token"), str):
+        api_key = slot_auth["access_token"].strip()
+    if len(api_key) == 0:
+        raise CursorReimportError(
+            f"No Cursor credential snapshot for account {account_id}. Re-import from Cursor."
+        )
+    return api_key

@@ -6,7 +6,7 @@ import { stubTrpc } from "./trpc-stub";
  * Multi-account manager behaviour, driven from the single solo URL.
  *
  * The `?officeE2e=1` harness mounts the real `JackedAccountsView` over a fixed
- * two-Claude-account snapshot, so the pane renders without a live jacked service.
+ * Claude + Cursor snapshot, so the pane renders without a live jacked service.
  * Account mutations are stubbed at the tRPC boundary on purpose: the real calls
  * rewrite credential files, which must never happen from a test run. What is
  * asserted is the wiring — that each control invokes the right jacked procedure
@@ -20,6 +20,29 @@ async function openAccountsPane(page: import("@playwright/test").Page) {
 	await expect(page.getByTestId("jacked-account-1")).toBeVisible();
 	await expect(page.getByTestId("jacked-account-2")).toBeVisible();
 }
+
+test("Cursor account shows Re-import and hides Claude OAuth controls", async ({ page }) => {
+	const stub = await stubTrpc(page, {
+		"jacked.reimportCursorAccount": () => OK,
+		"jacked.activeSessions": () => ({ sessions: [] }),
+		"jacked.swapLog": () => ({ swaps: [] }),
+	});
+	await openAccountsPane(page);
+
+	const cursorRow = page.getByTestId("jacked-account-3");
+	await expect(cursorRow).toBeVisible();
+	await expect(cursorRow).toContainText("Cursor");
+	await expect(cursorRow).toContainText("in IDE");
+
+	const cursorActions = page.getByTestId("jacked-account-actions-3");
+	await expect(cursorActions.getByRole("button", { name: /^Re-import/ })).toBeVisible();
+	await expect(cursorActions.getByRole("button", { name: /^Re-authenticate/ })).toHaveCount(0);
+	await expect(cursorActions.getByRole("button", { name: /^Authorize Claude Code/ })).toHaveCount(0);
+	await expect(cursorActions.getByRole("button", { name: /^Raise auto-swap priority/ })).toHaveCount(0);
+
+	await cursorActions.getByRole("button", { name: /^Re-import/ }).click();
+	expect((await stub.waitForCall("jacked.reimportCursorAccount")).input).toEqual({ accountId: 3 });
+});
 
 test("the Seats pane carries the Manager theme, not the vendor name", async ({ page }) => {
 	await stubTrpc(page, {
@@ -89,7 +112,7 @@ test("per-account management actions reach the right jacked procedures", async (
 
 	// Raising the second account swaps it ahead of the first in swap priority.
 	await secondActions.getByRole("button", { name: /^Raise auto-swap priority/ }).click();
-	expect((await stub.waitForCall("jacked.reorderAccounts")).input).toEqual({ accountIds: [2, 1] });
+	expect((await stub.waitForCall("jacked.reorderAccounts")).input).toEqual({ accountIds: [2, 1, 3] });
 });
 
 test("deleting an account asks for confirmation first", async ({ page }) => {
@@ -174,6 +197,7 @@ test("a pending paste-code flow can be dismissed and leaves the pane usable", as
 	await openAccountsPane(page);
 
 	await page.getByTestId("jacked-add-account-trigger").click();
+	await page.getByTestId("jacked-add-account-provider-claude").click();
 	await page.getByTestId("jacked-add-account-paste-code").click();
 	await expect(page.getByTestId("jacked-oauth-status")).toBeVisible();
 	await expect(page.getByTestId("jacked-oauth-invite-email")).toBeVisible();

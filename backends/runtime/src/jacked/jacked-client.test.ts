@@ -137,7 +137,7 @@ describe("createJackedClient", () => {
 		vi.unstubAllGlobals();
 	});
 
-	it("filters non-Claude accounts from the PixelOffice snapshot", async () => {
+	it("filters to Claude and Cursor managed accounts in the PixelOffice snapshot", async () => {
 		const fetchMock = vi.fn(async (url: string) => {
 			const path = String(url);
 			if (path.endsWith("/api/health")) {
@@ -166,6 +166,7 @@ describe("createJackedClient", () => {
 							provider: "cursor",
 							email: "cursor@example.com",
 							is_active: false,
+							is_active_for_provider: false,
 							usage: { five_hour: 5, seven_day: 1 },
 						},
 					],
@@ -201,8 +202,9 @@ describe("createJackedClient", () => {
 			warn: vi.fn(),
 		});
 		const snapshot = await client.fetchSnapshot();
-		expect(snapshot?.accounts).toHaveLength(1);
-		expect(snapshot?.accounts[0]?.provider).toBe("claude");
+		expect(snapshot?.accounts).toHaveLength(2);
+		expect(snapshot?.accounts.map((account) => account.provider)).toEqual(["claude", "cursor"]);
+		expect(snapshot?.accounts[1]?.isActiveForProvider).toBe(false);
 		expect(snapshot?.activeAccountId).toBeNull();
 		expect(snapshot?.pressure).toBeCloseTo(0.4);
 		client.close();
@@ -509,6 +511,33 @@ describe("createJackedClient", () => {
 		expect(fetchMock.mock.calls[0]?.[0]).toBe(
 			"http://127.0.0.1:8321/api/auth/accounts/6/reauth?remote=true",
 		);
+		client.close();
+		vi.unstubAllGlobals();
+	});
+
+	it("reimports a Cursor account from the IDE snapshot", async () => {
+		const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => ({
+			ok: true,
+			json: async () => ({
+				id: 9,
+				provider: "cursor",
+				email: "cursor@example.com",
+				is_active_for_provider: false,
+			}),
+		}));
+		vi.stubGlobal("fetch", fetchMock);
+
+		const client = createJackedClient({ baseUrl: "http://127.0.0.1:8321", warn: vi.fn() });
+		const result = await client.reimportCursorAccount(9);
+		expect(result).toEqual({
+			ok: true,
+			accountId: 9,
+			email: "cursor@example.com",
+		});
+		expect(fetchMock.mock.calls[0]?.[0]).toBe(
+			"http://127.0.0.1:8321/api/auth/accounts/9/reimport?provider=cursor",
+		);
+		expect(fetchMock.mock.calls[0]?.[1]?.method).toBe("POST");
 		client.close();
 		vi.unstubAllGlobals();
 	});

@@ -7,6 +7,12 @@ import type { BoardCard } from "@/types";
 
 const startTaskSessionMutateMock = vi.hoisted(() => vi.fn());
 const trackTaskResumedFromTrashMock = vi.hoisted(() => vi.fn());
+const showAppToastMock = vi.hoisted(() => vi.fn());
+
+vi.mock("@/components/app-toaster", () => ({
+	notifyError: vi.fn(),
+	showAppToast: showAppToastMock,
+}));
 
 vi.mock("@/runtime/trpc-client", () => ({
 	getRuntimeTrpcClient: () => ({
@@ -67,6 +73,7 @@ describe("useTaskSessions", () => {
 	beforeEach(() => {
 		startTaskSessionMutateMock.mockReset();
 		trackTaskResumedFromTrashMock.mockReset();
+		showAppToastMock.mockReset();
 		startTaskSessionMutateMock.mockResolvedValue({
 			ok: true,
 			summary: {
@@ -308,5 +315,55 @@ describe("useTaskSessions", () => {
 				},
 			}),
 		);
+	});
+
+	it("shows a warning toast when Cursor task start returns a pin fallback warning", async () => {
+		startTaskSessionMutateMock.mockResolvedValueOnce({
+			ok: true,
+			summary: {
+				taskId: "task-1",
+				state: "running",
+				agentId: "cursor",
+				workspacePath: "/tmp/task-1",
+				pid: 123,
+				startedAt: 1,
+				updatedAt: 1,
+				lastOutputAt: null,
+				reviewReason: null,
+				exitCode: null,
+				lastHookAt: null,
+				latestHookActivity: null,
+				latestTurnCheckpoint: null,
+				previousTurnCheckpoint: null,
+			},
+			warning: "Jacked could not prepare Cursor credentials for account 3; using the active credential.",
+		});
+
+		let latestSnapshot: HookSnapshot | null = null;
+
+		await act(async () => {
+			root.render(
+				<HookHarness
+					onSnapshot={(snapshot) => {
+						latestSnapshot = snapshot;
+					}}
+				/>,
+			);
+		});
+
+		if (latestSnapshot === null) {
+			throw new Error("Expected a hook snapshot.");
+		}
+
+		await act(async () => {
+			const result = await latestSnapshot?.startTaskSession(createTask());
+			expect(result.ok).toBe(true);
+		});
+
+		expect(showAppToastMock).toHaveBeenCalledWith({
+			intent: "warning",
+			message: "Jacked could not prepare Cursor credentials for account 3; using the active credential.",
+			timeout: 8000,
+		});
 	});
 });

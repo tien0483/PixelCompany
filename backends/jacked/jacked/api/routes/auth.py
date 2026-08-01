@@ -195,6 +195,7 @@ class AccountResponse(BaseModel):
     can_track_usage: bool = True
     auto_swap_block_reason: Optional[str] = None
     manual_switch_warning: Optional[str] = None
+    is_active_for_provider: bool = False
 
 
 class AccountPatchRequest(BaseModel):
@@ -461,6 +462,9 @@ def _account_to_response(row: dict, db=None) -> AccountResponse:
 
     provider = row.get("provider") or "claude"
     caps = capabilities_for(provider)
+    active_for_provider = (
+        db.get_active_account_id(provider=provider) == row["id"] if db is not None else False
+    )
     return AccountResponse(
         id=row["id"],
         provider=provider,
@@ -509,6 +513,7 @@ def _account_to_response(row: dict, db=None) -> AccountResponse:
         can_track_usage=caps.can_track_usage,
         auto_swap_block_reason=caps.auto_swap_block_reason,
         manual_switch_warning=caps.manual_switch_warning,
+        is_active_for_provider=active_for_provider,
     )
 
 
@@ -658,6 +663,15 @@ async def start_reauth(account_id: int, request: Request, remote: bool = False):
             content={"error": {
                 "message": "Codex accounts re-authenticate with `codex login`, then Add Account → Codex.",
                 "code": "CODEX_NOT_OAUTH",
+            }},
+        )
+
+    if (account.get("provider") or "claude") == "cursor":
+        return JSONResponse(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            content={"error": {
+                "message": "Cursor accounts re-import from the IDE — sign in to Cursor, then Re-import.",
+                "code": "CURSOR_NOT_OAUTH",
             }},
         )
 
@@ -865,6 +879,17 @@ async def refresh_token(account_id: int, request: Request):
     account = db.get_account(account_id)
     if not account:
         return _not_found(f"No account with id={account_id}")
+
+    if (account.get("provider") or "claude") == "cursor":
+        import asyncio
+
+        from jacked.cursor.accounts import CursorReimportError, reimport_cursor_account
+
+        try:
+            await asyncio.to_thread(reimport_cursor_account, account_id, db)
+        except CursorReimportError as exc:
+            return RefreshResponse(success=False, error=str(exc))
+        return RefreshResponse(success=True)
 
     if not account.get("refresh_token"):
         return RefreshResponse(
@@ -1414,6 +1439,88 @@ async def prepare_account_launch_dir(account_id: int, request: Request):
     return {"account_id": account_id, "config_dir": str(config_dir)}
 
 
+@router.post("/accounts/{account_id}/reimport")
+async def reimport_account(account_id: int, request: Request, provider: str = "claude"):
+    """Re-import a provider account from its live credential store."""
+    db = _get_db(request)
+    if db is None:
+        return _db_unavailable()
+
+    if provider != "cursor":
+        return JSONResponse(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            content={
+                "error": {
+                    "message": f"Re-import is not supported for provider={provider}.",
+                    "code": "PROVIDER_NOT_SUPPORTED",
+                }
+            },
+        )
+
+    import asyncio
+
+    from jacked.cursor.accounts import CursorReimportError, reimport_cursor_account
+
+    try:
+        updated = await asyncio.to_thread(reimport_cursor_account, account_id, db)
+    except CursorReimportError as exc:
+        return JSONResponse(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            content={"error": {"message": str(exc), "code": "REIMPORT_FAILED"}},
+        )
+
+    return _account_to_response(updated, db=db)
+
+
+@router.post("/accounts/{account_id}/launch-credential")
+async def prepare_account_launch_credential(account_id: int, request: Request):
+    """Return a Cursor API key for a pinned Kanban task session.
+
+    Unlike Claude's launch-dir, Cursor concurrent multi-account uses per-PTY
+    CURSOR_API_KEY from the jacked slot snapshot instead of rewriting the IDE's
+    global state.vscdb.
+    """
+    db = _get_db(request)
+    if db is None:
+        return _db_unavailable()
+
+    account = db.get_account(account_id)
+    if not account:
+        return _not_found(f"No account with id={account_id}")
+
+    provider = account.get("provider") or "claude"
+    if provider != "cursor":
+        return JSONResponse(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            content={
+                "error": {
+                    "message": (
+                        f"Per-session API key pinning is Cursor-only; "
+                        f"{provider} accounts use a different launch path."
+                    ),
+                    "code": "PROVIDER_NOT_SUPPORTED",
+                }
+            },
+        )
+
+    from jacked.cursor.accounts import CursorReimportError, ensure_cursor_launch_credential
+
+    try:
+        api_key = ensure_cursor_launch_credential(account_id, db)
+    except CursorReimportError as exc:
+        return JSONResponse(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            content={
+                "error": {
+                    "message": str(exc),
+                    "code": "LAUNCH_CREDENTIAL_FAILED",
+                }
+            },
+        )
+
+    return {"account_id": account_id, "api_key": api_key}
+
+
 # --- Credential switching ---
 
 
@@ -1766,11 +1873,15 @@ async def get_active_credential(request: Request):
             cred_data = platform_data
 
     if cred_data:
-        # Layer 1: _jackedAccountId stamp
+        # Layer 1: _jackedAccountId stamp (Claude Code credentials only)
         jacked_id = cred_data.get("_jackedAccountId")
         if jacked_id is not None:
             account = db.get_account(jacked_id)
-            if account and not account.get("is_deleted"):
+            if (
+                account
+                and not account.get("is_deleted")
+                and (account.get("provider") or "claude") == "claude"
+            ):
                 return ActiveCredentialResponse(
                     account_id=account["id"], email=account["email"]
                 )
@@ -1789,6 +1900,8 @@ async def get_active_credential(request: Request):
                 for acct in accounts:
                     if acct.get("is_deleted"):
                         continue
+                    if (acct.get("provider") or "claude") != "claude":
+                        continue
                     if acct.get("cc_refresh_token") == refresh_token:
                         return ActiveCredentialResponse(
                             account_id=acct["id"], email=acct["email"]
@@ -1797,6 +1910,8 @@ async def get_active_credential(request: Request):
             if access_token:
                 for acct in accounts:
                     if acct.get("is_deleted"):
+                        continue
+                    if (acct.get("provider") or "claude") != "claude":
                         continue
                     if acct.get("cc_access_token") == access_token:
                         return ActiveCredentialResponse(
@@ -1832,6 +1947,10 @@ async def get_active_credential(request: Request):
                 for acct in accounts:
                     if acct.get("is_deleted"):
                         continue
+                    # Cursor/Codex rows often share the same email as Claude; never
+                    # treat them as the active Claude Code credential.
+                    if (acct.get("provider") or "claude") != "claude":
+                        continue
                     if (
                         acct.get("email", "").lower() == config_email.lower()
                         and (acct.get("organization_uuid") or "") == config_org
@@ -1842,6 +1961,8 @@ async def get_active_credential(request: Request):
                 # Fall back to email-only match (org may be None for personal accounts)
                 for acct in accounts:
                     if acct.get("is_deleted"):
+                        continue
+                    if (acct.get("provider") or "claude") != "claude":
                         continue
                     if acct.get("email", "").lower() == config_email.lower():
                         return ActiveCredentialResponse(

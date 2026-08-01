@@ -63,11 +63,14 @@ export interface CreateRuntimeApiDependencies {
 	getScopedTerminalManager: (scope: RuntimeTrpcWorkspaceScope) => Promise<TerminalSessionManager>;
 	getScopedClineTaskSessionService: (scope: RuntimeTrpcWorkspaceScope) => Promise<ClineTaskSessionService>;
 	/**
-	 * Prepares the per-account CLAUDE_CONFIG_DIR for a task pinned to a Claude
-	 * account. Returns null when jacked is offline or refuses the account, in which
-	 * case the session falls back to the globally active credential.
+	 * Prepares the per-account CLAUDE_CONFIG_DIR for a task pinned to a Claude account.
 	 */
 	getJackedAccountLaunchDir?: (accountId: number) => Promise<{ configDir: string } | null>;
+	/** Reads the Cursor API key snapshot for a pinned Cursor task. */
+	getJackedAccountLaunchCredential?: (accountId: number) => Promise<{ apiKey: string } | null>;
+	getJackedAccountProvider?: (accountId: number) => Promise<import("../core/api-contract").RuntimeJackedProvider | null>;
+	/** Auto (unpinned) Cursor tasks: pick a Cursor jacked account for CURSOR_API_KEY. */
+	resolveDefaultCursorJackedAccountId?: () => Promise<number | null>;
 	resolveInteractiveShellCommand: () => { binary: string; args: string[] };
 	runCommand: (command: string, cwd: string) => Promise<RuntimeCommandRunResponse>;
 	broadcastClineMcpAuthStatusesUpdated?: (
@@ -302,7 +305,15 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 					getAccountLaunchDir:
 						deps.getJackedAccountLaunchDir ??
 						(async () => null),
+					getAccountLaunchCredential:
+						deps.getJackedAccountLaunchCredential ??
+						(async () => null),
+					getAccountProvider: async (accountId) =>
+						(await deps.getJackedAccountProvider?.(accountId)) ?? null,
+					resolveDefaultCursorAccountId: deps.resolveDefaultCursorJackedAccountId,
 				});
+				// Cursor Auto: no CURSOR_API_KEY injection — same auth as interactive
+				// `agent` (`agent login`). Explicit seat pins still inject a key.
 				const summary = await terminalManager.startTaskSession({
 					taskId: body.taskId,
 					agentId: resolved.agentId,
@@ -338,6 +349,7 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 				return {
 					ok: true,
 					summary: nextSummary,
+					...(accountPin.warning ? { warning: accountPin.warning } : {}),
 				};
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);

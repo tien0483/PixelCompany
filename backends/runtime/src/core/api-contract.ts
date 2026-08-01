@@ -502,6 +502,12 @@ export const runtimeJackedAccountSchema = z.object({
 	/** False means Claude Code tokens were never authorized (or expired unrecovered) — the
 	 * account can't be switched to until `startAccountAuthorizeCc` completes for it. */
 	hasCcToken: z.boolean(),
+	/** Whether this account is the active credential for its provider fleet. */
+	isActiveForProvider: z.boolean(),
+	/** Jacked validation probe result (`valid` / `invalid` / `checking` / `unknown`). */
+	validationStatus: z.string().nullable(),
+	/** Last credential/usage error from jacked, when the seat needs attention. */
+	lastError: z.string().nullable(),
 });
 export type RuntimeJackedAccount = z.infer<typeof runtimeJackedAccountSchema>;
 
@@ -686,6 +692,13 @@ export const runtimeJackedAccountLaunchDirSchema = z.object({
 	configDir: z.string(),
 });
 export type RuntimeJackedAccountLaunchDir = z.infer<typeof runtimeJackedAccountLaunchDirSchema>;
+
+/** Per-task Cursor API key for CURSOR_API_KEY when a board task pins a Cursor account. */
+export const runtimeJackedAccountLaunchCredentialSchema = z.object({
+	accountId: z.number().int().positive(),
+	apiKey: z.string(),
+});
+export type RuntimeJackedAccountLaunchCredential = z.infer<typeof runtimeJackedAccountLaunchCredentialSchema>;
 
 export const runtimeJackedInstalledComponentSchema = z.object({
 	name: z.string(),
@@ -1353,6 +1366,7 @@ export const runtimeTaskSessionStartResponseSchema = z.object({
 	ok: z.boolean(),
 	summary: runtimeTaskSessionSummarySchema.nullable(),
 	error: z.string().optional(),
+	warning: z.string().optional(),
 });
 export type RuntimeTaskSessionStartResponse = z.infer<typeof runtimeTaskSessionStartResponseSchema>;
 

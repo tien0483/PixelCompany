@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 
 import { createInitialBoardData } from "@/data/board-data";
-import { addTaskToColumn, findCardSelection, setTaskJackedAccount, updateTaskTitle } from "@/state/board-state";
+import {
+	addTaskToColumn,
+	findCardSelection,
+	setTaskJackedAccount,
+	updateTask,
+	updateTaskTitle,
+} from "@/state/board-state";
 
 function boardWithOneTask(): { board: ReturnType<typeof createInitialBoardData>; taskId: string } {
 	const board = addTaskToColumn(createInitialBoardData(), "backlog", {
@@ -62,5 +68,22 @@ describe("setTaskJackedAccount", () => {
 		const renamed = updateTaskTitle(pinned, taskId, "renamed task").board;
 
 		expect(findCardSelection(renamed, taskId)?.card.jackedAccountId).toBe(3);
+	});
+});
+
+describe("updateTask clears cross-provider account pins", () => {
+	it("drops a Claude pin when the task switches to Cursor", () => {
+		const { board, taskId } = boardWithOneTask();
+		const pinned = setTaskJackedAccount(board, taskId, 2).board;
+
+		const result = updateTask(pinned, taskId, {
+			prompt: "pin me",
+			baseRef: "main",
+			agentId: "cursor",
+		});
+
+		expect(result.updated).toBe(true);
+		expect(findCardSelection(result.board, taskId)?.card.agentId).toBe("cursor");
+		expect(findCardSelection(result.board, taskId)?.card.jackedAccountId).toBeUndefined();
 	});
 });

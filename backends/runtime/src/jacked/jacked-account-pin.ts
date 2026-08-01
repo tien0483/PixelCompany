@@ -1,69 +1,197 @@
-// Resolves a board task's pinned Claude account into PTY environment.
+// Resolves a board task's pinned Jacked account into PTY environment.
 //
-// jacked's auto-swap rewrites one global credential file, so every unpinned
-// Claude Code session shares whichever account is active. Pinning instead points
-// a single session at `~/.claude/accounts/<id>` via CLAUDE_CONFIG_DIR, which is
-// how several tasks can run on different accounts at the same time.
+// Claude pins via CLAUDE_CONFIG_DIR (per-account credential dirs). Cursor pins
+// via CURSOR_API_KEY from jacked slot snapshots so concurrent tasks can run on
+// different accounts without rewriting the IDE's global sqlite state.
 //
-// Pinning is best-effort by design: if jacked is offline or refuses the account,
-// the session still launches on the globally active credential rather than
-// failing, and the caller surfaces the reason.
-import type { RuntimeAgentId } from "../core/api-contract";
+// Unpinned Cursor tasks intentionally inject nothing: the Cursor Agent CLI then
+// uses the same `agent login` session as an interactive terminal. Auto-injecting
+// a stale Seats snapshot overrides that working login and causes false 401s.
+//
+// Pinning is best-effort: if jacked is offline or refuses the account, the session
+// still launches on the CLI login / globally active credential rather than failing.
+import type { RuntimeAgentId, RuntimeJackedProvider } from "../core/api-contract";
 
 export const CLAUDE_CONFIG_DIR_ENV = "CLAUDE_CONFIG_DIR";
+export const CURSOR_API_KEY_ENV = "CURSOR_API_KEY";
 
 export interface ResolveJackedAccountPinInput {
-	/** The agent actually being launched; only Claude Code reads CLAUDE_CONFIG_DIR. */
 	agentId: RuntimeAgentId;
-	/** Account pinned to the card, or undefined to follow jacked's global rotation. */
 	jackedAccountId?: number | undefined;
-	/** Prepares the per-account credential dir; null when jacked cannot serve it. */
 	getAccountLaunchDir: (accountId: number) => Promise<{ configDir: string } | null>;
+	getAccountLaunchCredential?: (accountId: number) => Promise<{ apiKey: string } | null>;
+	getAccountProvider?: (accountId: number) => Promise<RuntimeJackedProvider | null>;
+	/**
+	 * Only used when an explicit Cursor pin fails and we need a same-provider
+	 * fallback. Unpinned Cursor Auto tasks do not call this — they inherit
+	 * `agent login` like a normal terminal.
+	 */
+	resolveDefaultCursorAccountId?: () => Promise<number | null>;
 }
 
 export interface JackedAccountPin {
-	/** Env overlay to merge into the session environment (empty when unpinned). */
 	env: Record<string, string>;
-	/** Account the session ended up pinned to, null when it follows the global credential. */
 	accountId: number | null;
-	/** Human-readable reason a requested pin was not applied. */
 	warning: string | null;
 }
 
 const UNPINNED: JackedAccountPin = { env: {}, accountId: null, warning: null };
 
-export async function resolveJackedAccountPin(
-	input: ResolveJackedAccountPinInput,
+function expectedProviderForAgent(agentId: RuntimeAgentId): RuntimeJackedProvider | null {
+	if (agentId === "claude") {
+		return "claude";
+	}
+	if (agentId === "cursor") {
+		return "cursor";
+	}
+	return null;
+}
+
+function providerMismatchWarning(
+	accountId: number,
+	accountProvider: RuntimeJackedProvider,
+	agentId: RuntimeAgentId,
+): string {
+	return `Account ${String(accountId)} is a ${accountProvider} account but this task runs ${agentId}; pin ignored.`;
+}
+
+/**
+ * Prefer the Cursor fleet's own active seat (`isActiveForProvider`), else the
+ * first Cursor account. Never treat Claude's global `activeAccountId` as a
+ * Cursor default unless that id is itself a Cursor row.
+ */
+export function pickDefaultCursorAccountId(input: {
+	accounts: ReadonlyArray<{ id: number; provider: string; isActiveForProvider?: boolean }>;
+	activeAccountId: number | null;
+}): number | null {
+	const cursorAccounts = input.accounts.filter((account) => account.provider === "cursor");
+	if (cursorAccounts.length === 0) {
+		return null;
+	}
+	const activeForProvider = cursorAccounts.find((account) => account.isActiveForProvider === true);
+	if (activeForProvider) {
+		return activeForProvider.id;
+	}
+	if (
+		input.activeAccountId !== null &&
+		cursorAccounts.some((account) => account.id === input.activeAccountId)
+	) {
+		return input.activeAccountId;
+	}
+	return cursorAccounts[0]?.id ?? null;
+}
+
+async function resolveCursorCredentialPin(
+	accountId: number,
+	getCredential: (accountId: number) => Promise<{ apiKey: string } | null>,
 ): Promise<JackedAccountPin> {
-	const { jackedAccountId } = input;
-	if (jackedAccountId === undefined) {
-		return UNPINNED;
-	}
-	if (input.agentId !== "claude") {
-		return {
-			...UNPINNED,
-			warning: `Account pinning only applies to Claude Code; ${input.agentId} sessions ignore it.`,
-		};
-	}
-	let launchDir: { configDir: string } | null;
+	let credential: { apiKey: string } | null;
 	try {
-		launchDir = await input.getAccountLaunchDir(jackedAccountId);
+		credential = await getCredential(accountId);
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
 		return {
 			...UNPINNED,
-			warning: `Could not prepare credentials for account ${String(jackedAccountId)}: ${message}`,
+			warning: `Could not prepare Cursor credentials for account ${String(accountId)}: ${message}`,
 		};
 	}
-	if (!launchDir || launchDir.configDir.trim().length === 0) {
+	const apiKey = credential?.apiKey.trim() ?? "";
+	if (apiKey.length === 0) {
 		return {
 			...UNPINNED,
-			warning: `Jacked could not prepare credentials for account ${String(jackedAccountId)}; using the active account.`,
+			warning: `Jacked could not prepare Cursor credentials for account ${String(accountId)}; using the active credential.`,
 		};
 	}
 	return {
-		env: { [CLAUDE_CONFIG_DIR_ENV]: launchDir.configDir },
-		accountId: jackedAccountId,
+		env: { [CURSOR_API_KEY_ENV]: apiKey },
+		accountId,
 		warning: null,
+	};
+}
+
+export async function resolveJackedAccountPin(
+	input: ResolveJackedAccountPinInput,
+): Promise<JackedAccountPin> {
+	let { jackedAccountId } = input;
+	let mismatchWarning: string | null = null;
+
+	if (jackedAccountId !== undefined) {
+		const accountProvider = (await input.getAccountProvider?.(jackedAccountId)) ?? null;
+		const expectedProvider = expectedProviderForAgent(input.agentId);
+		if (expectedProvider === null) {
+			return {
+				...UNPINNED,
+				warning: `Account pinning only applies to Claude Code and Cursor Agent; ${input.agentId} sessions ignore it.`,
+			};
+		}
+		if (accountProvider !== null && accountProvider !== expectedProvider) {
+			mismatchWarning = providerMismatchWarning(jackedAccountId, accountProvider, input.agentId);
+			// Drop the orphaned cross-provider pin. For Cursor, fall through to
+			// unpinned CLI login rather than forcing another Seats snapshot.
+			jackedAccountId = undefined;
+		}
+	}
+
+	// Cursor Auto (no pin): do not inject CURSOR_API_KEY. Interactive `agent`
+	// already authenticates via `agent login`; a Jacked snapshot often overrides
+	// that with a stale key and breaks an otherwise working CLI.
+	if (jackedAccountId === undefined) {
+		return mismatchWarning ? { ...UNPINNED, warning: mismatchWarning } : UNPINNED;
+	}
+
+	if (input.agentId === "claude") {
+		let launchDir: { configDir: string } | null;
+		try {
+			launchDir = await input.getAccountLaunchDir(jackedAccountId);
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			return {
+				...UNPINNED,
+				warning: `Could not prepare credentials for account ${String(jackedAccountId)}: ${message}`,
+			};
+		}
+		if (!launchDir || launchDir.configDir.trim().length === 0) {
+			return {
+				...UNPINNED,
+				warning: `Jacked could not prepare credentials for account ${String(jackedAccountId)}; using the active account.`,
+			};
+		}
+		return {
+			env: { [CLAUDE_CONFIG_DIR_ENV]: launchDir.configDir },
+			accountId: jackedAccountId,
+			warning: null,
+		};
+	}
+
+	const getCredential = input.getAccountLaunchCredential;
+	if (!getCredential) {
+		return {
+			...UNPINNED,
+			warning: mismatchWarning ?? "Cursor account pinning is unavailable; using the active credential.",
+		};
+	}
+
+	const pinned = await resolveCursorCredentialPin(jackedAccountId, getCredential);
+	if (pinned.accountId !== null) {
+		return mismatchWarning ? { ...pinned, warning: mismatchWarning } : pinned;
+	}
+
+	// Explicit pin failed — try the Cursor fleet default before giving up.
+	const fallbackId = (await input.resolveDefaultCursorAccountId?.()) ?? null;
+	if (fallbackId !== null && fallbackId !== jackedAccountId) {
+		const fallback = await resolveCursorCredentialPin(fallbackId, getCredential);
+		if (fallback.accountId !== null) {
+			return {
+				...fallback,
+				warning:
+					mismatchWarning ??
+					`Pinned Cursor account ${String(jackedAccountId)} was unavailable; using account ${String(fallbackId)}.`,
+			};
+		}
+	}
+
+	return {
+		...UNPINNED,
+		warning: mismatchWarning ?? pinned.warning,
 	};
 }

@@ -1,6 +1,7 @@
 import type {
 	RuntimeJackedAccountAuthorizeCcRequest,
 	RuntimeJackedAccountIdRequest,
+	RuntimeJackedAccountLaunchCredential,
 	RuntimeJackedAccountLaunchDir,
 	RuntimeJackedAccountReauthRequest,
 	RuntimeJackedAccountReorderRequest,
@@ -16,6 +17,7 @@ import type {
 	RuntimeJackedOAuthStartRequest,
 	RuntimeJackedOAuthStartResponse,
 	RuntimeJackedOAuthSubmitCodeRequest,
+	RuntimeJackedProvider,
 	RuntimeJackedServerLogs,
 	RuntimeJackedSessions,
 	RuntimeJackedState,
@@ -47,17 +49,52 @@ export function createJackedApi(deps: CreateJackedApiDependencies): RuntimeTrpcC
 		return result.error === undefined ? { ok: result.ok } : { ok: result.ok, error: result.error };
 	};
 
-	/** Refuse accountIds that are not present in the Claude-filtered snapshot. */
+	const MANAGED_PROVIDERS = new Set<RuntimeJackedProvider>(["claude", "cursor"]);
+
+	const lookupManagedAccount = async (accountId: number) => {
+		const state = deps.monitor.getState() ?? (await deps.monitor.refresh());
+		if (state === null) {
+			return { account: null, error: "Jacked is offline." as const };
+		}
+		const account = state.accounts.find((entry) => entry.id === accountId) ?? null;
+		if (!account || !MANAGED_PROVIDERS.has(account.provider)) {
+			return { account: null, error: "Account is not available from PixelOffice." as const };
+		}
+		return { account, error: null };
+	};
+
+	const refuseUnmanagedAccount = async (
+		accountId: number,
+	): Promise<RuntimeJackedMutationResponse | null> => {
+		const lookup = await lookupManagedAccount(accountId);
+		if (lookup.error !== null) {
+			return { ok: false, error: lookup.error };
+		}
+		return null;
+	};
+
 	const refuseNonClaudeAccount = async (
 		accountId: number,
 	): Promise<RuntimeJackedMutationResponse | null> => {
-		const state = deps.monitor.getState() ?? (await deps.monitor.refresh());
-		if (state === null) {
-			return { ok: false, error: "Jacked is offline." };
+		const lookup = await lookupManagedAccount(accountId);
+		if (lookup.error !== null) {
+			return { ok: false, error: lookup.error };
 		}
-		const account = state.accounts.find((entry) => entry.id === accountId);
-		if (!account || account.provider !== "claude") {
-			return { ok: false, error: "Only Claude accounts can be used from PixelOffice." };
+		if (lookup.account?.provider !== "claude") {
+			return { ok: false, error: "Only Claude accounts support this action." };
+		}
+		return null;
+	};
+
+	const refuseNonCursorAccount = async (
+		accountId: number,
+	): Promise<RuntimeJackedMutationResponse | null> => {
+		const lookup = await lookupManagedAccount(accountId);
+		if (lookup.error !== null) {
+			return { ok: false, error: lookup.error };
+		}
+		if (lookup.account?.provider !== "cursor") {
+			return { ok: false, error: "Only Cursor accounts support this action." };
 		}
 		return null;
 	};
@@ -76,14 +113,14 @@ export function createJackedApi(deps: CreateJackedApiDependencies): RuntimeTrpcC
 			return await refreshAfter(await deps.client.resumeSwap());
 		},
 		useAccount: async (input: RuntimeJackedAccountIdRequest) => {
-			const refused = await refuseNonClaudeAccount(input.accountId);
+			const refused = await refuseUnmanagedAccount(input.accountId);
 			if (refused !== null) {
 				return refused;
 			}
 			return await refreshAfter(await deps.client.useAccount(input.accountId));
 		},
 		refreshAccount: async (input: RuntimeJackedAccountIdRequest) => {
-			const refused = await refuseNonClaudeAccount(input.accountId);
+			const refused = await refuseUnmanagedAccount(input.accountId);
 			if (refused !== null) {
 				return refused;
 			}
@@ -93,7 +130,7 @@ export function createJackedApi(deps: CreateJackedApiDependencies): RuntimeTrpcC
 			return await refreshAfter(await deps.client.refreshAllUsage());
 		},
 		updateAccount: async (input: RuntimeJackedAccountUpdateRequest) => {
-			const refused = await refuseNonClaudeAccount(input.accountId);
+			const refused = await refuseUnmanagedAccount(input.accountId);
 			if (refused !== null) {
 				return refused;
 			}
@@ -106,24 +143,22 @@ export function createJackedApi(deps: CreateJackedApiDependencies): RuntimeTrpcC
 			);
 		},
 		deleteAccount: async (input: RuntimeJackedAccountIdRequest) => {
-			const refused = await refuseNonClaudeAccount(input.accountId);
+			const refused = await refuseUnmanagedAccount(input.accountId);
 			if (refused !== null) {
 				return refused;
 			}
 			return await refreshAfter(await deps.client.deleteAccount(input.accountId));
 		},
 		validateAccount: async (input: RuntimeJackedAccountIdRequest) => {
-			const refused = await refuseNonClaudeAccount(input.accountId);
+			const refused = await refuseUnmanagedAccount(input.accountId);
 			if (refused !== null) {
 				return refused;
 			}
 			return await refreshAfter(await deps.client.validateAccount(input.accountId));
 		},
 		reorderAccounts: async (input: RuntimeJackedAccountReorderRequest) => {
-			// Reordering is only meaningful over the accounts this product manages, so
-			// refuse the whole batch if a non-Claude id slipped in.
 			for (const accountId of input.accountIds) {
-				const refused = await refuseNonClaudeAccount(accountId);
+				const refused = await refuseUnmanagedAccount(accountId);
 				if (refused !== null) {
 					return refused;
 				}
@@ -135,7 +170,7 @@ export function createJackedApi(deps: CreateJackedApiDependencies): RuntimeTrpcC
 		): Promise<RuntimeJackedOAuthStartResponse> => {
 			const refused = await refuseNonClaudeAccount(input.accountId);
 			if (refused !== null) {
-				return { ok: false, error: refused.error ?? "Only Claude accounts can be used from PixelOffice." };
+				return { ok: false, error: refused.error ?? "Only Claude accounts support this action." };
 			}
 			return await deps.client.startAccountReauth(input.accountId, input.remote === true);
 		},
@@ -144,7 +179,7 @@ export function createJackedApi(deps: CreateJackedApiDependencies): RuntimeTrpcC
 		): Promise<RuntimeJackedOAuthStartResponse> => {
 			const refused = await refuseNonClaudeAccount(input.accountId);
 			if (refused !== null) {
-				return { ok: false, error: refused.error ?? "Only Claude accounts can be used from PixelOffice." };
+				return { ok: false, error: refused.error ?? "Only Claude accounts support this action." };
 			}
 			return await deps.client.startAccountAuthorizeCc(input.accountId, input.remote === true);
 		},
@@ -167,6 +202,37 @@ export function createJackedApi(deps: CreateJackedApiDependencies): RuntimeTrpcC
 				return null;
 			}
 			return await deps.client.fetchAccountLaunchDir(input.accountId);
+		},
+		getAccountLaunchCredential: async (
+			input: RuntimeJackedAccountIdRequest,
+		): Promise<RuntimeJackedAccountLaunchCredential | null> => {
+			const refused = await refuseNonCursorAccount(input.accountId);
+			if (refused !== null) {
+				return null;
+			}
+			return await deps.client.fetchAccountLaunchCredential(input.accountId);
+		},
+		importCursorAccount: async () => {
+			const result = await deps.client.importCursorAccount();
+			if (result.ok) {
+				await deps.monitor.refresh();
+			}
+			return result;
+		},
+		reimportCursorAccount: async (input: RuntimeJackedAccountIdRequest) => {
+			const refused = await refuseNonCursorAccount(input.accountId);
+			if (refused !== null) {
+				return refused;
+			}
+			const result = await deps.client.reimportCursorAccount(input.accountId);
+			if (result.ok) {
+				await deps.monitor.refresh();
+			}
+			return result;
+		},
+		getAccountProvider: async (accountId: number): Promise<RuntimeJackedProvider | null> => {
+			const lookup = await lookupManagedAccount(accountId);
+			return lookup.account?.provider ?? null;
 		},
 		getInstallationsOverview: async (): Promise<RuntimeJackedInstallationsOverview | null> => {
 			return await deps.client.fetchInstallationsOverview();

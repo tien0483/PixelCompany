@@ -56,6 +56,7 @@ import type {
 	RuntimeJackedAccountAuthorizeCcRequest,
 	RuntimeJackedAccountIdRequest,
 	RuntimeJackedAccountLaunchDir,
+	RuntimeJackedAccountLaunchCredential,
 	RuntimeJackedAccountReauthRequest,
 	RuntimeJackedAccountReorderRequest,
 	RuntimeJackedAccountUpdateRequest,
@@ -70,6 +71,7 @@ import type {
 	RuntimeJackedOAuthSubmitCodeRequest,
 	RuntimeJackedPacks,
 	RuntimeJackedPackToggleRequest,
+	RuntimeJackedProvider,
 	RuntimeJackedServerLogs,
 	RuntimeJackedSessions,
 	RuntimeJackedState,
@@ -170,6 +172,7 @@ import {
 	runtimeJackedAccountAuthorizeCcRequestSchema,
 	runtimeJackedAccountIdRequestSchema,
 	runtimeJackedAccountLaunchDirSchema,
+	runtimeJackedAccountLaunchCredentialSchema,
 	runtimeJackedAccountReauthRequestSchema,
 	runtimeJackedAccountReorderRequestSchema,
 	runtimeJackedAccountUpdateRequestSchema,
@@ -184,6 +187,7 @@ import {
 	runtimeJackedOAuthSubmitCodeRequestSchema,
 	runtimeJackedPacksSchema,
 	runtimeJackedPackToggleRequestSchema,
+	runtimeJackedProviderSchema,
 	runtimeJackedServerLogsSchema,
 	runtimeJackedSessionsSchema,
 	runtimeJackedStateSchema,
@@ -436,6 +440,14 @@ export interface RuntimeTrpcContext {
 		getPacks: () => Promise<RuntimeJackedPacks | null>;
 		setPackEnabled: (input: RuntimeJackedPackToggleRequest) => Promise<RuntimeJackedMutationResponse>;
 		getAccountLaunchDir: (input: RuntimeJackedAccountIdRequest) => Promise<RuntimeJackedAccountLaunchDir | null>;
+		getAccountLaunchCredential: (
+			input: RuntimeJackedAccountIdRequest,
+		) => Promise<RuntimeJackedAccountLaunchCredential | null>;
+		importCursorAccount: () => Promise<{ ok: boolean; error?: string; accountId?: number; email?: string }>;
+		reimportCursorAccount: (
+			input: RuntimeJackedAccountIdRequest,
+		) => Promise<{ ok: boolean; error?: string; accountId?: number; email?: string }>;
+		getAccountProvider: (accountId: number) => Promise<RuntimeJackedProvider | null>;
 		getInstallationsOverview: () => Promise<RuntimeJackedInstallationsOverview | null>;
 		getServerLogs: (limit?: number) => Promise<RuntimeJackedServerLogs | null>;
 		getHookLogs: (limit?: number) => Promise<RuntimeJackedHookLogs | null>;
@@ -886,6 +898,43 @@ export const runtimeAppRouter = t.router({
 			.output(runtimeJackedAccountLaunchDirSchema.nullable())
 			.mutation(async ({ ctx, input }) => {
 				return await ctx.jackedApi.getAccountLaunchDir(input);
+			}),
+		accountLaunchCredential: t.procedure
+			.input(runtimeJackedAccountIdRequestSchema)
+			.output(runtimeJackedAccountLaunchCredentialSchema.nullable())
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.jackedApi.getAccountLaunchCredential(input);
+			}),
+		importCursorAccount: t.procedure
+			.output(
+				z.object({
+					ok: z.boolean(),
+					error: z.string().optional(),
+					accountId: z.number().int().positive().optional(),
+					email: z.string().optional(),
+				}),
+			)
+			.mutation(async ({ ctx }) => {
+				return await ctx.jackedApi.importCursorAccount();
+			}),
+		reimportCursorAccount: t.procedure
+			.input(runtimeJackedAccountIdRequestSchema)
+			.output(
+				z.object({
+					ok: z.boolean(),
+					error: z.string().optional(),
+					accountId: z.number().int().positive().optional(),
+					email: z.string().optional(),
+				}),
+			)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.jackedApi.reimportCursorAccount(input);
+			}),
+		accountProvider: t.procedure
+			.input(runtimeJackedAccountIdRequestSchema)
+			.output(runtimeJackedProviderSchema.nullable())
+			.query(async ({ ctx, input }) => {
+				return await ctx.jackedApi.getAccountProvider(input.accountId);
 			}),
 		installationsOverview: t.procedure
 			.output(runtimeJackedInstallationsOverviewSchema.nullable())

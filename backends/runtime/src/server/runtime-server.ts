@@ -25,6 +25,7 @@ import {
 	isKanbanRemoteHost,
 } from "../core/runtime-endpoint";
 import type { JackedClient } from "../jacked/jacked-client";
+import { pickDefaultCursorAccountId } from "../jacked/jacked-account-pin";
 import type { JackedMonitor } from "../jacked/jacked-monitor";
 import {
 	checkRateLimit,
@@ -219,6 +220,21 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 				// jacked API so the Claude-only guard applies, and resolves to null
 				// (unpinned, global credential) whenever jacked is unreachable.
 				getJackedAccountLaunchDir: async (accountId) => await jackedApi.getAccountLaunchDir({ accountId }),
+				getJackedAccountLaunchCredential: async (accountId) => {
+					const credential = await jackedApi.getAccountLaunchCredential({ accountId });
+					return credential ? { apiKey: credential.apiKey } : null;
+				},
+				getJackedAccountProvider: async (accountId) => await jackedApi.getAccountProvider(accountId),
+				resolveDefaultCursorJackedAccountId: async () => {
+					const snapshot = deps.jacked.monitor.getState();
+					if (!snapshot) {
+						return null;
+					}
+					return pickDefaultCursorAccountId({
+						accounts: snapshot.accounts,
+						activeAccountId: snapshot.activeAccountId,
+					});
+				},
 				resolveInteractiveShellCommand: deps.resolveInteractiveShellCommand,
 				runCommand: deps.runCommand,
 				broadcastClineMcpAuthStatusesUpdated: deps.runtimeStateHub.broadcastClineMcpAuthStatusesUpdated,

@@ -509,6 +509,16 @@ export function moveTaskToColumn(
 	};
 }
 
+function jackedProviderForAgentId(agentId: RuntimeAgentId | undefined): "claude" | "cursor" | null {
+	if (agentId === "claude") {
+		return "claude";
+	}
+	if (agentId === "cursor") {
+		return "cursor";
+	}
+	return null;
+}
+
 export function updateTask(board: BoardData, taskId: string, draft: TaskDraft): { board: BoardData; updated: boolean } {
 	const prompt = draft.prompt.trim();
 	if (!prompt) {
@@ -529,7 +539,13 @@ export function updateTask(board: BoardData, taskId: string, draft: TaskDraft): 
 			}
 			columnUpdated = true;
 			updated = true;
-			return {
+			const previousProvider = jackedProviderForAgentId(card.agentId);
+			const nextProvider = jackedProviderForAgentId(draft.agentId);
+			// Claude pins and Cursor pins are not interchangeable — drop the seat
+			// when the task switches agent family (including back to "use default").
+			const clearCrossProviderPin =
+				card.agentId !== draft.agentId && previousProvider !== nextProvider;
+			const nextCard: BoardCard = {
 				...card,
 				title: title || card.title,
 				prompt,
@@ -547,6 +563,11 @@ export function updateTask(board: BoardData, taskId: string, draft: TaskDraft): 
 				baseRef,
 				updatedAt: Date.now(),
 			};
+			if (clearCrossProviderPin) {
+				const { jackedAccountId: _clearedPin, ...withoutPin } = nextCard;
+				return withoutPin;
+			}
+			return nextCard;
 		});
 		return columnUpdated ? { ...column, cards } : column;
 	});

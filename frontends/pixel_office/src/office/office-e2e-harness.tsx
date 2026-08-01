@@ -168,10 +168,11 @@ function buildFixtureJacked(pressure: number): RuntimeJackedSnapshot {
 		accountPressure: number,
 		canAutoSwap: boolean,
 		isActive: boolean,
+		provider: "claude" | "cursor" = "claude",
 	) => ({
 		id,
 		email,
-		provider: "claude" as const,
+		provider,
 		displayName: email.split("@")[0] ?? email,
 		organizationName: null as string | null,
 		isActive,
@@ -181,16 +182,19 @@ function buildFixtureJacked(pressure: number): RuntimeJackedSnapshot {
 		nextRefreshAt: null as number | null,
 		canAutoSwap,
 		canTrackUsage: true,
-		hasCcToken: true,
+		hasCcToken: provider === "claude",
+		isActiveForProvider: provider === "cursor" ? id === 3 : id === 1,
+		validationStatus: "valid",
+		lastError: null,
 	});
 	return {
 		version: "e2e",
 		pressure: clamp,
 		accounts: [
-			// A realistic two-account fleet: both enabled, the first one currently active.
-			// `isActive` is the enabled flag; `activeAccountId` is what sessions run on.
+			// A realistic fleet: two Claude seats plus one Cursor import.
 			account(1, "claude@example.com", clamp * 0.9, true, true),
 			account(2, "claude-spare@example.com", clamp * 0.45, true, true),
+			account(3, "cursor@example.com", clamp * 0.2, false, true, "cursor"),
 		],
 		activeAccountId: 1,
 		autoSwapEnabled: true,

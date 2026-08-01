@@ -7,6 +7,7 @@ import { WebSocket } from "ws";
 import type {
 	RuntimeJackedAccount,
 	RuntimeJackedAccountLaunchDir,
+	RuntimeJackedAccountLaunchCredential,
 	RuntimeJackedFeature,
 	RuntimeJackedFeatureCategory,
 	RuntimeJackedHookLogs,
@@ -86,6 +87,12 @@ export interface JackedClient {
 	setPackEnabled: (name: string, enabled: boolean) => Promise<{ ok: boolean; error?: string }>;
 	/** Prepare (and return) the per-account CLAUDE_CONFIG_DIR for a pinned launch. */
 	fetchAccountLaunchDir: (accountId: number) => Promise<RuntimeJackedAccountLaunchDir | null>;
+	/** Read the Cursor API key snapshot for a pinned Cursor launch. */
+	fetchAccountLaunchCredential: (accountId: number) => Promise<RuntimeJackedAccountLaunchCredential | null>;
+	/** Import the signed-in Cursor IDE user as a jacked account. */
+	importCursorAccount: () => Promise<{ ok: boolean; error?: string; accountId?: number; email?: string }>;
+	/** Refresh an existing Cursor account slot from the live IDE session. */
+	reimportCursorAccount: (accountId: number) => Promise<{ ok: boolean; error?: string; accountId?: number; email?: string }>;
 	fetchInstallationsOverview: () => Promise<RuntimeJackedInstallationsOverview | null>;
 	fetchServerLogs: (limit?: number) => Promise<RuntimeJackedServerLogs | null>;
 	fetchHookLogs: (limit?: number) => Promise<RuntimeJackedHookLogs | null>;
@@ -193,6 +200,9 @@ function parseAccount(raw: unknown): RuntimeJackedAccount | null {
 		canAutoSwap,
 		canTrackUsage,
 		hasCcToken: readBoolean(raw, "has_cc_token"),
+		isActiveForProvider: readBoolean(raw, "is_active_for_provider"),
+		validationStatus: readString(raw, "validation_status"),
+		lastError: readString(raw, "last_error"),
 	};
 }
 
@@ -386,8 +396,7 @@ export function createJackedClient(deps: CreateJackedClientDependencies): Jacked
 		if (Array.isArray(accountsRaw)) {
 			for (const raw of accountsRaw) {
 				const account = parseAccount(raw);
-				// PixelOffice surface is Claude-only — hide other provider fleets.
-				if (account && account.provider === "claude") {
+				if (account && (account.provider === "claude" || account.provider === "cursor")) {
 					accounts.push(account);
 				}
 			}
@@ -728,6 +737,104 @@ export function createJackedClient(deps: CreateJackedClientDependencies): Jacked
 				return null;
 			}
 			return { accountId, configDir };
+		},
+		fetchAccountLaunchCredential: async (accountId) => {
+			const raw = await request(
+				`/api/auth/accounts/${String(accountId)}/launch-credential`,
+				{ method: "POST" },
+				LONG_REQUEST_TIMEOUT_MS,
+			);
+			if (!isRecord(raw)) {
+				return null;
+			}
+			const apiKey = readString(raw, "api_key");
+			if (apiKey === null) {
+				return null;
+			}
+			return { accountId, apiKey };
+		},
+		importCursorAccount: async () => {
+			const controller = new AbortController();
+			const timeout = setTimeout(() => {
+				controller.abort();
+			}, LONG_REQUEST_TIMEOUT_MS);
+			try {
+				const response = await fetch(`${baseUrl}/api/auth/accounts/add?provider=cursor`, {
+					method: "POST",
+					signal: controller.signal,
+				});
+				let payload: unknown = null;
+				try {
+					payload = await response.json();
+				} catch {
+					payload = null;
+				}
+				if (!response.ok) {
+					const message =
+						isRecord(payload) && isRecord(payload.error) && typeof payload.error.message === "string"
+							? payload.error.message
+							: isRecord(payload) && typeof payload.error === "string"
+								? payload.error
+								: `claude-jacked returned HTTP ${String(response.status)}.`;
+					return { ok: false, error: message };
+				}
+				if (!isRecord(payload)) {
+					return { ok: false, error: "Invalid Cursor import response." };
+				}
+				didWarnUnreachable = false;
+				return {
+					ok: true,
+					accountId: readNumber(payload, "account_id") ?? undefined,
+					email: readString(payload, "email") ?? undefined,
+				};
+			} catch {
+				return { ok: false, error: "claude-jacked is not reachable." };
+			} finally {
+				clearTimeout(timeout);
+			}
+		},
+		reimportCursorAccount: async (accountId: number) => {
+			const controller = new AbortController();
+			const timeout = setTimeout(() => {
+				controller.abort();
+			}, LONG_REQUEST_TIMEOUT_MS);
+			try {
+				const response = await fetch(
+					`${baseUrl}/api/auth/accounts/${String(accountId)}/reimport?provider=cursor`,
+					{
+						method: "POST",
+						signal: controller.signal,
+					},
+				);
+				let payload: unknown = null;
+				try {
+					payload = await response.json();
+				} catch {
+					payload = null;
+				}
+				if (!response.ok) {
+					const message =
+						isRecord(payload) && isRecord(payload.error) && typeof payload.error.message === "string"
+							? payload.error.message
+							: isRecord(payload) && typeof payload.error === "string"
+								? payload.error
+								: `claude-jacked returned HTTP ${String(response.status)}.`;
+					return { ok: false, error: message };
+				}
+				if (!isRecord(payload)) {
+					return { ok: false, error: "Invalid Cursor re-import response." };
+				}
+				didWarnUnreachable = false;
+				return {
+					ok: true,
+					accountId: readNumber(payload, "id") ?? accountId,
+					email: readString(payload, "email") ?? undefined,
+				};
+			} catch {
+				return { ok: false, error: "claude-jacked is not reachable." };
+			} finally {
+				clearTimeout(timeout);
+			}
 		},
 		fetchInstallationsOverview: async () => {
 			const raw = await request("/api/installations/overview", undefined, LONG_REQUEST_TIMEOUT_MS);

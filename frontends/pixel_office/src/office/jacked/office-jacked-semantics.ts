@@ -46,7 +46,7 @@ const PROVIDER_LABELS: Record<RuntimeJackedAccount["provider"], string> = {
 };
 
 /** PixelOffice office chrome only meters Claude fleets. */
-const PROVIDER_ORDER: RuntimeJackedAccount["provider"][] = ["claude"];
+const PROVIDER_ORDER: RuntimeJackedAccount["provider"][] = ["claude", "cursor"];
 
 export function emptyOfficeJackedSemantics(): OfficeJackedSemantics {
 	return {

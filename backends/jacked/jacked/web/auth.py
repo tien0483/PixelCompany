@@ -1100,6 +1100,37 @@ def _validate_codex_account(account_id: int, db: Database) -> dict:
     return {"valid": False, "error": "Codex signed out"}
 
 
+def _validate_cursor_account(account_id: int, db: Database) -> dict:
+    """Validate a Cursor account by its slot snapshot, not Anthropic profile API."""
+    try:
+        from jacked.cursor.accounts import read_cursor_slot_auth
+
+        slot_auth = read_cursor_slot_auth(account_id)
+        token = slot_auth.get("access_token") if isinstance(slot_auth, dict) else None
+        signed_in = isinstance(token, str) and len(token.strip()) > 0
+    except Exception:
+        logger.debug("cursor validation read failed for %s", account_id, exc_info=True)
+        signed_in = True
+    if signed_in:
+        db.update_account(
+            account_id,
+            validation_status="valid",
+            last_validated_at=int(time.time()),
+            consecutive_failures=0,
+            last_error=None,
+            last_error_at=None,
+        )
+        return {"valid": True, "error": None}
+    db.update_account(
+        account_id,
+        validation_status="invalid",
+        last_validated_at=int(time.time()),
+        last_error="Cursor account signed out — sign in to Cursor IDE, then Re-import",
+        last_error_at=datetime.now(timezone.utc).isoformat(),
+    )
+    return {"valid": False, "error": "Cursor signed out"}
+
+
 async def validate_account(account_id: int, db: Database) -> dict:
     """Validate an account by attempting a profile fetch.
 
@@ -1121,6 +1152,9 @@ async def validate_account(account_id: int, db: Database) -> dict:
     # falsely mark them invalid.
     if (account.get("provider") or "claude") == "codex":
         return _validate_codex_account(account_id, db)
+
+    if (account.get("provider") or "claude") == "cursor":
+        return _validate_cursor_account(account_id, db)
 
     # Mark as checking
     db.update_account(account_id, validation_status="checking")

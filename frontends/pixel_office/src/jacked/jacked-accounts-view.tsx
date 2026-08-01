@@ -1,7 +1,7 @@
 import type { ReactElement, ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
-import { ChevronDown, Mail, Pause, Play, Plus, RefreshCw, X } from "lucide-react";
+import { ArrowLeft, ChevronDown, ChevronRight, Mail, Pause, Play, Plus, RefreshCw, X } from "lucide-react";
 
 import type {
 	RuntimeJackedAccount,
@@ -25,9 +25,46 @@ const OAUTH_POLL_MS = 1000;
 const OAUTH_BROWSER_MAX_POLLS = 120;
 const OAUTH_MANUAL_MAX_POLLS = 600;
 
-/** PixelOffice only surfaces Claude accounts. */
-function claudeAccounts(accounts: RuntimeJackedAccount[]): RuntimeJackedAccount[] {
-	return accounts.filter((account) => account.provider === "claude");
+type AddAccountMenuStep = "provider" | "claude" | "cursor";
+
+/** Claude + Cursor accounts managed from PixelOffice. */
+function managedAccounts(accounts: RuntimeJackedAccount[]): RuntimeJackedAccount[] {
+	return accounts.filter((account) => account.provider === "claude" || account.provider === "cursor");
+}
+
+function providerDisplayName(provider: RuntimeJackedAccount["provider"]): string {
+	if (provider === "cursor") {
+		return "Cursor";
+	}
+	return "Claude";
+}
+
+function sessionBadgeTitle(provider: RuntimeJackedAccount["provider"]): string {
+	if (provider === "cursor") {
+		return "Cursor Agent sessions currently running on this account";
+	}
+	return "Claude Code sessions currently running on this account";
+}
+
+/** Claude Code "active" seat vs Cursor IDE seat — never share one global badge. */
+function accountIsSelected(account: RuntimeJackedAccount, jacked: RuntimeJackedSnapshot | null): boolean {
+	if (!jacked) {
+		return false;
+	}
+	if (account.provider === "claude") {
+		return account.id === jacked.activeAccountId;
+	}
+	if (account.provider === "cursor") {
+		return account.isActiveForProvider;
+	}
+	return false;
+}
+
+function activeBadgeLabel(provider: RuntimeJackedAccount["provider"]): string {
+	if (provider === "cursor") {
+		return "in IDE";
+	}
+	return "active";
 }
 
 /**
@@ -71,12 +108,14 @@ function AccountRow({
 	isSelected: boolean;
 	busy: boolean;
 	online: boolean;
-	/** Live Claude Code sessions currently running on this account. */
+	/** Live agent sessions currently running on this account. */
 	sessionCount: number;
 	onUse: () => void;
 	onRefresh: () => void;
 	actions: ReactNode;
 }): ReactElement {
+	const isCursorAccount = account.provider === "cursor";
+	const useAccountLabel = isCursorAccount ? "Switch in IDE" : "Use Account";
 	return (
 		<div
 			data-testid={`jacked-account-${account.id}`}
@@ -92,8 +131,15 @@ function AccountRow({
 							{account.displayName ?? account.email}
 						</span>
 						{isSelected ? (
-							<span className="shrink-0 rounded bg-accent/20 px-1 py-0.5 text-[9px] uppercase tracking-wide text-accent">
-								active
+							<span
+								className="shrink-0 rounded bg-accent/20 px-1 py-0.5 text-[9px] uppercase tracking-wide text-accent"
+								title={
+									isCursorAccount
+										? "This seat is written into the Cursor IDE database"
+										: "Active in Claude Code"
+								}
+							>
+								{activeBadgeLabel(account.provider)}
 							</span>
 						) : null}
 						{!account.isActive ? (
@@ -108,14 +154,14 @@ function AccountRow({
 							<span
 								data-testid={`jacked-account-sessions-${account.id}`}
 								className="shrink-0 rounded bg-status-green/15 px-1 py-0.5 text-[9px] uppercase tracking-wide text-status-green"
-								title="Claude Code sessions currently running on this account"
+								title={sessionBadgeTitle(account.provider)}
 							>
 								{sessionCount} live
 							</span>
 						) : null}
 					</div>
 					<p className="truncate text-[10px] text-text-tertiary">
-						Claude
+						{providerDisplayName(account.provider)}
 						{account.organizationName ? ` · ${account.organizationName}` : ""}
 					</p>
 					{account.displayName && account.displayName !== account.email ? (
@@ -142,6 +188,16 @@ function AccountRow({
 			) : (
 				<p className="mt-1 text-[10px] text-text-tertiary">Usage not tracked</p>
 			)}
+			{isCursorAccount ? (
+				<p className="mt-1 text-[10px] text-text-tertiary">
+					Kanban: pin this account on a Cursor task — no IDE switch needed.
+				</p>
+			) : null}
+			{account.lastError ? (
+				<p className="mt-1 text-[10px] text-status-red" title={account.lastError}>
+					{account.lastError}
+				</p>
+			) : null}
 			<div className="mt-2 flex gap-1">
 				<Button
 					variant="ghost"
@@ -149,8 +205,13 @@ function AccountRow({
 					disabled={!online || busy || isSelected || !account.isActive}
 					onClick={onUse}
 					className="h-6 px-2 text-[10px]"
+					title={
+						isCursorAccount
+							? "Writes this account into the Cursor IDE database. Close Cursor first. Kanban tasks should use card pinning instead."
+							: undefined
+					}
 				>
-					Use Account
+					{useAccountLabel}
 				</Button>
 				<Button
 					variant="ghost"
@@ -168,16 +229,18 @@ function AccountRow({
 }
 
 /**
- * The Seats surface — Claude accounts the office works under.
+ * The Seats surface — Claude and Cursor accounts the office works under.
  *
- * Full accounts surface — Claude-only account cards, meters, Use/Refresh,
- * toolbar (Refresh All / Add Account via Claude OAuth / auto-swap), and recent swap history.
+ * Full accounts surface — account cards, meters, Use/Refresh, toolbar
+ * (Refresh All / Add Account → provider → method / auto-swap), and recent swap history.
  * Mounted in the home upper-right pane only (not duplicated in the left Jacked sidebar).
  */
 export function JackedAccountsView({ online, jacked }: JackedAccountsViewProps): ReactElement {
-	const [busyId, setBusyId] = useState<number | "all" | "swap" | "oauth" | null>(null);
+	const [busyId, setBusyId] = useState<number | "all" | "swap" | "oauth" | "import-cursor" | null>(null);
 	const [error, setError] = useState<string | null>(null);
+	const [actionStatus, setActionStatus] = useState<string | null>(null);
 	const [swapLog, setSwapLog] = useState<RuntimeJackedSwapLog | null>(null);
+	const [addAccountStep, setAddAccountStep] = useState<AddAccountMenuStep>("provider");
 	const [oauthStatus, setOauthStatus] = useState<string | null>(null);
 	const [oauthAuthUrl, setOauthAuthUrl] = useState<string | null>(null);
 	const [oauthManual, setOauthManual] = useState(false);
@@ -224,15 +287,19 @@ export function JackedAccountsView({ online, jacked }: JackedAccountsViewProps):
 	}, []);
 
 	const run = async (
-		id: number | "all" | "swap" | "oauth",
+		id: number | "all" | "swap" | "oauth" | "import-cursor",
 		action: () => Promise<{ ok: boolean; error?: string }>,
+		successMessage?: string,
 	) => {
 		setBusyId(id);
 		setError(null);
+		setActionStatus(null);
 		try {
 			const result = await action();
 			if (!result.ok) {
 				setError(result.error ?? "Action failed");
+			} else if (successMessage) {
+				setActionStatus(successMessage);
 			}
 		} catch (err) {
 			setError(err instanceof Error ? err.message : "Action failed");
@@ -482,7 +549,7 @@ export function JackedAccountsView({ online, jacked }: JackedAccountsViewProps):
 		);
 	}
 
-	const accounts = claudeAccounts(jacked?.accounts ?? []);
+	const accounts = managedAccounts(jacked?.accounts ?? []);
 
 	// Swap log entries are not provider-tagged; with Claude-only accounts, history is Claude-oriented.
 	const swaps =
@@ -527,7 +594,13 @@ export function JackedAccountsView({ online, jacked }: JackedAccountsViewProps):
 					>
 						Refresh All
 					</Button>
-					<DropdownMenu.Root>
+					<DropdownMenu.Root
+						onOpenChange={(open) => {
+							if (!open) {
+								setAddAccountStep("provider");
+							}
+						}}
+					>
 						<DropdownMenu.Trigger asChild>
 							<Button
 								variant="ghost"
@@ -535,7 +608,7 @@ export function JackedAccountsView({ online, jacked }: JackedAccountsViewProps):
 								disabled={!online || busyId !== null}
 								icon={<Plus size={12} />}
 								iconRight={<ChevronDown size={10} aria-hidden />}
-								aria-label="Add Claude account"
+								aria-label="Add account"
 								className="h-7 px-2 text-[10px]"
 								data-testid="jacked-add-account-trigger"
 							>
@@ -547,29 +620,110 @@ export function JackedAccountsView({ online, jacked }: JackedAccountsViewProps):
 								side="bottom"
 								align="start"
 								sideOffset={4}
-								className="z-50 min-w-[11rem] rounded-md border border-border-bright bg-surface-1 p-1 shadow-lg"
+								className="z-50 min-w-[13rem] rounded-md border border-border-bright bg-surface-1 p-1 shadow-lg"
 								onCloseAutoFocus={(event) => event.preventDefault()}
 							>
-								<DropdownMenu.Item
-									className="cursor-pointer rounded-sm px-2 py-1.5 text-[11px] text-text-primary outline-none data-[highlighted]:bg-surface-3"
-									data-testid="jacked-add-account-oauth"
-									onSelect={() => {
-										void startClaudeOauth(false);
-									}}
-								>
-									<p className="font-medium">OAuth</p>
-									<p className="text-[10px] text-text-tertiary">Sign in on this computer</p>
-								</DropdownMenu.Item>
-								<DropdownMenu.Item
-									className="cursor-pointer rounded-sm px-2 py-1.5 text-[11px] text-text-primary outline-none data-[highlighted]:bg-surface-3"
-									data-testid="jacked-add-account-paste-code"
-									onSelect={() => {
-										void startClaudeOauth(true);
-									}}
-								>
-									<p className="font-medium">Paste code</p>
-									<p className="text-[10px] text-text-tertiary">Invite a colleague by email</p>
-								</DropdownMenu.Item>
+								{addAccountStep === "provider" ? (
+									<>
+										<p className="px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-text-tertiary">
+											Choose agent
+										</p>
+										<DropdownMenu.Item
+											className="flex cursor-pointer items-center justify-between gap-2 rounded-sm px-2 py-1.5 text-[11px] text-text-primary outline-none data-[highlighted]:bg-surface-3"
+											data-testid="jacked-add-account-provider-claude"
+											onSelect={(event) => {
+												event.preventDefault();
+												setAddAccountStep("claude");
+											}}
+										>
+											<span>
+												<p className="font-medium">Claude Code</p>
+												<p className="text-[10px] text-text-tertiary">OAuth or paste invite code</p>
+											</span>
+											<ChevronRight size={12} className="shrink-0 text-text-tertiary" aria-hidden />
+										</DropdownMenu.Item>
+										<DropdownMenu.Item
+											className="flex cursor-pointer items-center justify-between gap-2 rounded-sm px-2 py-1.5 text-[11px] text-text-primary outline-none data-[highlighted]:bg-surface-3"
+											data-testid="jacked-add-account-provider-cursor"
+											onSelect={(event) => {
+												event.preventDefault();
+												setAddAccountStep("cursor");
+											}}
+										>
+											<span>
+												<p className="font-medium">Cursor Agent</p>
+												<p className="text-[10px] text-text-tertiary">Import signed-in IDE session</p>
+											</span>
+											<ChevronRight size={12} className="shrink-0 text-text-tertiary" aria-hidden />
+										</DropdownMenu.Item>
+									</>
+								) : null}
+								{addAccountStep === "claude" ? (
+									<>
+										<button
+											type="button"
+											className="mb-0.5 flex w-full cursor-pointer items-center gap-1 rounded-sm px-2 py-1 text-[10px] text-text-secondary outline-none hover:bg-surface-3 hover:text-text-primary"
+											data-testid="jacked-add-account-back"
+											onClick={() => setAddAccountStep("provider")}
+										>
+											<ArrowLeft size={10} aria-hidden />
+											Back
+										</button>
+										<p className="px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-text-tertiary">
+											Claude Code
+										</p>
+										<DropdownMenu.Item
+											className="cursor-pointer rounded-sm px-2 py-1.5 text-[11px] text-text-primary outline-none data-[highlighted]:bg-surface-3"
+											data-testid="jacked-add-account-oauth"
+											onSelect={() => {
+												void startClaudeOauth(false);
+											}}
+										>
+											<p className="font-medium">OAuth</p>
+											<p className="text-[10px] text-text-tertiary">Sign in on this computer</p>
+										</DropdownMenu.Item>
+										<DropdownMenu.Item
+											className="cursor-pointer rounded-sm px-2 py-1.5 text-[11px] text-text-primary outline-none data-[highlighted]:bg-surface-3"
+											data-testid="jacked-add-account-paste-code"
+											onSelect={() => {
+												void startClaudeOauth(true);
+											}}
+										>
+											<p className="font-medium">Paste code</p>
+											<p className="text-[10px] text-text-tertiary">Invite a colleague by email</p>
+										</DropdownMenu.Item>
+									</>
+								) : null}
+								{addAccountStep === "cursor" ? (
+									<>
+										<button
+											type="button"
+											className="mb-0.5 flex w-full cursor-pointer items-center gap-1 rounded-sm px-2 py-1 text-[10px] text-text-secondary outline-none hover:bg-surface-3 hover:text-text-primary"
+											data-testid="jacked-add-account-back"
+											onClick={() => setAddAccountStep("provider")}
+										>
+											<ArrowLeft size={10} aria-hidden />
+											Back
+										</button>
+										<p className="px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-text-tertiary">
+											Cursor Agent
+										</p>
+										<DropdownMenu.Item
+											className="cursor-pointer rounded-sm px-2 py-1.5 text-[11px] text-text-primary outline-none data-[highlighted]:bg-surface-3"
+											data-testid="jacked-add-account-import-cursor"
+											onSelect={() => {
+												void run("import-cursor", () =>
+													getRuntimeTrpcClient(null).jacked.importCursorAccount.mutate(),
+												);
+											}}
+										>
+											<p className="font-medium">Import from Cursor IDE</p>
+											<p className="text-[10px] text-text-tertiary">
+												Sign in to Cursor first, then import that session
+											</p>
+										</DropdownMenu.Item>
+									</>
+								) : null}
 							</DropdownMenu.Content>
 						</DropdownMenu.Portal>
 					</DropdownMenu.Root>
@@ -610,11 +764,19 @@ export function JackedAccountsView({ online, jacked }: JackedAccountsViewProps):
 					{paused && jacked?.swapPausedUntil
 						? ` · paused until ${new Date(jacked.swapPausedUntil).toLocaleString()}`
 						: ""}
-					{" · "}OAuth only
+					{" · "}Claude fleet only
 				</p>
 			</div>
+			{!online && jacked !== null ? (
+				<p className="shrink-0 border-b border-border px-2 py-1 text-[10px] text-status-orange">
+					Jacked is unreachable — showing last-known seats. Reconnect to use Re-import / Re-auth / Check.
+				</p>
+			) : null}
 			{error ? (
 				<p className="shrink-0 border-b border-border px-2 py-1 text-[10px] text-status-red">{error}</p>
+			) : null}
+			{actionStatus ? (
+				<p className="shrink-0 border-b border-border px-2 py-1 text-[10px] text-status-green">{actionStatus}</p>
 			) : null}
 			{oauthStatus ? (
 				<div
@@ -723,37 +885,57 @@ export function JackedAccountsView({ online, jacked }: JackedAccountsViewProps):
 			<div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
 				{accounts.length === 0 ? (
 					<p className="text-[11px] text-text-tertiary">
-						No Claude accounts yet. Use Add Account to start Claude OAuth.
+						No accounts yet. Use Add Account → Claude Code or Cursor Agent.
 					</p>
 				) : (
 					<div className="flex flex-col gap-1.5">
-						{accounts.map((account, index) => (
+						{accounts.map((account, index) => {
+							const rowBusy =
+								busyId === account.id ||
+								busyId === "oauth" ||
+								busyId === "import-cursor" ||
+								busyId === "all";
+							return (
 							<AccountRow
 								key={account.id}
 								account={account}
-								isSelected={account.id === jacked?.activeAccountId}
-								busy={busyId !== null}
+								isSelected={accountIsSelected(account, jacked)}
+								busy={rowBusy}
 								online={online}
 								sessionCount={sessions.byAccountId.get(account.id)?.length ?? 0}
 								onUse={() => {
-									void run(account.id, () =>
-										getRuntimeTrpcClient(null).jacked.useAccount.mutate({
-											accountId: account.id,
-										}),
+									void run(
+										account.id,
+										async () => {
+											const result = await getRuntimeTrpcClient(null).jacked.useAccount.mutate({
+												accountId: account.id,
+											});
+											if (result.ok || account.provider !== "cursor") {
+												return result;
+											}
+											return {
+												ok: false,
+												error: `${result.error ?? "Could not switch Cursor account."} For Kanban, pin this account on a Cursor task card instead of switching the IDE.`,
+											};
+										},
+										account.provider === "cursor" ? "Cursor IDE seat updated." : "Active Claude seat updated.",
 									);
 								}}
 								onRefresh={() => {
-									void run(account.id, () =>
-										getRuntimeTrpcClient(null).jacked.refreshAccount.mutate({
-											accountId: account.id,
-										}),
+									void run(
+										account.id,
+										() =>
+											getRuntimeTrpcClient(null).jacked.refreshAccount.mutate({
+												accountId: account.id,
+											}),
+										"Usage refreshed.",
 									);
 								}}
 								actions={
 									<JackedAccountActions
 										account={account}
 										online={online}
-										busy={busyId !== null}
+										busy={rowBusy}
 										isFirst={index === 0}
 										isLast={index === accounts.length - 1}
 										onReauth={() => {
@@ -768,19 +950,39 @@ export function JackedAccountsView({ online, jacked }: JackedAccountsViewProps):
 										onAuthorizeCcRemote={() => {
 											void startAccountAuthorizeCc(account.id, true);
 										}}
+										onReimport={
+											account.provider === "cursor"
+												? () => {
+														void run(
+															account.id,
+															() =>
+																getRuntimeTrpcClient(null).jacked.reimportCursorAccount.mutate({
+																	accountId: account.id,
+																}),
+															"Cursor session re-imported. Restart the task to use it.",
+														);
+													}
+												: undefined
+										}
 										onValidate={() => {
-											void run(account.id, () =>
-												getRuntimeTrpcClient(null).jacked.validateAccount.mutate({
-													accountId: account.id,
-												}),
+											void run(
+												account.id,
+												() =>
+													getRuntimeTrpcClient(null).jacked.validateAccount.mutate({
+														accountId: account.id,
+													}),
+												"Credential check finished.",
 											);
 										}}
 										onToggleEnabled={() => {
-											void run(account.id, () =>
-												getRuntimeTrpcClient(null).jacked.updateAccount.mutate({
-													accountId: account.id,
-													isActive: !account.isActive,
-												}),
+											void run(
+												account.id,
+												() =>
+													getRuntimeTrpcClient(null).jacked.updateAccount.mutate({
+														accountId: account.id,
+														isActive: !account.isActive,
+													}),
+												account.isActive ? "Seat disabled." : "Seat enabled.",
 											);
 										}}
 										onDelete={() => {
@@ -807,7 +1009,8 @@ export function JackedAccountsView({ online, jacked }: JackedAccountsViewProps):
 									/>
 								}
 							/>
-						))}
+							);
+						})}
 					</div>
 				)}
 
