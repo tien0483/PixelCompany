@@ -67,7 +67,11 @@ import {
 	selectLatestTaskChatMessageForTask,
 	selectTaskChatMessagesForTask,
 } from "@/runtime/native-agent";
-import type { RuntimeClineReasoningEffort, RuntimeTaskSessionSummary } from "@/runtime/types";
+import type {
+	RuntimeClineReasoningEffort,
+	RuntimeTaskLaunchSettings,
+	RuntimeTaskSessionSummary,
+} from "@/runtime/types";
 import { useRuntimeProjectConfig } from "@/runtime/use-runtime-project-config";
 import { useTerminalConnectionReady } from "@/runtime/use-terminal-connection-ready";
 import { useWorkspacePersistence } from "@/runtime/use-workspace-persistence";
@@ -76,6 +80,7 @@ import {
 	applyTaskDetailClineSettingsChange,
 	findCardSelection,
 	setTaskJackedAccount,
+	setTaskLaunchSettings,
 } from "@/state/board-state";
 import {
 	getTaskWorkspaceInfo,
@@ -314,6 +319,8 @@ export default function App(): ReactElement {
 		setNewTaskAgentId,
 		newTaskClineSettings,
 		setNewTaskClineSettings,
+		newTaskLaunchSettings,
+		setNewTaskLaunchSettings,
 		editingTaskId,
 		editTaskPrompt,
 		setEditTaskPrompt,
@@ -332,6 +339,8 @@ export default function App(): ReactElement {
 		setEditTaskAgentId,
 		editTaskClineSettings,
 		setEditTaskClineSettings,
+		editTaskLaunchSettings,
+		setEditTaskLaunchSettings,
 		handleOpenCreateTask,
 		handleCancelCreateTask,
 		handleOpenEditTask,
@@ -787,6 +796,16 @@ export default function App(): ReactElement {
 		[setBoard],
 	);
 
+	const handleTaskLaunchSettingsChanged = useCallback(
+		(taskId: string, nextLaunchSettings: RuntimeTaskLaunchSettings | null) => {
+			setBoard((currentBoard) => {
+				const result = setTaskLaunchSettings(currentBoard, taskId, nextLaunchSettings);
+				return result.updated ? result.board : currentBoard;
+			});
+		},
+		[setBoard],
+	);
+
 	const handleCreateDialogOpenChange = useCallback(
 		(open: boolean) => {
 			if (!open) {
@@ -820,6 +839,8 @@ export default function App(): ReactElement {
 			onAgentIdChange={setEditTaskAgentId}
 			clineSettings={editTaskClineSettings}
 			onClineSettingsChange={setEditTaskClineSettings}
+			taskLaunchSettings={editTaskLaunchSettings}
+			onTaskLaunchSettingsChange={setEditTaskLaunchSettings}
 			defaultAgentId={runtimeProjectConfig?.selectedAgentId ?? null}
 			defaultProviderId={defaultTaskClineProviderId}
 			defaultModelId={runtimeProjectConfig?.clineProviderSettings?.modelId ?? null}
@@ -1143,6 +1164,7 @@ export default function App(): ReactElement {
 									jackedAccounts={managedJackedAccounts}
 									jackedActiveAccountId={jacked?.activeAccountId ?? null}
 									onTaskJackedAccountChanged={handleTaskJackedAccountChanged}
+									onTaskLaunchSettingsChanged={handleTaskLaunchSettingsChanged}
 								/>
 							</div>
 						) : null}
@@ -1200,6 +1222,8 @@ export default function App(): ReactElement {
 					onAgentIdChange={setNewTaskAgentId}
 					clineSettings={newTaskClineSettings}
 					onClineSettingsChange={setNewTaskClineSettings}
+					taskLaunchSettings={newTaskLaunchSettings}
+					onTaskLaunchSettingsChange={setNewTaskLaunchSettings}
 					defaultAgentId={runtimeProjectConfig?.selectedAgentId ?? null}
 					defaultProviderId={defaultTaskClineProviderId}
 					defaultModelId={runtimeProjectConfig?.clineProviderSettings?.modelId ?? null}

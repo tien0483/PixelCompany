@@ -7,6 +7,7 @@ import type {
 	RuntimeTaskAutoReviewMode,
 	RuntimeTaskClineSettings,
 	RuntimeTaskImage,
+	RuntimeTaskLaunchSettings,
 } from "./api-contract";
 import { createUniqueTaskId } from "./task-id";
 import { resolveTaskTitle } from "./task-title";
@@ -21,6 +22,7 @@ export interface RuntimeCreateTaskInput {
 	images?: RuntimeTaskImage[];
 	agentId?: RuntimeAgentId;
 	clineSettings?: RuntimeTaskClineSettings;
+	taskLaunchSettings?: RuntimeTaskLaunchSettings;
 	baseRef: string;
 }
 
@@ -33,6 +35,7 @@ export interface RuntimeUpdateTaskInput {
 	images?: RuntimeTaskImage[];
 	agentId?: RuntimeAgentId | null;
 	clineSettings?: RuntimeTaskClineSettings | null;
+	taskLaunchSettings?: RuntimeTaskLaunchSettings | null;
 	baseRef: string;
 }
 
@@ -59,6 +62,38 @@ function cloneTaskClineSettings(settings?: RuntimeTaskClineSettings | null): Run
 		...(modelId ? { modelId } : {}),
 		...(settings.reasoningEffort ? { reasoningEffort: settings.reasoningEffort } : {}),
 	};
+}
+
+function cloneTaskLaunchSettings(
+	settings?: RuntimeTaskLaunchSettings | null,
+): RuntimeTaskLaunchSettings | undefined {
+	if (settings === undefined || settings === null) {
+		return undefined;
+	}
+	const modelId = settings.modelId?.trim();
+	const skillIds =
+		settings.skillIds === undefined
+			? undefined
+			: [...new Set(settings.skillIds.map((id) => id.trim()).filter((id) => id.length > 0))];
+	const mcpServerIds =
+		settings.mcpServerIds === undefined
+			? undefined
+			: [...new Set(settings.mcpServerIds.map((id) => id.trim()).filter((id) => id.length > 0))];
+	const next: RuntimeTaskLaunchSettings = {
+		...(modelId ? { modelId } : {}),
+		...(settings.effort ? { effort: settings.effort } : {}),
+		...(skillIds && skillIds.length > 0 ? { skillIds } : {}),
+		...(mcpServerIds && mcpServerIds.length > 0 ? { mcpServerIds } : {}),
+	};
+	if (
+		next.modelId === undefined &&
+		next.effort === undefined &&
+		next.skillIds === undefined &&
+		next.mcpServerIds === undefined
+	) {
+		return undefined;
+	}
+	return next;
 }
 
 export interface RuntimeCreateTaskResult {
@@ -309,6 +344,9 @@ export function addTaskToColumn(
 		images: cloneTaskImages(input.images),
 		...(input.agentId ? { agentId: input.agentId } : {}),
 		...(input.clineSettings !== undefined ? { clineSettings: cloneTaskClineSettings(input.clineSettings) } : {}),
+		...(input.taskLaunchSettings !== undefined
+			? { taskLaunchSettings: cloneTaskLaunchSettings(input.taskLaunchSettings) }
+			: {}),
 		baseRef,
 		createdAt: now,
 		updatedAt: now,
@@ -630,6 +668,12 @@ export function updateTask(
 						: input.clineSettings === null
 							? undefined
 							: cloneTaskClineSettings(input.clineSettings),
+				taskLaunchSettings:
+					input.taskLaunchSettings === undefined
+						? cloneTaskLaunchSettings(card.taskLaunchSettings)
+						: input.taskLaunchSettings === null
+							? undefined
+							: cloneTaskLaunchSettings(input.taskLaunchSettings),
 				baseRef,
 				updatedAt: now,
 			};

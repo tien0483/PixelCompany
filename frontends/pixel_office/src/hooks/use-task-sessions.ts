@@ -166,6 +166,7 @@ export function useTaskSessions({ currentProjectId, setSessions }: UseTaskSessio
 					rows: geometry.rows,
 					agentId: task.agentId,
 					clineSettings: task.clineSettings,
+					taskLaunchSettings: task.taskLaunchSettings,
 					// Pins this session to one Claude account (own CLAUDE_CONFIG_DIR) so
 					// cards on different accounts can run at the same time.
 					jackedAccountId: task.jackedAccountId,

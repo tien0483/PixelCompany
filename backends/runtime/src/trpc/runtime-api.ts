@@ -51,6 +51,12 @@ import {
 import { openInBrowser } from "../server/browser";
 import { buildRuntimeConfigResponse, resolveAgentCommand } from "../terminal/agent-registry";
 import type { TerminalSessionManager } from "../terminal/session-manager";
+import {
+	hasMcpAllowlist,
+	hasSkillAllowlist,
+	listClaudeMcpInventory,
+	listClaudeSkillInventory,
+} from "../terminal/task-launch-settings";
 import { resolveTaskCwd } from "../workspace/task-worktree";
 import { captureTaskTurnCheckpoint } from "../workspace/turn-checkpoints";
 import type { RuntimeTrpcContext, RuntimeTrpcWorkspaceScope } from "./app-router";
@@ -71,6 +77,8 @@ export interface CreateRuntimeApiDependencies {
 	getJackedAccountProvider?: (accountId: number) => Promise<import("../core/api-contract").RuntimeJackedProvider | null>;
 	/** Auto (unpinned) Cursor tasks: pick a Cursor jacked account for CURSOR_API_KEY. */
 	resolveDefaultCursorJackedAccountId?: () => Promise<number | null>;
+	/** Active Claude Jacked seat — used to prep CC creds for skill/MCP-tagged launches. */
+	resolveActiveClaudeJackedAccountId?: () => Promise<number | null>;
 	resolveInteractiveShellCommand: () => { binary: string; args: string[] };
 	runCommand: (command: string, cwd: string) => Promise<RuntimeCommandRunResponse>;
 	broadcastClineMcpAuthStatusesUpdated?: (
@@ -311,6 +319,10 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 					getAccountProvider: async (accountId) =>
 						(await deps.getJackedAccountProvider?.(accountId)) ?? null,
 					resolveDefaultCursorAccountId: deps.resolveDefaultCursorJackedAccountId,
+					resolveActiveClaudeAccountId: deps.resolveActiveClaudeJackedAccountId,
+					needsClaudeConfigDirForLaunchTags:
+						resolved.agentId === "claude" &&
+						(hasSkillAllowlist(body.taskLaunchSettings) || hasMcpAllowlist(body.taskLaunchSettings)),
 				});
 				// Cursor Auto: no CURSOR_API_KEY injection — same auth as interactive
 				// `agent` (`agent login`). Explicit seat pins still inject a key.
@@ -328,6 +340,7 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 					cols: body.cols,
 					rows: body.rows,
 					workspaceId: workspaceScope.workspaceId,
+					taskLaunchSettings: body.taskLaunchSettings,
 					...(Object.keys(accountPin.env).length > 0 ? { env: accountPin.env } : {}),
 					...(accountPin.accountId === null ? {} : { jackedAccountId: accountPin.accountId }),
 				});
@@ -457,6 +470,8 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 				commands: await clineTaskSessionService.listSlashCommands(workspaceScope.workspacePath),
 			};
 		},
+		listSkillInventory: async () => listClaudeSkillInventory(),
+		listMcpInventory: async () => listClaudeMcpInventory(),
 		reloadTaskChatSession: async (workspaceScope, input) => {
 			try {
 				const body = parseTaskChatReloadRequest(input);

@@ -105,6 +105,22 @@ export const runtimeTaskClineSettingsSchema = z.object({
 	reasoningEffort: runtimeClineReasoningEffortSchema.optional(),
 });
 export type RuntimeTaskClineSettings = z.infer<typeof runtimeTaskClineSettingsSchema>;
+
+/** Claude/Cursor effort for CLI launches (`claude --effort`, Cursor when supported). */
+export const runtimeTaskLaunchEffortSchema = z.enum(["low", "medium", "high", "xhigh", "max"]);
+export type RuntimeTaskLaunchEffort = z.infer<typeof runtimeTaskLaunchEffortSchema>;
+
+/**
+ * Per-task launch allowlist. Empty skill/MCP arrays (or omit) inherit Manager/global installs.
+ * Non-empty arrays restrict the session to those ids.
+ */
+export const runtimeTaskLaunchSettingsSchema = z.object({
+	modelId: z.string().min(1).optional(),
+	effort: runtimeTaskLaunchEffortSchema.optional(),
+	skillIds: z.array(z.string().min(1)).optional(),
+	mcpServerIds: z.array(z.string().min(1)).optional(),
+});
+export type RuntimeTaskLaunchSettings = z.infer<typeof runtimeTaskLaunchSettingsSchema>;
 export const runtimeTaskImageSchema = z.object({
 	id: z.string(),
 	data: z.string(),
@@ -151,6 +167,7 @@ export const runtimeBoardCardSchema = z
 		/** Claude account (jacked id) this card's session runs on; unset follows auto-swap. */
 		jackedAccountId: z.number().int().positive().optional(),
 		clineSettings: runtimeTaskClineSettingsSchema.optional(),
+		taskLaunchSettings: runtimeTaskLaunchSettingsSchema.optional(),
 		clineProviderId: z.string().optional(),
 		clineModelId: z.string().optional(),
 		clineReasoningEffort: runtimeLegacyTaskClineReasoningEffortSchema.optional(),
@@ -1366,6 +1383,7 @@ export const runtimeTaskSessionStartRequestSchema = z.object({
 	rows: z.number().int().positive().optional(),
 	agentId: runtimeAgentIdSchema.optional(),
 	clineSettings: runtimeTaskClineSettingsSchema.optional(),
+	taskLaunchSettings: runtimeTaskLaunchSettingsSchema.optional(),
 	/**
 	 * Pin this session to one Claude account (jacked account id). The runtime points
 	 * CLAUDE_CONFIG_DIR at that account's credential dir, so tasks pinned to
@@ -1374,6 +1392,32 @@ export const runtimeTaskSessionStartRequestSchema = z.object({
 	jackedAccountId: z.number().int().positive().optional(),
 });
 export type RuntimeTaskSessionStartRequest = z.infer<typeof runtimeTaskSessionStartRequestSchema>;
+
+/** Installed Training skills available for per-task tags (from Manager / ~/.claude). */
+export const runtimeSkillInventoryItemSchema = z.object({
+	id: z.string().min(1),
+	displayName: z.string(),
+	source: z.enum(["feature", "pack", "disk"]),
+});
+export type RuntimeSkillInventoryItem = z.infer<typeof runtimeSkillInventoryItemSchema>;
+
+export const runtimeSkillInventorySchema = z.object({
+	skills: z.array(runtimeSkillInventoryItemSchema),
+});
+export type RuntimeSkillInventory = z.infer<typeof runtimeSkillInventorySchema>;
+
+/** MCP server ids from ~/.claude/settings.json (and later Cursor if discoverable). */
+export const runtimeMcpInventoryItemSchema = z.object({
+	id: z.string().min(1),
+	displayName: z.string(),
+	provider: z.enum(["claude", "cursor"]),
+});
+export type RuntimeMcpInventoryItem = z.infer<typeof runtimeMcpInventoryItemSchema>;
+
+export const runtimeMcpInventorySchema = z.object({
+	servers: z.array(runtimeMcpInventoryItemSchema),
+});
+export type RuntimeMcpInventory = z.infer<typeof runtimeMcpInventorySchema>;
 
 export const runtimeTaskSessionStartResponseSchema = z.object({
 	ok: z.boolean(),

@@ -7,11 +7,13 @@ import type {
 	RuntimeAgentId,
 	RuntimeHookEvent,
 	RuntimeTaskImage,
+	RuntimeTaskLaunchSettings,
 	RuntimeTaskSessionSummary,
 } from "../core/api-contract";
 import { buildKanbanCommandParts } from "../core/kanban-command";
 import { quoteShellArg } from "../core/shell";
 import { lockedFileSystem } from "../fs/locked-file-system";
+import { CLAUDE_CONFIG_DIR_ENV } from "../jacked/jacked-account-pin";
 import { resolveHomeAgentAppendSystemPrompt } from "../prompts/append-system-prompt";
 import { getRuntimeHomePath } from "../state/workspace-state";
 import { configureCodexHooks, hasCodexConfigOverride } from "./codex-hook-config";
@@ -28,6 +30,14 @@ import {
 import { stripAnsi } from "./output-utils";
 import type { SessionTransitionEvent } from "./session-state-machine";
 import { prepareTaskPromptWithImages } from "./task-image-prompt";
+import {
+	applyModelAndEffortArgs,
+	buildCursorLaunchTagPreface,
+	hasMcpAllowlist,
+	hasSkillAllowlist,
+	prepareClaudeMcpAllowlistConfig,
+	prepareClaudeSkillScopedConfigDir,
+} from "./task-launch-settings";
 
 export interface AgentAdapterLaunchInput {
 	taskId: string;
@@ -42,6 +52,7 @@ export interface AgentAdapterLaunchInput {
 	resumeFromTrash?: boolean;
 	env?: Record<string, string | undefined>;
 	workspaceId?: string;
+	taskLaunchSettings?: RuntimeTaskLaunchSettings;
 }
 
 export type AgentOutputTransitionDetector = (
@@ -656,6 +667,9 @@ const claudeAdapter: AgentSessionAdapter = {
 		const env: Record<string, string | undefined> = {
 			FORCE_HYPERLINK: "1",
 		};
+		const launchCleanups: Array<() => Promise<void>> = [];
+		const launchSettings = input.taskLaunchSettings;
+		applyModelAndEffortArgs(args, launchSettings, { effortFlag: "--effort" });
 		const appendedSystemPrompt = resolveHomeAgentAppendSystemPrompt(input.taskId);
 		if (input.autonomousModeEnabled) {
 			// Auto mode is gated behind this env var on Bedrock/Vertex/Foundry; the Anthropic API ignores it.
@@ -677,6 +691,33 @@ const claudeAdapter: AgentSessionAdapter = {
 			args.length = 0;
 			args.push(...withoutImmediateBypass);
 			args.push("--permission-mode", "plan");
+		}
+
+		const skillAllowlist = hasSkillAllowlist(launchSettings);
+		const mcpAllowlist = hasMcpAllowlist(launchSettings);
+		// Any allowlist needs a task-scoped CLAUDE_CONFIG_DIR so we can keep CC
+		// credentials/onboarding while filtering skills and stripping mcpServers
+		// from settings.json (otherwise Claude still discovers every global MCP).
+		if (skillAllowlist || mcpAllowlist) {
+			const scoped = await prepareClaudeSkillScopedConfigDir({
+				taskId: input.taskId,
+				skillIds: skillAllowlist ? launchSettings?.skillIds : undefined,
+				mcpServerIds: mcpAllowlist ? launchSettings?.mcpServerIds : undefined,
+				baseConfigDir: input.env?.[CLAUDE_CONFIG_DIR_ENV] ?? null,
+			});
+			env[CLAUDE_CONFIG_DIR_ENV] = scoped.configDir;
+			launchCleanups.push(scoped.cleanup);
+		}
+
+		if (mcpAllowlist && launchSettings?.mcpServerIds) {
+			const mcpConfig = await prepareClaudeMcpAllowlistConfig({
+				taskId: input.taskId,
+				mcpServerIds: launchSettings.mcpServerIds,
+			});
+			if (mcpConfig && !hasCliOption(args, "--mcp-config")) {
+				args.push("--mcp-config", mcpConfig.mcpConfigPath, "--strict-mcp-config");
+				launchCleanups.push(mcpConfig.cleanup);
+			}
 		}
 
 		const hooks = resolveHookContext(input);
@@ -766,20 +807,20 @@ const claudeAdapter: AgentSessionAdapter = {
 		const withPromptLaunch = withPrompt(args, input.prompt, "append");
 		const promptFileCleanup = cleanupAppendedPromptFile;
 		const existingCleanup = withPromptLaunch.cleanup;
+		const runCleanups = async () => {
+			await existingCleanup?.();
+			await promptFileCleanup?.();
+			for (const cleanup of launchCleanups) {
+				await cleanup();
+			}
+		};
 		return {
 			...withPromptLaunch,
 			env: {
 				...withPromptLaunch.env,
 				...env,
 			},
-			...(promptFileCleanup
-				? {
-						cleanup: async () => {
-							await existingCleanup?.();
-							await promptFileCleanup();
-						},
-					}
-				: {}),
+			cleanup: runCleanups,
 		};
 	},
 };
@@ -1515,6 +1556,10 @@ const cursorAdapter: AgentSessionAdapter = {
 	async prepare(input) {
 		const args = [...input.args];
 		const env: Record<string, string | undefined> = { ...input.env };
+		const launchSettings = input.taskLaunchSettings;
+		// Cursor Agent accepts --model; effort is stored on the card and applied
+		// only when a dedicated flag becomes available (null = UI-only for now).
+		applyModelAndEffortArgs(args, launchSettings, { effortFlag: null });
 
 		// Only honor an explicitly pinned key from the task pin. Do not fall back
 		// to process.env.CURSOR_API_KEY here — a stale shell export would override
@@ -1547,8 +1592,12 @@ const cursorAdapter: AgentSessionAdapter = {
 			args.push("--continue");
 		}
 
+		const tagPreface = buildCursorLaunchTagPreface(launchSettings);
+		const promptWithTags = tagPreface
+			? `${tagPreface}\n\n${input.prompt}`.trim()
+			: input.prompt;
 		const prompt = mergeCursorPromptWithHomeSystemPrompt(
-			input.prompt,
+			promptWithTags,
 			resolveHomeAgentAppendSystemPrompt(input.taskId),
 		);
 		const withPromptLaunch = withPrompt(args, prompt, "append");

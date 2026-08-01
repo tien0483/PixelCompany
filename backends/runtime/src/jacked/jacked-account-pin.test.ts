@@ -108,6 +108,21 @@ describe("resolveJackedAccountPin", () => {
 		expect(getAccountLaunchDir).not.toHaveBeenCalled();
 	});
 
+	it("prepares the active Claude seat when launch tags need CLAUDE_CONFIG_DIR", async () => {
+		const getAccountLaunchDir = vi.fn(async () => ({ configDir: "/home/u/.claude/accounts/3" }));
+		const pin = await resolveJackedAccountPin({
+			agentId: "claude",
+			jackedAccountId: undefined,
+			getAccountLaunchDir,
+			needsClaudeConfigDirForLaunchTags: true,
+			resolveActiveClaudeAccountId: async () => 3,
+		});
+
+		expect(getAccountLaunchDir).toHaveBeenCalledWith(3);
+		expect(pin.env).toEqual({ [CLAUDE_CONFIG_DIR_ENV]: "/home/u/.claude/accounts/3" });
+		expect(pin.accountId).toBe(3);
+	});
+
 	it("points CLAUDE_CONFIG_DIR at the account's credential dir", async () => {
 		const getAccountLaunchDir = vi.fn().mockResolvedValue({ configDir: "/home/u/.claude/accounts/7" });
 

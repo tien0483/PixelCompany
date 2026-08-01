@@ -196,6 +196,8 @@ describe("useTaskSessions", () => {
 			rows: 40,
 			agentId: undefined,
 			clineSettings: undefined,
+			taskLaunchSettings: undefined,
+			jackedAccountId: undefined,
 		});
 	});
 
@@ -238,6 +240,49 @@ describe("useTaskSessions", () => {
 						mimeType: "image/png",
 					},
 				],
+			}),
+		);
+	});
+
+	it("forwards taskLaunchSettings when starting a Claude or Cursor task", async () => {
+		let latestSnapshot: HookSnapshot | null = null;
+
+		await act(async () => {
+			root.render(
+				<HookHarness
+					onSnapshot={(snapshot) => {
+						latestSnapshot = snapshot;
+					}}
+				/>,
+			);
+		});
+
+		if (latestSnapshot === null) {
+			throw new Error("Expected a hook snapshot.");
+		}
+
+		await act(async () => {
+			await latestSnapshot?.startTaskSession({
+				...createTask(),
+				agentId: "claude",
+				taskLaunchSettings: {
+					modelId: "opus",
+					effort: "high",
+					skillIds: ["review"],
+					mcpServerIds: ["filesystem"],
+				},
+			});
+		});
+
+		expect(startTaskSessionMutateMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				agentId: "claude",
+				taskLaunchSettings: {
+					modelId: "opus",
+					effort: "high",
+					skillIds: ["review"],
+					mcpServerIds: ["filesystem"],
+				},
 			}),
 		);
 	});

@@ -3,7 +3,13 @@ import { createShortTaskId } from "@runtime-task-id";
 import * as runtimeTaskState from "@runtime-task-state";
 
 import { createInitialBoardData } from "@/data/board-data";
-import type { RuntimeAgentId, RuntimeClineReasoningEffort, RuntimeTaskClineSettings } from "@/runtime/types";
+import type {
+	RuntimeAgentId,
+	RuntimeClineReasoningEffort,
+	RuntimeTaskClineSettings,
+	RuntimeTaskLaunchEffort,
+	RuntimeTaskLaunchSettings,
+} from "@/runtime/types";
 import { isAllowedCrossColumnCardMove, type ProgrammaticCardMoveInFlight } from "@/state/drag-rules";
 import {
 	type BoardCard,
@@ -27,7 +33,62 @@ export interface TaskDraft {
 	images?: TaskImage[];
 	agentId?: RuntimeAgentId;
 	clineSettings?: RuntimeTaskClineSettings;
+	taskLaunchSettings?: RuntimeTaskLaunchSettings;
 	baseRef: string;
+}
+
+const TASK_LAUNCH_EFFORTS = new Set<RuntimeTaskLaunchEffort>(["low", "medium", "high", "xhigh", "max"]);
+
+function normalizeTaskLaunchSettings(raw: unknown): RuntimeTaskLaunchSettings | undefined {
+	if (!raw || typeof raw !== "object") {
+		return undefined;
+	}
+	const settings = raw as {
+		modelId?: unknown;
+		effort?: unknown;
+		skillIds?: unknown;
+		mcpServerIds?: unknown;
+	};
+	const modelId = typeof settings.modelId === "string" ? settings.modelId.trim() : "";
+	const effort =
+		typeof settings.effort === "string" && TASK_LAUNCH_EFFORTS.has(settings.effort as RuntimeTaskLaunchEffort)
+			? (settings.effort as RuntimeTaskLaunchEffort)
+			: undefined;
+	const skillIds = Array.isArray(settings.skillIds)
+		? [
+				...new Set(
+					settings.skillIds
+						.filter((id): id is string => typeof id === "string")
+						.map((id) => id.trim())
+						.filter((id) => id.length > 0),
+				),
+			]
+		: undefined;
+	const mcpServerIds = Array.isArray(settings.mcpServerIds)
+		? [
+				...new Set(
+					settings.mcpServerIds
+						.filter((id): id is string => typeof id === "string")
+						.map((id) => id.trim())
+						.filter((id) => id.length > 0),
+				),
+			]
+		: undefined;
+	const next: RuntimeTaskLaunchSettings = {
+		...(modelId ? { modelId } : {}),
+		...(effort ? { effort } : {}),
+		...(skillIds && skillIds.length > 0 ? { skillIds } : {}),
+		...(mcpServerIds && mcpServerIds.length > 0 ? { mcpServerIds } : {}),
+	};
+	if (
+		next.modelId === undefined &&
+		next.effort === undefined &&
+		next.skillIds === undefined &&
+		next.mcpServerIds === undefined
+	) {
+		return undefined;
+	}
+	return next;
 }
 
 export interface TaskMoveEvent {
@@ -159,6 +220,8 @@ function normalizeCard(rawCard: unknown): BoardCard | null {
 		baseRef?: unknown;
 		agentId?: unknown;
 		clineSettings?: unknown;
+		taskLaunchSettings?: unknown;
+		jackedAccountId?: unknown;
 		clineProviderId?: unknown;
 		clineModelId?: unknown;
 		clineReasoningEffort?: unknown;
@@ -183,6 +246,11 @@ function normalizeCard(rawCard: unknown): BoardCard | null {
 		legacyModelId: card.clineModelId,
 		legacyReasoningEffort: card.clineReasoningEffort,
 	});
+	const taskLaunchSettings = normalizeTaskLaunchSettings(card.taskLaunchSettings);
+	const jackedAccountId =
+		typeof card.jackedAccountId === "number" && Number.isInteger(card.jackedAccountId) && card.jackedAccountId > 0
+			? card.jackedAccountId
+			: undefined;
 
 	const now = Date.now();
 
@@ -199,6 +267,8 @@ function normalizeCard(rawCard: unknown): BoardCard | null {
 		baseRef,
 		...(typeof card.agentId === "string" && card.agentId ? { agentId: card.agentId as RuntimeAgentId } : {}),
 		...(clineSettings !== undefined ? { clineSettings } : {}),
+		...(taskLaunchSettings !== undefined ? { taskLaunchSettings } : {}),
+		...(jackedAccountId !== undefined ? { jackedAccountId } : {}),
 		createdAt: typeof card.createdAt === "number" ? card.createdAt : now,
 		updatedAt: typeof card.updatedAt === "number" ? card.updatedAt : now,
 	};
@@ -346,6 +416,7 @@ export function addTaskToColumnWithResult(
 			images: draft.images,
 			agentId: draft.agentId,
 			clineSettings: draft.clineSettings,
+			taskLaunchSettings: draft.taskLaunchSettings,
 			baseRef: draft.baseRef,
 		},
 		createBrowserUuid,
@@ -560,6 +631,7 @@ export function updateTask(board: BoardData, taskId: string, draft: TaskDraft): 
 							: undefined,
 				agentId: draft.agentId,
 				clineSettings: draft.clineSettings,
+				taskLaunchSettings: draft.taskLaunchSettings,
 				baseRef,
 				updatedAt: Date.now(),
 			};
@@ -568,6 +640,49 @@ export function updateTask(board: BoardData, taskId: string, draft: TaskDraft): 
 				return withoutPin;
 			}
 			return nextCard;
+		});
+		return columnUpdated ? { ...column, cards } : column;
+	});
+
+	if (!updated) {
+		return { board, updated: false };
+	}
+	return { board: withUpdatedColumns(board, columns), updated: true };
+}
+
+/**
+ * Updates per-task Model / Effort / Skill / MCP tags without a full draft save.
+ */
+export function setTaskLaunchSettings(
+	board: BoardData,
+	taskId: string,
+	taskLaunchSettings: RuntimeTaskLaunchSettings | null,
+): { board: BoardData; updated: boolean } {
+	const selection = findCardSelection(board, taskId);
+	if (!selection) {
+		return { board, updated: false };
+	}
+	const nextSettings = taskLaunchSettings ?? undefined;
+	const previous = selection.card.taskLaunchSettings;
+	if (JSON.stringify(previous ?? null) === JSON.stringify(nextSettings ?? null)) {
+		return { board, updated: false };
+	}
+
+	let updated = false;
+	const columns = board.columns.map((column) => {
+		let columnUpdated = false;
+		const cards = column.cards.map((card) => {
+			if (card.id !== taskId) {
+				return card;
+			}
+			columnUpdated = true;
+			updated = true;
+			const { taskLaunchSettings: _previous, ...rest } = card;
+			return {
+				...rest,
+				...(nextSettings === undefined ? {} : { taskLaunchSettings: nextSettings }),
+				updatedAt: Date.now(),
+			};
 		});
 		return columnUpdated ? { ...column, cards } : column;
 	});
@@ -641,6 +756,7 @@ export function updateTaskTitle(
 		images: selection.card.images,
 		agentId: selection.card.agentId,
 		clineSettings: selection.card.clineSettings,
+		taskLaunchSettings: selection.card.taskLaunchSettings,
 		baseRef: selection.card.baseRef,
 	});
 }

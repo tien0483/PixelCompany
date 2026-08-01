@@ -235,6 +235,21 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 						activeAccountId: snapshot.activeAccountId,
 					});
 				},
+				resolveActiveClaudeJackedAccountId: async () => {
+					const snapshot = deps.jacked.monitor.getState();
+					if (!snapshot) {
+						return null;
+					}
+					if (
+						snapshot.activeAccountId !== null &&
+						snapshot.accounts.some(
+							(account) => account.id === snapshot.activeAccountId && account.provider === "claude",
+						)
+					) {
+						return snapshot.activeAccountId;
+					}
+					return snapshot.accounts.find((account) => account.provider === "claude")?.id ?? null;
+				},
 				resolveInteractiveShellCommand: deps.resolveInteractiveShellCommand,
 				runCommand: deps.runCommand,
 				broadcastClineMcpAuthStatusesUpdated: deps.runtimeStateHub.broadcastClineMcpAuthStatusesUpdated,

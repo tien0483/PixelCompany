@@ -18,12 +18,14 @@ import { ResizeHandle } from "@/resize/resize-handle";
 import { useCardDetailLayout } from "@/resize/use-card-detail-layout";
 import { useResizeDrag } from "@/resize/use-resize-drag";
 import { isNativeClineAgentSelected } from "@/runtime/native-agent";
+import { TaskLaunchSettingsPicker } from "@/components/task-launch-settings";
 import { TaskAccountPicker, filterJackedAccountsForAgent } from "@/jacked/task-account-picker";
 import type {
 	RuntimeAgentId,
 	RuntimeClineReasoningEffort,
 	RuntimeConfigResponse,
 	RuntimeJackedAccount,
+	RuntimeTaskLaunchSettings,
 	RuntimeTaskSessionMode,
 	RuntimeTaskSessionSummary,
 	RuntimeWorkspaceChangesMode,
@@ -371,6 +373,7 @@ export function CardDetailView({
 	jackedAccounts,
 	jackedActiveAccountId = null,
 	onTaskJackedAccountChanged,
+	onTaskLaunchSettingsChanged,
 }: {
 	selection: CardSelection;
 	currentProjectId: string | null;
@@ -442,6 +445,7 @@ export function CardDetailView({
 	/** Account jacked currently has active, used to label the Auto option. */
 	jackedActiveAccountId?: number | null;
 	onTaskJackedAccountChanged?: (taskId: string, jackedAccountId: number | null) => void;
+	onTaskLaunchSettingsChanged?: (taskId: string, settings: RuntimeTaskLaunchSettings | null) => void;
 }): React.ReactElement {
 	const isMobile = useIsMobile();
 	const [mobileTab, setMobileTab] = useState<MobileTab>("chat");
@@ -896,6 +900,22 @@ export function CardDetailView({
 										running on account {sessionSummary.jackedAccountId} — restart to apply
 									</span>
 								) : null}
+							</div>
+						) : null}
+						{onTaskLaunchSettingsChanged ? (
+							<div
+								data-testid="task-launch-settings-strip"
+								className="shrink-0 border-b border-border bg-surface-1 px-2 py-2"
+							>
+								<TaskLaunchSettingsPicker
+									active
+									agentId={selection.card.agentId}
+									defaultAgentId={selectedAgentId}
+									value={selection.card.taskLaunchSettings}
+									onChange={(next) => {
+										onTaskLaunchSettingsChanged(selection.card.id, next ?? null);
+									}}
+								/>
 							</div>
 						) : null}
 						<div ref={mainRowRef} className="flex min-h-0 flex-1 overflow-hidden">

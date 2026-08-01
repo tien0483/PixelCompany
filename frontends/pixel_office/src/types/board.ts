@@ -4,6 +4,7 @@ import type {
 	RuntimeTaskAutoReviewMode,
 	RuntimeTaskClineSettings,
 	RuntimeTaskImage,
+	RuntimeTaskLaunchSettings,
 } from "@/runtime/types";
 
 export type BoardColumnId = RuntimeBoardColumnId;
@@ -51,6 +52,8 @@ export interface BoardCard {
 	 */
 	jackedAccountId?: number;
 	clineSettings?: RuntimeTaskClineSettings;
+	/** Per-task model/effort + skill/MCP allowlist tags (empty = inherit Manager/global). */
+	taskLaunchSettings?: RuntimeTaskLaunchSettings;
 	baseRef: string;
 	createdAt: number;
 	updatedAt: number;

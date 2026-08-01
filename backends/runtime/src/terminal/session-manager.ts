@@ -4,6 +4,7 @@
 import type {
 	RuntimeTaskHookActivity,
 	RuntimeTaskImage,
+	RuntimeTaskLaunchSettings,
 	RuntimeTaskSessionReviewReason,
 	RuntimeTaskSessionState,
 	RuntimeTaskSessionSummary,
@@ -98,6 +99,7 @@ export interface StartTaskSessionRequest {
 	workspaceId?: string;
 	/** Claude account this session is pinned to; recorded on the summary for the UI. */
 	jackedAccountId?: number;
+	taskLaunchSettings?: RuntimeTaskLaunchSettings;
 }
 
 export interface StartShellSessionRequest {
@@ -160,6 +162,17 @@ function cloneStartTaskSessionRequest(request: StartTaskSessionRequest): StartTa
 		args: [...request.args],
 		images: request.images ? request.images.map((image) => ({ ...image })) : undefined,
 		env: request.env ? { ...request.env } : undefined,
+		taskLaunchSettings: request.taskLaunchSettings
+			? {
+					...request.taskLaunchSettings,
+					skillIds: request.taskLaunchSettings.skillIds
+						? [...request.taskLaunchSettings.skillIds]
+						: undefined,
+					mcpServerIds: request.taskLaunchSettings.mcpServerIds
+						? [...request.taskLaunchSettings.mcpServerIds]
+						: undefined,
+				}
+			: undefined,
 	};
 }
 
@@ -347,6 +360,7 @@ export class TerminalSessionManager implements TerminalSessionService {
 			resumeFromTrash: request.resumeFromTrash,
 			env: request.env,
 			workspaceId: request.workspaceId,
+			taskLaunchSettings: request.taskLaunchSettings,
 		});
 
 		const env = buildTerminalEnvironment(request.env, launch.env);

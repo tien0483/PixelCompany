@@ -458,6 +458,56 @@ describe("createRuntimeApi startTaskSession", () => {
 		);
 	});
 
+	it("forwards taskLaunchSettings to the terminal session manager", async () => {
+		taskWorktreeMocks.resolveTaskCwd.mockResolvedValue("/tmp/existing-worktree");
+
+		const terminalManager = {
+			startTaskSession: vi.fn(async () => createSummary()),
+			applyTurnCheckpoint: vi.fn(),
+		};
+		const clineTaskSessionService = createClineTaskSessionServiceMock();
+		const api = createTestRuntimeApi({
+			getActiveWorkspaceId: vi.fn(() => "workspace-1"),
+			loadScopedRuntimeConfig: vi.fn(async () => createRuntimeConfigState()),
+			setActiveRuntimeConfig: vi.fn(),
+			getScopedTerminalManager: vi.fn(async () => terminalManager as never),
+			getScopedClineTaskSessionService: vi.fn(async () => clineTaskSessionService as never),
+			resolveInteractiveShellCommand: vi.fn(),
+			runCommand: vi.fn(),
+		});
+
+		const response = await api.startTaskSession(
+			{
+				workspaceId: "workspace-1",
+				workspacePath: "/tmp/repo",
+			},
+			{
+				taskId: "task-1",
+				baseRef: "main",
+				prompt: "Use tagged launch settings",
+				agentId: "claude",
+				taskLaunchSettings: {
+					modelId: "opus",
+					effort: "high",
+					skillIds: ["review"],
+					mcpServerIds: ["filesystem"],
+				},
+			},
+		);
+
+		expect(response.ok).toBe(true);
+		expect(terminalManager.startTaskSession).toHaveBeenCalledWith(
+			expect.objectContaining({
+				taskLaunchSettings: {
+					modelId: "opus",
+					effort: "high",
+					skillIds: ["review"],
+					mcpServerIds: ["filesystem"],
+				},
+			}),
+		);
+	});
+
 	it("ensures the worktree when no existing task cwd is available", async () => {
 		taskWorktreeMocks.resolveTaskCwd
 			.mockRejectedValueOnce(new Error("missing"))

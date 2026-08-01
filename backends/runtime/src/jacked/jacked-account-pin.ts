@@ -27,6 +27,14 @@ export interface ResolveJackedAccountPinInput {
 	 * `agent login` like a normal terminal.
 	 */
 	resolveDefaultCursorAccountId?: () => Promise<number | null>;
+	/**
+	 * When Claude skill/MCP tags force a scoped CLAUDE_CONFIG_DIR on an unpinned
+	 * card, prepare the active Jacked seat so CC tokens/onboarding are written
+	 * before the scoped dir clones them. Avoids Claude Code's login screen.
+	 */
+	resolveActiveClaudeAccountId?: () => Promise<number | null>;
+	/** True when this launch will rewrite CLAUDE_CONFIG_DIR for skill/MCP tags. */
+	needsClaudeConfigDirForLaunchTags?: boolean;
 }
 
 export interface JackedAccountPin {
@@ -160,6 +168,20 @@ export async function resolveJackedAccountPin(
 		}
 	}
 
+	// Claude skill/MCP tags rewrite CLAUDE_CONFIG_DIR. Unpinned cards must still
+	// run prepare_account_dir for the active seat so the scoped clone gets a
+	// fresh CC credential + oauthAccount seed (otherwise Claude shows login).
+	if (
+		jackedAccountId === undefined &&
+		input.agentId === "claude" &&
+		input.needsClaudeConfigDirForLaunchTags === true
+	) {
+		const activeId = (await input.resolveActiveClaudeAccountId?.()) ?? null;
+		if (activeId !== null) {
+			jackedAccountId = activeId;
+		}
+	}
+
 	// Cursor Auto (no pin): do not inject CURSOR_API_KEY. Interactive `agent`
 	// already authenticates via `agent login`; a Jacked snapshot often overrides
 	// that with a stale key and breaks an otherwise working CLI.
@@ -187,7 +209,7 @@ export async function resolveJackedAccountPin(
 		return {
 			env: { [CLAUDE_CONFIG_DIR_ENV]: launchDir.configDir },
 			accountId: jackedAccountId,
-			warning: null,
+			warning: mismatchWarning,
 		};
 	}
 

@@ -823,4 +823,222 @@ describe("prepareAgentLaunch hook strategies", () => {
 		});
 		expect(kiroLaunch.args).toContain("--trust-all-tools");
 	});
+
+	it("applies Claude model/effort and MCP allowlist from taskLaunchSettings", async () => {
+		const home = setupTempHome();
+		process.env.USERPROFILE = home;
+		mkdirSync(join(home, ".claude"), { recursive: true });
+		writeFileSync(
+			join(home, ".claude", "settings.json"),
+			JSON.stringify({ mcpServers: { filesystem: { command: "npx" }, github: { command: "uvx" } } }),
+			"utf8",
+		);
+		writeFileSync(
+			join(home, ".claude.json"),
+			JSON.stringify({ hasCompletedOnboarding: true, oauthAccount: { emailAddress: "a@b.co" } }),
+			"utf8",
+		);
+		writeFileSync(
+			join(home, ".claude", ".credentials.json"),
+			JSON.stringify({ claudeAiOauth: { accessToken: "tok" } }),
+			"utf8",
+		);
+
+		const launch = await prepareAgentLaunch({
+			taskId: "task-claude-launch-tags",
+			agentId: "claude",
+			binary: "claude",
+			args: [],
+			cwd: "/tmp",
+			prompt: "Ship it",
+			taskLaunchSettings: {
+				modelId: "opus",
+				effort: "high",
+				mcpServerIds: ["filesystem"],
+			},
+		});
+
+		expect(launch.args).toContain("--model");
+		expect(launch.args[launch.args.indexOf("--model") + 1]).toBe("opus");
+		expect(launch.args).toContain("--effort");
+		expect(launch.args[launch.args.indexOf("--effort") + 1]).toBe("high");
+		expect(launch.args).toContain("--mcp-config");
+		expect(launch.args).toContain("--strict-mcp-config");
+		expect(launch.env.CLAUDE_CONFIG_DIR).toBeTruthy();
+		const scopedSettings = JSON.parse(
+			readFileSync(join(String(launch.env.CLAUDE_CONFIG_DIR), "settings.json"), "utf8"),
+		) as { mcpServers?: unknown };
+		expect(scopedSettings.mcpServers).toBeUndefined();
+		await launch.cleanup?.();
+	});
+
+	it("scopes Claude skills via CLAUDE_CONFIG_DIR when skill tags are set", async () => {
+		const home = setupTempHome();
+		process.env.USERPROFILE = home;
+		mkdirSync(join(home, ".claude", "skills", "keep"), { recursive: true });
+		mkdirSync(join(home, ".claude", "skills", "drop"), { recursive: true });
+		writeFileSync(
+			join(home, ".claude.json"),
+			JSON.stringify({ hasCompletedOnboarding: true, oauthAccount: { emailAddress: "a@b.co" } }),
+			"utf8",
+		);
+		writeFileSync(
+			join(home, ".claude", ".credentials.json"),
+			JSON.stringify({ claudeAiOauth: { accessToken: "tok" } }),
+			"utf8",
+		);
+
+		const launch = await prepareAgentLaunch({
+			taskId: "task-claude-skill-tags",
+			agentId: "claude",
+			binary: "claude",
+			args: [],
+			cwd: "/tmp",
+			prompt: "",
+			taskLaunchSettings: {
+				skillIds: ["keep"],
+			},
+		});
+
+		expect(launch.env.CLAUDE_CONFIG_DIR).toBeTruthy();
+		expect(String(launch.env.CLAUDE_CONFIG_DIR)).toContain("task-launch");
+		const seeded = JSON.parse(
+			readFileSync(join(String(launch.env.CLAUDE_CONFIG_DIR), ".claude.json"), "utf8"),
+		) as { hasCompletedOnboarding?: boolean; oauthAccount?: { emailAddress?: string } };
+		expect(seeded.hasCompletedOnboarding).toBe(true);
+		expect(seeded.oauthAccount?.emailAddress).toBe("a@b.co");
+		await launch.cleanup?.();
+	});
+
+	it("passes Cursor model and skill/MCP preface from taskLaunchSettings", async () => {
+		setupTempHome();
+		const launch = await prepareAgentLaunch({
+			taskId: "task-cursor-launch-tags",
+			agentId: "cursor",
+			binary: "agent",
+			args: [],
+			cwd: "/tmp",
+			prompt: "Implement the feature",
+			taskLaunchSettings: {
+				modelId: "composer-2",
+				effort: "max",
+				skillIds: ["review"],
+				mcpServerIds: ["filesystem"],
+			},
+		});
+
+		expect(launch.args).toContain("--model");
+		expect(launch.args[launch.args.indexOf("--model") + 1]).toBe("composer-2");
+		expect(launch.args).not.toContain("--effort");
+		const promptArg = launch.args.find((arg) => arg.includes("Implement the feature"));
+		expect(promptArg).toBeTruthy();
+		expect(promptArg).toContain("Skills: review.");
+		expect(promptArg).toContain("MCP servers: filesystem.");
+	});
+
+	it("inherits all Claude skills/MCP when taskLaunchSettings tags are empty", async () => {
+		const home = setupTempHome();
+		process.env.USERPROFILE = home;
+		mkdirSync(join(home, ".claude", "skills", "review"), { recursive: true });
+		writeFileSync(
+			join(home, ".claude", "settings.json"),
+			JSON.stringify({ mcpServers: { filesystem: { command: "npx" } } }),
+			"utf8",
+		);
+
+		const launch = await prepareAgentLaunch({
+			taskId: "task-claude-inherit-all",
+			agentId: "claude",
+			binary: "claude",
+			args: [],
+			cwd: "/tmp",
+			prompt: "Hello",
+			taskLaunchSettings: {
+				modelId: "sonnet",
+				skillIds: [],
+				mcpServerIds: [],
+			},
+		});
+
+		expect(launch.args).toContain("--model");
+		expect(launch.args[launch.args.indexOf("--model") + 1]).toBe("sonnet");
+		expect(launch.args).not.toContain("--mcp-config");
+		expect(launch.args).not.toContain("--strict-mcp-config");
+		expect(launch.env.CLAUDE_CONFIG_DIR).toBeUndefined();
+		await launch.cleanup?.();
+	});
+
+	it("overrides a pin CLAUDE_CONFIG_DIR with a skill-scoped dir that keeps pin credentials", async () => {
+		const home = setupTempHome();
+		process.env.USERPROFILE = home;
+		const pinDir = join(home, "accounts", "3");
+		mkdirSync(pinDir, { recursive: true });
+		mkdirSync(join(home, ".claude", "skills", "keep"), { recursive: true });
+		mkdirSync(join(home, ".claude", "skills", "drop"), { recursive: true });
+		writeFileSync(
+			join(pinDir, ".credentials.json"),
+			JSON.stringify({ claudeAiOauth: { accessToken: "seat-token" } }),
+			"utf8",
+		);
+		writeFileSync(
+			join(pinDir, ".claude.json"),
+			JSON.stringify({
+				hasCompletedOnboarding: true,
+				oauthAccount: { emailAddress: "seat@example.com" },
+			}),
+			"utf8",
+		);
+
+		const launch = await prepareAgentLaunch({
+			taskId: "task-claude-pin-and-skills",
+			agentId: "claude",
+			binary: "claude",
+			args: [],
+			cwd: "/tmp",
+			prompt: "",
+			env: { CLAUDE_CONFIG_DIR: pinDir },
+			taskLaunchSettings: {
+				skillIds: ["keep"],
+			},
+		});
+
+		expect(launch.env.CLAUDE_CONFIG_DIR).toBeTruthy();
+		expect(launch.env.CLAUDE_CONFIG_DIR).not.toBe(pinDir);
+		expect(String(launch.env.CLAUDE_CONFIG_DIR)).toContain("task-launch");
+		const creds = JSON.parse(
+			readFileSync(join(String(launch.env.CLAUDE_CONFIG_DIR), ".credentials.json"), "utf8"),
+		) as { claudeAiOauth: { accessToken: string } };
+		expect(creds.claudeAiOauth.accessToken).toBe("seat-token");
+		const seeded = JSON.parse(
+			readFileSync(join(String(launch.env.CLAUDE_CONFIG_DIR), ".claude.json"), "utf8"),
+		) as { oauthAccount?: { emailAddress?: string } };
+		expect(seeded.oauthAccount?.emailAddress).toBe("seat@example.com");
+		const skills = await import("node:fs/promises").then((fs) =>
+			fs.readdir(join(String(launch.env.CLAUDE_CONFIG_DIR), "skills")),
+		);
+		expect(skills).toContain("keep");
+		expect(skills).not.toContain("drop");
+		await launch.cleanup?.();
+	});
+
+	it("does not add Cursor tag preface when skill/MCP tags are empty", async () => {
+		setupTempHome();
+		const launch = await prepareAgentLaunch({
+			taskId: "task-cursor-no-tags",
+			agentId: "cursor",
+			binary: "agent",
+			args: [],
+			cwd: "/tmp",
+			prompt: "Plain prompt",
+			taskLaunchSettings: {
+				modelId: "composer-2",
+				skillIds: [],
+				mcpServerIds: [],
+			},
+		});
+
+		const promptArg = launch.args.find((arg) => arg.includes("Plain prompt"));
+		expect(promptArg).toBe("Plain prompt");
+		expect(promptArg).not.toContain("Task launch tags");
+	});
 });

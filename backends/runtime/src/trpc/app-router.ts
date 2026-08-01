@@ -87,8 +87,10 @@ import type {
 	RuntimeProjectRemoveResponse,
 	RuntimeProjectsResponse,
 	RuntimeRunUpdateResponse,
+	RuntimeMcpInventory,
 	RuntimeShellSessionStartRequest,
 	RuntimeShellSessionStartResponse,
+	RuntimeSkillInventory,
 	RuntimeSlashCommandsResponse,
 	RuntimeTaskChatAbortRequest,
 	RuntimeTaskChatAbortResponse,
@@ -203,8 +205,10 @@ import {
 	runtimeProjectRemoveResponseSchema,
 	runtimeProjectsResponseSchema,
 	runtimeRunUpdateResponseSchema,
+	runtimeMcpInventorySchema,
 	runtimeShellSessionStartRequestSchema,
 	runtimeShellSessionStartResponseSchema,
+	runtimeSkillInventorySchema,
 	runtimeSlashCommandsResponseSchema,
 	runtimeTaskChatAbortRequestSchema,
 	runtimeTaskChatAbortResponseSchema,
@@ -281,6 +285,8 @@ export interface RuntimeTrpcContext {
 			input: RuntimeTaskChatMessagesRequest,
 		) => Promise<RuntimeTaskChatMessagesResponse>;
 		getClineSlashCommands: (scope: RuntimeTrpcWorkspaceScope | null) => Promise<RuntimeSlashCommandsResponse>;
+		listSkillInventory: () => Promise<RuntimeSkillInventory>;
+		listMcpInventory: () => Promise<RuntimeMcpInventory>;
 		sendTaskChatMessage: (
 			scope: RuntimeTrpcWorkspaceScope,
 			input: RuntimeTaskChatSendRequest,
@@ -568,6 +574,12 @@ export const runtimeAppRouter = t.router({
 			}),
 		getClineSlashCommands: t.procedure.output(runtimeSlashCommandsResponseSchema).query(async ({ ctx }) => {
 			return await ctx.runtimeApi.getClineSlashCommands(ctx.workspaceScope);
+		}),
+		listSkillInventory: t.procedure.output(runtimeSkillInventorySchema).query(async ({ ctx }) => {
+			return await ctx.runtimeApi.listSkillInventory();
+		}),
+		listMcpInventory: t.procedure.output(runtimeMcpInventorySchema).query(async ({ ctx }) => {
+			return await ctx.runtimeApi.listMcpInventory();
 		}),
 		reloadTaskChatSession: workspaceProcedure
 			.input(runtimeTaskChatReloadRequestSchema)
