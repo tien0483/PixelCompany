@@ -44,14 +44,11 @@ import {
 import { isHomeAgentSessionId } from "../core/home-agent-session";
 import { resolveTaskTitle } from "../core/task-title.js";
 import { resolveJackedAccountPin } from "../jacked/jacked-account-pin";
-import {
-	LEGACY_RUNTIME_HOME_PARENT_DIR_NAME,
-	RUNTIME_HOME_PARENT_DIR_NAME,
-} from "../workspace/task-worktree-path";
 import { openInBrowser } from "../server/browser";
 import { buildRuntimeConfigResponse, resolveAgentCommand } from "../terminal/agent-registry";
 import type { TerminalSessionManager } from "../terminal/session-manager";
 import { resolveTaskCwd } from "../workspace/task-worktree";
+import { LEGACY_RUNTIME_HOME_PARENT_DIR_NAME, RUNTIME_HOME_PARENT_DIR_NAME } from "../workspace/task-worktree-path";
 import { captureTaskTurnCheckpoint } from "../workspace/turn-checkpoints";
 import type { RuntimeTrpcContext, RuntimeTrpcWorkspaceScope } from "./app-router";
 
@@ -299,9 +296,7 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 				const accountPin = await resolveJackedAccountPin({
 					agentId: resolved.agentId,
 					jackedAccountId: body.jackedAccountId,
-					getAccountLaunchDir:
-						deps.getJackedAccountLaunchDir ??
-						(async () => null),
+					getAccountLaunchDir: deps.getJackedAccountLaunchDir ?? (async () => null),
 				});
 				const summary = await terminalManager.startTaskSession({
 					taskId: body.taskId,

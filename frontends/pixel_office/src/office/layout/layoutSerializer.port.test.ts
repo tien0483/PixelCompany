@@ -128,9 +128,9 @@ test('migrateLayoutColors preserves furniture and other fields untouched', () =>
   assert.equal(migrated.furniture.length, 1);
   // The migrator may rewrite furniture types, so compare uid/col/row, not the
   // raw type string.
-  assert.equal(migrated.furniture[0].uid, 'f-1');
-  assert.equal(migrated.furniture[0].col, 1);
-  assert.equal(migrated.furniture[0].row, 1);
+  assert.equal(migrated.furniture[0]!.uid, 'f-1');
+  assert.equal(migrated.furniture[0]!.col, 1);
+  assert.equal(migrated.furniture[0]!.row, 1);
   assert.deepEqual(migrated.pets, [{ id: 'p1', petType: 0 }]);
   assert.equal(migrated.cols, 4);
   assert.equal(migrated.rows, 3);

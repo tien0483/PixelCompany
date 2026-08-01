@@ -68,9 +68,7 @@ function normalizeDirectoryPrefix(path: string): string {
 function isTaskWorktreePath(path: string): boolean {
 	// Both roots count: worktrees created before the home-directory rename are never
 	// moved, so auto-trust has to keep working for those in-flight tasks.
-	const worktreeRoots = [getTaskWorktreesHomePath(), getLegacyTaskWorktreesHomePath()].map(
-		normalizeDirectoryPrefix,
-	);
+	const worktreeRoots = [getTaskWorktreesHomePath(), getLegacyTaskWorktreesHomePath()].map(normalizeDirectoryPrefix);
 	const normalizedPath = normalizeDirectoryPrefix(path);
 	return worktreeRoots.some((root) =>
 		process.platform === "win32"

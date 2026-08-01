@@ -2,8 +2,6 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "n
 import { delimiter, join } from "node:path";
 
 import { describe, expect, it } from "vitest";
-
-import { RUNTIME_HOME_PARENT_DIR_NAME } from "../../../src/workspace/task-worktree-path";
 import {
 	loadGlobalRuntimeConfig,
 	loadRuntimeConfig,
@@ -11,6 +9,7 @@ import {
 	saveRuntimeConfig,
 	updateRuntimeConfig,
 } from "../../../src/config/runtime-config";
+import { RUNTIME_HOME_PARENT_DIR_NAME } from "../../../src/workspace/task-worktree-path";
 import { createTempDir } from "../../utilities/temp-dir";
 
 function withTemporaryEnv<T>(

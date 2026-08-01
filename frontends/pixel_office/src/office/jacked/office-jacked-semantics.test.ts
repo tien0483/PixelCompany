@@ -15,7 +15,7 @@ function snapshot(partial: Partial<RuntimeJackedSnapshot> = {}): RuntimeJackedSn
 		lessonsActive: null,
 		fetchedAt: Date.now(),
 		...partial,
-	};
+	} as RuntimeJackedSnapshot;
 }
 
 describe("deriveOfficeJackedSemantics", () => {

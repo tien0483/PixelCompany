@@ -96,10 +96,7 @@ export interface JackedClient {
 	/** Poll jacked OAuth flow status. */
 	getOAuthFlowStatus: (flowId: string) => Promise<RuntimeJackedOAuthFlowStatus | null>;
 	/** Submit authorization code for a manual OAuth flow. */
-	submitOAuthCode: (
-		flowId: string,
-		code: string,
-	) => Promise<RuntimeJackedOAuthFlowStatus | null>;
+	submitOAuthCode: (flowId: string, code: string) => Promise<RuntimeJackedOAuthFlowStatus | null>;
 	/** Forward an arbitrary jacked HTTP path (same-origin proxy helper). */
 	proxyRequest: (
 		method: string,
@@ -176,8 +173,7 @@ function parseAccount(raw: unknown): RuntimeJackedAccount | null {
 	const sevenDayPercent = usage ? readNumber(usage, "seven_day") : readNumber(raw, "cached_usage_7d");
 	// Prefer jacked's registry flags from the API; local table is offline fallback only.
 	const canAutoSwap = typeof raw.can_auto_swap === "boolean" ? raw.can_auto_swap : fallback.canAutoSwap;
-	const canTrackUsage =
-		typeof raw.can_track_usage === "boolean" ? raw.can_track_usage : fallback.canTrackUsage;
+	const canTrackUsage = typeof raw.can_track_usage === "boolean" ? raw.can_track_usage : fallback.canTrackUsage;
 
 	return {
 		id,
@@ -629,14 +625,9 @@ export function createJackedClient(deps: CreateJackedClientDependencies): Jacked
 				body: JSON.stringify(body),
 			});
 		},
-		deleteAccount: async (accountId) =>
-			await mutate(`/api/auth/accounts/${String(accountId)}`, { method: "DELETE" }),
+		deleteAccount: async (accountId) => await mutate(`/api/auth/accounts/${String(accountId)}`, { method: "DELETE" }),
 		validateAccount: async (accountId) =>
-			await mutate(
-				`/api/auth/accounts/${String(accountId)}/validate`,
-				{ method: "POST" },
-				LONG_REQUEST_TIMEOUT_MS,
-			),
+			await mutate(`/api/auth/accounts/${String(accountId)}/validate`, { method: "POST" }, LONG_REQUEST_TIMEOUT_MS),
 		reorderAccounts: async (accountIds) =>
 			await mutate("/api/auth/accounts/reorder", {
 				method: "POST",
@@ -783,7 +774,11 @@ export function createJackedClient(deps: CreateJackedClientDependencies): Jacked
 			};
 		},
 		fetchUsageOverview: async (days = 1) => {
-			const raw = await request(`/api/analytics/usage-overview?days=${String(days)}`, undefined, LONG_REQUEST_TIMEOUT_MS);
+			const raw = await request(
+				`/api/analytics/usage-overview?days=${String(days)}`,
+				undefined,
+				LONG_REQUEST_TIMEOUT_MS,
+			);
 			if (raw === null) {
 				return {
 					days,
@@ -844,13 +839,9 @@ export function createJackedClient(deps: CreateJackedClientDependencies): Jacked
 		startClaudeOAuth: async (remote = false) =>
 			await startOAuthFlow(`/api/auth/accounts/add${remote ? "?provider=claude&remote=true" : "?provider=claude"}`),
 		startAccountReauth: async (accountId, remote = false) =>
-			await startOAuthFlow(
-				`/api/auth/accounts/${String(accountId)}/reauth${remote ? "?remote=true" : ""}`,
-			),
+			await startOAuthFlow(`/api/auth/accounts/${String(accountId)}/reauth${remote ? "?remote=true" : ""}`),
 		startAccountAuthorizeCc: async (accountId, remote = false) =>
-			await startOAuthFlow(
-				`/api/auth/accounts/${String(accountId)}/authorize-cc${remote ? "?remote=true" : ""}`,
-			),
+			await startOAuthFlow(`/api/auth/accounts/${String(accountId)}/authorize-cc${remote ? "?remote=true" : ""}`),
 		getOAuthFlowStatus: async (flowId) => {
 			const raw = await request(`/api/auth/flow/${encodeURIComponent(flowId)}`, undefined, LONG_REQUEST_TIMEOUT_MS);
 			if (!isRecord(raw) || typeof raw.status !== "string" || typeof raw.flow_id !== "string") {
@@ -893,9 +884,9 @@ export function createJackedClient(deps: CreateJackedClientDependencies): Jacked
 					didWarnUnreachable = false;
 					const detail =
 						(isRecord(payload)
-							? readString(payload, "submit_error") ??
+							? (readString(payload, "submit_error") ??
 								readString(payload, "error") ??
-								readString(payload, "detail")
+								readString(payload, "detail"))
 							: null) ?? `claude-jacked returned HTTP ${String(response.status)}.`;
 					return {
 						status: "error",

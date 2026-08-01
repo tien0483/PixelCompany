@@ -9,13 +9,13 @@ import type {
 	RuntimeJackedHookLogs,
 	RuntimeJackedInstallationsOverview,
 	RuntimeJackedMutationResponse,
-	RuntimeJackedPacks,
-	RuntimeJackedPackToggleRequest,
 	RuntimeJackedOAuthFlowStatus,
 	RuntimeJackedOAuthFlowStatusRequest,
 	RuntimeJackedOAuthStartRequest,
 	RuntimeJackedOAuthStartResponse,
 	RuntimeJackedOAuthSubmitCodeRequest,
+	RuntimeJackedPacks,
+	RuntimeJackedPackToggleRequest,
 	RuntimeJackedServerLogs,
 	RuntimeJackedSessions,
 	RuntimeJackedState,
@@ -48,9 +48,7 @@ export function createJackedApi(deps: CreateJackedApiDependencies): RuntimeTrpcC
 	};
 
 	/** Refuse accountIds that are not present in the Claude-filtered snapshot. */
-	const refuseNonClaudeAccount = async (
-		accountId: number,
-	): Promise<RuntimeJackedMutationResponse | null> => {
+	const refuseNonClaudeAccount = async (accountId: number): Promise<RuntimeJackedMutationResponse | null> => {
 		const state = deps.monitor.getState() ?? (await deps.monitor.refresh());
 		if (state === null) {
 			return { ok: false, error: "Jacked is offline." };

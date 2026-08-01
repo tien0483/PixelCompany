@@ -1,0 +1,13 @@
+packages:
+  - "frontends/pixel_office"
+  - "backends/runtime"
+
+allowBuilds:
+  '@sentry/cli': true
+  core-js: true
+  esbuild: true
+  node-pty: true
+  protobufjs: true
+
+overrides:
+  zod: 4.4.3

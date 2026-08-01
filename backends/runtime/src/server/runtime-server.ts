@@ -435,14 +435,8 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 						return;
 					}
 				}
-				const contentType =
-					typeof req.headers["content-type"] === "string" ? req.headers["content-type"] : null;
-				const proxied = await deps.jacked.client.proxyRequest(
-					method,
-					`${jackedPath}${query}`,
-					body,
-					contentType,
-				);
+				const contentType = typeof req.headers["content-type"] === "string" ? req.headers["content-type"] : null;
+				const proxied = await deps.jacked.client.proxyRequest(method, `${jackedPath}${query}`, body, contentType);
 				res.writeHead(proxied.status, {
 					"Content-Type": proxied.contentType,
 					"Cache-Control": "no-store",

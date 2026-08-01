@@ -32,9 +32,7 @@ export interface JackedAccountPin {
 
 const UNPINNED: JackedAccountPin = { env: {}, accountId: null, warning: null };
 
-export async function resolveJackedAccountPin(
-	input: ResolveJackedAccountPinInput,
-): Promise<JackedAccountPin> {
+export async function resolveJackedAccountPin(input: ResolveJackedAccountPinInput): Promise<JackedAccountPin> {
 	const { jackedAccountId } = input;
 	if (jackedAccountId === undefined) {
 		return UNPINNED;

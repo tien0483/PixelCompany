@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-
-import { createJackedMonitor, resolveJackedMonitorState } from "./jacked-monitor";
 import type { RuntimeJackedSnapshot } from "../core/api-contract";
+import { createJackedMonitor, resolveJackedMonitorState } from "./jacked-monitor";
 
 function sampleSnapshot(overrides: Partial<RuntimeJackedSnapshot> = {}): RuntimeJackedSnapshot {
 	return {

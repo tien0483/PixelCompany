@@ -170,21 +170,17 @@ export async function startJackedProcess(deps: StartJackedProcessDependencies): 
 	log(`Starting jacked with interpreter: ${python}`);
 	let child: ChildProcess;
 	try {
-		child = spawn(
-			python,
-			["-m", "jacked", "webux", "--host", host, "--port", String(port), "--no-browser"],
-			{
-				cwd: jackedRoot,
-				// An explicit --host plus loopback keeps the remote-access setting out of
-				// play: an embedded jacked is only ever reachable from this machine.
-				env: { ...process.env, PYTHONPATH: jackedRoot },
-				stdio: "ignore",
-				// Windows resolves `python` through shims that need a shell.
-				shell: process.platform === "win32",
-				windowsHide: true,
-				detached: process.platform !== "win32",
-			},
-		);
+		child = spawn(python, ["-m", "jacked", "webux", "--host", host, "--port", String(port), "--no-browser"], {
+			cwd: jackedRoot,
+			// An explicit --host plus loopback keeps the remote-access setting out of
+			// play: an embedded jacked is only ever reachable from this machine.
+			env: { ...process.env, PYTHONPATH: jackedRoot },
+			stdio: "ignore",
+			// Windows resolves `python` through shims that need a shell.
+			shell: process.platform === "win32",
+			windowsHide: true,
+			detached: process.platform !== "win32",
+		});
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
 		deps.warn(`Could not launch jacked (${python}): ${message}`);

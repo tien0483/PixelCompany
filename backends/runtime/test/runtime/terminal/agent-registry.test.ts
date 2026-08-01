@@ -49,9 +49,7 @@ describe("agent-registry", () => {
 
 		expect(detected).toEqual(["claude"]);
 		// Detection probes the full catalog (not just launch-supported agents) plus npx.
-		expect(commandDiscoveryMocks.isBinaryAvailableOnPath).toHaveBeenCalledTimes(
-			RUNTIME_AGENT_CATALOG.length + 1,
-		);
+		expect(commandDiscoveryMocks.isBinaryAvailableOnPath).toHaveBeenCalledTimes(RUNTIME_AGENT_CATALOG.length + 1);
 	});
 
 	it("treats shell-only agents as unavailable", () => {

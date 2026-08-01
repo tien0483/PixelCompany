@@ -8,10 +8,7 @@ import { getRuntimeAgentCatalogEntry, isRuntimeAgentLaunchSupported } from "../c
 import type { RuntimeAgentId, RuntimeProjectShortcut } from "../core/api-contract";
 import { type LockRequest, lockedFileSystem } from "../fs/locked-file-system";
 import { detectInstalledCommands } from "../terminal/agent-registry";
-import {
-	LEGACY_RUNTIME_HOME_PARENT_DIR_NAME,
-	RUNTIME_HOME_PARENT_DIR_NAME,
-} from "../workspace/task-worktree-path";
+import { LEGACY_RUNTIME_HOME_PARENT_DIR_NAME, RUNTIME_HOME_PARENT_DIR_NAME } from "../workspace/task-worktree-path";
 import { areRuntimeProjectShortcutsEqual } from "./shortcut-utils";
 
 interface RuntimeGlobalConfigFileShape {
@@ -438,9 +435,7 @@ async function readRuntimeConfigFiles(cwd: string | null): Promise<RuntimeConfig
 		? ((await readRuntimeConfigFile<RuntimeProjectConfigFileShape>(projectConfigPath)) ??
 			(cwd === null
 				? null
-				: await readRuntimeConfigFile<RuntimeProjectConfigFileShape>(
-						getLegacyRuntimeProjectConfigPath(cwd),
-					)))
+				: await readRuntimeConfigFile<RuntimeProjectConfigFileShape>(getLegacyRuntimeProjectConfigPath(cwd))))
 		: null;
 	return {
 		globalConfigPath,
