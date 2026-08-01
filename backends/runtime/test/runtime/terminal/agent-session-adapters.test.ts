@@ -3,10 +3,14 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
+<<<<<<< HEAD
 
 import { buildShellCommandLine } from "../../../src/core/shell";
 import { RUNTIME_HOME_PARENT_DIR_NAME } from "../../../src/workspace/task-worktree-path";
+=======
+>>>>>>> refs/remotes/origin/main
 import { prepareAgentLaunch } from "../../../src/terminal/agent-session-adapters";
+import { RUNTIME_HOME_PARENT_DIR_NAME } from "../../../src/workspace/task-worktree-path";
 
 const originalHome = process.env.HOME;
 const originalAppData = process.env.APPDATA;
@@ -127,7 +131,14 @@ describe("prepareAgentLaunch hook strategies", () => {
 		expect(launchCommand).not.toContain("codex-wrapper");
 		expect(launchCommand).not.toContain("notify=");
 
-		const wrapperPath = join(homedir(), RUNTIME_HOME_PARENT_DIR_NAME, "kanban", "hooks", "codex", "codex-wrapper.mjs");
+		const wrapperPath = join(
+			homedir(),
+			RUNTIME_HOME_PARENT_DIR_NAME,
+			"kanban",
+			"hooks",
+			"codex",
+			"codex-wrapper.mjs",
+		);
 		expect(existsSync(wrapperPath)).toBe(false);
 	});
 
@@ -253,7 +264,14 @@ describe("prepareAgentLaunch hook strategies", () => {
 		const afterToolCommand = settings.hooks?.AfterTool?.[0]?.hooks?.[0]?.command;
 		expect(afterToolCommand).toContain("hooks");
 		expect(afterToolCommand).toContain("gemini-hook");
-		const hookScriptPath = join(homedir(), RUNTIME_HOME_PARENT_DIR_NAME, "kanban", "hooks", "gemini", "gemini-hook.mjs");
+		const hookScriptPath = join(
+			homedir(),
+			RUNTIME_HOME_PARENT_DIR_NAME,
+			"kanban",
+			"hooks",
+			"gemini",
+			"gemini-hook.mjs",
+		);
 		expect(existsSync(hookScriptPath)).toBe(false);
 	});
 

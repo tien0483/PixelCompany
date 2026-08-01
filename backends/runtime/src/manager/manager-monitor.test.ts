@@ -1,7 +1,13 @@
+<<<<<<< HEAD:backends/runtime/src/manager/manager-monitor.test.ts
 ﻿import { describe, expect, it, vi } from "vitest";
 
 import { createManagerMonitor, resolveManagerMonitorState } from "./manager-monitor";
 import type { RuntimeManagerSnapshot } from "../core/api-contract";
+=======
+import { describe, expect, it, vi } from "vitest";
+import type { RuntimeJackedSnapshot } from "../core/api-contract";
+import { createJackedMonitor, resolveJackedMonitorState } from "./jacked-monitor";
+>>>>>>> refs/remotes/origin/main:backends/runtime/src/jacked/jacked-monitor.test.ts
 
 function sampleSnapshot(overrides: Partial<RuntimeManagerSnapshot> = {}): RuntimeManagerSnapshot {
 	return {

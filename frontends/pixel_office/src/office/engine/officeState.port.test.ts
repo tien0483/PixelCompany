@@ -36,15 +36,15 @@ test('OfficeState.addNpc adds NPC to characters and syncs to layout', () => {
   // Verify character is added
   const chars = state.getCharacters();
   assert.equal(chars.length, 1);
-  assert.equal(chars[0].id, placedNpc.id);
-  assert.equal(chars[0].isNpc, true);
+  assert.equal(chars[0]!.id, placedNpc.id);
+  assert.equal(chars[0]!.isNpc, true);
 
   // Verify layout is synced
   const layout = state.getLayout();
   assert.ok(layout.npcs);
-  assert.equal(layout.npcs.length, 1);
-  assert.equal(layout.npcs[0].id, placedNpc.id);
-  assert.deepEqual(layout.npcs[0].script, placedNpc.script);
+  assert.equal(layout.npcs!.length, 1);
+  assert.equal(layout.npcs![0]!.id, placedNpc.id);
+  assert.deepEqual(layout.npcs![0]!.script, placedNpc.script);
 });
 
 test('OfficeState rebuilds NPCs from layout correctly', () => {
@@ -61,10 +61,10 @@ test('OfficeState rebuilds NPCs from layout correctly', () => {
   // Verify character is created during constructor
   const chars = state.getCharacters();
   assert.equal(chars.length, 1);
-  assert.equal(chars[0].id, placedNpc.id);
-  assert.equal(chars[0].isNpc, true);
-  assert.equal(chars[0].palette, 2);
-  assert.equal(chars[0].hueShift, 90);
+  assert.equal(chars[0]!.id, placedNpc.id);
+  assert.equal(chars[0]!.isNpc, true);
+  assert.equal(chars[0]!.palette, 2);
+  assert.equal(chars[0]!.hueShift, 90);
 });
 
 test('OfficeState removes NPC and syncs layout', () => {
@@ -96,7 +96,7 @@ test('NPC script scheduler loops through actions', () => {
   };
   state.addNpc(placedNpc);
   
-  const ch = state.getCharacters()[0];
+  const ch = state.getCharacters()[0]!;
   
   // Tick 1: initializes script
   state.update(0.1);

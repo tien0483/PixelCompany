@@ -599,9 +599,7 @@ describe("createManagerClient", () => {
 			authUrl: "https://claude.ai/oauth",
 			mode: "browser",
 		});
-		expect(fetchMock.mock.calls[0]?.[0]).toBe(
-			"http://127.0.0.1:8321/api/auth/accounts/6/reauth?remote=true",
-		);
+		expect(fetchMock.mock.calls[0]?.[0]).toBe("http://127.0.0.1:8321/api/auth/accounts/6/reauth?remote=true");
 		client.close();
 		vi.unstubAllGlobals();
 	});

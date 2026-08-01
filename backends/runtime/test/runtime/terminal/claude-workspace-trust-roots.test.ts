@@ -15,19 +15,16 @@ import {
  * would start prompting "do you trust this folder?" again.
  */
 describe("claude workspace trust across runtime home roots", () => {
-	const worktreeUnder = (parentDir: string) =>
-		join(homedir(), parentDir, "worktrees", "task-1", "my-repo");
+	const worktreeUnder = (parentDir: string) => join(homedir(), parentDir, "worktrees", "task-1", "my-repo");
 
 	it("auto-confirms inside the current worktree root", () => {
-		expect(
-			shouldAutoConfirmClaudeWorkspaceTrust("claude", worktreeUnder(RUNTIME_HOME_PARENT_DIR_NAME)),
-		).toBe(true);
+		expect(shouldAutoConfirmClaudeWorkspaceTrust("claude", worktreeUnder(RUNTIME_HOME_PARENT_DIR_NAME))).toBe(true);
 	});
 
 	it("auto-confirms inside the legacy worktree root", () => {
-		expect(
-			shouldAutoConfirmClaudeWorkspaceTrust("claude", worktreeUnder(LEGACY_RUNTIME_HOME_PARENT_DIR_NAME)),
-		).toBe(true);
+		expect(shouldAutoConfirmClaudeWorkspaceTrust("claude", worktreeUnder(LEGACY_RUNTIME_HOME_PARENT_DIR_NAME))).toBe(
+			true,
+		);
 	});
 
 	it("does not auto-confirm outside any worktree root", () => {
@@ -35,8 +32,6 @@ describe("claude workspace trust across runtime home roots", () => {
 	});
 
 	it("only applies to Claude Code", () => {
-		expect(
-			shouldAutoConfirmClaudeWorkspaceTrust("codex", worktreeUnder(RUNTIME_HOME_PARENT_DIR_NAME)),
-		).toBe(false);
+		expect(shouldAutoConfirmClaudeWorkspaceTrust("codex", worktreeUnder(RUNTIME_HOME_PARENT_DIR_NAME))).toBe(false);
 	});
 });

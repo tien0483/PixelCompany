@@ -19,10 +19,7 @@ import {
 import { createGitProcessEnv } from "../core/git-process-env";
 import { updateTaskDependencies } from "../core/task-board-mutations";
 import { type LockRequest, lockedFileSystem } from "../fs/locked-file-system";
-import {
-	LEGACY_RUNTIME_HOME_PARENT_DIR_NAME,
-	RUNTIME_HOME_PARENT_DIR_NAME,
-} from "../workspace/task-worktree-path";
+import { LEGACY_RUNTIME_HOME_PARENT_DIR_NAME, RUNTIME_HOME_PARENT_DIR_NAME } from "../workspace/task-worktree-path";
 
 const RUNTIME_HOME_PARENT_DIR = RUNTIME_HOME_PARENT_DIR_NAME;
 const RUNTIME_HOME_DIR = "kanban";

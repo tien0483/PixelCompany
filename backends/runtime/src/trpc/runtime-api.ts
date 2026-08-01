@@ -43,11 +43,15 @@ import {
 } from "../core/api-validation";
 import { isHomeAgentSessionId } from "../core/home-agent-session";
 import { resolveTaskTitle } from "../core/task-title.js";
+<<<<<<< HEAD
 import { resolveManagerAccountPin } from "../manager/manager-account-pin";
 import {
 	LEGACY_RUNTIME_HOME_PARENT_DIR_NAME,
 	RUNTIME_HOME_PARENT_DIR_NAME,
 } from "../workspace/task-worktree-path";
+=======
+import { resolveJackedAccountPin } from "../jacked/jacked-account-pin";
+>>>>>>> refs/remotes/origin/main
 import { openInBrowser } from "../server/browser";
 import { buildRuntimeConfigResponse, resolveAgentCommand } from "../terminal/agent-registry";
 import type { TerminalSessionManager } from "../terminal/session-manager";
@@ -58,6 +62,7 @@ import {
 	listClaudeSkillInventory,
 } from "../terminal/task-launch-settings";
 import { resolveTaskCwd } from "../workspace/task-worktree";
+import { LEGACY_RUNTIME_HOME_PARENT_DIR_NAME, RUNTIME_HOME_PARENT_DIR_NAME } from "../workspace/task-worktree-path";
 import { captureTaskTurnCheckpoint } from "../workspace/turn-checkpoints";
 import type { RuntimeTrpcContext, RuntimeTrpcWorkspaceScope } from "./app-router";
 
@@ -309,6 +314,7 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 				// jacked's global auto-swap.
 				const accountPin = await resolveManagerAccountPin({
 					agentId: resolved.agentId,
+<<<<<<< HEAD
 					managerAccountId: body.managerAccountId,
 					getAccountLaunchDir:
 						deps.getManagerAccountLaunchDir ??
@@ -322,6 +328,10 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 					resolveActiveClaudeAccountId: deps.resolveActiveClaudemanagerAccountId,
 					needsClaudeConfigDirForLaunchTags:
 						resolved.agentId === "claude" && hasClaudeScopedConfigAllowlist(body.taskLaunchSettings),
+=======
+					jackedAccountId: body.jackedAccountId,
+					getAccountLaunchDir: deps.getJackedAccountLaunchDir ?? (async () => null),
+>>>>>>> refs/remotes/origin/main
 				});
 				// Cursor Auto: no CURSOR_API_KEY injection — same auth as interactive
 				// `agent` (`agent login`). Explicit seat pins still inject a key.

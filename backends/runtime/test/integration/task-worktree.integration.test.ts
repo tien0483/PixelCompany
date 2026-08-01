@@ -5,6 +5,11 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { deleteTaskWorktree, ensureTaskWorktreeIfDoesntExist } from "../../src/workspace/task-worktree";
+import {
+	KANBAN_RUNTIME_HOME_DIR_NAME,
+	KANBAN_TASK_WORKTREES_HOME_DIR_NAME,
+	LEGACY_KANBAN_TASK_WORKTREES_HOME_DIR_NAME,
+} from "../../src/workspace/task-worktree-path";
 import { createGitTestEnv } from "../utilities/git-env";
 import { createTempDir } from "../utilities/temp-dir";
 
@@ -337,8 +342,7 @@ describe.sequential("task-worktree integration", () => {
 
 				const patchPath = join(
 					process.env.HOME ?? sandboxRoot,
-					".cline",
-					"kanban",
+					KANBAN_RUNTIME_HOME_DIR_NAME,
 					"trashed-task-patches",
 					`${taskId}.${createdCommit}.patch`,
 				);
@@ -406,7 +410,11 @@ describe.sequential("task-worktree integration", () => {
 				});
 				expect(deleted.ok).toBe(true);
 
-				const patchesDir = join(process.env.HOME ?? sandboxRoot, ".cline", "kanban", "trashed-task-patches");
+				const patchesDir = join(
+					process.env.HOME ?? sandboxRoot,
+					KANBAN_RUNTIME_HOME_DIR_NAME,
+					"trashed-task-patches",
+				);
 				mkdirSync(patchesDir, { recursive: true });
 				const patchPath = join(patchesDir, `${taskId}.${createdCommit}.patch`);
 				writeFileSync(
@@ -438,6 +446,44 @@ describe.sequential("task-worktree integration", () => {
 
 				expect(restored.warning).toContain("Saved task changes could not be reapplied automatically.");
 				expect(runGit(restored.path, ["rev-parse", "HEAD"])).toBe(createdCommit);
+			} finally {
+				cleanup();
+			}
+		});
+	});
+
+	it("reuses a worktree still living under the legacy .cline root instead of creating a new one", async () => {
+		await withTemporaryHome(async () => {
+			const { path: sandboxRoot, cleanup } = createTempDir("kanban-task-worktree-legacy-root-");
+			try {
+				const repoPath = join(sandboxRoot, "repo");
+				mkdirSync(repoPath, { recursive: true });
+
+				runGit(repoPath, ["init"]);
+				runGit(repoPath, ["config", "user.name", "Kanban Test"]);
+				runGit(repoPath, ["config", "user.email", "kanban-test@example.com"]);
+
+				writeFileSync(join(repoPath, "README.md"), "hello\n", "utf8");
+				runGit(repoPath, ["add", "README.md"]);
+				runGit(repoPath, ["commit", "-m", "init"]);
+
+				const taskId = `task-legacy-root-${Date.now()}`;
+				const workspaceLabel = "repo";
+				const home = process.env.HOME ?? sandboxRoot;
+				const legacyWorktreePath = join(home, LEGACY_KANBAN_TASK_WORKTREES_HOME_DIR_NAME, taskId, workspaceLabel);
+				const currentWorktreePath = join(home, KANBAN_TASK_WORKTREES_HOME_DIR_NAME, taskId, workspaceLabel);
+				mkdirSync(join(legacyWorktreePath, ".."), { recursive: true });
+				runGit(repoPath, ["worktree", "add", legacyWorktreePath, "HEAD"]);
+
+				const ensured = await ensureTaskWorktreeIfDoesntExist({
+					cwd: repoPath,
+					taskId,
+					baseRef: "HEAD",
+				});
+
+				expect(ensured.ok).toBe(true);
+				expect(ensured.path).toBe(legacyWorktreePath);
+				expect(existsSync(currentWorktreePath)).toBe(false);
 			} finally {
 				cleanup();
 			}

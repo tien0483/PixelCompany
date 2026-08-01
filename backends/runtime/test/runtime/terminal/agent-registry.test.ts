@@ -49,9 +49,13 @@ describe("agent-registry", () => {
 
 		expect(detected).toEqual(["claude"]);
 		// Detection probes the full catalog (not just launch-supported agents) plus npx.
+<<<<<<< HEAD
 		expect(commandDiscoveryMocks.isBinaryAvailableOnPath).toHaveBeenCalledTimes(
 			new Set(RUNTIME_AGENT_CATALOG.flatMap((entry) => [entry.binary, ...(entry.binaryAliases ?? [])])).size + 1,
 		);
+=======
+		expect(commandDiscoveryMocks.isBinaryAvailableOnPath).toHaveBeenCalledTimes(RUNTIME_AGENT_CATALOG.length + 1);
+>>>>>>> refs/remotes/origin/main
 	});
 
 	it("resolves Cursor Agent through the canonical binary before the documented alias", () => {

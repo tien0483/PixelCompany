@@ -39,7 +39,7 @@ function snapshot(partial: Partial<RuntimeManagerSnapshot> = {}): RuntimeManager
 		lessonsActive: null,
 		fetchedAt: Date.now(),
 		...partial,
-	};
+	} as RuntimeJackedSnapshot;
 }
 
 describe("deriveOfficeManagerSemantics", () => {

@@ -105,11 +105,15 @@ export interface ManagerClient {
 	/** Poll jacked OAuth flow status. */
 	getOAuthFlowStatus: (flowId: string) => Promise<RuntimeManagerOAuthFlowStatus | null>;
 	/** Submit authorization code for a manual OAuth flow. */
+<<<<<<< HEAD:backends/runtime/src/manager/manager-client.ts
 	submitOAuthCode: (
 		flowId: string,
 		code: string,
 		donateLimitPercent?: number,
 	) => Promise<RuntimeManagerOAuthFlowStatus | null>;
+=======
+	submitOAuthCode: (flowId: string, code: string) => Promise<RuntimeJackedOAuthFlowStatus | null>;
+>>>>>>> refs/remotes/origin/main:backends/runtime/src/jacked/jacked-client.ts
 	/** Forward an arbitrary jacked HTTP path (same-origin proxy helper). */
 	proxyRequest: (
 		method: string,
@@ -195,8 +199,7 @@ function parseAccount(raw: unknown): RuntimeManagerAccount | null {
 		donateRaw === null ? 100 : Math.max(0, Math.min(100, Math.round(donateRaw)));
 	// Prefer jacked's registry flags from the API; local table is offline fallback only.
 	const canAutoSwap = typeof raw.can_auto_swap === "boolean" ? raw.can_auto_swap : fallback.canAutoSwap;
-	const canTrackUsage =
-		typeof raw.can_track_usage === "boolean" ? raw.can_track_usage : fallback.canTrackUsage;
+	const canTrackUsage = typeof raw.can_track_usage === "boolean" ? raw.can_track_usage : fallback.canTrackUsage;
 
 	return {
 		id,
@@ -666,14 +669,9 @@ export function createManagerClient(deps: CreateManagerClientDependencies): Mana
 				body: JSON.stringify(body),
 			});
 		},
-		deleteAccount: async (accountId) =>
-			await mutate(`/api/auth/accounts/${String(accountId)}`, { method: "DELETE" }),
+		deleteAccount: async (accountId) => await mutate(`/api/auth/accounts/${String(accountId)}`, { method: "DELETE" }),
 		validateAccount: async (accountId) =>
-			await mutate(
-				`/api/auth/accounts/${String(accountId)}/validate`,
-				{ method: "POST" },
-				LONG_REQUEST_TIMEOUT_MS,
-			),
+			await mutate(`/api/auth/accounts/${String(accountId)}/validate`, { method: "POST" }, LONG_REQUEST_TIMEOUT_MS),
 		reorderAccounts: async (accountIds) =>
 			await mutate("/api/auth/accounts/reorder", {
 				method: "POST",
@@ -918,7 +916,11 @@ export function createManagerClient(deps: CreateManagerClientDependencies): Mana
 			};
 		},
 		fetchUsageOverview: async (days = 1) => {
-			const raw = await request(`/api/analytics/usage-overview?days=${String(days)}`, undefined, LONG_REQUEST_TIMEOUT_MS);
+			const raw = await request(
+				`/api/analytics/usage-overview?days=${String(days)}`,
+				undefined,
+				LONG_REQUEST_TIMEOUT_MS,
+			);
 			if (raw === null) {
 				return {
 					days,
@@ -979,13 +981,9 @@ export function createManagerClient(deps: CreateManagerClientDependencies): Mana
 		startClaudeOAuth: async (remote = false) =>
 			await startOAuthFlow(`/api/auth/accounts/add${remote ? "?provider=claude&remote=true" : "?provider=claude"}`),
 		startAccountReauth: async (accountId, remote = false) =>
-			await startOAuthFlow(
-				`/api/auth/accounts/${String(accountId)}/reauth${remote ? "?remote=true" : ""}`,
-			),
+			await startOAuthFlow(`/api/auth/accounts/${String(accountId)}/reauth${remote ? "?remote=true" : ""}`),
 		startAccountAuthorizeCc: async (accountId, remote = false) =>
-			await startOAuthFlow(
-				`/api/auth/accounts/${String(accountId)}/authorize-cc${remote ? "?remote=true" : ""}`,
-			),
+			await startOAuthFlow(`/api/auth/accounts/${String(accountId)}/authorize-cc${remote ? "?remote=true" : ""}`),
 		getOAuthFlowStatus: async (flowId) => {
 			const raw = await request(`/api/auth/flow/${encodeURIComponent(flowId)}`, undefined, LONG_REQUEST_TIMEOUT_MS);
 			if (!isRecord(raw) || typeof raw.status !== "string" || typeof raw.flow_id !== "string") {
@@ -1033,10 +1031,15 @@ export function createManagerClient(deps: CreateManagerClientDependencies): Mana
 					didWarnUnreachable = false;
 					const detail =
 						(isRecord(payload)
-							? readString(payload, "submit_error") ??
+							? (readString(payload, "submit_error") ??
 								readString(payload, "error") ??
+<<<<<<< HEAD:backends/runtime/src/manager/manager-client.ts
 								readString(payload, "detail")
 							: null) ?? `Manager returned HTTP ${String(response.status)}.`;
+=======
+								readString(payload, "detail"))
+							: null) ?? `claude-jacked returned HTTP ${String(response.status)}.`;
+>>>>>>> refs/remotes/origin/main:backends/runtime/src/jacked/jacked-client.ts
 					return {
 						status: "error",
 						flowId,

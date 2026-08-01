@@ -22,6 +22,7 @@
 | 2026-07-31 | Manager venv auto-detect | Runtime | `resolvePythonBinary` prefers `backends/manager/.venv/bin/python` over bare `python3`; fixes silent auth-router ImportError → 405 on OAuth |
 | 2026-07-31 | UI dist auto-rebuild hooks | Root + docs | `.githooks/post-merge`/`post-checkout` rebuild `frontends/pixel_office/dist` when it drifts from HEAD; `core.hooksPath` set via `prepare` script |
 | 2026-07-31 | No AI attribution in commits/PRs | Docs | User preference — strip Co-Authored-By and Generated-with footers for this repo |
+| 2026-08-01 | npm → pnpm migration | Root + workspaces | Per-worktree `npm install` was duplicating full downloads/disk per agent worktree; pnpm's content-addressable store (`~/.pnpm-store`) shares packages across worktrees. `pnpm-workspace.yaml` holds `packages`, `overrides` (single `zod@4.4.3` — see [[pnpm-prepublish-quirk]]), and `allowBuilds`. Root `package.json` keeps its legacy `"workspaces"` field untouched (pnpm ignores it, cosmetic) per user request — edits to any `package.json` are user-denied for Claude, so dependency/manifest changes must go through `pnpm`/`npm` CLI commands, never the Edit tool. |
 
 ## Commit & PR message style
 - Do not add `Co-Authored-By: Claude ...` trailer to commits in this repo.

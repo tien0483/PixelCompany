@@ -709,9 +709,13 @@ export const RuntimeManagerAccountAuthorizeCcRequestSchema = z.object({
 	/** True when the browser cannot reach jacked's loopback callback (paste-code mode). */
 	remote: z.boolean().optional(),
 });
+<<<<<<< HEAD
 export type RuntimeManagerAccountAuthorizeCcRequest = z.infer<
 	typeof RuntimeManagerAccountAuthorizeCcRequestSchema
 >;
+=======
+export type RuntimeJackedAccountAuthorizeCcRequest = z.infer<typeof runtimeJackedAccountAuthorizeCcRequestSchema>;
+>>>>>>> refs/remotes/origin/main
 
 /** Auto-swap priority order, first entry highest (jacked POST /api/auth/accounts/reorder). */
 export const RuntimeManagerAccountReorderRequestSchema = z.object({

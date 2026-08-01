@@ -150,7 +150,11 @@ describe.sequential("task-worktree serialization", () => {
 
 			workspaceStateMocks.getRuntimeHomePath.mockReturnValue(runtimeHomePath);
 			workspaceStateMocks.getTaskWorktreesHomePath.mockReturnValue(worktreesHomePath);
+<<<<<<< HEAD
 			workspaceStateMocks.getLegacyTaskWorktreesHomePath.mockReturnValue(join(sandboxRoot, "legacy-worktrees"));
+=======
+			workspaceStateMocks.getLegacyTaskWorktreesHomePath.mockReturnValue(join(sandboxRoot, "legacy-worktrees-home"));
+>>>>>>> refs/remotes/origin/main
 			workspaceStateMocks.loadWorkspaceContext.mockResolvedValue({
 				repoPath,
 			});
