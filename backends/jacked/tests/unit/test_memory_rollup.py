@@ -23,6 +23,8 @@ from jacked.memory import capture
 from jacked.memory import rollup as rollup_mod
 from jacked.memory import vault as vault_mod
 
+from tests._catalog import CATALOG_ROOT
+
 EM_DASH = "—"
 
 
@@ -511,7 +513,7 @@ def test_pre_compact_does_not_invoke_rollup(env):
 # --------------------------------------------------------------------------- #
 
 def test_librarian_skill_exists_and_valid():
-    skill = Path(__file__).resolve().parents[2] / "jacked" / "data" / "skills" / "memory-librarian" / "SKILL.md"
+    skill = CATALOG_ROOT / "skills" / "memory-librarian" / "SKILL.md"
     assert skill.exists(), f"missing {skill}"
     text = skill.read_text(encoding="utf-8")
     # Frontmatter with name + description.

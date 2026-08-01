@@ -21,7 +21,9 @@ import pytest
 
 from jacked import packs
 
-DATA_ROOT = Path(packs.__file__).resolve().parent / "data"
+from tests._catalog import CATALOG_ROOT
+
+DATA_ROOT = CATALOG_ROOT
 
 
 # --------------------------------------------------------------------------- #

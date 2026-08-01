@@ -17,6 +17,8 @@ import yaml
 
 from jacked.codex import installer as ins
 
+from tests._catalog import CATALOG_ROOT
+
 
 @pytest.fixture
 def data_root(tmp_path):
@@ -381,11 +383,9 @@ def test_real_commands_generate_parseable_skill_frontmatter():
     """Integration guard against the REAL data/commands: every non-excluded
     command's _command_skill_md yields frontmatter yaml.safe_load parses with a
     name matching the stem and a non-empty description."""
-    import jacked
-
-    cmd_dir = Path(jacked.__file__).parent / "data" / "commands"
+    cmd_dir = CATALOG_ROOT / "commands"
     cmds = sorted(cmd_dir.glob("*.md"))
-    assert cmds, "real jacked data/commands must be present"
+    assert cmds, "catalog commands must be present under .agent/jacked/data"
     checked = 0
     for cmd in cmds:
         if cmd.name in ins._CLAUDE_ONLY_COMMANDS:
@@ -513,9 +513,7 @@ def test_real_agents_generate_parseable_tomls():
     """Integration guard against the REAL data/agents: every shipped agent .md
     produces TOML tomllib parses with all 3 required fields non-empty. >= 10 today
     so the assert doesn't rot when agents are added."""
-    import jacked
-
-    agents_dir = Path(jacked.__file__).parent / "data" / "agents"
+    agents_dir = CATALOG_ROOT / "agents"
     agents = sorted(agents_dir.glob("*.md"))
     assert len(agents) >= 10, f"expected >= 10 real agents, found {len(agents)}"
     for agent_md in agents:
@@ -536,9 +534,7 @@ def test_multiline_quoted_description_parses_fully():
     many lines. The line-folding path must return the FULL text (continuation
     lines folded to spaces, quote pair stripped) - a regression here silently
     truncates the description to its first physical line."""
-    import jacked
-
-    agent_md = Path(jacked.__file__).parent / "data" / "agents" / "double-check-reviewer.md"
+    agent_md = CATALOG_ROOT / "agents" / "double-check-reviewer.md"
     meta, _ = ins._split_command_frontmatter(agent_md.read_text())
     desc = meta["description"]
     assert len(desc) > 1000, len(desc)          # full scalar, not the first line
@@ -599,9 +595,7 @@ _RULES_WITH_CLAUDE = (
 
 
 def _real_rules_text():
-    import jacked
-
-    return (Path(jacked.__file__).parent / "data" / "rules" / "jacked_behaviors.md").read_text()
+    return (CATALOG_ROOT / "rules" / "jacked_behaviors.md").read_text()
 
 
 def _rewritten_source(out):
@@ -1204,10 +1198,7 @@ def test_prior_manifest_without_mcp_key_is_backward_compatible(data_root, homes)
 # template (MIT) with two jacked adaptations; ships to Codex like any skill.
 # ---------------------------------------------------------------------------
 
-_CLONE_WEBSITE_DIR = (
-    Path(__file__).resolve().parents[2]
-    / "jacked" / "data" / "skills" / "clone-website"
-)
+_CLONE_WEBSITE_DIR = CATALOG_ROOT / "skills" / "clone-website"
 
 
 def test_clone_website_skill_bundled_with_license_parses_and_ships_to_codex():
@@ -1216,7 +1207,7 @@ def test_clone_website_skill_bundled_with_license_parses_and_ships_to_codex():
     skill with an em-dash-free description, both jacked adaptations present in the
     body, and NOT held back from Codex."""
     skill_md = _CLONE_WEBSITE_DIR / "SKILL.md"
-    assert skill_md.exists(), "jacked/data/skills/clone-website/SKILL.md must exist"
+    assert skill_md.exists(), ".agent/jacked/data/skills/clone-website/SKILL.md must exist"
     assert (_CLONE_WEBSITE_DIR / "LICENSE").exists(), (
         "vendored skill must ship its MIT LICENSE sidecar"
     )

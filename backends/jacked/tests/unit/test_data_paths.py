@@ -21,14 +21,18 @@ def test_get_catalog_data_root_prefers_agent_tree(tmp_path, monkeypatch):
     assert data_paths.get_catalog_data_root() == agent
 
 
-def test_get_catalog_data_root_falls_back_to_package():
+def test_get_catalog_data_root_resolves_pixeloffice_agent_catalog():
     root = data_paths.get_catalog_data_root()
     assert root.is_dir()
-    assert (root / "skills").is_dir() or (root / "packs.json").is_file()
+    assert (root / "skills").is_dir()
+    assert (root / "packs.json").is_file()
+    normalized = str(root).replace("\\", "/")
+    assert ".agent/jacked/data" in normalized
 
 
 def test_env_override_wins(tmp_path, monkeypatch):
     agent = tmp_path / "custom-catalog"
+    agent.mkdir(parents=True)
     (agent / "packs.json").write_text("{}", encoding="utf-8")
     monkeypatch.setenv(data_paths._CATALOG_ENV, str(agent))
     assert data_paths.get_catalog_data_root() == agent

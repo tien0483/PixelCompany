@@ -10,7 +10,9 @@ from pathlib import Path
 
 import pytest
 
-DATA = Path(__file__).resolve().parents[2] / "jacked" / "data" / "commands"
+from tests._catalog import CATALOG_ROOT
+
+DATA = CATALOG_ROOT / "commands"
 ROOT = Path(__file__).resolve().parents[2]
 
 

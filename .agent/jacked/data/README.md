@@ -12,6 +12,9 @@ instead of `backends/jacked/jacked/data/` for:
 | `packs.json` | Training → Packs | via `npx skills` |
 
 Hooks, web dashboard, lenses, and git-hooks remain in the Python package
-(`backends/jacked/jacked/data/`).
+(`backends/jacked/jacked/data/`) until [runtime unfold](../UNFOLD.md) phase 2.
 
 Override path: `PIXELOFFICE_AGENT_JACKED_DATA=/absolute/path/to/data`.
+
+**Edit catalog here** — the package no longer ships duplicate `skills/`, `agents/`,
+`commands/`, `rules/`, or `packs.json`.

@@ -15,7 +15,9 @@ from pathlib import Path
 
 import pytest
 
-CMD = Path(__file__).resolve().parents[2] / "jacked" / "data" / "commands" / "goal-maker.md"
+from tests._catalog import CATALOG_ROOT
+
+CMD = CATALOG_ROOT / "commands" / "goal-maker.md"
 
 
 @pytest.fixture(scope="module")
@@ -24,7 +26,7 @@ def gm() -> str:
 
 
 def test_goal_maker_command_exists():
-    assert CMD.exists(), "jacked/data/commands/goal-maker.md must exist (ships via the install glob)"
+    assert CMD.exists(), ".agent/jacked/data/commands/goal-maker.md must exist"
 
 
 def test_frontmatter_marks_it_deliberate_and_distinguishes_siblings(gm: str):

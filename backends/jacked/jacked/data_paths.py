@@ -67,11 +67,18 @@ def resolve_agent_catalog_data_root() -> Path | None:
 
 
 def get_catalog_data_root() -> Path:
-    """Skills/agents/commands/rules/packs source root (``.agent`` preferred)."""
+    """Skills/agents/commands/rules/packs source root (``.agent`` preferred).
+
+    In PixelOffice the package no longer ships catalog dirs; standalone installs
+    may still fall back to ``get_package_data_root()`` when it contains a catalog.
+    """
     agent = resolve_agent_catalog_data_root()
     if agent is not None:
         return agent
-    return get_package_data_root()
+    package = get_package_data_root()
+    if _is_catalog_root(package):
+        return package
+    return package
 
 
 def resolve_catalog_file(relative: str) -> Path:

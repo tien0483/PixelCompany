@@ -11,7 +11,9 @@ from pathlib import Path
 
 import pytest
 
-CMD = Path(__file__).resolve().parents[2] / "jacked" / "data" / "commands" / "bhag.md"
+from tests._catalog import CATALOG_ROOT
+
+CMD = CATALOG_ROOT / "commands" / "bhag.md"
 
 
 @pytest.fixture(scope="module")
@@ -20,7 +22,7 @@ def bhag() -> str:
 
 
 def test_bhag_command_exists():
-    assert CMD.exists(), "jacked/data/commands/bhag.md must exist (ships via the install glob)"
+    assert CMD.exists(), ".agent/jacked/data/commands/bhag.md must exist"
 
 
 def test_frontmatter_marks_it_deliberate_and_points_to_whats_next(bhag: str):

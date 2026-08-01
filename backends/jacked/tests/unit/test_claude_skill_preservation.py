@@ -19,6 +19,8 @@ from click.testing import CliRunner
 
 from jacked import install_manifest as m
 
+from tests._catalog import CATALOG_ROOT
+
 
 def _skills_base(tmp_path: Path) -> Path:
     """The real layout, so backups resolve to <home>/.claude/jacked-backups."""
@@ -464,9 +466,8 @@ def test_skipped_skill_is_not_recorded_and_survives_uninstall(tmp_path, monkeypa
     plus a sidecar of their own.
     """
     monkeypatch.setenv("JACKED_HOME", str(tmp_path))
-    import jacked
 
-    pkg_qa = Path(jacked.__file__).parent / "data" / "skills" / "qa"
+    pkg_qa = CATALOG_ROOT / "skills" / "qa"
     user_qa = _skills_base(tmp_path) / "qa"
     import shutil as _sh
 

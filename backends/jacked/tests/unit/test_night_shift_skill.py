@@ -7,10 +7,9 @@ that must match `jacked usage --json`.
 """
 from pathlib import Path
 
-SKILL = (
-    Path(__file__).resolve().parents[2]
-    / "jacked" / "data" / "skills" / "night-shift" / "SKILL.md"
-).read_text(encoding="utf-8")
+from tests._catalog import CATALOG_ROOT
+
+SKILL = (CATALOG_ROOT / "skills" / "night-shift" / "SKILL.md").read_text(encoding="utf-8")
 
 
 def test_untrusted_content_clause_present():
