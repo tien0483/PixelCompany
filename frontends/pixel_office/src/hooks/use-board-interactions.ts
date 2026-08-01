@@ -16,6 +16,7 @@ import {
 	findCardSelection,
 	getTaskColumnId,
 	moveTaskToColumn,
+	removeTask,
 	updateTask,
 } from "@/state/board-state";
 import { clearTaskWorkspaceInfo, setTaskWorkspaceInfo } from "@/stores/workspace-metadata-store";
@@ -86,6 +87,7 @@ export interface UseBoardInteractionsResult {
 	handleDeleteDependency: (dependencyId: string) => void;
 	handleDragEnd: (result: DropResult, options?: { selectDroppedTask?: boolean }) => void;
 	handleStartTask: (taskId: string) => void;
+	handleDeleteBacklogTask: (taskId: string) => void;
 	handleStartAllBacklogTasks: (taskIds?: string[]) => void;
 	handleDetailTaskDragEnd: (result: DropResult) => void;
 	handleCardSelect: (taskId: string) => void;
@@ -688,6 +690,36 @@ export function useBoardInteractions({
 		[board, maybeRequestNotificationPermissionForTaskStart, startBacklogTaskWithAnimation],
 	);
 
+	const handleDeleteBacklogTask = useCallback(
+		(taskId: string) => {
+			const selection = findCardSelection(board, taskId);
+			if (!selection || selection.column.id !== "backlog") {
+				return;
+			}
+			setBoard((currentBoard) => {
+				const currentSelection = findCardSelection(currentBoard, taskId);
+				if (!currentSelection || currentSelection.column.id !== "backlog") {
+					return currentBoard;
+				}
+				const result = removeTask(currentBoard, taskId);
+				return result.removed ? result.board : currentBoard;
+			});
+			setSessions((currentSessions) => {
+				if (!currentSessions[taskId]) {
+					return currentSessions;
+				}
+				const nextSessions = { ...currentSessions };
+				delete nextSessions[taskId];
+				return nextSessions;
+			});
+			setSelectedTaskId((currentSelectedTaskId) =>
+				currentSelectedTaskId === taskId ? null : currentSelectedTaskId,
+			);
+			clearTaskWorkspaceInfo(taskId);
+		},
+		[board, setBoard, setSelectedTaskId, setSessions],
+	);
+
 	const handleStartAllBacklogTasks = useCallback(
 		(taskIds?: string[]) => {
 			const requestedTaskIds =
@@ -899,6 +931,7 @@ export function useBoardInteractions({
 		handleDeleteDependency,
 		handleDragEnd,
 		handleStartTask,
+		handleDeleteBacklogTask,
 		handleStartAllBacklogTasks,
 		handleDetailTaskDragEnd,
 		handleCardSelect,
