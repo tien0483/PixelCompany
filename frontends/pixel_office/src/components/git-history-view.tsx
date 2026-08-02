@@ -202,6 +202,8 @@ export function GitHistoryView({
 				onSelectWorkingCopy={gitHistory.hasWorkingCopy ? gitHistory.selectWorkingCopy : undefined}
 				onCheckoutRef={onCheckoutBranch}
 				onDeleteRef={onDeleteBranch ? setBranchPendingDelete : undefined}
+				onRefresh={() => gitHistory.refresh()}
+				isRefreshing={gitHistory.isRefsLoading}
 			/>
 			<ResizeHandle
 				orientation="vertical"

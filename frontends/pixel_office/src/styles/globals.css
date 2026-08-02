@@ -1109,6 +1109,16 @@ body.kb-dependency-link-mode {
 	color: var(--color-text-primary);
 }
 
+@keyframes kb-spin {
+	to {
+		transform: rotate(360deg);
+	}
+}
+
+.kb-spin {
+	animation: kb-spin 0.8s linear infinite;
+}
+
 .kb-branch-context-menu-item {
 	display: flex;
 	align-items: center;

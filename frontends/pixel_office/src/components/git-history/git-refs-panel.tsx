@@ -9,6 +9,7 @@ import {
 	GitBranch,
 	Info,
 	Locate,
+	RefreshCw,
 	Search,
 	Trash2,
 } from "lucide-react";
@@ -85,6 +86,8 @@ export function GitRefsPanel({
 	onSelectWorkingCopy,
 	onCheckoutRef,
 	onDeleteRef,
+	onRefresh,
+	isRefreshing,
 }: {
 	refs: RuntimeGitRef[];
 	selectedRefName: string | null;
@@ -97,6 +100,8 @@ export function GitRefsPanel({
 	onSelectWorkingCopy?: () => void;
 	onCheckoutRef?: (branchName: string) => void;
 	onDeleteRef?: (branchName: string) => void;
+	onRefresh?: () => void;
+	isRefreshing?: boolean;
 }): React.ReactElement {
 	const [searchQuery, setSearchQuery] = useState("");
 	const [contextMenu, setContextMenu] = useState<{ branch: string; x: number; y: number } | null>(null);
@@ -190,15 +195,27 @@ export function GitRefsPanel({
 				>
 					Git History
 				</span>
+				{onRefresh ? (
+					<Tooltip content="Refresh git history" side="bottom">
+						<Button
+							variant="ghost"
+							size="sm"
+							icon={<RefreshCw size={14} className={isRefreshing ? "kb-spin" : undefined} />}
+							aria-label="Refresh git history"
+							disabled={isRefreshing}
+							onClick={onRefresh}
+						/>
+					</Tooltip>
+				) : null}
 				<Tooltip
 					content={
-						<div style={{ maxWidth: 260, whiteSpace: "normal", lineHeight: 1.4 }}>
-							<div>
-								Use {closeShortcutLabel} to close, or Escape to close, or click the button in the branch menu to
-								close.
-							</div>
-							<div>Double-click a branch to switch to it.</div>
-							<div>Right-click a local branch to switch or delete it.</div>
+						<div style={{ maxWidth: 260, whiteSpace: "normal", lineHeight: 1.5 }}>
+							<div style={{ fontWeight: 600, marginBottom: 4 }}>Git History</div>
+							<div>• Click a branch to inspect its commits.</div>
+							<div>• Double-click a branch to switch to it.</div>
+							<div>• Right-click a local branch to switch or delete it.</div>
+							<div>• Refresh reloads branches, commits, and working copy.</div>
+							<div style={{ marginTop: 4 }}>Press {closeShortcutLabel} or Escape to close.</div>
 						</div>
 					}
 					side="bottom"
