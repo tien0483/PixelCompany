@@ -19,6 +19,7 @@ from fastapi import APIRouter, Query, Request, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
+from manager.api.credential_helpers import claude_config_dir
 from manager.web.auth import (
     fetch_usage,
     refresh_account_token,
@@ -433,7 +434,7 @@ def _get_active_account_id_cached() -> int | None:
     if time.time() < _active_account_cache["expires_at"]:
         return _active_account_cache["id"]
     try:
-        cred_path = Path.home() / ".claude" / ".credentials.json"
+        cred_path = claude_config_dir() / ".credentials.json"
         if cred_path.exists():
             data = json.loads(cred_path.read_text(encoding="utf-8"))
             _active_account_cache["id"] = data.get("_jackedAccountId")
@@ -1199,7 +1200,7 @@ async def refresh_all_usage(
             # atomically, so they should always agree on _jackedAccountId.
             from manager.api.credential_helpers import read_fresh_active_token
             active_acct_id = None
-            cred_path = Path.home() / ".claude" / ".credentials.json"
+            cred_path = claude_config_dir() / ".credentials.json"
             if cred_path.exists() and not cred_path.is_symlink():
                 try:
                     cred_data = json.loads(cred_path.read_text(encoding="utf-8"))
@@ -1938,7 +1939,7 @@ async def get_active_credential(request: Request):
     from manager.api.credential_helpers import read_platform_credentials
 
     # Read credential file
-    cred_path = Path.home() / ".claude" / ".credentials.json"
+    cred_path = claude_config_dir() / ".credentials.json"
     cred_data = None
     if cred_path.exists() and not cred_path.is_symlink():
         try:

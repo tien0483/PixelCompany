@@ -19,6 +19,21 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 
+def claude_config_dir() -> Path:
+    """Resolve the Claude Code config dir the same way the CLI itself does.
+
+    Honors ``CLAUDE_CONFIG_DIR`` before falling back to ``~/.claude``. WSL
+    setups commonly export this override in the login shell that ran
+    ``claude``; a Manager process spawned without inheriting that shell
+    (e.g. a different WSL invocation context) would otherwise always look
+    in the default ``~/.claude`` and find no login, even though one exists.
+    """
+    override = os.environ.get("CLAUDE_CONFIG_DIR")
+    if override:
+        return Path(override).expanduser()
+    return Path.home() / ".claude"
+
+
 # ---------------------------------------------------------------------------
 # Cross-process lock (compatible with Claude Code's proper-lockfile)
 # ---------------------------------------------------------------------------
@@ -287,7 +302,7 @@ def read_fresh_active_token(account_id: int) -> str | None:
             return token
 
     # Fall back to global .credentials.json
-    cred_path = Path.home() / ".claude" / ".credentials.json"
+    cred_path = claude_config_dir() / ".credentials.json"
     if cred_path.exists() and not cred_path.is_symlink():
         try:
             data = json.loads(cred_path.read_text(encoding="utf-8"))
@@ -319,7 +334,7 @@ def read_active_account_id() -> int | None:
     try:
         live = read_platform_credentials()
         if not live:
-            cred_path = Path.home() / ".claude" / ".credentials.json"
+            cred_path = claude_config_dir() / ".credentials.json"
             if cred_path.exists() and not cred_path.is_symlink():
                 try:
                     live = json.loads(cred_path.read_text(encoding="utf-8"))
@@ -394,7 +409,7 @@ def reconcile_credentials_from_live_store(account_id: int, db) -> None:
         live = read_platform_credentials()
         if not live:
             # Fall back to .credentials.json
-            cred_path = Path.home() / ".claude" / ".credentials.json"
+            cred_path = claude_config_dir() / ".credentials.json"
             if cred_path.exists() and not cred_path.is_symlink():
                 try:
                     live = json.loads(cred_path.read_text(encoding="utf-8"))
@@ -628,7 +643,7 @@ def sync_credential_to_all_stores(
     display_name = display_name or account.get("display_name")
     oauth_data = build_oauth_data(account)
 
-    cred_path = Path.home() / ".claude" / ".credentials.json"
+    cred_path = claude_config_dir() / ".credentials.json"
 
     # 1. Write global .credentials.json
     try:
@@ -667,6 +682,11 @@ def sync_credential_to_all_stores(
         logger.warning("Failed to update ~/.claude.json email: %s", exc)
 
     # 4. Write to per-account dir if it exists
+    #
+    # NOTE: intentionally NOT claude_config_dir() — this is Manager's own
+    # per-account storage convention (see launch.py's ACCOUNTS_DIR); Manager
+    # always points CLAUDE_CONFIG_DIR at this literal path when spawning a
+    # per-account session, regardless of any ambient override.
     acct_dir = Path.home() / ".claude" / "accounts" / str(account_id)
     acct_cred = acct_dir / ".credentials.json"
     if acct_dir.exists() and acct_dir.is_dir():

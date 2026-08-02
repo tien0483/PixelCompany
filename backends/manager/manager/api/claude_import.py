@@ -12,7 +12,6 @@ from __future__ import annotations
 import json
 import logging
 import time
-from pathlib import Path
 
 import httpx
 
@@ -24,7 +23,7 @@ from manager.web.oauth import (
     USAGE_URL,
 )
 
-from .credential_helpers import read_platform_credentials
+from .credential_helpers import claude_config_dir, read_platform_credentials
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +42,7 @@ def _read_local_oauth() -> dict | None:
     """
     live = read_platform_credentials()
     if not live:
-        cred_path = Path.home() / ".claude" / ".credentials.json"
+        cred_path = claude_config_dir() / ".credentials.json"
         if cred_path.exists() and not cred_path.is_symlink():
             try:
                 live = json.loads(cred_path.read_text(encoding="utf-8"))

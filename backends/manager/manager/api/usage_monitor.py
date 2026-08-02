@@ -13,8 +13,9 @@ import logging
 import random
 import time
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import TYPE_CHECKING
+
+from manager.api.credential_helpers import claude_config_dir
 
 if TYPE_CHECKING:
     from manager.web.auto_swap import BurnRate
@@ -169,7 +170,7 @@ def _read_active_account_id() -> int | None:
 
     Returns the _jackedAccountId integer, or None if unreadable.
     """
-    cred_path = Path.home() / ".claude" / ".credentials.json"
+    cred_path = claude_config_dir() / ".credentials.json"
     if not cred_path.exists() or cred_path.is_symlink():
         return None
     try:

@@ -25,6 +25,7 @@ from manager.findbin import find_bin
 from manager.api.credential_helpers import (
     _safe_replace,
     build_oauth_data,
+    claude_config_dir,
     read_platform_credentials,
     write_platform_credentials,
 )
@@ -557,7 +558,7 @@ def resolve_account(account_ref, db: Database) -> dict:
         acct_id = None
 
         # Layer 1: File stamp (fast, but Claude Code may delete the file)
-        cred_path = Path.home() / ".claude" / ".credentials.json"
+        cred_path = claude_config_dir() / ".credentials.json"
         if cred_path.exists() and not cred_path.is_symlink():
             try:
                 data = json.loads(cred_path.read_text(encoding="utf-8"))

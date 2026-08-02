@@ -17,11 +17,11 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
-from pathlib import Path
 from typing import Optional
 
 import httpx
 
+from manager.api.credential_helpers import claude_config_dir
 from manager.web.database import Database
 from manager.web.oauth import (
     CLIENT_ID,
@@ -439,7 +439,7 @@ async def _refresh_token_flow(
                         from manager.api.credential_helpers import read_platform_credentials
                         live = read_platform_credentials()
                         if not live:
-                            cred_path = Path.home() / ".claude" / ".credentials.json"
+                            cred_path = claude_config_dir() / ".credentials.json"
                             if cred_path.exists() and not cred_path.is_symlink():
                                 try:
                                     live = json.loads(cred_path.read_text(encoding="utf-8"))
