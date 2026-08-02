@@ -23,7 +23,7 @@ export function TrainingDiskSkillsPanel({ online }: { online: boolean }): ReactE
 		setLoading(true);
 		setError(null);
 		try {
-			const inventory = await getRuntimeTrpcClient(null).runtime.listSkillInventory.query();
+			const inventory = await getRuntimeTrpcClient(null).runtime.listSkillInventory.query({});
 			setSkills(inventory.skills);
 		} catch (err) {
 			setSkills(null);

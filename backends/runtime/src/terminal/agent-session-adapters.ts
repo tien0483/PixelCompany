@@ -15,7 +15,7 @@ import { quoteShellArg } from "../core/shell";
 import { lockedFileSystem } from "../fs/locked-file-system";
 import { CLAUDE_CONFIG_DIR_ENV } from "../manager/manager-account-pin";
 import { resolveHomeAgentAppendSystemPrompt } from "../prompts/append-system-prompt";
-import { getRuntimeHomePath } from "../state/workspace-state";
+import { getRuntimeHomePath, getWorkspaceLocalAssetsSetting } from "../state/workspace-state";
 import { configureCodexHooks, hasCodexConfigOverride } from "./codex-hook-config";
 import { createHookRuntimeEnv } from "./hook-runtime-context";
 import {
@@ -34,10 +34,10 @@ import {
 	applyModelAndEffortArgs,
 	buildCursorLaunchTagPreface,
 	hasAgentAllowlist,
-	hasClaudeScopedConfigAllowlist,
 	hasCommandAllowlist,
 	hasMcpAllowlist,
 	hasSkillAllowlist,
+	hasWorkflowAllowlist,
 	prepareClaudeMcpAllowlistConfig,
 	prepareClaudeSkillScopedConfigDir,
 } from "./task-launch-settings";
@@ -699,18 +699,37 @@ const claudeAdapter: AgentSessionAdapter = {
 		const skillAllowlist = hasSkillAllowlist(launchSettings);
 		const agentAllowlist = hasAgentAllowlist(launchSettings);
 		const commandAllowlist = hasCommandAllowlist(launchSettings);
+		const workflowAllowlist = hasWorkflowAllowlist(launchSettings);
 		const mcpAllowlist = hasMcpAllowlist(launchSettings);
+		// Project `.agent/*` assets (and workflows) are only bridged when the workspace
+		// has local assets enabled — the card only surfaces project items in that case,
+		// but the bridge keys off ids + repoPath, so gate here too to avoid pulling a
+		// disabled project's `.agent/*` into the scoped dir.
+		const workspaceId = input.workspaceId?.trim();
+		const localAssetsEnabled = workspaceId
+			? (await getWorkspaceLocalAssetsSetting(workspaceId)).enabled
+			: false;
+		const bridgeProjectAssets = localAssetsEnabled && Boolean(input.cwd?.trim());
 		// Any allowlist needs a task-scoped CLAUDE_CONFIG_DIR so we can keep CC
 		// credentials/onboarding while filtering skills/agents/commands and
 		// stripping mcpServers from settings.json (otherwise Claude still
-		// discovers every global Manager install / MCP).
-		if (hasClaudeScopedConfigAllowlist(launchSettings)) {
+		// discovers every global Manager install / MCP). A workflow-only selection
+		// only needs the scoped dir when its project assets are actually bridged.
+		const needsScopedConfig =
+			skillAllowlist ||
+			agentAllowlist ||
+			commandAllowlist ||
+			mcpAllowlist ||
+			(workflowAllowlist && bridgeProjectAssets);
+		if (needsScopedConfig) {
 			const scoped = await prepareClaudeSkillScopedConfigDir({
 				taskId: input.taskId,
 				skillIds: skillAllowlist ? launchSettings?.skillIds : undefined,
 				agentIds: agentAllowlist ? launchSettings?.agentIds : undefined,
 				commandIds: commandAllowlist ? launchSettings?.commandIds : undefined,
 				mcpServerIds: mcpAllowlist ? launchSettings?.mcpServerIds : undefined,
+				repoPath: bridgeProjectAssets ? input.cwd : undefined,
+				workflowIds: bridgeProjectAssets && workflowAllowlist ? launchSettings?.workflowIds : undefined,
 				baseConfigDir: input.env?.[CLAUDE_CONFIG_DIR_ENV] ?? null,
 			});
 			env[CLAUDE_CONFIG_DIR_ENV] = scoped.configDir;

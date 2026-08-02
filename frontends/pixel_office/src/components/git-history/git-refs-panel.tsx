@@ -7,6 +7,7 @@ import {
 	Cloud,
 	FileText,
 	GitBranch,
+	GitBranchPlus,
 	Info,
 	Locate,
 	RefreshCw,
@@ -17,6 +18,8 @@ import { useEffect, useMemo, useState } from "react";
 
 import { renderFuzzyHighlightedText } from "@/components/shared/render-fuzzy-highlighted-text";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogBody, DialogFooter, DialogHeader } from "@/components/ui/dialog";
+import { Spinner } from "@/components/ui/spinner";
 import { Tooltip } from "@/components/ui/tooltip";
 import type { RuntimeGitRef } from "@/runtime/types";
 
@@ -86,6 +89,8 @@ export function GitRefsPanel({
 	onSelectWorkingCopy,
 	onCheckoutRef,
 	onDeleteRef,
+	onCreateBranch,
+	isCreateBranchPending = false,
 	onRefresh,
 	isRefreshing,
 }: {
@@ -100,11 +105,15 @@ export function GitRefsPanel({
 	onSelectWorkingCopy?: () => void;
 	onCheckoutRef?: (branchName: string) => void;
 	onDeleteRef?: (branchName: string) => void;
+	onCreateBranch?: (newBranch: string, startPoint: string) => void;
+	isCreateBranchPending?: boolean;
 	onRefresh?: () => void;
 	isRefreshing?: boolean;
 }): React.ReactElement {
 	const [searchQuery, setSearchQuery] = useState("");
 	const [contextMenu, setContextMenu] = useState<{ branch: string; x: number; y: number } | null>(null);
+	const [createFromRef, setCreateFromRef] = useState<string | null>(null);
+	const [newBranchName, setNewBranchName] = useState("");
 
 	useEffect(() => {
 		if (!contextMenu) {
@@ -125,11 +134,20 @@ export function GitRefsPanel({
 	}, [contextMenu]);
 
 	const openBranchContextMenu = (branch: string, event: React.MouseEvent): void => {
-		if (!onCheckoutRef && !onDeleteRef) {
+		if (!onCheckoutRef && !onDeleteRef && !onCreateBranch) {
 			return;
 		}
 		event.preventDefault();
 		setContextMenu({ branch, x: event.clientX, y: event.clientY });
+	};
+
+	const confirmCreateBranch = (): void => {
+		const trimmedName = newBranchName.trim();
+		if (createFromRef && trimmedName && onCreateBranch) {
+			onCreateBranch(trimmedName, createFromRef);
+		}
+		setCreateFromRef(null);
+		setNewBranchName("");
 	};
 
 	const detachedRef = refs.find((r) => r.type === "detached");
@@ -213,7 +231,7 @@ export function GitRefsPanel({
 							<div style={{ fontWeight: 600, marginBottom: 4 }}>Git History</div>
 							<div>• Click a branch to inspect its commits.</div>
 							<div>• Double-click a branch to switch to it.</div>
-							<div>• Right-click a local branch to switch or delete it.</div>
+							<div>• Right-click a local branch to switch, branch from, or delete it.</div>
 							<div>• Refresh reloads branches, commits, and working copy.</div>
 							<div style={{ marginTop: 4 }}>Press {closeShortcutLabel} or Escape to close.</div>
 						</div>
@@ -280,7 +298,15 @@ export function GitRefsPanel({
 						) : null}
 
 						{headBranch ? (
-							<RefRow isSelected={isHeadBranchSelected} onSelect={() => onSelectRef(headBranch)}>
+							<RefRow
+								isSelected={isHeadBranchSelected}
+								onSelect={() => onSelectRef(headBranch)}
+								onContextMenu={
+									onCheckoutRef || onDeleteRef || onCreateBranch
+										? (event) => openBranchContextMenu(headBranch.name, event)
+										: undefined
+								}
+							>
 								<GitBranch size={12} />
 								<span className="kb-line-clamp-1" style={{ flex: 1 }}>
 									{headBranch.name}
@@ -331,7 +357,7 @@ export function GitRefsPanel({
 									onSelect={() => onSelectRef(ref)}
 									onDoubleClick={onCheckoutRef ? () => onCheckoutRef(ref.name) : undefined}
 									onContextMenu={
-										onCheckoutRef || onDeleteRef
+										onCheckoutRef || onDeleteRef || onCreateBranch
 											? (event) => openBranchContextMenu(ref.name, event)
 											: undefined
 									}
@@ -398,6 +424,15 @@ export function GitRefsPanel({
 								}
 							: undefined
 					}
+					onCreateFrom={
+						onCreateBranch
+							? () => {
+									setCreateFromRef(contextMenu.branch);
+									setNewBranchName("");
+									setContextMenu(null);
+								}
+							: undefined
+					}
 					onDelete={
 						onDeleteRef
 							? () => {
@@ -409,6 +444,67 @@ export function GitRefsPanel({
 					onClose={() => setContextMenu(null)}
 				/>
 			) : null}
+			<Dialog
+				open={createFromRef !== null}
+				onOpenChange={(open) => {
+					if (!open) {
+						setCreateFromRef(null);
+						setNewBranchName("");
+					}
+				}}
+			>
+				<DialogHeader title="New branch" icon={<GitBranchPlus size={16} />} />
+				<DialogBody>
+					<div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+						<label
+							htmlFor="kb-new-branch-name"
+							style={{ fontSize: 13, color: "var(--color-text-secondary)" }}
+						>
+							Create a new branch from{" "}
+							<code className="font-mono" style={{ color: "var(--color-text-primary)" }}>
+								{createFromRef}
+							</code>
+							.
+						</label>
+						<input
+							id="kb-new-branch-name"
+							aria-label="New branch name"
+							className="h-8 w-full rounded-md border border-border bg-surface-2 px-3 text-xs text-text-primary placeholder:text-text-tertiary focus:border-border-focus focus:outline-none"
+							placeholder="new-branch-name"
+							value={newBranchName}
+							// biome-ignore lint/a11y/noAutofocus: focus the only input when the create dialog opens.
+							autoFocus
+							onChange={(event) => setNewBranchName(event.target.value)}
+							onKeyDown={(event) => {
+								if (event.key === "Enter" && newBranchName.trim() && !isCreateBranchPending) {
+									event.preventDefault();
+									confirmCreateBranch();
+								}
+							}}
+						/>
+					</div>
+				</DialogBody>
+				<DialogFooter>
+					<Button
+						variant="default"
+						onClick={() => {
+							setCreateFromRef(null);
+							setNewBranchName("");
+						}}
+						disabled={isCreateBranchPending}
+					>
+						Cancel
+					</Button>
+					<Button
+						variant="primary"
+						disabled={!newBranchName.trim() || isCreateBranchPending}
+						onClick={confirmCreateBranch}
+					>
+						{isCreateBranchPending ? <Spinner size={14} /> : null}
+						Create Branch
+					</Button>
+				</DialogFooter>
+			</Dialog>
 		</div>
 	);
 }
@@ -418,6 +514,7 @@ function BranchContextMenu({
 	x,
 	y,
 	onCheckout,
+	onCreateFrom,
 	onDelete,
 	onClose,
 }: {
@@ -425,6 +522,7 @@ function BranchContextMenu({
 	x: number;
 	y: number;
 	onCheckout?: () => void;
+	onCreateFrom?: () => void;
 	onDelete?: () => void;
 	onClose: () => void;
 }): React.ReactElement {
@@ -473,6 +571,12 @@ function BranchContextMenu({
 					<button type="button" role="menuitem" className="kb-branch-context-menu-item" onClick={onCheckout}>
 						<ArrowRightLeft size={13} aria-hidden />
 						<span>Switch to branch</span>
+					</button>
+				) : null}
+				{onCreateFrom ? (
+					<button type="button" role="menuitem" className="kb-branch-context-menu-item" onClick={onCreateFrom}>
+						<GitBranchPlus size={13} aria-hidden />
+						<span>New branch from {branch}</span>
 					</button>
 				) : null}
 				{onDelete ? (

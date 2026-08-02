@@ -20,6 +20,22 @@ export const TASK_GIT_TASK_BRANCH_PROMPT_VARIABLE: TaskGitPromptVariable = {
 	description: "the dedicated branch to commit this task's work onto",
 };
 
+export const TASK_GIT_SEAM_TICKET_ID_PROMPT_VARIABLE: TaskGitPromptVariable = {
+	key: "ticket_id",
+	token: "{{ticket_id}}",
+	description: "the task ID this work is filed under",
+};
+export const TASK_GIT_SEAM_AGENT_NAME_PROMPT_VARIABLE: TaskGitPromptVariable = {
+	key: "agent_name",
+	token: "{{agent_name}}",
+	description: "your configured name, used to tag concurrent edits to shared files",
+};
+export const TASK_GIT_SEAM_COMMENT_TAG_PROMPT_VARIABLE: TaskGitPromptVariable = {
+	key: "seam_comment_tag",
+	token: "{{seam_comment_tag}}",
+	description: "the computed seam-comment tag; reference this inside commit/PR prompts",
+};
+
 /**
  * Deterministic name for a task's commit branch. The commit agent creates this
  * branch and the "Merge → base" card button merges the task worktree's branch
@@ -38,12 +54,15 @@ export interface TaskGitPromptTemplates {
 	openPrPromptTemplate?: string | null;
 	commitPromptTemplateDefault?: string | null;
 	openPrPromptTemplateDefault?: string | null;
+	seamCommentTagTemplate?: string | null;
+	seamCommentTagTemplateDefault?: string | null;
 }
 
 interface BuildTaskGitActionPromptInput {
 	action: TaskGitAction;
 	workspaceInfo: RuntimeTaskWorkspaceInfoResponse;
 	templates?: TaskGitPromptTemplates | null;
+	agentDisplayName?: string;
 }
 
 function resolveTemplate(action: TaskGitAction, templates?: TaskGitPromptTemplates | null): string {
@@ -77,11 +96,32 @@ function interpolateTemplate(template: string, variables: Record<string, string>
 	return result;
 }
 
+export function resolveSeamCommentTag(
+	templates?: TaskGitPromptTemplates | null,
+	variables?: Record<string, string>,
+): string {
+	const resolvedTemplate = (() => {
+		const template = templates?.seamCommentTagTemplate?.trim();
+		if (template) {
+			return template;
+		}
+		const defaultTemplate = templates?.seamCommentTagTemplateDefault?.trim();
+		if (defaultTemplate) {
+			return defaultTemplate;
+		}
+		return "";
+	})();
+	return interpolateTemplate(resolvedTemplate, variables ?? {});
+}
+
 export function buildTaskGitActionPrompt(input: BuildTaskGitActionPromptInput): string {
 	const variables: Record<string, string> = {
 		[TASK_GIT_BASE_REF_PROMPT_VARIABLE.key]: input.workspaceInfo.baseRef,
 		[TASK_GIT_TASK_BRANCH_PROMPT_VARIABLE.key]: deriveTaskBranchName(input.workspaceInfo.taskId),
+		[TASK_GIT_SEAM_TICKET_ID_PROMPT_VARIABLE.key]: input.workspaceInfo.taskId,
+		[TASK_GIT_SEAM_AGENT_NAME_PROMPT_VARIABLE.key]: input.agentDisplayName ?? "",
 	};
+	variables[TASK_GIT_SEAM_COMMENT_TAG_PROMPT_VARIABLE.key] = resolveSeamCommentTag(input.templates, variables);
 	const template = resolveTemplate(input.action, input.templates);
 	return interpolateTemplate(template, variables);
 }

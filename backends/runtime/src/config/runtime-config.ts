@@ -18,6 +18,8 @@ interface RuntimeGlobalConfigFileShape {
 	readyForReviewNotificationsEnabled?: boolean;
 	commitPromptTemplate?: string;
 	openPrPromptTemplate?: string;
+	agentDisplayName?: string;
+	seamCommentTagTemplate?: string;
 }
 
 interface RuntimeProjectConfigFileShape {
@@ -36,6 +38,9 @@ export interface RuntimeConfigState {
 	openPrPromptTemplate: string;
 	commitPromptTemplateDefault: string;
 	openPrPromptTemplateDefault: string;
+	agentDisplayName: string;
+	seamCommentTagTemplate: string;
+	seamCommentTagTemplateDefault: string;
 }
 
 export interface RuntimeConfigUpdateInput {
@@ -46,6 +51,8 @@ export interface RuntimeConfigUpdateInput {
 	shortcuts?: RuntimeProjectShortcut[];
 	commitPromptTemplate?: string;
 	openPrPromptTemplate?: string;
+	agentDisplayName?: string;
+	seamCommentTagTemplate?: string;
 }
 
 const RUNTIME_HOME_PARENT_DIR = RUNTIME_HOME_PARENT_DIR_NAME;
@@ -96,6 +103,7 @@ Steps:
    - Base branch
    - Head branch
    - Any follow-up needed`;
+const DEFAULT_SEAM_COMMENT_TAG_TEMPLATE = "// {{ticket_id}} ({{agent_name}}):";
 
 export function pickBestInstalledAgentIdFromDetected(detectedCommands: readonly string[]): RuntimeAgentId | null {
 	const detected = new Set(detectedCommands);
@@ -180,6 +188,13 @@ function normalizeBoolean(value: unknown, fallback: boolean): boolean {
 		return value;
 	}
 	return fallback;
+}
+
+function normalizeAgentDisplayName(value: unknown): string {
+	if (typeof value !== "string") {
+		return "";
+	}
+	return value.trim();
 }
 
 function normalizeShortcutLabel(value: unknown): string | null {
@@ -293,6 +308,12 @@ function toRuntimeConfigState({
 		),
 		commitPromptTemplateDefault: DEFAULT_COMMIT_PROMPT_TEMPLATE,
 		openPrPromptTemplateDefault: DEFAULT_OPEN_PR_PROMPT_TEMPLATE,
+		agentDisplayName: normalizeAgentDisplayName(globalConfig?.agentDisplayName),
+		seamCommentTagTemplate: normalizePromptTemplate(
+			globalConfig?.seamCommentTagTemplate,
+			DEFAULT_SEAM_COMMENT_TAG_TEMPLATE,
+		),
+		seamCommentTagTemplateDefault: DEFAULT_SEAM_COMMENT_TAG_TEMPLATE,
 	};
 }
 
@@ -314,6 +335,8 @@ async function writeRuntimeGlobalConfigFile(
 		readyForReviewNotificationsEnabled?: boolean;
 		commitPromptTemplate?: string;
 		openPrPromptTemplate?: string;
+		agentDisplayName?: string;
+		seamCommentTagTemplate?: string;
 	},
 ): Promise<void> {
 	const existing = await readRuntimeConfigFile<RuntimeGlobalConfigFileShape>(configPath);
@@ -342,6 +365,12 @@ async function writeRuntimeGlobalConfigFile(
 		config.openPrPromptTemplate === undefined
 			? DEFAULT_OPEN_PR_PROMPT_TEMPLATE
 			: normalizePromptTemplate(config.openPrPromptTemplate, DEFAULT_OPEN_PR_PROMPT_TEMPLATE);
+	const agentDisplayName =
+		config.agentDisplayName === undefined ? "" : normalizeAgentDisplayName(config.agentDisplayName);
+	const seamCommentTagTemplate =
+		config.seamCommentTagTemplate === undefined
+			? DEFAULT_SEAM_COMMENT_TAG_TEMPLATE
+			: normalizePromptTemplate(config.seamCommentTagTemplate, DEFAULT_SEAM_COMMENT_TAG_TEMPLATE);
 
 	const payload: RuntimeGlobalConfigFileShape = {};
 	if (selectedAgentId !== undefined) {
@@ -375,6 +404,15 @@ async function writeRuntimeGlobalConfigFile(
 	}
 	if (hasOwnKey(existing, "openPrPromptTemplate") || openPrPromptTemplate !== DEFAULT_OPEN_PR_PROMPT_TEMPLATE) {
 		payload.openPrPromptTemplate = openPrPromptTemplate;
+	}
+	if (hasOwnKey(existing, "agentDisplayName") || agentDisplayName !== "") {
+		payload.agentDisplayName = agentDisplayName;
+	}
+	if (
+		hasOwnKey(existing, "seamCommentTagTemplate") ||
+		seamCommentTagTemplate !== DEFAULT_SEAM_COMMENT_TAG_TEMPLATE
+	) {
+		payload.seamCommentTagTemplate = seamCommentTagTemplate;
 	}
 
 	await lockedFileSystem.writeJsonFileAtomic(configPath, payload, {
@@ -472,6 +510,8 @@ function createRuntimeConfigStateFromValues(input: {
 	shortcuts: RuntimeProjectShortcut[];
 	commitPromptTemplate: string;
 	openPrPromptTemplate: string;
+	agentDisplayName: string;
+	seamCommentTagTemplate: string;
 }): RuntimeConfigState {
 	return {
 		globalConfigPath: input.globalConfigPath,
@@ -491,6 +531,12 @@ function createRuntimeConfigStateFromValues(input: {
 		openPrPromptTemplate: normalizePromptTemplate(input.openPrPromptTemplate, DEFAULT_OPEN_PR_PROMPT_TEMPLATE),
 		commitPromptTemplateDefault: DEFAULT_COMMIT_PROMPT_TEMPLATE,
 		openPrPromptTemplateDefault: DEFAULT_OPEN_PR_PROMPT_TEMPLATE,
+		agentDisplayName: normalizeAgentDisplayName(input.agentDisplayName),
+		seamCommentTagTemplate: normalizePromptTemplate(
+			input.seamCommentTagTemplate,
+			DEFAULT_SEAM_COMMENT_TAG_TEMPLATE,
+		),
+		seamCommentTagTemplateDefault: DEFAULT_SEAM_COMMENT_TAG_TEMPLATE,
 	};
 }
 
@@ -505,6 +551,8 @@ export function toGlobalRuntimeConfigState(current: RuntimeConfigState): Runtime
 		shortcuts: [],
 		commitPromptTemplate: current.commitPromptTemplate,
 		openPrPromptTemplate: current.openPrPromptTemplate,
+		agentDisplayName: current.agentDisplayName,
+		seamCommentTagTemplate: current.seamCommentTagTemplate,
 	});
 }
 
@@ -540,6 +588,8 @@ export async function saveRuntimeConfig(
 		shortcuts: RuntimeProjectShortcut[];
 		commitPromptTemplate: string;
 		openPrPromptTemplate: string;
+		agentDisplayName: string;
+		seamCommentTagTemplate: string;
 	},
 ): Promise<RuntimeConfigState> {
 	const { globalConfigPath, projectConfigPath } = resolveRuntimeConfigPaths(cwd);
@@ -551,6 +601,8 @@ export async function saveRuntimeConfig(
 			readyForReviewNotificationsEnabled: config.readyForReviewNotificationsEnabled,
 			commitPromptTemplate: config.commitPromptTemplate,
 			openPrPromptTemplate: config.openPrPromptTemplate,
+			agentDisplayName: config.agentDisplayName,
+			seamCommentTagTemplate: config.seamCommentTagTemplate,
 		});
 		await writeRuntimeProjectConfigFile(projectConfigPath, { shortcuts: config.shortcuts });
 		return createRuntimeConfigStateFromValues({
@@ -563,6 +615,8 @@ export async function saveRuntimeConfig(
 			shortcuts: config.shortcuts,
 			commitPromptTemplate: config.commitPromptTemplate,
 			openPrPromptTemplate: config.openPrPromptTemplate,
+			agentDisplayName: config.agentDisplayName,
+			seamCommentTagTemplate: config.seamCommentTagTemplate,
 		});
 	});
 }
@@ -584,6 +638,8 @@ export async function updateRuntimeConfig(cwd: string, updates: RuntimeConfigUpd
 			shortcuts: projectConfigPath ? (updates.shortcuts ?? current.shortcuts) : current.shortcuts,
 			commitPromptTemplate: updates.commitPromptTemplate ?? current.commitPromptTemplate,
 			openPrPromptTemplate: updates.openPrPromptTemplate ?? current.openPrPromptTemplate,
+			agentDisplayName: updates.agentDisplayName ?? current.agentDisplayName,
+			seamCommentTagTemplate: updates.seamCommentTagTemplate ?? current.seamCommentTagTemplate,
 		};
 
 		const hasChanges =
@@ -593,6 +649,8 @@ export async function updateRuntimeConfig(cwd: string, updates: RuntimeConfigUpd
 			nextConfig.readyForReviewNotificationsEnabled !== current.readyForReviewNotificationsEnabled ||
 			nextConfig.commitPromptTemplate !== current.commitPromptTemplate ||
 			nextConfig.openPrPromptTemplate !== current.openPrPromptTemplate ||
+			nextConfig.agentDisplayName !== current.agentDisplayName ||
+			nextConfig.seamCommentTagTemplate !== current.seamCommentTagTemplate ||
 			!areRuntimeProjectShortcutsEqual(nextConfig.shortcuts, current.shortcuts);
 
 		if (!hasChanges) {
@@ -606,6 +664,8 @@ export async function updateRuntimeConfig(cwd: string, updates: RuntimeConfigUpd
 			readyForReviewNotificationsEnabled: nextConfig.readyForReviewNotificationsEnabled,
 			commitPromptTemplate: nextConfig.commitPromptTemplate,
 			openPrPromptTemplate: nextConfig.openPrPromptTemplate,
+			agentDisplayName: nextConfig.agentDisplayName,
+			seamCommentTagTemplate: nextConfig.seamCommentTagTemplate,
 		});
 		await writeRuntimeProjectConfigFile(projectConfigPath, {
 			shortcuts: nextConfig.shortcuts,
@@ -620,6 +680,8 @@ export async function updateRuntimeConfig(cwd: string, updates: RuntimeConfigUpd
 			shortcuts: nextConfig.shortcuts,
 			commitPromptTemplate: nextConfig.commitPromptTemplate,
 			openPrPromptTemplate: nextConfig.openPrPromptTemplate,
+			agentDisplayName: nextConfig.agentDisplayName,
+			seamCommentTagTemplate: nextConfig.seamCommentTagTemplate,
 		});
 	});
 }
@@ -649,6 +711,8 @@ export async function updateGlobalRuntimeConfig(
 				shortcuts: current.shortcuts,
 				commitPromptTemplate: updates.commitPromptTemplate ?? current.commitPromptTemplate,
 				openPrPromptTemplate: updates.openPrPromptTemplate ?? current.openPrPromptTemplate,
+				agentDisplayName: updates.agentDisplayName ?? current.agentDisplayName,
+				seamCommentTagTemplate: updates.seamCommentTagTemplate ?? current.seamCommentTagTemplate,
 			};
 
 			const hasChanges =
@@ -657,7 +721,9 @@ export async function updateGlobalRuntimeConfig(
 				nextConfig.agentAutonomousModeEnabled !== current.agentAutonomousModeEnabled ||
 				nextConfig.readyForReviewNotificationsEnabled !== current.readyForReviewNotificationsEnabled ||
 				nextConfig.commitPromptTemplate !== current.commitPromptTemplate ||
-				nextConfig.openPrPromptTemplate !== current.openPrPromptTemplate;
+				nextConfig.openPrPromptTemplate !== current.openPrPromptTemplate ||
+				nextConfig.agentDisplayName !== current.agentDisplayName ||
+				nextConfig.seamCommentTagTemplate !== current.seamCommentTagTemplate;
 
 			if (!hasChanges) {
 				return current;
@@ -670,6 +736,8 @@ export async function updateGlobalRuntimeConfig(
 				readyForReviewNotificationsEnabled: nextConfig.readyForReviewNotificationsEnabled,
 				commitPromptTemplate: nextConfig.commitPromptTemplate,
 				openPrPromptTemplate: nextConfig.openPrPromptTemplate,
+				agentDisplayName: nextConfig.agentDisplayName,
+				seamCommentTagTemplate: nextConfig.seamCommentTagTemplate,
 			});
 
 			return createRuntimeConfigStateFromValues({
@@ -682,6 +750,8 @@ export async function updateGlobalRuntimeConfig(
 				shortcuts: nextConfig.shortcuts,
 				commitPromptTemplate: nextConfig.commitPromptTemplate,
 				openPrPromptTemplate: nextConfig.openPrPromptTemplate,
+				agentDisplayName: nextConfig.agentDisplayName,
+				seamCommentTagTemplate: nextConfig.seamCommentTagTemplate,
 			});
 		},
 	);

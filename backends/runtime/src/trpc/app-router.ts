@@ -44,6 +44,8 @@ import type {
 	RuntimeGitBlameRequest,
 	RuntimeGitBlameResponse,
 	RuntimeGitCheckoutRequest,
+	RuntimeGitCreateBranchRequest,
+	RuntimeGitCreateBranchResponse,
 	RuntimeGitDeleteBranchRequest,
 	RuntimeGitDeleteBranchResponse,
 	RuntimeGitMergeBranchRequest,
@@ -108,9 +110,12 @@ import type {
 	RuntimeProjectRemoveResponse,
 	RuntimeProjectsResponse,
 	RuntimeRunUpdateResponse,
+	RuntimeSetWorkspaceLocalAssetsRequest,
+	RuntimeSetWorkspaceLocalAssetsResponse,
 	RuntimeShellSessionStartRequest,
 	RuntimeShellSessionStartResponse,
 	RuntimeSkillInventory,
+	RuntimeSkillInventoryRequest,
 	RuntimeSlashCommandsResponse,
 	RuntimeTaskChatAbortRequest,
 	RuntimeTaskChatAbortResponse,
@@ -208,6 +213,8 @@ import {
 	runtimeGitBlameResponseSchema,
 	runtimeGitCheckoutRequestSchema,
 	runtimeGitCheckoutResponseSchema,
+	runtimeGitCreateBranchRequestSchema,
+	runtimeGitCreateBranchResponseSchema,
 	runtimeGitDeleteBranchRequestSchema,
 	runtimeGitDeleteBranchResponseSchema,
 	runtimeGitMergeBranchRequestSchema,
@@ -246,8 +253,11 @@ import {
 	runtimeProjectRemoveResponseSchema,
 	runtimeProjectsResponseSchema,
 	runtimeRunUpdateResponseSchema,
+	runtimeSetWorkspaceLocalAssetsRequestSchema,
+	runtimeSetWorkspaceLocalAssetsResponseSchema,
 	runtimeShellSessionStartRequestSchema,
 	runtimeShellSessionStartResponseSchema,
+	runtimeSkillInventoryRequestSchema,
 	runtimeSkillInventorySchema,
 	runtimeSlashCommandsResponseSchema,
 	runtimeTaskChatAbortRequestSchema,
@@ -325,7 +335,10 @@ export interface RuntimeTrpcContext {
 			input: RuntimeTaskChatMessagesRequest,
 		) => Promise<RuntimeTaskChatMessagesResponse>;
 		getClineSlashCommands: (scope: RuntimeTrpcWorkspaceScope | null) => Promise<RuntimeSlashCommandsResponse>;
-		listSkillInventory: () => Promise<RuntimeSkillInventory>;
+		listSkillInventory: (input: RuntimeSkillInventoryRequest) => Promise<RuntimeSkillInventory>;
+		setWorkspaceLocalAssets: (
+			input: RuntimeSetWorkspaceLocalAssetsRequest,
+		) => Promise<RuntimeSetWorkspaceLocalAssetsResponse>;
 		listMcpInventory: () => Promise<RuntimeMcpInventory>;
 		listAgentModels: (input: RuntimeListAgentModelsRequest) => Promise<RuntimeAgentModelInventory>;
 		sendTaskChatMessage: (
@@ -412,6 +425,10 @@ export interface RuntimeTrpcContext {
 			scope: RuntimeTrpcWorkspaceScope,
 			input: RuntimeGitDeleteBranchRequest,
 		) => Promise<RuntimeGitDeleteBranchResponse>;
+		createGitBranch: (
+			scope: RuntimeTrpcWorkspaceScope,
+			input: RuntimeGitCreateBranchRequest,
+		) => Promise<RuntimeGitCreateBranchResponse>;
 		mergeTaskBranch: (
 			scope: RuntimeTrpcWorkspaceScope,
 			input: RuntimeGitMergeBranchRequest,
@@ -654,9 +671,18 @@ export const runtimeAppRouter = t.router({
 		getClineSlashCommands: t.procedure.output(runtimeSlashCommandsResponseSchema).query(async ({ ctx }) => {
 			return await ctx.runtimeApi.getClineSlashCommands(ctx.workspaceScope);
 		}),
-		listSkillInventory: t.procedure.output(runtimeSkillInventorySchema).query(async ({ ctx }) => {
-			return await ctx.runtimeApi.listSkillInventory();
-		}),
+		listSkillInventory: t.procedure
+			.input(runtimeSkillInventoryRequestSchema)
+			.output(runtimeSkillInventorySchema)
+			.query(async ({ ctx, input }) => {
+				return await ctx.runtimeApi.listSkillInventory(input);
+			}),
+		setWorkspaceLocalAssets: t.procedure
+			.input(runtimeSetWorkspaceLocalAssetsRequestSchema)
+			.output(runtimeSetWorkspaceLocalAssetsResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.runtimeApi.setWorkspaceLocalAssets(input);
+			}),
 		listMcpInventory: t.procedure.output(runtimeMcpInventorySchema).query(async ({ ctx }) => {
 			return await ctx.runtimeApi.listMcpInventory();
 		}),
@@ -810,6 +836,12 @@ export const runtimeAppRouter = t.router({
 			.output(runtimeGitDeleteBranchResponseSchema)
 			.mutation(async ({ ctx, input }) => {
 				return await ctx.workspaceApi.deleteGitBranch(ctx.workspaceScope, input);
+			}),
+		createGitBranch: workspaceProcedure
+			.input(runtimeGitCreateBranchRequestSchema)
+			.output(runtimeGitCreateBranchResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.workspaceApi.createGitBranch(ctx.workspaceScope, input);
 			}),
 		mergeTaskBranch: workspaceProcedure
 			.input(runtimeGitMergeBranchRequestSchema)

@@ -30,6 +30,7 @@ function hasAnyAllowlist(settings?: RuntimeTaskLaunchSettings | null): boolean {
 		normalizeIdList(settings?.skillIds).length > 0 ||
 		normalizeIdList(settings?.agentIds).length > 0 ||
 		normalizeIdList(settings?.commandIds).length > 0 ||
+		normalizeIdList(settings?.workflowIds).length > 0 ||
 		normalizeIdList(settings?.mcpServerIds).length > 0
 	);
 }
@@ -39,8 +40,15 @@ export function buildCursorLaunchTagPreface(settings?: RuntimeTaskLaunchSettings
 	const skillIds = normalizeIdList(settings?.skillIds);
 	const agentIds = normalizeIdList(settings?.agentIds);
 	const commandIds = normalizeIdList(settings?.commandIds);
+	const workflowIds = normalizeIdList(settings?.workflowIds);
 	const mcpServerIds = normalizeIdList(settings?.mcpServerIds);
-	if (skillIds.length === 0 && agentIds.length === 0 && commandIds.length === 0 && mcpServerIds.length === 0) {
+	if (
+		skillIds.length === 0 &&
+		agentIds.length === 0 &&
+		commandIds.length === 0 &&
+		workflowIds.length === 0 &&
+		mcpServerIds.length === 0
+	) {
 		return null;
 	}
 	const parts: string[] = [
@@ -54,6 +62,9 @@ export function buildCursorLaunchTagPreface(settings?: RuntimeTaskLaunchSettings
 	}
 	if (commandIds.length > 0) {
 		parts.push(`Slash commands: ${commandIds.join(", ")}.`);
+	}
+	if (workflowIds.length > 0) {
+		parts.push(`Workflows: ${workflowIds.join(", ")}.`);
 	}
 	if (mcpServerIds.length > 0) {
 		parts.push(`MCP servers: ${mcpServerIds.join(", ")}.`);
@@ -76,12 +87,15 @@ export function buildLaunchTagAllowlistUpdateNotice(
 	const nextAgents = normalizeIdList(next?.agentIds);
 	const prevCommands = normalizeIdList(previous?.commandIds);
 	const nextCommands = normalizeIdList(next?.commandIds);
+	const prevWorkflows = normalizeIdList(previous?.workflowIds);
+	const nextWorkflows = normalizeIdList(next?.workflowIds);
 	const prevMcp = normalizeIdList(previous?.mcpServerIds);
 	const nextMcp = normalizeIdList(next?.mcpServerIds);
 	if (
 		sameIdList(prevSkills, nextSkills) &&
 		sameIdList(prevAgents, nextAgents) &&
 		sameIdList(prevCommands, nextCommands) &&
+		sameIdList(prevWorkflows, nextWorkflows) &&
 		sameIdList(prevMcp, nextMcp)
 	) {
 		return null;
@@ -93,7 +107,7 @@ export function buildLaunchTagAllowlistUpdateNotice(
 
 	if (!hasAnyAllowlist(next)) {
 		parts.push(
-			"All resource allowlists cleared — you may use all installed skills, agents, slash commands, and configured MCP servers.",
+			"All resource allowlists cleared — you may use all installed skills, agents, slash commands, workflows, and configured MCP servers.",
 		);
 	} else {
 		if (nextSkills.length > 0) {
@@ -111,6 +125,11 @@ export function buildLaunchTagAllowlistUpdateNotice(
 		} else {
 			parts.push("Slash commands: all installed slash commands are allowed.");
 		}
+		if (nextWorkflows.length > 0) {
+			parts.push(`Workflows allowlist (current): ${nextWorkflows.join(", ")}.`);
+		} else {
+			parts.push("Workflows: all available workflows are allowed.");
+		}
 		if (nextMcp.length > 0) {
 			parts.push(`MCP allowlist (current): ${nextMcp.join(", ")}.`);
 		} else {
@@ -119,6 +138,7 @@ export function buildLaunchTagAllowlistUpdateNotice(
 		const removedSkills = prevSkills.filter((id) => !nextSkills.includes(id));
 		const removedAgents = prevAgents.filter((id) => !nextAgents.includes(id));
 		const removedCommands = prevCommands.filter((id) => !nextCommands.includes(id));
+		const removedWorkflows = prevWorkflows.filter((id) => !nextWorkflows.includes(id));
 		const removedMcp = prevMcp.filter((id) => !nextMcp.includes(id));
 		if (removedSkills.length > 0) {
 			parts.push(`No longer allowed skills: ${removedSkills.join(", ")}.`);
@@ -128,6 +148,9 @@ export function buildLaunchTagAllowlistUpdateNotice(
 		}
 		if (removedCommands.length > 0) {
 			parts.push(`No longer allowed slash commands: ${removedCommands.join(", ")}.`);
+		}
+		if (removedWorkflows.length > 0) {
+			parts.push(`No longer allowed workflows: ${removedWorkflows.join(", ")}.`);
 		}
 		if (removedMcp.length > 0) {
 			parts.push(`No longer allowed MCP servers: ${removedMcp.join(", ")}.`);

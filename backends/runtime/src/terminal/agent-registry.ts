@@ -137,5 +137,8 @@ export function buildRuntimeConfigResponse(
 		openPrPromptTemplate: runtimeConfig.openPrPromptTemplate,
 		commitPromptTemplateDefault: runtimeConfig.commitPromptTemplateDefault,
 		openPrPromptTemplateDefault: runtimeConfig.openPrPromptTemplateDefault,
+		agentDisplayName: runtimeConfig.agentDisplayName,
+		seamCommentTagTemplate: runtimeConfig.seamCommentTagTemplate,
+		seamCommentTagTemplateDefault: runtimeConfig.seamCommentTagTemplateDefault,
 	};
 }

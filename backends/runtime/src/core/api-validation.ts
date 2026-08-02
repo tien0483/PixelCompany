@@ -14,6 +14,7 @@ import {
 	type RuntimeConfigSaveRequest,
 	type RuntimeDirectoryListRequest,
 	type RuntimeGitCheckoutRequest,
+	type RuntimeGitCreateBranchRequest,
 	type RuntimeGitDeleteBranchRequest,
 	type RuntimeGitMergeBranchRequest,
 	type RuntimeHookIngestRequest,
@@ -48,6 +49,7 @@ import {
 	runtimeConfigSaveRequestSchema,
 	runtimeDirectoryListRequestSchema,
 	runtimeGitCheckoutRequestSchema,
+	runtimeGitCreateBranchRequestSchema,
 	runtimeGitDeleteBranchRequestSchema,
 	runtimeGitMergeBranchRequestSchema,
 	runtimeHookIngestRequestSchema,
@@ -160,6 +162,22 @@ export function parseGitDeleteBranchRequest(value: unknown): RuntimeGitDeleteBra
 	return {
 		branch,
 		force: parsed.force ?? false,
+	};
+}
+
+export function parseGitCreateBranchRequest(value: unknown): RuntimeGitCreateBranchRequest {
+	const parsed = parseWithSchema(runtimeGitCreateBranchRequestSchema, value);
+	const newBranch = parsed.newBranch.trim();
+	if (!newBranch) {
+		throw new Error("Branch name cannot be empty.");
+	}
+	const startPoint = parsed.startPoint.trim();
+	if (!startPoint) {
+		throw new Error("Start point cannot be empty.");
+	}
+	return {
+		newBranch,
+		startPoint,
 	};
 }
 

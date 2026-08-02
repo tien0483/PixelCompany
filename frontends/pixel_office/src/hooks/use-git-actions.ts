@@ -68,6 +68,7 @@ export interface UseGitActionsResult {
 	agentOpenPrTaskLoadingById: Record<string, boolean>;
 	isSwitchingHomeBranch: boolean;
 	isDeletingHomeBranch: boolean;
+	isCreatingHomeBranch: boolean;
 	isDiscardingHomeWorkingChanges: boolean;
 	gitActionError: {
 		action: RuntimeGitSyncAction;
@@ -80,6 +81,10 @@ export interface UseGitActionsResult {
 	runGitAction: (action: RuntimeGitSyncAction) => Promise<void>;
 	switchHomeBranch: (branch: string) => Promise<void>;
 	deleteHomeBranch: (branch: string) => Promise<void>;
+	createHomeBranch: (options: {
+		newBranch: string;
+		startPoint: string;
+	}) => Promise<void>;
 	discardHomeWorkingChanges: () => Promise<void>;
 	revertTaskFile: (
 		taskId: string,
@@ -139,6 +144,7 @@ export function useGitActions({
 		useState<Record<string, TaskGitActionLoadingState>>({});
 	const [isSwitchingHomeBranch, setIsSwitchingHomeBranch] = useState(false);
 	const [isDeletingHomeBranch, setIsDeletingHomeBranch] = useState(false);
+	const [isCreatingHomeBranch, setIsCreatingHomeBranch] = useState(false);
 	const [mergeTaskLoadingById, setMergeTaskLoadingById] = useState<Record<string, boolean>>({});
 	const [isDiscardingHomeWorkingChanges, setIsDiscardingHomeWorkingChanges] =
 		useState(false);
@@ -362,8 +368,12 @@ export function useGitActions({
 									runtimeProjectConfig.commitPromptTemplateDefault,
 								openPrPromptTemplateDefault:
 									runtimeProjectConfig.openPrPromptTemplateDefault,
+								seamCommentTagTemplate: runtimeProjectConfig.seamCommentTagTemplate,
+								seamCommentTagTemplateDefault:
+									runtimeProjectConfig.seamCommentTagTemplateDefault,
 							}
 						: null,
+					agentDisplayName: runtimeProjectConfig?.agentDisplayName,
 				});
 				if (shouldUseClineChatForTaskGitActions) {
 					const sent = await sendTaskChatMessage(taskId, prompt, {
@@ -707,6 +717,67 @@ export function useGitActions({
 		],
 	);
 
+	const createHomeBranch = useCallback(
+		async ({ newBranch, startPoint }: { newBranch: string; startPoint: string }) => {
+			const normalizedBranch = newBranch.trim();
+			const normalizedStartPoint = startPoint.trim();
+			if (
+				!currentProjectId ||
+				isCreatingHomeBranch ||
+				!normalizedBranch ||
+				!normalizedStartPoint
+			) {
+				return;
+			}
+			setIsCreatingHomeBranch(true);
+			try {
+				const trpcClient = getRuntimeTrpcClient(currentProjectId);
+				const payload = await trpcClient.workspace.createGitBranch.mutate({
+					newBranch: normalizedBranch,
+					startPoint: normalizedStartPoint,
+				});
+				if (!payload.ok) {
+					if (payload.summary) {
+						setHomeGitSummary(payload.summary);
+					}
+					const errorMessage = payload.error ?? "Create branch failed.";
+					showAppToast({
+						intent: "danger",
+						icon: "warning-sign",
+						message: `Could not create ${normalizedBranch}. ${errorMessage}`,
+						timeout: 7000,
+					});
+					return;
+				}
+				setHomeGitSummary(payload.summary);
+				refreshGitHistory();
+				await refreshWorkspaceState();
+				showAppToast({
+					intent: "success",
+					icon: "tick",
+					message: `Created branch ${normalizedBranch} from ${normalizedStartPoint}.`,
+					timeout: 4000,
+				});
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error);
+				showAppToast({
+					intent: "danger",
+					icon: "warning-sign",
+					message: `Could not create ${normalizedBranch}. ${message}`,
+					timeout: 7000,
+				});
+			} finally {
+				setIsCreatingHomeBranch(false);
+			}
+		},
+		[
+			currentProjectId,
+			isCreatingHomeBranch,
+			refreshGitHistory,
+			refreshWorkspaceState,
+		],
+	);
+
 	const discardHomeWorkingChanges = useCallback(async () => {
 		if (!currentProjectId || isDiscardingHomeWorkingChanges) {
 			return;
@@ -937,6 +1008,7 @@ export function useGitActions({
 		setTaskGitActionLoadingByTaskId({});
 		setIsSwitchingHomeBranch(false);
 		setIsDeletingHomeBranch(false);
+		setIsCreatingHomeBranch(false);
 		setMergeTaskLoadingById({});
 		setIsDiscardingHomeWorkingChanges(false);
 		setGitActionError(null);
@@ -971,6 +1043,7 @@ export function useGitActions({
 		agentOpenPrTaskLoadingById,
 		isSwitchingHomeBranch,
 		isDeletingHomeBranch,
+		isCreatingHomeBranch,
 		isDiscardingHomeWorkingChanges,
 		gitActionError,
 		gitActionErrorTitle,
@@ -981,6 +1054,7 @@ export function useGitActions({
 		runGitAction,
 		switchHomeBranch,
 		deleteHomeBranch,
+		createHomeBranch,
 		discardHomeWorkingChanges,
 		revertTaskFile,
 		revertTaskHunk,

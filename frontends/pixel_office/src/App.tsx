@@ -440,6 +440,8 @@ export default function App(): ReactElement {
 		switchHomeBranch,
 		deleteHomeBranch,
 		isDeletingHomeBranch,
+		createHomeBranch,
+		isCreatingHomeBranch,
 		discardHomeWorkingChanges,
 		revertTaskFile,
 		revertTaskHunk,
@@ -1217,6 +1219,18 @@ export default function App(): ReactElement {
 												}}
 												isDeleteBranchPending={
 													isDeletingHomeBranch
+												}
+												onCreateBranch={(
+													newBranch,
+													startPoint,
+												) => {
+													void createHomeBranch({
+														newBranch,
+														startPoint,
+													});
+												}}
+												isCreateBranchPending={
+													isCreatingHomeBranch
 												}
 												onDiscardWorkingChanges={() => {
 													void discardHomeWorkingChanges();

@@ -58,6 +58,11 @@ import {
 	listClaudeMcpInventory,
 	listClaudeSkillInventory,
 } from "../terminal/task-launch-settings";
+import {
+	getWorkspaceLocalAssetsSetting,
+	loadWorkspaceContextById,
+	setWorkspaceLocalAssets,
+} from "../state/workspace-state";
 import { resolveTaskCwd } from "../workspace/task-worktree";
 import { captureTaskTurnCheckpoint } from "../workspace/turn-checkpoints";
 import type { RuntimeTrpcContext, RuntimeTrpcWorkspaceScope } from "./app-router";
@@ -477,7 +482,26 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 				commands: await clineTaskSessionService.listSlashCommands(workspaceScope.workspacePath),
 			};
 		},
-		listSkillInventory: async () => listClaudeSkillInventory(),
+		listSkillInventory: async (input) => {
+			const workspaceId = input.workspaceId?.trim();
+			if (!workspaceId) {
+				return listClaudeSkillInventory();
+			}
+			const context = await loadWorkspaceContextById(workspaceId);
+			if (!context) {
+				return listClaudeSkillInventory();
+			}
+			const setting = await getWorkspaceLocalAssetsSetting(workspaceId);
+			return listClaudeSkillInventory(context.repoPath, {
+				localAssetsEnabled: setting.enabled,
+				roots: setting.roots,
+			});
+		},
+		setWorkspaceLocalAssets: async (input) =>
+			setWorkspaceLocalAssets(input.workspaceId, {
+				enabled: input.enabled,
+				...(input.roots ? { roots: input.roots } : {}),
+			}),
 		listMcpInventory: async () => listClaudeMcpInventory(),
 		listAgentModels: async (input) => listAgentModelInventory(input.agentId),
 		reloadTaskChatSession: async (workspaceScope, input) => {

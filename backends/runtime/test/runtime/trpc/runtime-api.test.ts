@@ -188,6 +188,9 @@ function createRuntimeConfigState(): RuntimeConfigState {
 		openPrPromptTemplate: "pr",
 		commitPromptTemplateDefault: "commit",
 		openPrPromptTemplateDefault: "pr",
+		agentDisplayName: "",
+		seamCommentTagTemplate: "seam",
+		seamCommentTagTemplateDefault: "seam",
 		globalConfigPath: "/tmp/global-config.json",
 		projectConfigPath: "/tmp/project-config.json",
 	};

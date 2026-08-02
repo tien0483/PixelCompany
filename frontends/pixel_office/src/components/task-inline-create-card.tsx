@@ -343,6 +343,7 @@ export function TaskInlineCreateCard({
 						active
 						agentId={agentId}
 						defaultAgentId={defaultAgentId}
+						workspaceId={workspaceId}
 						value={taskLaunchSettings}
 						onChange={onTaskLaunchSettingsChange}
 					/>

@@ -59,6 +59,9 @@ function createRuntimeConfigResponse(
 		openPrPromptTemplate: "",
 		commitPromptTemplateDefault: "",
 		openPrPromptTemplateDefault: "",
+		agentDisplayName: "",
+		seamCommentTagTemplate: "",
+		seamCommentTagTemplateDefault: "",
 	};
 	return {
 		...nextConfig,

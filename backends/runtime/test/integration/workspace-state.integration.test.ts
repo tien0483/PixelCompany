@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import type { RuntimeBoardData, RuntimeTaskSessionSummary } from "../../src/core/api-contract";
 import type { WorkspaceStateConflictError } from "../../src/state/workspace-state";
 import {
+	getWorkspaceLocalAssetsSetting,
 	getWorkspacesRootPath,
 	listWorkspaceIndexEntries,
 	loadWorkspaceContext,
@@ -14,6 +15,7 @@ import {
 	loadWorkspaceState,
 	removeWorkspaceIndexEntry,
 	saveWorkspaceState,
+	setWorkspaceLocalAssets,
 } from "../../src/state/workspace-state";
 import { createGitTestEnv } from "../utilities/git-env";
 import { createTempDir } from "../utilities/temp-dir";
@@ -256,6 +258,47 @@ describe.sequential("workspace-state integration", () => {
 					autoCreateIfMissing: false,
 				});
 				expect(existing.workspaceId).toBe(created.workspaceId);
+			} finally {
+				cleanup();
+			}
+		});
+	});
+
+	it("round-trips the per-project local-assets toggle and survives board saves", async () => {
+		await withTemporaryHome(async () => {
+			const { path: sandboxRoot, cleanup } = createTempDir("kanban-local-assets-");
+			try {
+				const workspacePath = join(sandboxRoot, "with-local-assets");
+				mkdirSync(workspacePath, { recursive: true });
+				initGitRepository(workspacePath);
+
+				const context = await loadWorkspaceContext(workspacePath);
+
+				// Default: disabled, both roots.
+				const initial = await getWorkspaceLocalAssetsSetting(context.workspaceId);
+				expect(initial).toEqual({ enabled: false, roots: ["claude", "agent"] });
+
+				const saved = await setWorkspaceLocalAssets(context.workspaceId, {
+					enabled: true,
+					roots: ["agent"],
+				});
+				expect(saved).toEqual({ enabled: true, roots: ["agent"] });
+				expect(await getWorkspaceLocalAssetsSetting(context.workspaceId)).toEqual({
+					enabled: true,
+					roots: ["agent"],
+				});
+
+				// A board save bumps revision but must preserve the localAssets meta.
+				const state = await loadWorkspaceState(workspacePath);
+				await saveWorkspaceState(workspacePath, {
+					board: createBoard("Task"),
+					sessions: {},
+					expectedRevision: state.revision,
+				});
+				expect(await getWorkspaceLocalAssetsSetting(context.workspaceId)).toEqual({
+					enabled: true,
+					roots: ["agent"],
+				});
 			} finally {
 				cleanup();
 			}

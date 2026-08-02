@@ -50,6 +50,7 @@ export function cloneTaskLaunchSettings(
 	const skillIds = normalizeIdList(settings.skillIds);
 	const agentIds = normalizeIdList(settings.agentIds);
 	const commandIds = normalizeIdList(settings.commandIds);
+	const workflowIds = normalizeIdList(settings.workflowIds);
 	const mcpServerIds = normalizeIdList(settings.mcpServerIds);
 	const next: RuntimeTaskLaunchSettings = {
 		...(modelId ? { modelId } : {}),
@@ -57,6 +58,7 @@ export function cloneTaskLaunchSettings(
 		...(skillIds ? { skillIds } : {}),
 		...(agentIds ? { agentIds } : {}),
 		...(commandIds ? { commandIds } : {}),
+		...(workflowIds ? { workflowIds } : {}),
 		...(mcpServerIds ? { mcpServerIds } : {}),
 	};
 	if (
@@ -65,6 +67,7 @@ export function cloneTaskLaunchSettings(
 		next.skillIds === undefined &&
 		next.agentIds === undefined &&
 		next.commandIds === undefined &&
+		next.workflowIds === undefined &&
 		next.mcpServerIds === undefined
 	) {
 		return undefined;
@@ -98,6 +101,10 @@ export function hasCommandAllowlist(settings?: RuntimeTaskLaunchSettings | null)
 	return (settings?.commandIds?.length ?? 0) > 0;
 }
 
+export function hasWorkflowAllowlist(settings?: RuntimeTaskLaunchSettings | null): boolean {
+	return (settings?.workflowIds?.length ?? 0) > 0;
+}
+
 export function hasMcpAllowlist(settings?: RuntimeTaskLaunchSettings | null): boolean {
 	return (settings?.mcpServerIds?.length ?? 0) > 0;
 }
@@ -108,6 +115,7 @@ export function hasClaudeScopedConfigAllowlist(settings?: RuntimeTaskLaunchSetti
 		hasSkillAllowlist(settings) ||
 		hasAgentAllowlist(settings) ||
 		hasCommandAllowlist(settings) ||
+		hasWorkflowAllowlist(settings) ||
 		hasMcpAllowlist(settings)
 	);
 }
@@ -343,17 +351,25 @@ async function writeScopedSettingsJson(
  * Build a short-lived CLAUDE_CONFIG_DIR that inherits pin/global credentials and
  * shared resources, optionally limiting skills and stripping MCP from settings.
  */
+/**
+ * Link allowlisted `<subdir>/*.md` into the scoped config dir. Global sources link
+ * first; each project source root (e.g. `<repo>/.agent/agents`) then overrides on the
+ * same base name so a project-local asset wins over a same-id global one. Returns the
+ * set of base names (id without `.md`) that were actually linked.
+ */
 async function linkAllowlistedMarkdownFiles(input: {
 	globalDir: string;
 	configDir: string;
 	subdir: "agents" | "commands";
 	allowlist: string[];
-}): Promise<void> {
+	projectRoots?: string[];
+}): Promise<Set<string>> {
 	const globalSubdir = join(input.globalDir, input.subdir);
 	const scopedSubdir = join(input.configDir, input.subdir);
+	const linkedBaseNames = new Set<string>();
 	if (input.allowlist.length === 0) {
 		await ensureLinkedPath(globalSubdir, scopedSubdir, { isDirectory: true });
-		return;
+		return linkedBaseNames;
 	}
 	await mkdir(scopedSubdir, { recursive: true });
 	for (const rawId of input.allowlist) {
@@ -361,11 +377,27 @@ async function linkAllowlistedMarkdownFiles(input: {
 		if (!id) {
 			continue;
 		}
-		const fileName = id.endsWith(".md") ? id : `${id}.md`;
-		await ensureLinkedPath(join(globalSubdir, fileName), join(scopedSubdir, fileName), {
-			isDirectory: false,
-		});
+		const baseName = id.endsWith(".md") ? id.slice(0, -".md".length) : id;
+		const fileName = `${baseName}.md`;
+		if (
+			await ensureLinkedPath(join(globalSubdir, fileName), join(scopedSubdir, fileName), {
+				isDirectory: false,
+			})
+		) {
+			linkedBaseNames.add(baseName);
+		}
+		for (const projectRoot of input.projectRoots ?? []) {
+			// Project overrides global on the same base name (ensureLinkedPath removes first).
+			if (
+				await ensureLinkedPath(join(projectRoot, fileName), join(scopedSubdir, fileName), {
+					isDirectory: false,
+				})
+			) {
+				linkedBaseNames.add(baseName);
+			}
+		}
 	}
+	return linkedBaseNames;
 }
 
 export async function prepareClaudeSkillScopedConfigDir(input: {
@@ -374,6 +406,14 @@ export async function prepareClaudeSkillScopedConfigDir(input: {
 	agentIds?: string[];
 	commandIds?: string[];
 	mcpServerIds?: string[];
+	/**
+	 * Attached project checkout. When set, allowlisted `<repo>/.agent/*` skills/agents/
+	 * commands (and `workflowIds`) are bridged into the scoped config dir so they run.
+	 * `<repo>/.claude/*` is NOT bridged — the agent reads it natively from cwd.
+	 */
+	repoPath?: string;
+	/** Project workflow ids (`<repo>/.agent/workflows/<id>.md`) bridged into commands. */
+	workflowIds?: string[];
 	/** Existing pin / active-account CLAUDE_CONFIG_DIR, if any. */
 	baseConfigDir?: string | null;
 }): Promise<{ configDir: string; cleanup: () => Promise<void> }> {
@@ -409,6 +449,14 @@ export async function prepareClaudeSkillScopedConfigDir(input: {
 	}
 	await seedClaudeJsonForScopedDir(configDir, baseDir);
 
+	// Project bridge roots. Only `<repo>/.agent/*` is bridged — `<repo>/.claude/*`
+	// is discovered natively from the task cwd, so re-linking it here would duplicate.
+	const resolvedRepo = input.repoPath?.trim() ? resolveHostPath(input.repoPath.trim()) : null;
+	const projectAgentSkillsRoot = resolvedRepo ? join(resolvedRepo, ".agent", "skills") : null;
+	const projectAgentDir = resolvedRepo ? join(resolvedRepo, ".agent", "agents") : null;
+	const projectCommandDir = resolvedRepo ? join(resolvedRepo, ".agent", "commands") : null;
+	const projectWorkflowDir = resolvedRepo ? join(resolvedRepo, ".agent", "workflows") : null;
+
 	const skillsDir = join(configDir, "skills");
 	const globalSkills = join(globalDir, "skills");
 	const skillAllowlist = (input.skillIds ?? []).map((id) => id.trim()).filter((id) => id.length > 0);
@@ -423,13 +471,21 @@ export async function prepareClaudeSkillScopedConfigDir(input: {
 			if (!folderName) {
 				continue;
 			}
-			const skillMd = join(globalSkills, folderName, "SKILL.md");
-			if (!(await pathExists(skillMd))) {
-				continue;
+			const globalSkillMd = join(globalSkills, folderName, "SKILL.md");
+			if (await pathExists(globalSkillMd)) {
+				await ensureLinkedPath(join(globalSkills, folderName), join(skillsDir, folderName), {
+					isDirectory: true,
+				});
 			}
-			await ensureLinkedPath(join(globalSkills, folderName), join(skillsDir, folderName), {
-				isDirectory: true,
-			});
+			// Bridge the project's `.agent` skill (wins over global on the same id).
+			if (projectAgentSkillsRoot) {
+				const projectSkillMd = join(projectAgentSkillsRoot, folderName, "SKILL.md");
+				if (await pathExists(projectSkillMd)) {
+					await ensureLinkedPath(join(projectAgentSkillsRoot, folderName), join(skillsDir, folderName), {
+						isDirectory: true,
+					});
+				}
+			}
 		}
 	}
 
@@ -438,13 +494,78 @@ export async function prepareClaudeSkillScopedConfigDir(input: {
 		configDir,
 		subdir: "agents",
 		allowlist: (input.agentIds ?? []).map((id) => id.trim()).filter((id) => id.length > 0),
+		projectRoots: projectAgentDir ? [projectAgentDir] : [],
 	});
-	await linkAllowlistedMarkdownFiles({
-		globalDir,
-		configDir,
-		subdir: "commands",
-		allowlist: (input.commandIds ?? []).map((id) => id.trim()).filter((id) => id.length > 0),
-	});
+
+	const commandAllowlist = (input.commandIds ?? []).map((id) => id.trim()).filter((id) => id.length > 0);
+	const workflowIds = (input.workflowIds ?? []).map((id) => id.trim()).filter((id) => id.length > 0);
+	const commandsDir = join(configDir, "commands");
+	let linkedCommandBaseNames: Set<string>;
+	if (workflowIds.length === 0) {
+		linkedCommandBaseNames = await linkAllowlistedMarkdownFiles({
+			globalDir,
+			configDir,
+			subdir: "commands",
+			allowlist: commandAllowlist,
+			projectRoots: projectCommandDir ? [projectCommandDir] : [],
+		});
+	} else {
+		// Workflows land in `commands`, so it must be a real dir (never a symlink to the
+		// global commands folder). Materialize the inherited/allowlisted commands first.
+		await mkdir(commandsDir, { recursive: true });
+		linkedCommandBaseNames = new Set<string>();
+		const globalCommandsDir = join(globalDir, "commands");
+		if (commandAllowlist.length === 0) {
+			// Inherit all global commands as individual links so workflows can join them.
+			try {
+				const entries = await readdir(globalCommandsDir, { withFileTypes: true });
+				for (const entry of entries) {
+					if (!entry.isFile() && !entry.isSymbolicLink()) {
+						continue;
+					}
+					const name = entry.name.trim();
+					if (!name.toLowerCase().endsWith(".md") || name.startsWith(".")) {
+						continue;
+					}
+					if (await ensureLinkedPath(join(globalCommandsDir, name), join(commandsDir, name), { isDirectory: false })) {
+						linkedCommandBaseNames.add(name.slice(0, -".md".length));
+					}
+				}
+			} catch {
+				// No global commands — fine.
+			}
+		} else {
+			for (const rawId of commandAllowlist) {
+				const baseName = rawId.endsWith(".md") ? rawId.slice(0, -".md".length) : rawId;
+				const fileName = `${baseName}.md`;
+				if (await ensureLinkedPath(join(globalCommandsDir, fileName), join(commandsDir, fileName), { isDirectory: false })) {
+					linkedCommandBaseNames.add(baseName);
+				}
+				if (projectCommandDir) {
+					if (await ensureLinkedPath(join(projectCommandDir, fileName), join(commandsDir, fileName), { isDirectory: false })) {
+						linkedCommandBaseNames.add(baseName);
+					}
+				}
+			}
+		}
+	}
+
+	// Bridge workflows into `commands` so they invoke as slash-commands. A base-name
+	// collision with an already-linked command is prefixed `wf-` so both stay reachable.
+	if (workflowIds.length > 0 && projectWorkflowDir) {
+		await mkdir(commandsDir, { recursive: true });
+		for (const rawId of workflowIds) {
+			const baseName = rawId.endsWith(".md") ? rawId.slice(0, -".md".length) : rawId;
+			const source = join(projectWorkflowDir, `${baseName}.md`);
+			if (!(await pathExists(source))) {
+				continue;
+			}
+			const targetName = linkedCommandBaseNames.has(baseName) ? `wf-${baseName}.md` : `${baseName}.md`;
+			if (await ensureLinkedPath(source, join(commandsDir, targetName), { isDirectory: false })) {
+				linkedCommandBaseNames.add(targetName.slice(0, -".md".length));
+			}
+		}
+	}
 
 	return {
 		configDir,
@@ -564,10 +685,30 @@ function dropDevTestSkillItems<T extends { id: string; description?: string }>(i
 	return items.filter((item) => !isDevTestSkillItem(item));
 }
 
+type InventoryOrigin = RuntimeSkillInventory["skills"][number]["origin"];
+type InventoryRoot = NonNullable<RuntimeSkillInventory["skills"][number]["root"]>;
+
+interface InventoryTag {
+	origin?: InventoryOrigin;
+	root?: InventoryRoot;
+}
+
+function stampInventoryTag<T extends { origin: InventoryOrigin; root?: InventoryRoot }>(tag: InventoryTag): {
+	origin: InventoryOrigin;
+	root?: InventoryRoot;
+} {
+	return {
+		origin: tag.origin ?? "global",
+		...(tag.root ? { root: tag.root } : {}),
+	} as { origin: InventoryOrigin; root?: InventoryRoot };
+}
+
 async function readSkillsFromRoot(
 	skillsRoot: string,
 	source: RuntimeSkillInventory["skills"][number]["source"],
+	tag: InventoryTag = {},
 ): Promise<RuntimeSkillInventory["skills"]> {
+	const stamp = stampInventoryTag(tag);
 	const skills: RuntimeSkillInventory["skills"] = [];
 	try {
 		const entries = await readdir(skillsRoot, { withFileTypes: true });
@@ -601,6 +742,7 @@ async function readSkillsFromRoot(
 				displayName,
 				...(description ? { description } : {}),
 				source,
+				...stamp,
 			});
 		}
 	} catch {
@@ -612,7 +754,9 @@ async function readSkillsFromRoot(
 async function readMarkdownInventory(
 	root: string,
 	source: RuntimeSkillInventory["skills"][number]["source"],
+	tag: InventoryTag = {},
 ): Promise<RuntimeSkillInventory["skills"]> {
+	const stamp = stampInventoryTag(tag);
 	const items: RuntimeSkillInventory["skills"] = [];
 	try {
 		const entries = await readdir(root, { withFileTypes: true });
@@ -645,6 +789,7 @@ async function readMarkdownInventory(
 				displayName,
 				...(description ? { description } : {}),
 				source,
+				...stamp,
 			});
 		}
 	} catch {
@@ -653,20 +798,48 @@ async function readMarkdownInventory(
 	return items.sort((left, right) => left.displayName.localeCompare(right.displayName));
 }
 
+/** Project-local roots (relative to the attached repo) that can carry assets. */
+const PROJECT_LOCAL_ROOT_DIRS: Record<InventoryRoot, string> = {
+	claude: ".claude",
+	agent: ".agent",
+};
+
+/** Merge project over global by id (project wins), then sort by display name. */
+function mergeInventoryByOrigin(
+	global: RuntimeSkillInventory["skills"],
+	project: RuntimeSkillInventory["skills"],
+): RuntimeSkillInventory["skills"] {
+	const byId = new Map<string, RuntimeSkillInventory["skills"][number]>();
+	// Project first so project wins on id collision; roots earlier in the list win.
+	for (const item of [...project, ...global]) {
+		if (!byId.has(item.id)) {
+			byId.set(item.id, item);
+		}
+	}
+	return [...byId.values()].sort((left, right) => left.displayName.localeCompare(right.displayName));
+}
+
 /**
  * Real Manager resources for card tags:
  * - Training skills: ~/.claude/skills (+ ~/.agents/skills)
  * - Staff agents: ~/.claude/agents
  * - Playbook commands: ~/.claude/commands
+ *
+ * When `repoPath` is set and `opts.localAssetsEnabled`, additionally surfaces the
+ * project's own `<repo>/.claude/*` and `<repo>/.agent/*` assets (tagged
+ * `origin: "project"`, `root`), with project entries overriding global on same id.
  */
-export async function listClaudeSkillInventory(): Promise<RuntimeSkillInventory> {
+export async function listClaudeSkillInventory(
+	repoPath?: string,
+	opts?: { localAssetsEnabled?: boolean; roots?: InventoryRoot[] },
+): Promise<RuntimeSkillInventory> {
 	const roots: Array<{ path: string; source: RuntimeSkillInventory["skills"][number]["source"] }> = [
 		{ path: join(globalClaudeDir(), "skills"), source: "disk" },
 		{ path: join(homedir(), ".agents", "skills"), source: "pack" },
 	];
 	const byId = new Map<string, RuntimeSkillInventory["skills"][number]>();
 	for (const root of roots) {
-		const found = await readSkillsFromRoot(root.path, root.source);
+		const found = await readSkillsFromRoot(root.path, root.source, { origin: "global" });
 		for (const skill of found) {
 			const existing = byId.get(skill.id);
 			// Prefer ~/.claude/skills (disk) over agents/pack duplicates.
@@ -675,14 +848,35 @@ export async function listClaudeSkillInventory(): Promise<RuntimeSkillInventory>
 			}
 		}
 	}
-	const skills = dropDevTestSkillItems(
-		[...byId.values()].sort((left, right) => left.displayName.localeCompare(right.displayName)),
-	);
-	const agents = dropDevTestSkillItems(await readMarkdownInventory(join(globalClaudeDir(), "agents"), "disk"));
-	const commands = dropDevTestSkillItems(
-		await readMarkdownInventory(join(globalClaudeDir(), "commands"), "disk"),
-	);
-	return { skills, agents, commands };
+	const globalSkills = [...byId.values()];
+	const globalAgents = await readMarkdownInventory(join(globalClaudeDir(), "agents"), "disk", { origin: "global" });
+	const globalCommands = await readMarkdownInventory(join(globalClaudeDir(), "commands"), "disk", { origin: "global" });
+
+	const projectSkills: RuntimeSkillInventory["skills"] = [];
+	const projectAgents: RuntimeSkillInventory["skills"] = [];
+	const projectCommands: RuntimeSkillInventory["skills"] = [];
+	const projectWorkflows: RuntimeSkillInventory["skills"] = [];
+	if (repoPath && opts?.localAssetsEnabled) {
+		const enabledRoots =
+			opts.roots && opts.roots.length > 0
+				? (["claude", "agent"] as InventoryRoot[]).filter((root) => opts.roots?.includes(root))
+				: (["claude", "agent"] as InventoryRoot[]);
+		const resolvedRepo = resolveHostPath(repoPath);
+		for (const root of enabledRoots) {
+			const rootDir = join(resolvedRepo, PROJECT_LOCAL_ROOT_DIRS[root]);
+			const tag: InventoryTag = { origin: "project", root };
+			projectSkills.push(...(await readSkillsFromRoot(join(rootDir, "skills"), "disk", tag)));
+			projectAgents.push(...(await readMarkdownInventory(join(rootDir, "agents"), "disk", tag)));
+			projectCommands.push(...(await readMarkdownInventory(join(rootDir, "commands"), "disk", tag)));
+			projectWorkflows.push(...(await readMarkdownInventory(join(rootDir, "workflows"), "disk", tag)));
+		}
+	}
+
+	const skills = dropDevTestSkillItems(mergeInventoryByOrigin(globalSkills, projectSkills));
+	const agents = dropDevTestSkillItems(mergeInventoryByOrigin(globalAgents, projectAgents));
+	const commands = dropDevTestSkillItems(mergeInventoryByOrigin(globalCommands, projectCommands));
+	const workflows = dropDevTestSkillItems(mergeInventoryByOrigin([], projectWorkflows));
+	return { skills, agents, commands, workflows };
 }
 
 export async function listClaudeMcpInventory(): Promise<RuntimeMcpInventory> {

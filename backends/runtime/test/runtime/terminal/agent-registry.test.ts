@@ -29,6 +29,9 @@ function createRuntimeConfigState(overrides: Partial<RuntimeConfigState> = {}): 
 		openPrPromptTemplate: "pr",
 		commitPromptTemplateDefault: "commit",
 		openPrPromptTemplateDefault: "pr",
+		agentDisplayName: "",
+		seamCommentTagTemplate: "seam",
+		seamCommentTagTemplateDefault: "seam",
 		...overrides,
 	};
 }

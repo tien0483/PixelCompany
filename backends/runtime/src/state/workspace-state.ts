@@ -19,6 +19,7 @@ import {
 import { createGitProcessEnv } from "../core/git-process-env";
 import { updateTaskDependencies } from "../core/task-board-mutations";
 import { type LockRequest, lockedFileSystem } from "../fs/locked-file-system";
+import { runGit } from "../workspace/git-utils";
 import { LEGACY_RUNTIME_HOME_PARENT_DIR_NAME, RUNTIME_HOME_PARENT_DIR_NAME } from "../workspace/task-worktree-path";
 
 const RUNTIME_HOME_PARENT_DIR = RUNTIME_HOME_PARENT_DIR_NAME;
@@ -29,6 +30,7 @@ const INDEX_FILENAME = "index.json";
 const BOARD_FILENAME = "board.json";
 const SESSIONS_FILENAME = "sessions.json";
 const META_FILENAME = "meta.json";
+const BRANCH_REGISTRY_FILENAME = "branch-registry.json";
 const INDEX_VERSION = 1;
 const WORKSPACE_ID_COLLISION_SUFFIX_LENGTH = 4;
 
@@ -55,15 +57,36 @@ interface WorkspaceIndexFile {
 	repoPathToId: Record<string, string>;
 }
 
+type WorkspaceLocalAssetRoot = "claude" | "agent";
+
+interface WorkspaceLocalAssetsMeta {
+	enabled: boolean;
+	roots?: WorkspaceLocalAssetRoot[];
+}
+
 interface WorkspaceStateMeta {
 	revision: number;
 	updatedAt: number;
+	localAssets?: WorkspaceLocalAssetsMeta;
 }
+
+const workspaceLocalAssetsMetaSchema = z.object({
+	enabled: z.boolean(),
+	roots: z.array(z.enum(["claude", "agent"])).optional(),
+});
 
 const workspaceStateMetaSchema = z.object({
 	revision: z.number().int().nonnegative(),
 	updatedAt: z.number(),
+	localAssets: workspaceLocalAssetsMetaSchema.optional(),
 });
+
+const ALL_WORKSPACE_LOCAL_ASSET_ROOTS: WorkspaceLocalAssetRoot[] = ["claude", "agent"];
+
+export interface WorkspaceLocalAssetsSetting {
+	enabled: boolean;
+	roots: WorkspaceLocalAssetRoot[];
+}
 
 const workspaceIndexEntrySchema = z.object({
 	workspaceId: z.string().min(1, "Workspace ID cannot be empty."),
@@ -199,6 +222,10 @@ function getWorkspaceSessionsPath(workspaceId: string): string {
 
 function getWorkspaceMetaPath(workspaceId: string): string {
 	return join(getWorkspaceDirectoryPath(workspaceId), META_FILENAME);
+}
+
+export function getWorkspaceBranchRegistryPath(workspaceId: string): string {
+	return join(getWorkspaceDirectoryPath(workspaceId), BRANCH_REGISTRY_FILENAME);
 }
 
 function getWorkspaceIndexLockRequest(): LockRequest {
@@ -533,6 +560,16 @@ async function resolveWorkspacePath(cwd: string): Promise<string> {
 	}
 }
 
+async function configureBranchMapNotesRefs(repoPath: string): Promise<void> {
+	try {
+		await runGit(repoPath, ["config", "--add", "remote.origin.push", "+refs/notes/branch-map:refs/notes/branch-map"]);
+		await runGit(repoPath, ["config", "--add", "remote.origin.fetch", "+refs/notes/branch-map:refs/notes/branch-map"]);
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		console.warn(`Could not configure refs/notes/branch-map sync for ${repoPath}. ${message}`);
+	}
+}
+
 function toWorkspaceStateResponse(
 	context: RuntimeWorkspaceContext,
 	board: RuntimeBoardData,
@@ -588,6 +625,7 @@ export async function loadWorkspaceContext(
 		index = ensured.index;
 		if (ensured.changed) {
 			await writeWorkspaceIndex(index);
+			await configureBranchMapNotesRefs(repoPath);
 		}
 
 		return {
@@ -648,6 +686,46 @@ export async function removeWorkspaceStateFiles(workspaceId: string): Promise<vo
 	);
 }
 
+function normalizeLocalAssetRoots(roots: WorkspaceLocalAssetRoot[] | undefined): WorkspaceLocalAssetRoot[] {
+	if (!roots || roots.length === 0) {
+		return [...ALL_WORKSPACE_LOCAL_ASSET_ROOTS];
+	}
+	const ordered = ALL_WORKSPACE_LOCAL_ASSET_ROOTS.filter((root) => roots.includes(root));
+	return ordered.length > 0 ? ordered : [...ALL_WORKSPACE_LOCAL_ASSET_ROOTS];
+}
+
+/**
+ * Per-project local-assets toggle. Absent meta (or disabled) resolves to
+ * `{ enabled: false, roots: ["claude", "agent"] }` — nothing project-local is
+ * surfaced or bridged until a project explicitly opts in.
+ */
+export async function getWorkspaceLocalAssetsSetting(workspaceId: string): Promise<WorkspaceLocalAssetsSetting> {
+	const meta = await readWorkspaceMeta(workspaceId);
+	const localAssets = meta.localAssets;
+	return {
+		enabled: localAssets?.enabled ?? false,
+		roots: normalizeLocalAssetRoots(localAssets?.roots),
+	};
+}
+
+export async function setWorkspaceLocalAssets(
+	workspaceId: string,
+	input: { enabled: boolean; roots?: WorkspaceLocalAssetRoot[] },
+): Promise<WorkspaceLocalAssetsSetting> {
+	const roots = normalizeLocalAssetRoots(input.roots);
+	return await lockedFileSystem.withLock(getWorkspaceDirectoryLockRequest(workspaceId), async () => {
+		const metaPath = getWorkspaceMetaPath(workspaceId);
+		const currentMeta = await readWorkspaceMeta(workspaceId);
+		const nextMeta: WorkspaceStateMeta = {
+			revision: currentMeta.revision,
+			updatedAt: Date.now(),
+			localAssets: { enabled: input.enabled, roots },
+		};
+		await lockedFileSystem.writeJsonFileAtomic(metaPath, nextMeta, { lock: null });
+		return { enabled: input.enabled, roots };
+	});
+}
+
 export async function loadWorkspaceState(cwd: string): Promise<RuntimeWorkspaceStateResponse> {
 	const context = await loadWorkspaceContext(cwd);
 	const board = await readWorkspaceBoard(context.workspaceId);
@@ -680,6 +758,7 @@ export async function saveWorkspaceState(
 		const nextMeta: WorkspaceStateMeta = {
 			revision: nextRevision,
 			updatedAt: Date.now(),
+			...(currentMeta.localAssets ? { localAssets: currentMeta.localAssets } : {}),
 		};
 
 		await lockedFileSystem.writeJsonFileAtomic(getWorkspaceBoardPath(context.workspaceId), board, {
@@ -735,6 +814,7 @@ export async function mutateWorkspaceState<T>(
 		const nextMeta: WorkspaceStateMeta = {
 			revision: nextRevision,
 			updatedAt: Date.now(),
+			...(currentMeta.localAssets ? { localAssets: currentMeta.localAssets } : {}),
 		};
 
 		await lockedFileSystem.writeJsonFileAtomic(getWorkspaceBoardPath(context.workspaceId), nextBoard, {

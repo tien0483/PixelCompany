@@ -24,6 +24,7 @@ import {
 	X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { showAppToast } from "@/components/app-toaster";
 import { AccountOrganizationSection } from "@/components/shared/account-organization-section";
 import { ClineSetupSection } from "@/components/shared/cline-setup-section";
 import {
@@ -39,6 +40,9 @@ import { Dialog, DialogFooter, DialogHeader } from "@/components/ui/dialog";
 import { NativeSelect } from "@/components/ui/native-select";
 import {
 	TASK_GIT_BASE_REF_PROMPT_VARIABLE,
+	TASK_GIT_SEAM_AGENT_NAME_PROMPT_VARIABLE,
+	TASK_GIT_SEAM_COMMENT_TAG_PROMPT_VARIABLE,
+	TASK_GIT_SEAM_TICKET_ID_PROMPT_VARIABLE,
 	TASK_GIT_TASK_BRANCH_PROMPT_VARIABLE,
 	type TaskGitAction,
 } from "@/git-actions/build-task-git-action-prompt";
@@ -47,6 +51,8 @@ import { useRuntimeSettingsClineMcpController } from "@/hooks/use-runtime-settin
 import { previewThemeId, readStoredThemeId, saveThemeId, THEME_GROUPS, THEMES, type ThemeId } from "@/hooks/use-theme";
 import { useLayoutCustomizations } from "@/resize/layout-customizations";
 import { openFileOnHost } from "@/runtime/runtime-config-query";
+import { notifySkillInventoryChanged } from "@/runtime/skill-inventory-events";
+import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
 import type {
 	RuntimeAgentId,
 	RuntimeClineMcpServerAuthStatus,
@@ -379,9 +385,15 @@ export function RuntimeSettingsDialog({
 	const [shortcuts, setShortcuts] = useState<RuntimeProjectShortcut[]>([]);
 	const [commitPromptTemplate, setCommitPromptTemplate] = useState("");
 	const [openPrPromptTemplate, setOpenPrPromptTemplate] = useState("");
+	const [agentDisplayName, setAgentDisplayName] = useState("");
+	const [seamCommentTagTemplate, setSeamCommentTagTemplate] = useState("");
 	const [selectedPromptVariant, setSelectedPromptVariant] = useState<TaskGitAction>("commit");
 	const [copiedVariableToken, setCopiedVariableToken] = useState<string | null>(null);
 	const [saveError, setSaveError] = useState<string | null>(null);
+	// No backend query returns the current per-project toggle, so this is optimistic:
+	// it defaults off, and reflects whatever the setWorkspaceLocalAssets mutation returns.
+	const [localAssetsEnabled, setLocalAssetsEnabled] = useState(false);
+	const [localAssetsBusy, setLocalAssetsBusy] = useState(false);
 	const [pendingShortcutScrollIndex, setPendingShortcutScrollIndex] = useState<number | null>(null);
 	const copiedVariableResetTimerRef = useRef<number | null>(null);
 	const shortcutsSectionRef = useRef<HTMLHeadingElement | null>(null);
@@ -398,6 +410,10 @@ export function RuntimeSettingsDialog({
 	const isOpenPrPromptAtDefault =
 		normalizeTemplateForComparison(openPrPromptTemplate) ===
 		normalizeTemplateForComparison(openPrPromptTemplateDefault);
+	const seamCommentTagTemplateDefault = config?.seamCommentTagTemplateDefault ?? "";
+	const isSeamCommentTagTemplateAtDefault =
+		normalizeTemplateForComparison(seamCommentTagTemplate) ===
+		normalizeTemplateForComparison(seamCommentTagTemplateDefault);
 	const selectedPromptValue = selectedPromptVariant === "commit" ? commitPromptTemplate : openPrPromptTemplate;
 	const selectedPromptDefaultValue =
 		selectedPromptVariant === "commit" ? commitPromptTemplateDefault : openPrPromptTemplateDefault;
@@ -449,6 +465,8 @@ export function RuntimeSettingsDialog({
 	const initialShortcuts = config?.shortcuts ?? [];
 	const initialCommitPromptTemplate = config?.commitPromptTemplate ?? "";
 	const initialOpenPrPromptTemplate = config?.openPrPromptTemplate ?? "";
+	const initialAgentDisplayName = config?.agentDisplayName ?? "";
+	const initialSeamCommentTagTemplate = config?.seamCommentTagTemplate ?? "";
 	const clineSettings = useRuntimeSettingsClineController({
 		open,
 		workspaceId,
@@ -492,26 +510,39 @@ export function RuntimeSettingsDialog({
 		) {
 			return true;
 		}
-		return (
+		if (
 			normalizeTemplateForComparison(openPrPromptTemplate) !==
 			normalizeTemplateForComparison(initialOpenPrPromptTemplate)
+		) {
+			return true;
+		}
+		if (agentDisplayName !== initialAgentDisplayName) {
+			return true;
+		}
+		return (
+			normalizeTemplateForComparison(seamCommentTagTemplate) !==
+			normalizeTemplateForComparison(initialSeamCommentTagTemplate)
 		);
 	}, [
 		agentAutonomousModeEnabled,
+		agentDisplayName,
 		clineMcpSettings.hasUnsavedChanges,
 		clineSettings.hasUnsavedChanges,
 		commitPromptTemplate,
 		config,
 		draftThemeId,
 		initialAgentAutonomousModeEnabled,
+		initialAgentDisplayName,
 		initialCommitPromptTemplate,
 		initialOpenPrPromptTemplate,
 		initialReadyForReviewNotificationsEnabled,
+		initialSeamCommentTagTemplate,
 		initialSelectedAgentId,
 		initialShortcuts,
 		initialThemeId,
 		openPrPromptTemplate,
 		readyForReviewNotificationsEnabled,
+		seamCommentTagTemplate,
 		selectedAgentId,
 		shortcuts,
 	]);
@@ -526,17 +557,58 @@ export function RuntimeSettingsDialog({
 		setShortcuts(config?.shortcuts ?? []);
 		setCommitPromptTemplate(config?.commitPromptTemplate ?? "");
 		setOpenPrPromptTemplate(config?.openPrPromptTemplate ?? "");
+		setAgentDisplayName(config?.agentDisplayName ?? "");
+		setSeamCommentTagTemplate(config?.seamCommentTagTemplate ?? "");
 		setSaveError(null);
 	}, [
 		config?.agentAutonomousModeEnabled,
+		config?.agentDisplayName,
 		config?.commitPromptTemplate,
 		config?.openPrPromptTemplate,
 		config?.readyForReviewNotificationsEnabled,
+		config?.seamCommentTagTemplate,
 		config?.selectedAgentId,
 		config?.shortcuts,
 		fallbackAgentId,
 		open,
 	]);
+
+	useEffect(() => {
+		if (!open) {
+			return;
+		}
+		setLocalAssetsEnabled(false);
+	}, [open, workspaceId]);
+
+	const handleLocalAssetsToggle = useCallback(
+		(nextEnabled: boolean) => {
+			if (!workspaceId) {
+				return;
+			}
+			setLocalAssetsBusy(true);
+			void getRuntimeTrpcClient(workspaceId)
+				.runtime.setWorkspaceLocalAssets.mutate({ workspaceId, enabled: nextEnabled })
+				.then((result) => {
+					setLocalAssetsEnabled(result.enabled);
+					notifySkillInventoryChanged();
+					showAppToast({
+						intent: "success",
+						message: result.enabled
+							? "Now loading this project's local skills, agents, commands & workflows."
+							: "Stopped loading this project's local assets.",
+						timeout: 4000,
+					});
+				})
+				.catch((error) => {
+					const message = error instanceof Error ? error.message : String(error);
+					showAppToast({ intent: "danger", icon: "warning-sign", message, timeout: 7000 });
+				})
+				.finally(() => {
+					setLocalAssetsBusy(false);
+				});
+		},
+		[workspaceId],
+	);
 
 	useEffect(() => {
 		if (!open) {
@@ -666,6 +738,10 @@ export function RuntimeSettingsDialog({
 		handleSelectedPromptChange(selectedPromptDefaultValue);
 	};
 
+	const handleResetSeamCommentTagTemplate = () => {
+		setSeamCommentTagTemplate(seamCommentTagTemplateDefault);
+	};
+
 	const handleSave = async () => {
 		setSaveError(null);
 		if (!config) {
@@ -708,6 +784,8 @@ export function RuntimeSettingsDialog({
 			shortcuts,
 			commitPromptTemplate,
 			openPrPromptTemplate,
+			agentDisplayName,
+			seamCommentTagTemplate,
 		});
 		if (!saved) {
 			setSaveError("Could not save runtime settings. Check runtime logs and try again.");
@@ -862,6 +940,101 @@ export function RuntimeSettingsDialog({
 						<p className="text-text-secondary text-[13px] mt-0 mb-2">
 							Modify the prompts sent to the agent when using Commit or Make PR on tasks in Review.
 						</p>
+						<div className="mb-3">
+							<label
+								htmlFor="runtime-settings-agent-display-name"
+								className="block text-[12px] font-semibold uppercase tracking-wider text-text-secondary mb-1"
+							>
+								Your name (for seam tags)
+							</label>
+							<input
+								id="runtime-settings-agent-display-name"
+								type="text"
+								value={agentDisplayName}
+								onChange={(event) => setAgentDisplayName(event.target.value)}
+								placeholder="e.g. Tien"
+								disabled={controlsDisabled}
+								className="h-8 w-full rounded-md border border-border bg-surface-2 px-2.5 text-[13px] text-text-primary placeholder:text-text-tertiary focus:border-border-focus focus:outline-none disabled:opacity-40"
+							/>
+							<p className="text-text-secondary text-[13px] mt-1 mb-0">
+								Used to tag concurrent edits to shared/seam files when multiple agents or tasks touch the same
+								files across branches.
+							</p>
+						</div>
+						<div className="mb-3">
+							<div className="flex items-center justify-between gap-2 mb-2">
+								<label
+									htmlFor="runtime-settings-seam-comment-tag-template"
+									className="text-[12px] font-semibold uppercase tracking-wider text-text-secondary"
+								>
+									Seam comment tag
+								</label>
+								<Button
+									variant="ghost"
+									size="sm"
+									onClick={handleResetSeamCommentTagTemplate}
+									disabled={controlsDisabled || isSeamCommentTagTemplateAtDefault}
+								>
+									Reset
+								</Button>
+							</div>
+							<textarea
+								id="runtime-settings-seam-comment-tag-template"
+								rows={2}
+								value={seamCommentTagTemplate}
+								onChange={(event) => setSeamCommentTagTemplate(event.target.value)}
+								placeholder="Seam comment tag template"
+								disabled={controlsDisabled}
+								className="w-full rounded-md border border-border bg-surface-2 p-3 text-[13px] text-text-primary font-mono placeholder:text-text-tertiary focus:border-border-focus focus:outline-none resize-none disabled:opacity-40"
+							/>
+							<p className="text-text-secondary text-[13px] mt-2 mb-0">
+								Use{" "}
+								<InlineUtilityButton
+									text={
+										copiedVariableToken === TASK_GIT_SEAM_TICKET_ID_PROMPT_VARIABLE.token
+											? "Copied!"
+											: TASK_GIT_SEAM_TICKET_ID_PROMPT_VARIABLE.token
+									}
+									monospace
+									widthCh={Math.max(TASK_GIT_SEAM_TICKET_ID_PROMPT_VARIABLE.token.length, "Copied!".length) + 2}
+									onClick={() => {
+										handleCopyVariableToken(TASK_GIT_SEAM_TICKET_ID_PROMPT_VARIABLE.token);
+									}}
+									disabled={controlsDisabled}
+								/>{" "}
+								<InlineUtilityButton
+									text={
+										copiedVariableToken === TASK_GIT_SEAM_AGENT_NAME_PROMPT_VARIABLE.token
+											? "Copied!"
+											: TASK_GIT_SEAM_AGENT_NAME_PROMPT_VARIABLE.token
+									}
+									monospace
+									widthCh={Math.max(TASK_GIT_SEAM_AGENT_NAME_PROMPT_VARIABLE.token.length, "Copied!".length) + 2}
+									onClick={() => {
+										handleCopyVariableToken(TASK_GIT_SEAM_AGENT_NAME_PROMPT_VARIABLE.token);
+									}}
+									disabled={controlsDisabled}
+								/>{" "}
+								and{" "}
+								<InlineUtilityButton
+									text={
+										copiedVariableToken === TASK_GIT_SEAM_COMMENT_TAG_PROMPT_VARIABLE.token
+											? "Copied!"
+											: TASK_GIT_SEAM_COMMENT_TAG_PROMPT_VARIABLE.token
+									}
+									monospace
+									widthCh={
+										Math.max(TASK_GIT_SEAM_COMMENT_TAG_PROMPT_VARIABLE.token.length, "Copied!".length) + 2
+									}
+									onClick={() => {
+										handleCopyVariableToken(TASK_GIT_SEAM_COMMENT_TAG_PROMPT_VARIABLE.token);
+									}}
+									disabled={controlsDisabled}
+								/>{" "}
+								to reference {TASK_GIT_SEAM_COMMENT_TAG_PROMPT_VARIABLE.description} inside the commit/PR prompts
+								below.
+							</p>
+						</div>
 						<div className="flex items-center justify-between gap-2 mb-2">
 							<NativeSelect
 								value={selectedPromptVariant}
@@ -1092,6 +1265,32 @@ export function RuntimeSettingsDialog({
 							: "<project>/.cline/kanban/config.json"}
 						{config?.projectConfigPath ? <ExternalLink size={12} className="inline ml-1.5 align-middle" /> : null}
 					</p>
+					<div className="rounded-lg border border-border bg-surface-0 px-4 py-3 mb-4">
+						<h6 className="text-[12px] font-semibold uppercase tracking-wider text-text-secondary m-0 mb-2">
+							Local assets
+						</h6>
+						<div className="flex items-start gap-2">
+							<RadixSwitch.Root
+								checked={localAssetsEnabled}
+								disabled={localAssetsBusy || !workspaceId}
+								onCheckedChange={handleLocalAssetsToggle}
+								aria-label="Load this project's local skills, agents, commands and workflows"
+								className="relative mt-0.5 h-5 w-9 shrink-0 rounded-full bg-surface-4 data-[state=checked]:bg-accent cursor-pointer disabled:opacity-40"
+							>
+								<RadixSwitch.Thumb className="block h-4 w-4 rounded-full bg-white shadow-sm transition-transform translate-x-0.5 data-[state=checked]:translate-x-[18px]" />
+							</RadixSwitch.Root>
+							<div className="min-w-0">
+								<span className="text-[13px] text-text-primary">
+									Load this project's local skills, agents, commands &amp; workflows
+								</span>
+								<p className="text-text-secondary text-[13px] mt-0.5 mb-0">
+									Surfaces this repo's own <code>.claude</code> and <code>.agent</code> assets in the task
+									launch card. Off by default so an attached repo can't expose its skills to run without
+									opt-in.
+								</p>
+							</div>
+						</div>
+					</div>
 					<div className="rounded-lg border border-border bg-surface-0 px-4 py-3 mb-4">
 						<div className="flex items-center justify-between mb-2">
 							<h6

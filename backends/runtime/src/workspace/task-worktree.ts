@@ -14,6 +14,7 @@ import {
 	getTaskWorktreesHomePath,
 	loadWorkspaceContext,
 } from "../state/workspace-state";
+import { deregisterActiveBranch, registerActiveBranch } from "./branch-registry";
 import { getGitCommandErrorMessage, getGitStdout, readGitHeadInfo, runGit } from "./git-utils";
 import { getWorkspaceFolderLabelForWorktreePath, normalizeTaskIdForWorktreePath } from "./task-worktree-path";
 import { listTurbopackNodeModulesSymlinkSkipPaths } from "./task-worktree-turbopack";
@@ -119,6 +120,23 @@ export async function removeTaskWorktreeSetupLock(repoPath: string): Promise<boo
 
 async function withTaskWorktreeSetupLock<T>(repoPath: string, operation: () => Promise<T>): Promise<T> {
 	return await lockedFileSystem.withLock(await getTaskWorktreeSetupLock(repoPath), operation);
+}
+
+function deriveTaskBranchName(taskId: string): string {
+	const normalized = taskId
+		.trim()
+		.replace(/[^A-Za-z0-9._/-]+/g, "-")
+		.replace(/^[-/]+|[-/]+$/g, "");
+	return `kanban/task-${normalized || "task"}`;
+}
+
+async function deregisterActiveBranchForRepo(repoPath: string, taskId: string): Promise<void> {
+	try {
+		const context = await loadWorkspaceContext(repoPath, { autoCreateIfMissing: false });
+		await deregisterActiveBranch(context.workspaceId, taskId);
+	} catch {
+		// Workspace is no longer registered (e.g. project removal already ran); nothing to deregister.
+	}
 }
 
 function getWorktreesRootPath(taskId: string): string {
@@ -549,6 +567,11 @@ export async function ensureTaskWorktreeIfDoesntExist(options: {
 				await getGitStdout(["worktree", "add", "--detach", worktreePath, baseCommit], context.repoPath);
 			}
 			await prepareNewTaskWorktree(context.repoPath, worktreePath);
+			await registerActiveBranch(context.workspaceId, {
+				taskId,
+				branch: deriveTaskBranchName(taskId),
+				worktreePath,
+			});
 
 			if (storedPatch && baseCommit === storedPatch.commit) {
 				try {
@@ -587,32 +610,38 @@ export async function deleteTaskWorktree(options: {
 		const taskId = normalizeTaskIdForWorktreePath(options.taskId);
 		const rootPath = getWorktreesBaseRootPath();
 		const worktreePath = getTaskWorktreePath(options.repoPath, taskId);
-		if (!(await pathExists(worktreePath))) {
-			await deleteTaskPatchFiles(taskId);
+
+		const result = await withTaskWorktreeSetupLock(options.repoPath, async (): Promise<RuntimeWorktreeDeleteResponse> => {
+			if (!(await pathExists(worktreePath))) {
+				await deleteTaskPatchFiles(taskId);
+				await pruneEmptyParents(rootPath, dirname(worktreePath));
+				return {
+					ok: true,
+					removed: false,
+				};
+			}
+
+			try {
+				await captureTaskPatch({
+					repoPath: options.repoPath,
+					taskId,
+					worktreePath,
+				});
+			} catch {
+				// Patch capture is best-effort. A corrupted or partially-created
+				// worktree (e.g. plain directory, no git init) should still be removed.
+			}
+			const removed = await removeTaskWorktreeInternal(options.repoPath, worktreePath);
 			await pruneEmptyParents(rootPath, dirname(worktreePath));
+
 			return {
 				ok: true,
-				removed: false,
+				removed,
 			};
-		}
+		});
 
-		try {
-			await captureTaskPatch({
-				repoPath: options.repoPath,
-				taskId,
-				worktreePath,
-			});
-		} catch {
-			// Patch capture is best-effort. A corrupted or partially-created
-			// worktree (e.g. plain directory, no git init) should still be removed.
-		}
-		const removed = await removeTaskWorktreeInternal(options.repoPath, worktreePath);
-		await pruneEmptyParents(rootPath, dirname(worktreePath));
-
-		return {
-			ok: true,
-			removed,
-		};
+		await deregisterActiveBranchForRepo(options.repoPath, taskId);
+		return result;
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
 		return {

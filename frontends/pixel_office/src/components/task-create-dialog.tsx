@@ -610,6 +610,7 @@ export function TaskCreateDialog({
 							active={open}
 							agentId={agentId}
 							defaultAgentId={defaultAgentId}
+							workspaceId={workspaceId}
 							value={taskLaunchSettings}
 							onChange={onTaskLaunchSettingsChange}
 						/>

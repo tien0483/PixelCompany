@@ -1102,6 +1102,7 @@ export function CardDetailView({
 									active
 									agentId={selection.card.agentId}
 									defaultAgentId={selectedAgentId}
+									workspaceId={currentProjectId}
 									value={selection.card.taskLaunchSettings}
 									sessionAppliesOnRestart={
 										sessionSummary?.state === "running" ||

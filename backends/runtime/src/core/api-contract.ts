@@ -122,6 +122,7 @@ export const runtimeTaskLaunchSettingsSchema = z.object({
 	skillIds: z.array(z.string().min(1)).optional(),
 	agentIds: z.array(z.string().min(1)).optional(),
 	commandIds: z.array(z.string().min(1)).optional(),
+	workflowIds: z.array(z.string().min(1)).optional(),
 	mcpServerIds: z.array(z.string().min(1)).optional(),
 });
 export type RuntimeTaskLaunchSettings = z.infer<typeof runtimeTaskLaunchSettingsSchema>;
@@ -312,6 +313,22 @@ export const runtimeGitDeleteBranchResponseSchema = z.object({
 	error: z.string().optional(),
 });
 export type RuntimeGitDeleteBranchResponse = z.infer<typeof runtimeGitDeleteBranchResponseSchema>;
+
+export const runtimeGitCreateBranchRequestSchema = z.object({
+	newBranch: z.string(),
+	startPoint: z.string(),
+});
+export type RuntimeGitCreateBranchRequest = z.infer<typeof runtimeGitCreateBranchRequestSchema>;
+
+export const runtimeGitCreateBranchResponseSchema = z.object({
+	ok: z.boolean(),
+	branch: z.string(),
+	startPoint: z.string(),
+	summary: runtimeGitSyncSummarySchema,
+	output: z.string(),
+	error: z.string().optional(),
+});
+export type RuntimeGitCreateBranchResponse = z.infer<typeof runtimeGitCreateBranchResponseSchema>;
 
 export const runtimeGitMergeBranchRequestSchema = z.object({
 	taskId: z.string(),
@@ -1508,6 +1525,9 @@ export const runtimeConfigResponseSchema = z.object({
 	openPrPromptTemplate: z.string(),
 	commitPromptTemplateDefault: z.string(),
 	openPrPromptTemplateDefault: z.string(),
+	agentDisplayName: z.string(),
+	seamCommentTagTemplate: z.string(),
+	seamCommentTagTemplateDefault: z.string(),
 });
 export type RuntimeConfigResponse = z.infer<typeof runtimeConfigResponseSchema>;
 
@@ -1519,6 +1539,8 @@ export const runtimeConfigSaveRequestSchema = z.object({
 	readyForReviewNotificationsEnabled: z.boolean().optional(),
 	commitPromptTemplate: z.string().optional(),
 	openPrPromptTemplate: z.string().optional(),
+	agentDisplayName: z.string().optional(),
+	seamCommentTagTemplate: z.string().optional(),
 });
 export type RuntimeConfigSaveRequest = z.infer<typeof runtimeConfigSaveRequestSchema>;
 
@@ -1562,6 +1584,10 @@ export const runtimeSkillInventoryItemSchema = z.object({
 	/** From SKILL.md / frontmatter `description`, when present. */
 	description: z.string().optional(),
 	source: z.enum(["feature", "pack", "disk"]),
+	/** Global (PixelCompany-installed) vs project-local (from the attached repo). */
+	origin: z.enum(["global", "project"]).default("global"),
+	/** Which project root supplied a project item: `<repo>/.claude` or `<repo>/.agent`. */
+	root: z.enum(["claude", "agent"]).optional(),
 });
 export type RuntimeSkillInventoryItem = z.infer<typeof runtimeSkillInventoryItemSchema>;
 
@@ -1571,8 +1597,30 @@ export const runtimeSkillInventorySchema = z.object({
 	agents: z.array(runtimeSkillInventoryItemSchema).default([]),
 	/** Playbooks — ~/.claude/commands/*.md */
 	commands: z.array(runtimeSkillInventoryItemSchema).default([]),
+	/** Project-local workflows — `<repo>/.agent/workflows/*.md`, run as slash-commands. */
+	workflows: z.array(runtimeSkillInventoryItemSchema).default([]),
 });
 export type RuntimeSkillInventory = z.infer<typeof runtimeSkillInventorySchema>;
+
+/** Optional project scope for `listSkillInventory` — resolves the repo whose local assets to surface. */
+export const runtimeSkillInventoryRequestSchema = z.object({
+	workspaceId: z.string().optional(),
+});
+export type RuntimeSkillInventoryRequest = z.infer<typeof runtimeSkillInventoryRequestSchema>;
+
+/** Per-project toggle for loading a repo's own `.claude`/`.agent` skills/agents/commands/workflows. */
+export const runtimeSetWorkspaceLocalAssetsRequestSchema = z.object({
+	workspaceId: z.string().min(1),
+	enabled: z.boolean(),
+	roots: z.array(z.enum(["claude", "agent"])).optional(),
+});
+export type RuntimeSetWorkspaceLocalAssetsRequest = z.infer<typeof runtimeSetWorkspaceLocalAssetsRequestSchema>;
+
+export const runtimeSetWorkspaceLocalAssetsResponseSchema = z.object({
+	enabled: z.boolean(),
+	roots: z.array(z.enum(["claude", "agent"])),
+});
+export type RuntimeSetWorkspaceLocalAssetsResponse = z.infer<typeof runtimeSetWorkspaceLocalAssetsResponseSchema>;
 
 /** MCP server ids from ~/.claude/settings.json (and later Cursor if discoverable). */
 export const runtimeMcpInventoryItemSchema = z.object({

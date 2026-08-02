@@ -37,7 +37,7 @@ const CURSOR_MODEL_FALLBACK: RuntimeAgentModelInventoryItem[] = [
 	{ id: "gpt-5.2", label: "GPT-5.2" },
 ];
 
-type AllowlistKey = "skillIds" | "agentIds" | "commandIds" | "mcpServerIds";
+type AllowlistKey = "skillIds" | "agentIds" | "commandIds" | "workflowIds" | "mcpServerIds";
 
 function cloneLaunchSettings(settings?: RuntimeTaskLaunchSettings | null): RuntimeTaskLaunchSettings | undefined {
 	if (settings === undefined || settings === null) {
@@ -49,6 +49,7 @@ function cloneLaunchSettings(settings?: RuntimeTaskLaunchSettings | null): Runti
 		...(settings.skillIds && settings.skillIds.length > 0 ? { skillIds: [...settings.skillIds] } : {}),
 		...(settings.agentIds && settings.agentIds.length > 0 ? { agentIds: [...settings.agentIds] } : {}),
 		...(settings.commandIds && settings.commandIds.length > 0 ? { commandIds: [...settings.commandIds] } : {}),
+		...(settings.workflowIds && settings.workflowIds.length > 0 ? { workflowIds: [...settings.workflowIds] } : {}),
 		...(settings.mcpServerIds && settings.mcpServerIds.length > 0
 			? { mcpServerIds: [...settings.mcpServerIds] }
 			: {}),
@@ -59,6 +60,7 @@ function cloneLaunchSettings(settings?: RuntimeTaskLaunchSettings | null): Runti
 		next.skillIds === undefined &&
 		next.agentIds === undefined &&
 		next.commandIds === undefined &&
+		next.workflowIds === undefined &&
 		next.mcpServerIds === undefined
 	) {
 		return undefined;
@@ -80,10 +82,12 @@ function emitSettings(
 function TagChip({
 	label,
 	description,
+	badge,
 	onRemove,
 }: {
 	label: string;
 	description?: string;
+	badge?: string;
 	onRemove: () => void;
 }): ReactElement {
 	const labelNode = description ? (
@@ -99,6 +103,14 @@ function TagChip({
 	return (
 		<span className="inline-flex max-w-full items-center gap-1 rounded-sm border border-border bg-surface-2 px-1.5 py-0.5 text-[11px] text-text-primary">
 			{labelNode}
+			{badge ? (
+				<span
+					data-testid="task-launch-project-badge"
+					className="shrink-0 rounded-sm bg-status-purple/15 px-1 text-[9px] font-medium uppercase tracking-wide text-status-purple"
+				>
+					{badge}
+				</span>
+			) : null}
 			<button
 				type="button"
 				aria-label={`Remove ${label}`}
@@ -132,7 +144,7 @@ function ResourceAllowlistSection({
 	allLabel: string;
 	addLabel: string;
 	attachedIds: string[];
-	items: Array<{ id: string; displayName: string; description?: string }>;
+	items: Array<{ id: string; displayName: string; description?: string; origin?: "global" | "project" }>;
 	pick: string;
 	setPick: (value: string) => void;
 	onAdd: (id: string) => void;
@@ -155,6 +167,7 @@ function ResourceAllowlistSection({
 							key={id}
 							label={item?.displayName ?? id}
 							description={item?.description}
+							badge={item?.origin === "project" ? "This project" : undefined}
 							onRemove={() => onRemove(id)}
 						/>
 					);
@@ -175,7 +188,7 @@ function ResourceAllowlistSection({
 					<option value="">{addLabel}</option>
 					{available.map((item) => (
 						<option key={item.id} value={item.id}>
-							{item.displayName}
+							{item.origin === "project" ? `${item.displayName} · this project` : item.displayName}
 						</option>
 					))}
 				</NativeSelect>
@@ -188,6 +201,7 @@ export function TaskLaunchSettingsPicker({
 	active,
 	agentId,
 	defaultAgentId,
+	workspaceId,
 	value,
 	onChange,
 	sessionAppliesOnRestart = false,
@@ -195,6 +209,8 @@ export function TaskLaunchSettingsPicker({
 	active: boolean;
 	agentId: RuntimeAgentId | undefined;
 	defaultAgentId?: RuntimeAgentId | null;
+	/** Active project whose local `.claude`/`.agent` assets should be surfaced (subject to the per-project toggle). */
+	workspaceId?: string | null;
 	value?: RuntimeTaskLaunchSettings;
 	onChange: (value: RuntimeTaskLaunchSettings | undefined) => void;
 	/** When true, show that skill/MCP/model tags apply on the next session start. */
@@ -205,12 +221,14 @@ export function TaskLaunchSettingsPicker({
 	const [skills, setSkills] = useState<RuntimeSkillInventoryItem[]>([]);
 	const [agents, setAgents] = useState<RuntimeSkillInventoryItem[]>([]);
 	const [commands, setCommands] = useState<RuntimeSkillInventoryItem[]>([]);
+	const [workflows, setWorkflows] = useState<RuntimeSkillInventoryItem[]>([]);
 	const [mcpServers, setMcpServers] = useState<RuntimeMcpInventoryItem[]>([]);
 	const [models, setModels] = useState<RuntimeAgentModelInventoryItem[]>([]);
 	const [modelsLoading, setModelsLoading] = useState(false);
 	const [skillPick, setSkillPick] = useState("");
 	const [agentPick, setAgentPick] = useState("");
 	const [commandPick, setCommandPick] = useState("");
+	const [workflowPick, setWorkflowPick] = useState("");
 	const [mcpPick, setMcpPick] = useState("");
 	// Optimistic draft so rapid "Add skill" selections accumulate even before the
 	// parent re-renders with the persisted board value.
@@ -231,20 +249,25 @@ export function TaskLaunchSettingsPicker({
 			return;
 		}
 		const client = getRuntimeTrpcClient(null);
-		void Promise.all([client.runtime.listSkillInventory.query(), client.runtime.listMcpInventory.query()])
+		void Promise.all([
+			client.runtime.listSkillInventory.query(workspaceId ? { workspaceId } : {}),
+			client.runtime.listMcpInventory.query(),
+		])
 			.then(([skillInventory, mcpInventory]) => {
 				setSkills(skillInventory.skills);
 				setAgents(skillInventory.agents ?? []);
 				setCommands(skillInventory.commands ?? []);
+				setWorkflows(skillInventory.workflows ?? []);
 				setMcpServers(mcpInventory.servers);
 			})
 			.catch(() => {
 				setSkills([]);
 				setAgents([]);
 				setCommands([]);
+				setWorkflows([]);
 				setMcpServers([]);
 			});
-	}, [active, showForAgent]);
+	}, [active, showForAgent, workspaceId]);
 
 	useEffect(() => {
 		refreshInventories();
@@ -315,6 +338,7 @@ export function TaskLaunchSettingsPicker({
 	const attachedSkillIds = draft?.skillIds ?? [];
 	const attachedAgentIds = draft?.agentIds ?? [];
 	const attachedCommandIds = draft?.commandIds ?? [];
+	const attachedWorkflowIds = draft?.workflowIds ?? [];
 	const attachedMcpIds = draft?.mcpServerIds ?? [];
 
 	if (!showForAgent) {
@@ -338,7 +362,7 @@ export function TaskLaunchSettingsPicker({
 		if (patch.modelId === "") {
 			delete next.modelId;
 		}
-		for (const key of ["skillIds", "agentIds", "commandIds", "mcpServerIds"] as const) {
+		for (const key of ["skillIds", "agentIds", "commandIds", "workflowIds", "mcpServerIds"] as const) {
 			if (patch[key] !== undefined && (patch[key]?.length ?? 0) === 0) {
 				delete next[key];
 			}
@@ -382,6 +406,7 @@ export function TaskLaunchSettingsPicker({
 		attachedSkillIds.length > 0 ||
 		attachedAgentIds.length > 0 ||
 		attachedCommandIds.length > 0 ||
+		attachedWorkflowIds.length > 0 ||
 		attachedMcpIds.length > 0;
 
 	return (
@@ -473,6 +498,20 @@ export function TaskLaunchSettingsPicker({
 				onAdd={(id) => addAllowlistId("commandIds", id)}
 				onRemove={(id) => removeAllowlistId("commandIds", id)}
 			/>
+
+			{workflows.length > 0 ? (
+				<ResourceAllowlistSection
+					title="Workflow"
+					allLabel="All available"
+					addLabel="Add workflow…"
+					attachedIds={attachedWorkflowIds}
+					items={workflows}
+					pick={workflowPick}
+					setPick={setWorkflowPick}
+					onAdd={(id) => addAllowlistId("workflowIds", id)}
+					onRemove={(id) => removeAllowlistId("workflowIds", id)}
+				/>
+			) : null}
 
 			<ResourceAllowlistSection
 				title="MCP"

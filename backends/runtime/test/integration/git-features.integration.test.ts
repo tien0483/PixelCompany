@@ -9,6 +9,7 @@ import {
 	commitWorkspaceChanges,
 	getMergeConflicts,
 	resolveMergeConflict,
+	runGitCreateBranchAction,
 	runGitSyncAction,
 } from "../../src/workspace/git-sync";
 import { createGitTestEnv } from "../utilities/git-env";
@@ -73,6 +74,52 @@ describe("git feature backends integration", () => {
 		expect(response.lines).toHaveLength(3);
 		// createGitTestEnv sets GIT_AUTHOR_NAME=Test, which overrides local config.
 		expect(response.lines[0]).toMatchObject({ lineNumber: 1, author: "Test", summary: "init" });
+	});
+
+	it("creates a new branch from a start point without moving HEAD", async () => {
+		const startBranch = git(repo, ["rev-parse", "--abbrev-ref", "HEAD"]);
+		const startHead = git(repo, ["rev-parse", "HEAD"]);
+
+		const response = await runGitCreateBranchAction({
+			cwd: repo,
+			newBranch: "feature/new-work",
+			startPoint: startBranch,
+		});
+
+		expect(response.ok).toBe(true);
+		expect(response.branch).toBe("feature/new-work");
+		expect(response.startPoint).toBe(startBranch);
+		// The new branch now exists...
+		expect(git(repo, ["branch", "--list", "feature/new-work"])).toContain("feature/new-work");
+		// ...and HEAD did not move: still on the original branch at the original commit.
+		expect(git(repo, ["rev-parse", "--abbrev-ref", "HEAD"])).toBe(startBranch);
+		expect(git(repo, ["rev-parse", "HEAD"])).toBe(startHead);
+		// Both refs point at the same commit.
+		expect(git(repo, ["rev-parse", "feature/new-work"])).toBe(startHead);
+	});
+
+	it("rejects creating a branch that already exists", async () => {
+		const startBranch = git(repo, ["rev-parse", "--abbrev-ref", "HEAD"]);
+		git(repo, ["branch", "existing"]);
+
+		const response = await runGitCreateBranchAction({
+			cwd: repo,
+			newBranch: "existing",
+			startPoint: startBranch,
+		});
+
+		expect(response.ok).toBe(false);
+		expect(response.error).toContain("already exists");
+	});
+
+	it("rejects an empty branch name before touching git", async () => {
+		const response = await runGitCreateBranchAction({
+			cwd: repo,
+			newBranch: "   ",
+			startPoint: "HEAD",
+		});
+		expect(response.ok).toBe(false);
+		expect(response.error).toContain("Branch name cannot be empty.");
 	});
 
 	it("detects and resolves a merge conflict by picking ours (Phase 7)", async () => {

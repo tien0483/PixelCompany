@@ -75,6 +75,8 @@ interface GitHistoryViewProps {
 	onCheckoutBranch?: (branch: string) => void;
 	onDeleteBranch?: (branch: string) => void;
 	isDeleteBranchPending?: boolean;
+	onCreateBranch?: (newBranch: string, startPoint: string) => void;
+	isCreateBranchPending?: boolean;
 	onDiscardWorkingChanges?: () => void;
 	isDiscardWorkingChangesPending?: boolean;
 }
@@ -85,6 +87,8 @@ export function GitHistoryView({
 	onCheckoutBranch,
 	onDeleteBranch,
 	isDeleteBranchPending = false,
+	onCreateBranch,
+	isCreateBranchPending = false,
 	onDiscardWorkingChanges,
 	isDiscardWorkingChangesPending = false,
 }: GitHistoryViewProps): React.ReactElement {
@@ -202,6 +206,8 @@ export function GitHistoryView({
 				onSelectWorkingCopy={gitHistory.hasWorkingCopy ? gitHistory.selectWorkingCopy : undefined}
 				onCheckoutRef={onCheckoutBranch}
 				onDeleteRef={onDeleteBranch ? setBranchPendingDelete : undefined}
+				onCreateBranch={onCreateBranch}
+				isCreateBranchPending={isCreateBranchPending}
 				onRefresh={() => gitHistory.refresh()}
 				isRefreshing={gitHistory.isRefsLoading}
 			/>

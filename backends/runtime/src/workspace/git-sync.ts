@@ -4,6 +4,7 @@ import { join } from "node:path";
 
 import type {
 	RuntimeGitCheckoutResponse,
+	RuntimeGitCreateBranchResponse,
 	RuntimeGitDeleteBranchResponse,
 	RuntimeGitMergeBranchResponse,
 	RuntimeGitCommitResponse,
@@ -16,7 +17,8 @@ import type {
 	RuntimeGitSyncResponse,
 	RuntimeGitSyncSummary,
 } from "../core/api-contract";
-import { runGit } from "./git-utils";
+import { appendBranchRegistryStatusLog, getActiveBranchEntry } from "./branch-registry";
+import { getGitStdout, runGit } from "./git-utils";
 
 interface GitPathFingerprint {
 	path: string;
@@ -474,6 +476,77 @@ export async function runGitDeleteBranchAction(options: {
 	};
 }
 
+export async function runGitCreateBranchAction(options: {
+	cwd: string;
+	newBranch: string;
+	startPoint: string;
+}): Promise<RuntimeGitCreateBranchResponse> {
+	const requestedBranch = options.newBranch.trim();
+	const startPoint = options.startPoint.trim();
+	const summary = await getGitSyncSummary(options.cwd);
+
+	if (!requestedBranch) {
+		return {
+			ok: false,
+			branch: requestedBranch,
+			startPoint,
+			summary,
+			output: "",
+			error: "Branch name cannot be empty.",
+		};
+	}
+
+	if (!startPoint) {
+		return {
+			ok: false,
+			branch: requestedBranch,
+			startPoint,
+			summary,
+			output: "",
+			error: "Start point cannot be empty.",
+		};
+	}
+
+	const repoRoot = await resolveRepoRoot(options.cwd);
+
+	const hasLocalBranch = await hasGitRef(repoRoot, `refs/heads/${requestedBranch}`);
+	if (hasLocalBranch) {
+		return {
+			ok: false,
+			branch: requestedBranch,
+			startPoint,
+			summary,
+			output: "",
+			error: `Local branch '${requestedBranch}' already exists.`,
+		};
+	}
+
+	// `git branch <new> <start>` creates the branch without moving HEAD, so creating
+	// from another ref (e.g. master) leaves the current checkout in place. git errors
+	// out on an invalid name or an unknown start point, which is surfaced cleanly below.
+	const commandResult = await runGit(repoRoot, ["branch", requestedBranch, startPoint]);
+	const nextSummary = await getGitSyncSummary(repoRoot);
+
+	if (!commandResult.ok) {
+		return {
+			ok: false,
+			branch: requestedBranch,
+			startPoint,
+			summary: nextSummary,
+			output: commandResult.output,
+			error: commandResult.error ?? "Git branch create failed.",
+		};
+	}
+
+	return {
+		ok: true,
+		branch: requestedBranch,
+		startPoint,
+		summary: nextSummary,
+		output: commandResult.output,
+	};
+}
+
 /**
  * Merges {@link options.branch} into {@link options.baseRef}. {@link options.cwd}
  * must be the worktree that currently has `baseRef` checked out. Uses `--no-ff`
@@ -535,6 +608,46 @@ export async function runGitMergeBranchAction(options: {
 		summary: nextSummary,
 		output: mergeResult.output,
 	};
+}
+
+export async function runGitSafeForcePush(options: {
+	cwd: string;
+	workspaceId: string;
+	taskId: string;
+	branch: string;
+}): Promise<{ ok: true } | { ok: false; reason: string }> {
+	const entry = await getActiveBranchEntry(options.workspaceId, options.taskId);
+	if (!entry) {
+		return { ok: false, reason: "no active registry entry for this task/branch — refusing to force-push" };
+	}
+
+	const expectedSha = await getGitStdout(["rev-parse", `origin/${options.branch}`], options.cwd).catch(() => "");
+
+	await runGit(options.cwd, ["fetch", "origin", options.branch]);
+
+	const pushResult = await runGit(options.cwd, [
+		"push",
+		`--force-with-lease=${options.branch}:${expectedSha}`,
+		"origin",
+		options.branch,
+	]);
+
+	if (!pushResult.ok) {
+		const actualSha = await getGitStdout(["rev-parse", `origin/${options.branch}`], options.cwd).catch(() => "unknown");
+		await appendBranchRegistryStatusLog(options.workspaceId, {
+			taskId: options.taskId,
+			op: "force-push-rejected",
+			detail: `expected ${expectedSha || "none"}, actual ${actualSha}`,
+		});
+		return { ok: false, reason: "push rejected — branch diverged from expected SHA, needs manual reconciliation" };
+	}
+
+	await appendBranchRegistryStatusLog(options.workspaceId, {
+		taskId: options.taskId,
+		op: "force-push",
+		detail: `${options.branch} pushed (expected ${expectedSha || "none"})`,
+	});
+	return { ok: true };
 }
 
 /**

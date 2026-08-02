@@ -2,6 +2,7 @@ import { TRPCError } from "@trpc/server";
 import type { ClineTaskSessionService } from "../cline-sdk/cline-task-session-service";
 import type {
 	RuntimeGitCheckoutResponse,
+	RuntimeGitCreateBranchResponse,
 	RuntimeGitDeleteBranchResponse,
 	RuntimeGitMergeBranchResponse,
 	RuntimeGitDiscardResponse,
@@ -16,6 +17,7 @@ import type {
 } from "../core/api-contract";
 import {
 	parseGitCheckoutRequest,
+	parseGitCreateBranchRequest,
 	parseGitDeleteBranchRequest,
 	parseGitMergeBranchRequest,
 	parseWorktreeDeleteRequest,
@@ -40,6 +42,7 @@ import {
 	revertGitFile,
 	revertGitHunk,
 	runGitCheckoutAction,
+	runGitCreateBranchAction,
 	runGitDeleteBranchAction,
 	runGitMergeBranchAction,
 	runGitSyncAction,
@@ -187,6 +190,18 @@ function createEmptyGitDeleteBranchErrorResponse(error: unknown): RuntimeGitDele
 	};
 }
 
+function createEmptyGitCreateBranchErrorResponse(error: unknown): RuntimeGitCreateBranchResponse {
+	const message = error instanceof Error ? error.message : String(error);
+	return {
+		ok: false,
+		branch: "",
+		startPoint: "",
+		summary: EMPTY_GIT_SYNC_SUMMARY,
+		output: "",
+		error: message,
+	};
+}
+
 function createEmptyGitMergeBranchErrorResponse(error: unknown): RuntimeGitMergeBranchResponse {
 	const message = error instanceof Error ? error.message : String(error);
 	return {
@@ -310,6 +325,25 @@ export function createWorkspaceApi(deps: CreateWorkspaceApiDependencies): Runtim
 				return response;
 			} catch (error) {
 				return createEmptyGitDeleteBranchErrorResponse(error);
+			}
+		},
+		createGitBranch: async (workspaceScope, input) => {
+			try {
+				const body = parseGitCreateBranchRequest(input);
+				const response = await runGitCreateBranchAction({
+					cwd: workspaceScope.workspacePath,
+					newBranch: body.newBranch,
+					startPoint: body.startPoint,
+				});
+				if (response.ok) {
+					void deps.broadcastRuntimeWorkspaceStateUpdated(
+						workspaceScope.workspaceId,
+						workspaceScope.workspacePath,
+					);
+				}
+				return response;
+			} catch (error) {
+				return createEmptyGitCreateBranchErrorResponse(error);
 			}
 		},
 		mergeTaskBranch: async (workspaceScope, input) => {

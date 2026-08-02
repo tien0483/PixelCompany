@@ -306,6 +306,147 @@ describe("TaskLaunchSettingsPicker", () => {
 		expect(onChange).toHaveBeenCalledWith(undefined);
 	});
 
+	it("passes the active workspaceId to listSkillInventory", async () => {
+		await act(async () => {
+			renderUi(
+				<TaskLaunchSettingsPicker
+					active
+					agentId="claude"
+					workspaceId="ws-1"
+					value={undefined}
+					onChange={() => undefined}
+				/>,
+			);
+		});
+		await act(async () => {
+			await Promise.resolve();
+		});
+		expect(listSkillInventoryQuery).toHaveBeenCalledWith({ workspaceId: "ws-1" });
+	});
+
+	it("badges project-local items and leaves global ones unbadged", async () => {
+		listSkillInventoryQuery.mockResolvedValue({
+			skills: [
+				{ id: "review", displayName: "review", description: "Global review.", source: "disk", origin: "global" },
+				{
+					id: "local-skill",
+					displayName: "local-skill",
+					description: "Project skill.",
+					source: "disk",
+					origin: "project",
+					root: "agent",
+				},
+			],
+			agents: [],
+			commands: [],
+			workflows: [],
+		});
+		await act(async () => {
+			renderUi(
+				<TaskLaunchSettingsPicker
+					active
+					agentId="claude"
+					value={{ skillIds: ["review", "local-skill"] }}
+					onChange={() => undefined}
+				/>,
+			);
+		});
+		await act(async () => {
+			await Promise.resolve();
+		});
+
+		const badges = container.querySelectorAll('[data-testid="task-launch-project-badge"]');
+		expect(badges.length).toBe(1);
+		const projectChip = container.querySelector('button[aria-label="Remove local-skill"]')?.parentElement;
+		expect(projectChip?.querySelector('[data-testid="task-launch-project-badge"]')).toBeTruthy();
+		const globalChip = container.querySelector('button[aria-label="Remove review"]')?.parentElement;
+		expect(globalChip?.querySelector('[data-testid="task-launch-project-badge"]')).toBeNull();
+	});
+
+	it("renders a Workflows section from inventory workflows", async () => {
+		listSkillInventoryQuery.mockResolvedValue({
+			skills: [],
+			agents: [],
+			commands: [],
+			workflows: [
+				{
+					id: "deploy",
+					displayName: "deploy",
+					description: "Deploy workflow.",
+					source: "disk",
+					origin: "project",
+					root: "agent",
+				},
+			],
+		});
+		await act(async () => {
+			renderUi(
+				<TaskLaunchSettingsPicker active agentId="claude" value={undefined} onChange={() => undefined} />,
+			);
+		});
+		await act(async () => {
+			await Promise.resolve();
+		});
+
+		const workflowSelect = Array.from(container.querySelectorAll("select")).find((select) =>
+			Array.from(select.options).some((option) => option.textContent === "Add workflow…"),
+		);
+		expect(workflowSelect).toBeTruthy();
+		const deployOption = Array.from(workflowSelect!.options).find((option) => option.value === "deploy");
+		expect(deployOption?.textContent).toContain("this project");
+	});
+
+	it("emits selected workflowIds through onChange", async () => {
+		const onChange = vi.fn();
+		listSkillInventoryQuery.mockResolvedValue({
+			skills: [],
+			agents: [],
+			commands: [],
+			workflows: [
+				{
+					id: "deploy",
+					displayName: "deploy",
+					description: "Deploy workflow.",
+					source: "disk",
+					origin: "project",
+					root: "agent",
+				},
+			],
+		});
+		await act(async () => {
+			renderUi(<TaskLaunchSettingsPicker active agentId="claude" value={undefined} onChange={onChange} />);
+		});
+		await act(async () => {
+			await Promise.resolve();
+		});
+
+		const workflowSelect = Array.from(container.querySelectorAll("select")).find((select) =>
+			Array.from(select.options).some((option) => option.textContent === "Add workflow…"),
+		);
+		expect(workflowSelect).toBeTruthy();
+		await act(async () => {
+			workflowSelect!.value = "deploy";
+			workflowSelect!.dispatchEvent(new Event("change", { bubbles: true }));
+		});
+		expect(onChange).toHaveBeenCalledWith({ workflowIds: ["deploy"] });
+	});
+
+	it("omits the Workflows section when there are no workflows", async () => {
+		await act(async () => {
+			renderUi(
+				<TaskLaunchSettingsPicker active agentId="claude" value={undefined} onChange={() => undefined} />,
+			);
+		});
+		await act(async () => {
+			await Promise.resolve();
+		});
+
+		const workflowSelect = Array.from(container.querySelectorAll("select")).find((select) =>
+			Array.from(select.options).some((option) => option.textContent === "Add workflow…"),
+		);
+		expect(workflowSelect).toBeUndefined();
+	});
+
 	it("clears all launch tags from the clear action", async () => {
 		const onChange = vi.fn();
 		await act(async () => {
