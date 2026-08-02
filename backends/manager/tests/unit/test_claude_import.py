@@ -27,7 +27,7 @@ _LOCAL_OAUTH = {
 }
 
 _PROFILE = {
-    "account": {"email_address": "dev@example.com", "display_name": "Dev"},
+    "account": {"email": "dev@example.com", "display_name": "Dev"},
     "organization": {
         "uuid": "org-123",
         "name": "Acme",
@@ -100,6 +100,17 @@ def test_import_raises_when_profile_has_no_email(db, monkeypatch):
     _patch_local(monkeypatch, profile={})
     with pytest.raises(ClaudeImportError):
         asyncio.run(import_claude_cli_account(db))
+
+
+def test_import_accepts_email_address_fallback_key(db, monkeypatch):
+    """Older/other profile shapes may still use "email_address"."""
+    profile = {
+        **_PROFILE,
+        "account": {"email_address": "legacy@example.com", "display_name": "Dev"},
+    }
+    _patch_local(monkeypatch, profile=profile)
+    acct = asyncio.run(import_claude_cli_account(db))
+    assert acct["email"] == "legacy@example.com"
 
 
 def test_make_active_sets_claude_active(db, monkeypatch):

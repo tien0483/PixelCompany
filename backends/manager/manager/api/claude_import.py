@@ -101,7 +101,9 @@ async def import_claude_cli_account(db, make_active: bool = False) -> dict:
 
     account = profile.get("account", {}) or {}
     org = profile.get("organization", {}) or {}
-    email = account.get("email_address")
+    # Live profile response uses "email"; "email_address" kept as a fallback
+    # for other callers/shapes that still use that key.
+    email = account.get("email") or account.get("email_address")
     if not email:
         raise ClaudeImportError(
             "could not resolve the Claude account email from the local login — the "

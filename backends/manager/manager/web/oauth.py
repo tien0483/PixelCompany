@@ -845,6 +845,7 @@ class OAuthFlow:
         # already contains the email in tokens["email"] from the account field.
         cc_email = (
             tokens.get("email")
+            or profile.get("account", {}).get("email")
             or profile.get("account", {}).get("email_address")
         )
         if not cc_email:
