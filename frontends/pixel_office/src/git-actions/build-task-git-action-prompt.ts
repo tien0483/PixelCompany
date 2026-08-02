@@ -14,6 +14,25 @@ export const TASK_GIT_BASE_REF_PROMPT_VARIABLE: TaskGitPromptVariable = {
 	description: "the branch this task worktree was created from",
 };
 
+export const TASK_GIT_TASK_BRANCH_PROMPT_VARIABLE: TaskGitPromptVariable = {
+	key: "task_branch",
+	token: "{{task_branch}}",
+	description: "the dedicated branch to commit this task's work onto",
+};
+
+/**
+ * Deterministic name for a task's commit branch. The commit agent creates this
+ * branch and the "Merge → base" card button merges the task worktree's branch
+ * back into the base ref, so both sides agree on a predictable name.
+ */
+export function deriveTaskBranchName(taskId: string): string {
+	const normalized = taskId
+		.trim()
+		.replace(/[^A-Za-z0-9._/-]+/g, "-")
+		.replace(/^[-/]+|[-/]+$/g, "");
+	return `kanban/task-${normalized || "task"}`;
+}
+
 export interface TaskGitPromptTemplates {
 	commitPromptTemplate?: string | null;
 	openPrPromptTemplate?: string | null;
@@ -61,6 +80,7 @@ function interpolateTemplate(template: string, variables: Record<string, string>
 export function buildTaskGitActionPrompt(input: BuildTaskGitActionPromptInput): string {
 	const variables: Record<string, string> = {
 		[TASK_GIT_BASE_REF_PROMPT_VARIABLE.key]: input.workspaceInfo.baseRef,
+		[TASK_GIT_TASK_BRANCH_PROMPT_VARIABLE.key]: deriveTaskBranchName(input.workspaceInfo.taskId),
 	};
 	const template = resolveTemplate(input.action, input.templates);
 	return interpolateTemplate(template, variables);

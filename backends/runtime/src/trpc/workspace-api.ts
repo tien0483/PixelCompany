@@ -3,6 +3,7 @@ import type { ClineTaskSessionService } from "../cline-sdk/cline-task-session-se
 import type {
 	RuntimeGitCheckoutResponse,
 	RuntimeGitDeleteBranchResponse,
+	RuntimeGitMergeBranchResponse,
 	RuntimeGitDiscardResponse,
 	RuntimeGitRevertResponse,
 	RuntimeGitSummaryResponse,
@@ -16,6 +17,7 @@ import type {
 import {
 	parseGitCheckoutRequest,
 	parseGitDeleteBranchRequest,
+	parseGitMergeBranchRequest,
 	parseWorktreeDeleteRequest,
 	parseWorktreeEnsureRequest,
 } from "../core/api-validation";
@@ -39,6 +41,7 @@ import {
 	revertGitHunk,
 	runGitCheckoutAction,
 	runGitDeleteBranchAction,
+	runGitMergeBranchAction,
 	runGitSyncAction,
 } from "../workspace/git-sync";
 import { listGitWorktrees } from "../workspace/git-worktree-inventory";
@@ -184,6 +187,18 @@ function createEmptyGitDeleteBranchErrorResponse(error: unknown): RuntimeGitDele
 	};
 }
 
+function createEmptyGitMergeBranchErrorResponse(error: unknown): RuntimeGitMergeBranchResponse {
+	const message = error instanceof Error ? error.message : String(error);
+	return {
+		ok: false,
+		branch: "",
+		baseRef: "",
+		summary: EMPTY_GIT_SYNC_SUMMARY,
+		output: "",
+		error: message,
+	};
+}
+
 function createEmptyGitDiscardErrorResponse(error: unknown): RuntimeGitDiscardResponse {
 	const message = error instanceof Error ? error.message : String(error);
 	return {
@@ -295,6 +310,44 @@ export function createWorkspaceApi(deps: CreateWorkspaceApiDependencies): Runtim
 				return response;
 			} catch (error) {
 				return createEmptyGitDeleteBranchErrorResponse(error);
+			}
+		},
+		mergeTaskBranch: async (workspaceScope, input) => {
+			try {
+				const body = parseGitMergeBranchRequest(input);
+				const info = await getTaskWorkspaceInfo({
+					cwd: workspaceScope.workspacePath,
+					taskId: body.taskId,
+					baseRef: body.baseRef,
+				});
+				if (!info.exists) {
+					throw new Error("Task worktree not found. Start the task before merging.");
+				}
+				if (!info.branch || info.isDetached) {
+					throw new Error("Task has no committed branch yet. Run Commit on the task first.");
+				}
+				const inventory = await listGitWorktrees(workspaceScope.workspacePath);
+				if (!inventory.ok) {
+					throw new Error(inventory.error ?? "Could not list git worktrees.");
+				}
+				const baseWorktree = inventory.worktrees.find((entry) => entry.branch === body.baseRef);
+				if (!baseWorktree) {
+					throw new Error(`Check out '${body.baseRef}' in a worktree before merging.`);
+				}
+				const response = await runGitMergeBranchAction({
+					cwd: baseWorktree.path,
+					branch: info.branch,
+					baseRef: body.baseRef,
+				});
+				if (response.ok) {
+					void deps.broadcastRuntimeWorkspaceStateUpdated(
+						workspaceScope.workspaceId,
+						workspaceScope.workspacePath,
+					);
+				}
+				return response;
+			} catch (error) {
+				return createEmptyGitMergeBranchErrorResponse(error);
 			}
 		},
 		discardGitChanges: async (workspaceScope, input) => {

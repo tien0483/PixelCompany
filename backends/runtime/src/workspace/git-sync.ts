@@ -5,6 +5,7 @@ import { join } from "node:path";
 import type {
 	RuntimeGitCheckoutResponse,
 	RuntimeGitDeleteBranchResponse,
+	RuntimeGitMergeBranchResponse,
 	RuntimeGitCommitResponse,
 	RuntimeGitConflictSide,
 	RuntimeGitConflictsResponse,
@@ -470,6 +471,69 @@ export async function runGitDeleteBranchAction(options: {
 		branch: requestedBranch,
 		summary: nextSummary,
 		output: commandResult.output,
+	};
+}
+
+/**
+ * Merges {@link options.branch} into {@link options.baseRef}. {@link options.cwd}
+ * must be the worktree that currently has `baseRef` checked out. Uses `--no-ff`
+ * so the merge is always an explicit commit, and aborts the merge on conflict so
+ * the base worktree is never left half-merged.
+ */
+export async function runGitMergeBranchAction(options: {
+	cwd: string;
+	branch: string;
+	baseRef: string;
+}): Promise<RuntimeGitMergeBranchResponse> {
+	const branch = options.branch.trim();
+	const baseRef = options.baseRef.trim();
+	const initialSummary = await getGitSyncSummary(options.cwd);
+
+	if (!branch) {
+		return { ok: false, branch, baseRef, summary: initialSummary, output: "", error: "Task branch name cannot be empty." };
+	}
+
+	if (initialSummary.currentBranch !== baseRef) {
+		return {
+			ok: false,
+			branch,
+			baseRef,
+			summary: initialSummary,
+			output: "",
+			error: `Expected '${baseRef}' to be checked out for the merge but found '${initialSummary.currentBranch ?? "a detached HEAD"}'.`,
+		};
+	}
+
+	const mergeResult = await runGit(options.cwd, [
+		"merge",
+		"--no-ff",
+		branch,
+		"-m",
+		`Merge branch '${branch}' into ${baseRef}`,
+	]);
+	const nextSummary = await getGitSyncSummary(options.cwd);
+
+	if (!mergeResult.ok) {
+		// Leave the base worktree clean; the user resolves conflicts deliberately.
+		await runGit(options.cwd, ["merge", "--abort"]);
+		return {
+			ok: false,
+			branch,
+			baseRef,
+			summary: nextSummary,
+			output: mergeResult.output,
+			error:
+				mergeResult.error ??
+				`Could not merge '${branch}' into ${baseRef} (likely conflicts). The merge was aborted; resolve it manually.`,
+		};
+	}
+
+	return {
+		ok: true,
+		branch,
+		baseRef,
+		summary: nextSummary,
+		output: mergeResult.output,
 	};
 }
 

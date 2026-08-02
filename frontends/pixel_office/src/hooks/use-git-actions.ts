@@ -63,6 +63,7 @@ export interface UseGitActionsResult {
 	taskGitActionLoadingByTaskId: Record<string, TaskGitActionLoadingState>;
 	commitTaskLoadingById: Record<string, boolean>;
 	openPrTaskLoadingById: Record<string, boolean>;
+	mergeTaskLoadingById: Record<string, boolean>;
 	agentCommitTaskLoadingById: Record<string, boolean>;
 	agentOpenPrTaskLoadingById: Record<string, boolean>;
 	isSwitchingHomeBranch: boolean;
@@ -99,6 +100,7 @@ export interface UseGitActionsResult {
 	) => Promise<{ ok: boolean; url: string | null }>;
 	handleCommitTask: (taskId: string) => void;
 	handleOpenPrTask: (taskId: string) => void;
+	handleMergeTaskBranch: (taskId: string) => void;
 	handleAgentCommitTask: (taskId: string) => void;
 	handleAgentOpenPrTask: (taskId: string) => void;
 	runAutoReviewGitAction: (
@@ -137,6 +139,7 @@ export function useGitActions({
 		useState<Record<string, TaskGitActionLoadingState>>({});
 	const [isSwitchingHomeBranch, setIsSwitchingHomeBranch] = useState(false);
 	const [isDeletingHomeBranch, setIsDeletingHomeBranch] = useState(false);
+	const [mergeTaskLoadingById, setMergeTaskLoadingById] = useState<Record<string, boolean>>({});
 	const [isDiscardingHomeWorkingChanges, setIsDiscardingHomeWorkingChanges] =
 		useState(false);
 	const [gitActionError, setGitActionError] = useState<{
@@ -440,6 +443,91 @@ export function useGitActions({
 			void runTaskGitAction(taskId, "pr", "card");
 		},
 		[runTaskGitAction],
+	);
+
+	const mergeTaskBranch = useCallback(
+		async (taskId: string) => {
+			if (!currentProjectId || mergeTaskLoadingById[taskId]) {
+				return;
+			}
+			const selection = findCardSelection(board, taskId);
+			if (!selection) {
+				showAppToast({
+					intent: "danger",
+					icon: "warning-sign",
+					message: "Could not find the task to merge.",
+					timeout: 6000,
+				});
+				return;
+			}
+			setMergeTaskLoadingById((current) => ({ ...current, [taskId]: true }));
+			try {
+				const workspaceInfo = await fetchTaskWorkspaceInfo(selection.card);
+				if (!workspaceInfo) {
+					showAppToast({
+						intent: "danger",
+						icon: "warning-sign",
+						message: "Could not resolve task workspace details.",
+						timeout: 6000,
+					});
+					return;
+				}
+				const trpcClient = getRuntimeTrpcClient(currentProjectId);
+				const payload = await trpcClient.workspace.mergeTaskBranch.mutate({
+					taskId: workspaceInfo.taskId,
+					baseRef: workspaceInfo.baseRef,
+				});
+				if (!payload.ok) {
+					if (payload.summary) {
+						setHomeGitSummary(payload.summary);
+					}
+					showAppToast({
+						intent: "danger",
+						icon: "warning-sign",
+						message: `Merge failed. ${payload.error ?? ""}`.trim(),
+						timeout: 8000,
+					});
+					return;
+				}
+				setHomeGitSummary(payload.summary);
+				refreshGitHistory();
+				await refreshWorkspaceState();
+				showAppToast({
+					intent: "success",
+					icon: "tick",
+					message: `Merged ${payload.branch} into ${payload.baseRef}.`,
+					timeout: 5000,
+				});
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error);
+				showAppToast({
+					intent: "danger",
+					icon: "warning-sign",
+					message: `Merge failed. ${message}`,
+					timeout: 8000,
+				});
+			} finally {
+				setMergeTaskLoadingById((current) => {
+					const { [taskId]: _removed, ...rest } = current;
+					return rest;
+				});
+			}
+		},
+		[
+			board,
+			currentProjectId,
+			fetchTaskWorkspaceInfo,
+			mergeTaskLoadingById,
+			refreshGitHistory,
+			refreshWorkspaceState,
+		],
+	);
+
+	const handleMergeTaskBranch = useCallback(
+		(taskId: string) => {
+			void mergeTaskBranch(taskId);
+		},
+		[mergeTaskBranch],
 	);
 
 	const handleAgentCommitTask = useCallback(
@@ -849,6 +937,7 @@ export function useGitActions({
 		setTaskGitActionLoadingByTaskId({});
 		setIsSwitchingHomeBranch(false);
 		setIsDeletingHomeBranch(false);
+		setMergeTaskLoadingById({});
 		setIsDiscardingHomeWorkingChanges(false);
 		setGitActionError(null);
 	}, []);
@@ -877,6 +966,7 @@ export function useGitActions({
 		taskGitActionLoadingByTaskId,
 		commitTaskLoadingById,
 		openPrTaskLoadingById,
+		mergeTaskLoadingById,
 		agentCommitTaskLoadingById,
 		agentOpenPrTaskLoadingById,
 		isSwitchingHomeBranch,
@@ -898,6 +988,7 @@ export function useGitActions({
 		createHomePullRequest,
 		handleCommitTask,
 		handleOpenPrTask,
+		handleMergeTaskBranch,
 		handleAgentCommitTask,
 		handleAgentOpenPrTask,
 		runAutoReviewGitAction,

@@ -2,7 +2,7 @@ import { Draggable } from "@hello-pangea/dnd";
 import { getRuntimeAgentCatalogEntry } from "@runtime-agent-catalog";
 import { formatClineToolCallLabel } from "@runtime-cline-tool-call-display";
 import { buildTaskWorktreeDisplayPath } from "@runtime-task-worktree-path";
-import { AlertCircle, AlertTriangle, Bot, GitBranch, Pencil, Play, RotateCcw, Trash2 } from "lucide-react";
+import { AlertCircle, AlertTriangle, Bot, GitBranch, GitMerge, Pencil, Play, RotateCcw, Trash2 } from "lucide-react";
 import type { KeyboardEvent, MouseEvent } from "react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -237,9 +237,11 @@ export function BoardCard({
 	onSaveTitle,
 	onCommit,
 	onOpenPr,
+	onMerge,
 	onCancelAutomaticAction,
 	isCommitLoading = false,
 	isOpenPrLoading = false,
+	isMergeLoading = false,
 	isMoveToTrashLoading = false,
 	onDependencyPointerDown,
 	onDependencyPointerEnter,
@@ -262,9 +264,11 @@ export function BoardCard({
 	onSaveTitle?: (taskId: string, title: string) => void;
 	onCommit?: (taskId: string) => void;
 	onOpenPr?: (taskId: string) => void;
+	onMerge?: (taskId: string) => void;
 	onCancelAutomaticAction?: (taskId: string) => void;
 	isCommitLoading?: boolean;
 	isOpenPrLoading?: boolean;
+	isMergeLoading?: boolean;
 	isMoveToTrashLoading?: boolean;
 	onDependencyPointerDown?: (
 		taskId: string,
@@ -446,7 +450,7 @@ export function BoardCard({
 				}
 		: null;
 	const showReviewGitActions = columnId === "review" && (reviewWorkspaceSnapshot?.changedFiles ?? 0) > 0;
-	const isAnyGitActionLoading = isCommitLoading || isOpenPrLoading;
+	const isAnyGitActionLoading = isCommitLoading || isOpenPrLoading || isMergeLoading;
 	const cancelAutomaticActionLabel =
 		!isTrashCard && card.autoReviewEnabled ? getTaskAutoReviewCancelButtonLabel(card.autoReviewMode) : null;
 	const agentOverrideLabel = useMemo(
@@ -877,6 +881,23 @@ export function BoardCard({
 										}}
 									>
 										Open PR
+									</Button>
+								</div>
+							) : null}
+							{showReviewGitActions && onMerge ? (
+								<div className="flex mt-1.5">
+									<Button
+										size="sm"
+										fill
+										icon={isMergeLoading ? <Spinner size={12} /> : <GitMerge size={12} />}
+										disabled={isAnyGitActionLoading}
+										onMouseDown={stopEvent}
+										onClick={(event) => {
+											stopEvent(event);
+											onMerge(card.id);
+										}}
+									>
+										Merge to base
 									</Button>
 								</div>
 							) : null}

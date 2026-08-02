@@ -37,7 +37,11 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
 import { Dialog, DialogFooter, DialogHeader } from "@/components/ui/dialog";
 import { NativeSelect } from "@/components/ui/native-select";
-import { TASK_GIT_BASE_REF_PROMPT_VARIABLE, type TaskGitAction } from "@/git-actions/build-task-git-action-prompt";
+import {
+	TASK_GIT_BASE_REF_PROMPT_VARIABLE,
+	TASK_GIT_TASK_BRANCH_PROMPT_VARIABLE,
+	type TaskGitAction,
+} from "@/git-actions/build-task-git-action-prompt";
 import { useRuntimeSettingsClineController } from "@/hooks/use-runtime-settings-cline-controller";
 import { useRuntimeSettingsClineMcpController } from "@/hooks/use-runtime-settings-cline-mcp-controller";
 import { previewThemeId, readStoredThemeId, saveThemeId, THEME_GROUPS, THEMES, type ThemeId } from "@/hooks/use-theme";
@@ -905,6 +909,28 @@ export function RuntimeSettingsDialog({
 							/>{" "}
 							to reference {TASK_GIT_BASE_REF_PROMPT_VARIABLE.description}
 						</p>
+						{selectedPromptVariant === "commit" ? (
+							<p className="text-text-secondary text-[13px] mt-1 mb-0">
+								Use{" "}
+								<InlineUtilityButton
+									text={
+										copiedVariableToken === TASK_GIT_TASK_BRANCH_PROMPT_VARIABLE.token
+											? "Copied!"
+											: TASK_GIT_TASK_BRANCH_PROMPT_VARIABLE.token
+									}
+									monospace
+									widthCh={
+										Math.max(TASK_GIT_TASK_BRANCH_PROMPT_VARIABLE.token.length, "Copied!".length) + 2
+									}
+									onClick={() => {
+										handleCopyVariableToken(TASK_GIT_TASK_BRANCH_PROMPT_VARIABLE.token);
+									}}
+									disabled={controlsDisabled}
+								/>{" "}
+								to reference {TASK_GIT_TASK_BRANCH_PROMPT_VARIABLE.description}. Commits stay on this branch
+								until you merge it into the base from the task card.
+							</p>
+						) : null}
 					</div>
 
 					{/* ---- Notifications ---- */}

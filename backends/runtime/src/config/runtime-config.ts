@@ -61,29 +61,22 @@ const DEFAULT_AGENT_ID: RuntimeAgentId = "claude";
 const AUTO_SELECT_AGENT_PRIORITY: readonly RuntimeAgentId[] = ["claude", "cursor"];
 const DEFAULT_AGENT_AUTONOMOUS_MODE_ENABLED = true;
 const DEFAULT_READY_FOR_REVIEW_NOTIFICATIONS_ENABLED = true;
-const DEFAULT_COMMIT_PROMPT_TEMPLATE = `You are in a worktree on a detached HEAD. When you are finished with the task, commit the working changes onto {{base_ref}}.
+const DEFAULT_COMMIT_PROMPT_TEMPLATE = `You are in a worktree on a detached HEAD, created from {{base_ref}}. When you finish the task, commit the working changes onto a dedicated task branch. Do NOT modify {{base_ref}} — a human merges the task branch into {{base_ref}} later from the board (the "Merge → {{base_ref}}" button on the task card takes effect in {{base_ref}}).
 
 - Do not run destructive commands: git reset --hard, git clean -fdx, git worktree remove, rm/mv on repository paths.
-- Do not edit files outside git workflows unless required for conflict resolution.
-- Preserve any pre-existing user uncommitted changes in the base worktree.
+- Do not check out, cherry-pick onto, or otherwise touch the {{base_ref}} worktree.
+- Keep all work in the current task worktree.
 
 Steps:
-1. In the current task worktree, stage and create a commit for the pending task changes.
-2. Find where {{base_ref}} is checked out:
-   - Run: git worktree list --porcelain
-   - If branch {{base_ref}} is checked out in path P, use that P.
-   - If not checked out anywhere, use current worktree as P by checking out {{base_ref}} there.
-3. In P, verify current branch is {{base_ref}}.
-4. If P has uncommitted changes, stash them: git -C P stash push -u -m "kanban-pre-cherry-pick"
-5. Cherry-pick the task commit into P. If this fails because .git/index.lock exists, wait briefly for any active git process to finish. If the lock remains and no git process is active, treat the lock as stale, remove it, and retry.
-6. If cherry-pick conflicts, resolve carefully, preserving both the intended task changes and existing user edits.
-7. If step 4 created a new stash entry, restore that stash with: git -C P stash pop <stash-ref>
-8. If stash pop conflicts, resolve them while preserving pre-existing user edits.
-9. Report:
+1. In the current task worktree, stage the pending task changes (git add -A, or stage the intended files).
+2. Create the task branch at the current HEAD and switch to it: git switch -c {{task_branch}}
+   - If {{task_branch}} already exists, switch to it instead: git switch {{task_branch}}
+3. Commit the staged changes on {{task_branch}} with a clear Conventional Commits message.
+4. Do not push and do not merge into {{base_ref}}; the human does that from the board.
+5. Report:
+   - Task branch name: {{task_branch}}
    - Final commit hash
    - Final commit message
-   - Whether stash was used
-   - Whether conflicts were resolved
    - Any remaining manual follow-up needed`;
 const DEFAULT_OPEN_PR_PROMPT_TEMPLATE = `You are in a worktree on a detached HEAD. When you are finished with the task, open a pull request against {{base_ref}}.
 

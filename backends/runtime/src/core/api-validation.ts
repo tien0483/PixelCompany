@@ -15,6 +15,7 @@ import {
 	type RuntimeDirectoryListRequest,
 	type RuntimeGitCheckoutRequest,
 	type RuntimeGitDeleteBranchRequest,
+	type RuntimeGitMergeBranchRequest,
 	type RuntimeHookIngestRequest,
 	type RuntimeProjectAddRequest,
 	type RuntimeProjectRemoveRequest,
@@ -48,6 +49,7 @@ import {
 	runtimeDirectoryListRequestSchema,
 	runtimeGitCheckoutRequestSchema,
 	runtimeGitDeleteBranchRequestSchema,
+	runtimeGitMergeBranchRequestSchema,
 	runtimeHookIngestRequestSchema,
 	runtimeProjectAddRequestSchema,
 	runtimeProjectRemoveRequestSchema,
@@ -158,6 +160,22 @@ export function parseGitDeleteBranchRequest(value: unknown): RuntimeGitDeleteBra
 	return {
 		branch,
 		force: parsed.force ?? false,
+	};
+}
+
+export function parseGitMergeBranchRequest(value: unknown): RuntimeGitMergeBranchRequest {
+	const parsed = parseWithSchema(runtimeGitMergeBranchRequestSchema, value);
+	const taskId = parsed.taskId.trim();
+	const baseRef = parsed.baseRef.trim();
+	if (!taskId) {
+		throw new Error("Task id cannot be empty.");
+	}
+	if (!baseRef) {
+		throw new Error("Base ref cannot be empty.");
+	}
+	return {
+		taskId,
+		baseRef,
 	};
 }
 

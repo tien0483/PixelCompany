@@ -30,11 +30,13 @@ export function BoardColumn({
 	onSaveTitle,
 	onCommitTask,
 	onOpenPrTask,
+	onMergeTask,
 	onCancelAutomaticTaskAction,
 	onMoveToTrashTask,
 	onRestoreFromTrashTask,
 	commitTaskLoadingById,
 	openPrTaskLoadingById,
+	mergeTaskLoadingById,
 	moveToTrashLoadingById,
 	onCardClick,
 	activeDragTaskId,
@@ -65,11 +67,13 @@ export function BoardColumn({
 	onSaveTitle?: (taskId: string, title: string) => void;
 	onCommitTask?: (taskId: string) => void;
 	onOpenPrTask?: (taskId: string) => void;
+	onMergeTask?: (taskId: string) => void;
 	onCancelAutomaticTaskAction?: (taskId: string) => void;
 	onMoveToTrashTask?: (taskId: string) => void;
 	onRestoreFromTrashTask?: (taskId: string) => void;
 	commitTaskLoadingById?: Record<string, boolean>;
 	openPrTaskLoadingById?: Record<string, boolean>;
+	mergeTaskLoadingById?: Record<string, boolean>;
 	moveToTrashLoadingById?: Record<string, boolean>;
 	onCardClick?: (card: BoardCardModel) => void;
 	activeDragTaskId?: string | null;
@@ -211,9 +215,11 @@ export function BoardColumn({
 										onRestoreFromTrash={onRestoreFromTrashTask}
 										onCommit={onCommitTask}
 										onOpenPr={onOpenPrTask}
+										onMerge={onMergeTask}
 										onCancelAutomaticAction={onCancelAutomaticTaskAction}
 										isCommitLoading={commitTaskLoadingById?.[card.id] ?? false}
 										isOpenPrLoading={openPrTaskLoadingById?.[card.id] ?? false}
+										isMergeLoading={mergeTaskLoadingById?.[card.id] ?? false}
 										isMoveToTrashLoading={moveToTrashLoadingById?.[card.id] ?? false}
 										onDependencyPointerDown={onDependencyPointerDown}
 										onDependencyPointerEnter={onDependencyPointerEnter}

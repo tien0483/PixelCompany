@@ -42,11 +42,13 @@ export function KanbanBoard({
 	onSaveTaskTitle,
 	onCommitTask,
 	onOpenPrTask,
+	onMergeTask,
 	onCancelAutomaticTaskAction,
 	onMoveToTrashTask,
 	onRestoreFromTrashTask,
 	commitTaskLoadingById,
 	openPrTaskLoadingById,
+	mergeTaskLoadingById,
 	moveToTrashLoadingById,
 	dependencies,
 	onCreateDependency,
@@ -72,11 +74,13 @@ export function KanbanBoard({
 	onSaveTaskTitle?: (taskId: string, title: string) => void;
 	onCommitTask?: (taskId: string) => void;
 	onOpenPrTask?: (taskId: string) => void;
+	onMergeTask?: (taskId: string) => void;
 	onCancelAutomaticTaskAction?: (taskId: string) => void;
 	onMoveToTrashTask?: (taskId: string) => void;
 	onRestoreFromTrashTask?: (taskId: string) => void;
 	commitTaskLoadingById?: Record<string, boolean>;
 	openPrTaskLoadingById?: Record<string, boolean>;
+	mergeTaskLoadingById?: Record<string, boolean>;
 	moveToTrashLoadingById?: Record<string, boolean>;
 	dependencies: BoardDependency[];
 	onCreateDependency?: (fromTaskId: string, toTaskId: string) => void;
@@ -409,11 +413,13 @@ export function KanbanBoard({
 						onSaveTitle={column.id !== "trash" ? onSaveTaskTitle : undefined}
 						onCommitTask={column.id === "review" ? onCommitTask : undefined}
 						onOpenPrTask={column.id === "review" ? onOpenPrTask : undefined}
+						onMergeTask={column.id === "review" ? onMergeTask : undefined}
 						onCancelAutomaticTaskAction={onCancelAutomaticTaskAction}
 						onMoveToTrashTask={column.id === "review" ? onMoveToTrashTask : undefined}
 						onRestoreFromTrashTask={column.id === "trash" ? onRestoreFromTrashTask : undefined}
 						commitTaskLoadingById={column.id === "review" ? commitTaskLoadingById : undefined}
 						openPrTaskLoadingById={column.id === "review" ? openPrTaskLoadingById : undefined}
+						mergeTaskLoadingById={column.id === "review" ? mergeTaskLoadingById : undefined}
 						moveToTrashLoadingById={column.id === "review" ? moveToTrashLoadingById : undefined}
 						activeDragTaskId={activeDragTaskId}
 						activeDragSourceColumnId={activeDragSourceColumnId}

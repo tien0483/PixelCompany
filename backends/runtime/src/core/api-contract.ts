@@ -313,6 +313,22 @@ export const runtimeGitDeleteBranchResponseSchema = z.object({
 });
 export type RuntimeGitDeleteBranchResponse = z.infer<typeof runtimeGitDeleteBranchResponseSchema>;
 
+export const runtimeGitMergeBranchRequestSchema = z.object({
+	taskId: z.string(),
+	baseRef: z.string(),
+});
+export type RuntimeGitMergeBranchRequest = z.infer<typeof runtimeGitMergeBranchRequestSchema>;
+
+export const runtimeGitMergeBranchResponseSchema = z.object({
+	ok: z.boolean(),
+	branch: z.string(),
+	baseRef: z.string(),
+	summary: runtimeGitSyncSummarySchema,
+	output: z.string(),
+	error: z.string().optional(),
+});
+export type RuntimeGitMergeBranchResponse = z.infer<typeof runtimeGitMergeBranchResponseSchema>;
+
 export const runtimeGitDiscardResponseSchema = z.object({
 	ok: z.boolean(),
 	summary: runtimeGitSyncSummarySchema,

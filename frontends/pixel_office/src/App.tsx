@@ -428,6 +428,7 @@ export default function App(): ReactElement {
 		taskGitActionLoadingByTaskId,
 		commitTaskLoadingById,
 		openPrTaskLoadingById,
+		mergeTaskLoadingById,
 		agentCommitTaskLoadingById,
 		agentOpenPrTaskLoadingById,
 		isDiscardingHomeWorkingChanges,
@@ -446,6 +447,7 @@ export default function App(): ReactElement {
 		createHomePullRequest,
 		handleCommitTask,
 		handleOpenPrTask,
+		handleMergeTaskBranch,
 		handleAgentCommitTask,
 		handleAgentOpenPrTask,
 		runAutoReviewGitAction,
@@ -1245,10 +1247,12 @@ export default function App(): ReactElement {
 														onSaveTaskTitle={handleSaveTaskTitle}
 														onCommitTask={handleCommitTask}
 														onOpenPrTask={handleOpenPrTask}
+														onMergeTask={handleMergeTaskBranch}
 														onCancelAutomaticTaskAction={
 															handleCancelAutomaticTaskAction
 														}
 														commitTaskLoadingById={commitTaskLoadingById}
+														mergeTaskLoadingById={mergeTaskLoadingById}
 														openPrTaskLoadingById={openPrTaskLoadingById}
 														moveToTrashLoadingById={moveToTrashLoadingById}
 														onMoveToTrashTask={handleMoveReviewCardToTrash}
