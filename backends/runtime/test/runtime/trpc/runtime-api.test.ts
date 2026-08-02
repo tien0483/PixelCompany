@@ -131,8 +131,8 @@ import type { RuntimeTrpcContext } from "../../../src/trpc/app-router";
 import { type CreateRuntimeApiDependencies, createRuntimeApi } from "../../../src/trpc/runtime-api";
 
 function createTestRuntimeApi(
-	deps: Omit<CreateRuntimeApiDependencies, "getUpdateStatus" | "runUpdateNow"> &
-		Partial<Pick<CreateRuntimeApiDependencies, "getUpdateStatus" | "runUpdateNow">>,
+	deps: Omit<CreateRuntimeApiDependencies, "getUpdateStatus" | "runUpdateNow" | "getHostEnvironment"> &
+		Partial<Pick<CreateRuntimeApiDependencies, "getUpdateStatus" | "runUpdateNow" | "getHostEnvironment">>,
 ): RuntimeTrpcContext["runtimeApi"] {
 	return createRuntimeApi({
 		...deps,
@@ -145,6 +145,7 @@ function createTestRuntimeApi(
 				updateTiming: null,
 				installCommand: null,
 			})),
+		getHostEnvironment: deps.getHostEnvironment ?? vi.fn(() => ({ platform: "linux" as const, isWsl: false })),
 		runUpdateNow:
 			deps.runUpdateNow ??
 			vi.fn(async () => ({

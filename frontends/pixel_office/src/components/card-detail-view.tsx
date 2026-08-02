@@ -1,29 +1,46 @@
 import type { DropResult } from "@hello-pangea/dnd";
-import { Files, GitCompareArrows, Maximize2, MessageSquare, Minimize2, X } from "lucide-react";
+import {
+	Files,
+	GitCompareArrows,
+	Maximize2,
+	MessageSquare,
+	Minimize2,
+	X,
+} from "lucide-react";
 import type { MouseEvent as ReactMouseEvent, ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
 import { AgentTerminalPanel } from "@/components/detail-panels/agent-terminal-panel";
-import { ClineAgentChatPanel, type ClineAgentChatPanelHandle } from "@/components/detail-panels/cline-agent-chat-panel";
+import {
+	ClineAgentChatPanel,
+	type ClineAgentChatPanelHandle,
+} from "@/components/detail-panels/cline-agent-chat-panel";
 import { ColumnContextPanel } from "@/components/detail-panels/column-context-panel";
-import { type DiffLineComment, DiffViewerPanel } from "@/components/detail-panels/diff-viewer-panel";
+import {
+	type DiffLineComment,
+	DiffViewerPanel,
+} from "@/components/detail-panels/diff-viewer-panel";
 import { FileTreePanel } from "@/components/detail-panels/file-tree-panel";
+import { TaskLaunchSettingsPicker } from "@/components/task-launch-settings";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
 import type { ClineChatActionResult } from "@/hooks/use-cline-chat-runtime-actions";
 import type { ClineChatMessage } from "@/hooks/use-cline-chat-session";
 import { useIsMobile } from "@/hooks/use-is-mobile";
+import {
+	filterManagerAccountsForAgent,
+	TaskAccountPicker,
+} from "@/manager/task-account-picker";
 import { ResizableBottomPane } from "@/resize/resizable-bottom-pane";
 import { ResizeHandle } from "@/resize/resize-handle";
 import { useCardDetailLayout } from "@/resize/use-card-detail-layout";
 import { useResizeDrag } from "@/resize/use-resize-drag";
 import { isNativeClineAgentSelected } from "@/runtime/native-agent";
-import { TaskLaunchSettingsPicker } from "@/components/task-launch-settings";
-import { TaskAccountPicker, filterManagerAccountsForAgent } from "@/manager/task-account-picker";
 import type {
 	RuntimeAgentId,
 	RuntimeClineReasoningEffort,
 	RuntimeConfigResponse,
+	RuntimeGitBlameLine,
 	RuntimeManagerAccount,
 	RuntimeTaskLaunchSettings,
 	RuntimeTaskSessionMode,
@@ -33,23 +50,34 @@ import type {
 import { useRuntimeWorkspaceChanges } from "@/runtime/use-runtime-workspace-changes";
 import { useTaskWorkspaceStateVersionValue } from "@/stores/workspace-metadata-store";
 import { useTerminalThemeColors } from "@/terminal/theme-colors";
-import { type BoardCard, type CardSelection, getTaskAutoReviewCancelButtonLabel } from "@/types";
+import {
+	type BoardCard,
+	type CardSelection,
+	getTaskAutoReviewCancelButtonLabel,
+} from "@/types";
 import { useWindowEvent } from "@/utils/react-use";
 
 // We still poll the open detail diff because line content can change without changing
 // the overall file or line counts that drive the shared workspace metadata stream.
 const DETAIL_DIFF_POLL_INTERVAL_MS = 1_000;
-const DIFF_MODE_ACTIVE_BACKGROUND = "color-mix(in srgb, var(--color-surface-3) 80%, var(--color-text-primary))";
+const DIFF_MODE_ACTIVE_BACKGROUND =
+	"color-mix(in srgb, var(--color-surface-3) 80%, var(--color-text-primary))";
 
 function isTypingTarget(target: EventTarget | null): boolean {
 	if (!(target instanceof HTMLElement)) {
 		return false;
 	}
-	return target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable;
+	return (
+		target.tagName === "INPUT" ||
+		target.tagName === "TEXTAREA" ||
+		target.isContentEditable
+	);
 }
 
 function isEventInsideDialog(target: EventTarget | null): boolean {
-	return target instanceof Element && target.closest("[role='dialog']") !== null;
+	return (
+		target instanceof Element && target.closest("[role='dialog']") !== null
+	);
 }
 
 /** Shared factory for the three horizontal resize-drag handlers in the detail view. */
@@ -72,14 +100,30 @@ function useResizeHandler(
 			const applyDelta = (pointerX: number) => {
 				setRatio(ratio + sign * ((pointerX - startX) / containerWidth));
 			};
-			startDrag(event, { axis: "x", cursor: "ew-resize", onMove: applyDelta, onEnd: applyDelta });
+			startDrag(event, {
+				axis: "x",
+				cursor: "ew-resize",
+				onMove: applyDelta,
+				onEnd: applyDelta,
+			});
 		},
 		[containerRef, ratio, setRatio, startDrag, invert],
 	);
 }
 
-function SkeletonLine({ width, mb }: { width: string; mb?: boolean }): React.ReactElement {
-	return <div className={cn("kb-skeleton h-[13px] rounded-sm", mb && "mb-[7px]")} style={{ width }} />;
+function SkeletonLine({
+	width,
+	mb,
+}: {
+	width: string;
+	mb?: boolean;
+}): React.ReactElement {
+	return (
+		<div
+			className={cn("kb-skeleton h-[13px] rounded-sm", mb && "mb-[7px]")}
+			style={{ width }}
+		/>
+	);
 }
 
 function SkeletonFileRow({ width }: { width: string }): React.ReactElement {
@@ -91,13 +135,23 @@ function SkeletonFileRow({ width }: { width: string }): React.ReactElement {
 	);
 }
 
-function WorkspaceChangesLoadingPanel({ panelFlex }: { panelFlex: string }): React.ReactElement {
+function WorkspaceChangesLoadingPanel({
+	panelFlex,
+}: {
+	panelFlex: string;
+}): React.ReactElement {
 	return (
-		<div className="flex min-h-0 min-w-0 bg-surface-0" style={{ flex: "1.6 1 0" }}>
+		<div
+			className="flex min-h-0 min-w-0 bg-surface-0"
+			style={{ flex: "1.6 1 0" }}
+		>
 			<div className="flex flex-1 flex-col border-r border-divider">
 				<div className="px-2.5 pt-2.5 pb-1.5">
 					<div className="mb-2.5 flex items-center gap-2">
-						<div className="kb-skeleton h-3.5 rounded-sm" style={{ width: "62%" }} />
+						<div
+							className="kb-skeleton h-3.5 rounded-sm"
+							style={{ width: "62%" }}
+						/>
 						<div className="kb-skeleton h-4 w-[42px] rounded-full" />
 					</div>
 					<SkeletonLine width="92%" mb />
@@ -185,9 +239,16 @@ function BottomTerminalSection({
 	);
 }
 
-function WorkspaceChangesEmptyPanel({ title }: { title: string }): React.ReactElement {
+function WorkspaceChangesEmptyPanel({
+	title,
+}: {
+	title: string;
+}): React.ReactElement {
 	return (
-		<div className="flex min-h-0 min-w-0 bg-surface-0" style={{ flex: "1.6 1 0" }}>
+		<div
+			className="flex min-h-0 min-w-0 bg-surface-0"
+			style={{ flex: "1.6 1 0" }}
+		>
 			<div className="kb-empty-state-center flex-1">
 				<div className="flex flex-col items-center justify-center gap-3 py-12 text-text-tertiary">
 					<GitCompareArrows size={40} />
@@ -200,7 +261,11 @@ function WorkspaceChangesEmptyPanel({ title }: { title: string }): React.ReactEl
 
 type MobileTab = "chat" | "diff" | "files";
 
-const MOBILE_TABS: { id: MobileTab; label: string; icon: React.ReactElement }[] = [
+const MOBILE_TABS: {
+	id: MobileTab;
+	label: string;
+	icon: React.ReactElement;
+}[] = [
 	{ id: "chat", label: "Chat", icon: <MessageSquare size={14} /> },
 	{ id: "diff", label: "Diff", icon: <GitCompareArrows size={14} /> },
 	{ id: "files", label: "Files", icon: <Files size={14} /> },
@@ -215,7 +280,10 @@ function MobileDetailTabBar({
 }): React.ReactElement {
 	const tabs = MOBILE_TABS;
 	return (
-		<div className="flex items-center border-b border-border" style={{ minHeight: 36 }}>
+		<div
+			className="flex items-center border-b border-border"
+			style={{ minHeight: 36 }}
+		>
 			{tabs.map((tab) => (
 				<button
 					key={tab.id}
@@ -228,7 +296,9 @@ function MobileDetailTabBar({
 				>
 					{tab.icon}
 					{tab.label}
-					{activeTab === tab.id ? <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-accent" /> : null}
+					{activeTab === tab.id ? (
+						<span className="absolute bottom-0 left-0 right-0 h-0.5 bg-accent" />
+					) : null}
 				</button>
 			))}
 		</div>
@@ -291,10 +361,16 @@ function DiffToolbar({
 				/>
 			) : null}
 			<div className="inline-flex items-center gap-0.5 rounded-md p-0.5">
-				<DiffModeButton active={mode === "working_copy"} onClick={() => onModeChange("working_copy")}>
+				<DiffModeButton
+					active={mode === "working_copy"}
+					onClick={() => onModeChange("working_copy")}
+				>
 					All Changes
 				</DiffModeButton>
-				<DiffModeButton active={mode === "last_turn"} onClick={() => onModeChange("last_turn")}>
+				<DiffModeButton
+					active={mode === "last_turn"}
+					onClick={() => onModeChange("last_turn")}
+				>
 					Last Turn
 				</DiffModeButton>
 			</div>
@@ -305,7 +381,9 @@ function DiffToolbar({
 					icon={isExpanded ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
 					onClick={onToggleExpand}
 					className="ml-auto h-5"
-					aria-label={isExpanded ? "Collapse split diff view" : "Expand split diff view"}
+					aria-label={
+						isExpanded ? "Collapse split diff view" : "Expand split diff view"
+					}
 				/>
 			) : null}
 		</div>
@@ -345,6 +423,9 @@ export function CardDetailView({
 	moveToTrashLoadingById,
 	onAddReviewComments,
 	onSendReviewComments,
+	onRevertFile,
+	onRevertHunk,
+	onRequestBlame,
 	onSendClineChatMessage,
 	onCancelClineChatTurn,
 	onLoadClineChatMessages,
@@ -408,13 +489,20 @@ export function CardDetailView({
 	moveToTrashLoadingById?: Record<string, boolean>;
 	onAddReviewComments?: (taskId: string, text: string) => void;
 	onSendReviewComments?: (taskId: string, text: string) => void;
+	onRevertFile?: (path: string) => void;
+	onRevertHunk?: (path: string, hunkIndex: number) => void;
+	onRequestBlame?: (path: string) => Promise<RuntimeGitBlameLine[] | null>;
 	onSendClineChatMessage?: (
 		taskId: string,
 		text: string,
 		options?: { mode?: RuntimeTaskSessionMode },
 	) => Promise<ClineChatActionResult>;
-	onCancelClineChatTurn?: (taskId: string) => Promise<{ ok: boolean; message?: string }>;
-	onLoadClineChatMessages?: (taskId: string) => Promise<ClineChatMessage[] | null>;
+	onCancelClineChatTurn?: (
+		taskId: string,
+	) => Promise<{ ok: boolean; message?: string }>;
+	onLoadClineChatMessages?: (
+		taskId: string,
+	) => Promise<ClineChatMessage[] | null>;
 	latestClineChatMessage?: ClineChatMessage | null;
 	streamedClineChatMessages?: ClineChatMessage[] | null;
 	onMoveToTrash: () => void;
@@ -445,16 +533,28 @@ export function CardDetailView({
 	managerAccounts?: RuntimeManagerAccount[];
 	/** Account jacked currently has active, used to label the Auto option. */
 	managerActiveAccountId?: number | null;
-	onTaskManagerAccountChanged?: (taskId: string, managerAccountId: number | null) => void;
-	onTaskLaunchSettingsChanged?: (taskId: string, settings: RuntimeTaskLaunchSettings | null) => void;
-	onTaskAutoResumeOnUsageLimitChanged?: (taskId: string, enabled: boolean) => void;
+	onTaskManagerAccountChanged?: (
+		taskId: string,
+		managerAccountId: number | null,
+	) => void;
+	onTaskLaunchSettingsChanged?: (
+		taskId: string,
+		settings: RuntimeTaskLaunchSettings | null,
+	) => void;
+	onTaskAutoResumeOnUsageLimitChanged?: (
+		taskId: string,
+		enabled: boolean,
+	) => void;
 }): React.ReactElement {
 	const isMobile = useIsMobile();
 	const [mobileTab, setMobileTab] = useState<MobileTab>("chat");
 	const terminalThemeColors = useTerminalThemeColors();
 	const [selectedPath, setSelectedPath] = useState<string | null>(null);
-	const [diffComments, setDiffComments] = useState<Map<string, DiffLineComment>>(new Map());
-	const [diffMode, setDiffMode] = useState<RuntimeWorkspaceChangesMode>("working_copy");
+	const [diffComments, setDiffComments] = useState<
+		Map<string, DiffLineComment>
+	>(new Map());
+	const [diffMode, setDiffMode] =
+		useState<RuntimeWorkspaceChangesMode>("working_copy");
 	const [isDiffExpanded, setIsDiffExpanded] = useState(false);
 	const {
 		taskCardsPanelRatio,
@@ -471,7 +571,8 @@ export function CardDetailView({
 	const { startDrag: startDetailDiffResize } = useResizeDrag();
 	const detailLayoutRef = useRef<HTMLDivElement | null>(null);
 	const hasExplicitTaskClineSettings =
-		selection.card.agentId === "cline" || selection.card.clineSettings !== undefined;
+		selection.card.agentId === "cline" ||
+		selection.card.clineSettings !== undefined;
 	const mainRowRef = useRef<HTMLDivElement | null>(null);
 	const detailDiffRowRef = useRef<HTMLDivElement | null>(null);
 	const clineAgentChatPanelRef = useRef<ClineAgentChatPanelHandle | null>(null);
@@ -495,7 +596,9 @@ export function CardDetailView({
 		startDetailDiffResize,
 		true,
 	);
-	const taskWorkspaceStateVersion = useTaskWorkspaceStateVersionValue(selection.card.id);
+	const taskWorkspaceStateVersion = useTaskWorkspaceStateVersionValue(
+		selection.card.id,
+	);
 	const lastTurnViewKey =
 		diffMode === "last_turn"
 			? [
@@ -504,21 +607,31 @@ export function CardDetailView({
 					sessionSummary?.previousTurnCheckpoint?.commit ?? "none",
 				].join(":")
 			: null;
-	const { changes: workspaceChanges, isRuntimeAvailable } = useRuntimeWorkspaceChanges(
-		selection.card.id,
-		currentProjectId,
-		selection.card.baseRef,
-		diffMode,
-		taskWorkspaceStateVersion,
-		isDocumentVisible && !gitHistoryPanel && selection.column.id !== "trash" ? DETAIL_DIFF_POLL_INTERVAL_MS : null,
-		lastTurnViewKey,
-		true,
-	);
+	const { changes: workspaceChanges, isRuntimeAvailable } =
+		useRuntimeWorkspaceChanges(
+			selection.card.id,
+			currentProjectId,
+			selection.card.baseRef,
+			diffMode,
+			taskWorkspaceStateVersion,
+			isDocumentVisible && !gitHistoryPanel && selection.column.id !== "trash"
+				? DETAIL_DIFF_POLL_INTERVAL_MS
+				: null,
+			lastTurnViewKey,
+			true,
+		);
 	const runtimeFiles = workspaceChanges?.files ?? null;
-	const isWorkspaceChangesPending = isRuntimeAvailable && workspaceChanges === null;
+	const isWorkspaceChangesPending =
+		isRuntimeAvailable && workspaceChanges === null;
 	const hasNoWorkspaceFileChanges =
-		isRuntimeAvailable && workspaceChanges !== null && runtimeFiles !== null && runtimeFiles.length === 0;
-	const emptyDiffTitle = diffMode === "last_turn" ? "No changes since last turn" : "No working changes";
+		isRuntimeAvailable &&
+		workspaceChanges !== null &&
+		runtimeFiles !== null &&
+		runtimeFiles.length === 0;
+	const emptyDiffTitle =
+		diffMode === "last_turn"
+			? "No changes since last turn"
+			: "No working changes";
 	const taskCardsPanelPercent = `${(taskCardsPanelRatio * 100).toFixed(1)}%`;
 	const detailContentPanelPercent = `${((1 - taskCardsPanelRatio) * 100).toFixed(1)}%`;
 	const agentPanelPercent = `${(agentPanelRatio * 100).toFixed(1)}%`;
@@ -526,14 +639,21 @@ export function CardDetailView({
 	const detailDiffFileTreePanelPercent = `${(detailDiffFileTreeRatio * 100).toFixed(1)}%`;
 	const detailDiffContentPanelPercent = `${((1 - detailDiffFileTreeRatio) * 100).toFixed(1)}%`;
 	const detailDiffFileTreePanelFlex = `0 0 ${detailDiffFileTreePanelPercent}`;
-	const showMoveToTrashActions = selection.column.id === "review" || selection.column.id === "in_progress";
-	const isTaskTerminalEnabled = selection.column.id === "in_progress" || selection.column.id === "review";
-	const effectiveTaskAgentId = sessionSummary?.agentId ?? selection.card.agentId ?? selectedAgentId;
+	const showMoveToTrashActions =
+		selection.column.id === "review" || selection.column.id === "in_progress";
+	const isTaskTerminalEnabled =
+		selection.column.id === "in_progress" || selection.column.id === "review";
+	const effectiveTaskAgentId =
+		sessionSummary?.agentId ?? selection.card.agentId ?? selectedAgentId;
 	const taskManagerAccounts = useMemo(
 		() =>
-			filterManagerAccountsForAgent(managerAccounts ?? [], effectiveTaskAgentId, {
-				kanbanEligibleOnly: true,
-			}),
+			filterManagerAccountsForAgent(
+				managerAccounts ?? [],
+				effectiveTaskAgentId,
+				{
+					kanbanEligibleOnly: true,
+				},
+			),
 		[effectiveTaskAgentId, managerAccounts],
 	);
 	// Clear a pin that belongs to the other provider (e.g. Claude seat left on a
@@ -556,7 +676,8 @@ export function CardDetailView({
 		selection.card.managerAccountId,
 		taskManagerAccounts,
 	]);
-	const showClineAgentChatPanel = isNativeClineAgentSelected(effectiveTaskAgentId);
+	const showClineAgentChatPanel =
+		isNativeClineAgentSelected(effectiveTaskAgentId);
 	const availablePaths = useMemo(() => {
 		if (!runtimeFiles || runtimeFiles.length === 0) {
 			return [];
@@ -567,7 +688,9 @@ export function CardDetailView({
 	const handleSelectAdjacentCard = useCallback(
 		(step: number) => {
 			const cards = selection.column.cards;
-			const currentIndex = cards.findIndex((card) => card.id === selection.card.id);
+			const currentIndex = cards.findIndex(
+				(card) => card.id === selection.card.id,
+			);
 			if (currentIndex === -1) {
 				return;
 			}
@@ -596,7 +719,11 @@ export function CardDetailView({
 		"keydown",
 		useCallback(
 			(event: KeyboardEvent) => {
-				if (event.key !== "Escape" || event.defaultPrevented || isEventInsideDialog(event.target)) {
+				if (
+					event.key !== "Escape" ||
+					event.defaultPrevented ||
+					isEventInsideDialog(event.target)
+				) {
 					return;
 				}
 				if (gitHistoryPanel && onCloseGitHistory) {
@@ -693,8 +820,16 @@ export function CardDetailView({
 			onLoadMessages={onLoadClineChatMessages}
 			incomingMessages={streamedClineChatMessages}
 			incomingMessage={latestClineChatMessage}
-			onCommit={onAgentCommitTask ? () => onAgentCommitTask(selection.card.id) : undefined}
-			onOpenPr={onAgentOpenPrTask ? () => onAgentOpenPrTask(selection.card.id) : undefined}
+			onCommit={
+				onAgentCommitTask
+					? () => onAgentCommitTask(selection.card.id)
+					: undefined
+			}
+			onOpenPr={
+				onAgentOpenPrTask
+					? () => onAgentOpenPrTask(selection.card.id)
+					: undefined
+			}
 			isCommitLoading={agentCommitTaskLoadingById?.[selection.card.id] ?? false}
 			isOpenPrLoading={agentOpenPrTaskLoadingById?.[selection.card.id] ?? false}
 			showMoveToTrash={showMoveToTrashActions}
@@ -718,8 +853,16 @@ export function CardDetailView({
 			terminalEnabled={isTaskTerminalEnabled}
 			summary={sessionSummary}
 			onSummary={onSessionSummary}
-			onCommit={onAgentCommitTask ? () => onAgentCommitTask(selection.card.id) : undefined}
-			onOpenPr={onAgentOpenPrTask ? () => onAgentOpenPrTask(selection.card.id) : undefined}
+			onCommit={
+				onAgentCommitTask
+					? () => onAgentCommitTask(selection.card.id)
+					: undefined
+			}
+			onOpenPr={
+				onAgentOpenPrTask
+					? () => onAgentOpenPrTask(selection.card.id)
+					: undefined
+			}
 			isCommitLoading={agentCommitTaskLoadingById?.[selection.card.id] ?? false}
 			isOpenPrLoading={agentOpenPrTaskLoadingById?.[selection.card.id] ?? false}
 			showSessionToolbar={false}
@@ -783,13 +926,20 @@ export function CardDetailView({
 										onSelectedPathChange={setSelectedPath}
 										viewMode="unified"
 										onAddToTerminal={
-											onAddReviewComments || showClineAgentChatPanel ? handleAddDiffComments : undefined
+											onAddReviewComments || showClineAgentChatPanel
+												? handleAddDiffComments
+												: undefined
 										}
 										onSendToTerminal={
-											onSendReviewComments || showClineAgentChatPanel ? handleSendDiffComments : undefined
+											onSendReviewComments || showClineAgentChatPanel
+												? handleSendDiffComments
+												: undefined
 										}
 										comments={diffComments}
 										onCommentsChange={setDiffComments}
+										onRevertFile={onRevertFile}
+										onRevertHunk={onRevertHunk}
+										onRequestBlame={onRequestBlame}
 									/>
 								)}
 							</div>
@@ -838,10 +988,16 @@ export function CardDetailView({
 	}
 
 	return (
-		<div ref={detailLayoutRef} className="flex min-h-0 flex-1 overflow-hidden bg-surface-0">
+		<div
+			ref={detailLayoutRef}
+			className="flex min-h-0 flex-1 overflow-hidden bg-surface-0"
+		>
 			{!isDiffExpanded ? (
 				<>
-					<div className="flex min-h-0 min-w-0" style={{ width: taskCardsPanelPercent }}>
+					<div
+						className="flex min-h-0 min-w-0"
+						style={{ width: taskCardsPanelPercent }}
+					>
 						<ColumnContextPanel
 							selection={selection}
 							workspacePath={workspacePath}
@@ -864,7 +1020,9 @@ export function CardDetailView({
 							openPrTaskLoadingById={openPrTaskLoadingById}
 							moveToTrashLoadingById={moveToTrashLoadingById}
 							panelWidth="100%"
-							defaultClineModelId={runtimeConfig?.clineProviderSettings?.modelId ?? null}
+							defaultClineModelId={
+								runtimeConfig?.clineProviderSettings?.modelId ?? null
+							}
 						/>
 					</div>
 					<ResizeHandle
@@ -880,7 +1038,9 @@ export function CardDetailView({
 				style={{ width: isDiffExpanded ? "100%" : detailContentPanelPercent }}
 			>
 				{gitHistoryPanel ? (
-					<div className="flex min-h-0 flex-1 overflow-hidden">{gitHistoryPanel}</div>
+					<div className="flex min-h-0 flex-1 overflow-hidden">
+						{gitHistoryPanel}
+					</div>
 				) : (
 					<>
 						{onTaskManagerAccountChanged && taskManagerAccounts.length > 0 ? (
@@ -894,15 +1054,20 @@ export function CardDetailView({
 									activeAccountId={managerActiveAccountId}
 									agentId={effectiveTaskAgentId}
 									onChange={(managerAccountId) => {
-										onTaskManagerAccountChanged(selection.card.id, managerAccountId);
+										onTaskManagerAccountChanged(
+											selection.card.id,
+											managerAccountId,
+										);
 									}}
 								/>
 								{/* Only warn when the card has an explicit pin that differs from the running session. */}
 								{typeof sessionSummary?.managerAccountId === "number" &&
 								typeof selection.card.managerAccountId === "number" &&
-								sessionSummary.managerAccountId !== selection.card.managerAccountId ? (
+								sessionSummary.managerAccountId !==
+									selection.card.managerAccountId ? (
 									<span className="text-[10px] text-text-tertiary">
-										running on account {sessionSummary.managerAccountId} — restart to apply
+										running on account {sessionSummary.managerAccountId} —
+										restart to apply
 									</span>
 								) : null}
 							</div>
@@ -918,7 +1083,10 @@ export function CardDetailView({
 										className="accent-accent"
 										checked={selection.card.autoResumeOnUsageLimit === true}
 										onChange={(event) => {
-											onTaskAutoResumeOnUsageLimitChanged(selection.card.id, event.target.checked);
+											onTaskAutoResumeOnUsageLimitChanged(
+												selection.card.id,
+												event.target.checked,
+											);
 										}}
 									/>
 									Auto-resume on usage limit
@@ -936,18 +1104,28 @@ export function CardDetailView({
 									defaultAgentId={selectedAgentId}
 									value={selection.card.taskLaunchSettings}
 									sessionAppliesOnRestart={
-										sessionSummary?.state === "running" || sessionSummary?.state === "awaiting_review"
+										sessionSummary?.state === "running" ||
+										sessionSummary?.state === "awaiting_review"
 									}
 									onChange={(next) => {
-										onTaskLaunchSettingsChanged(selection.card.id, next ?? null);
+										onTaskLaunchSettingsChanged(
+											selection.card.id,
+											next ?? null,
+										);
 									}}
 								/>
 							</div>
 						) : null}
-						<div ref={mainRowRef} className="flex min-h-0 flex-1 overflow-hidden">
+						<div
+							ref={mainRowRef}
+							className="flex min-h-0 flex-1 overflow-hidden"
+						>
 							<div
 								className="min-h-0 min-w-0"
-								style={{ display: isDiffExpanded ? "none" : "flex", width: agentPanelPercent }}
+								style={{
+									display: isDiffExpanded ? "none" : "flex",
+									width: agentPanelPercent,
+								}}
 							>
 								{agentChatPanel}
 							</div>
@@ -973,7 +1151,9 @@ export function CardDetailView({
 								) : null}
 								<div className="flex min-h-0 flex-1">
 									{isWorkspaceChangesPending ? (
-										<WorkspaceChangesLoadingPanel panelFlex={detailDiffFileTreePanelFlex} />
+										<WorkspaceChangesLoadingPanel
+											panelFlex={detailDiffFileTreePanelFlex}
+										/>
 									) : hasNoWorkspaceFileChanges ? (
 										<WorkspaceChangesEmptyPanel title={emptyDiffTitle} />
 									) : (
@@ -983,7 +1163,9 @@ export function CardDetailView({
 												style={{ flex: `0 0 ${detailDiffContentPanelPercent}` }}
 											>
 												<DiffViewerPanel
-													workspaceFiles={isRuntimeAvailable ? runtimeFiles : null}
+													workspaceFiles={
+														isRuntimeAvailable ? runtimeFiles : null
+													}
 													selectedPath={selectedPath}
 													onSelectedPathChange={setSelectedPath}
 													viewMode={isDiffExpanded ? "split" : "unified"}
@@ -999,6 +1181,9 @@ export function CardDetailView({
 													}
 													comments={diffComments}
 													onCommentsChange={setDiffComments}
+													onRevertFile={onRevertFile}
+													onRevertHunk={onRevertHunk}
+													onRequestBlame={onRequestBlame}
 												/>
 											</div>
 											<ResizeHandle
@@ -1009,10 +1194,14 @@ export function CardDetailView({
 											/>
 											<div
 												className="flex min-h-0 min-w-0"
-												style={{ flex: `0 0 ${detailDiffFileTreePanelPercent}` }}
+												style={{
+													flex: `0 0 ${detailDiffFileTreePanelPercent}`,
+												}}
 											>
 												<FileTreePanel
-													workspaceFiles={isRuntimeAvailable ? runtimeFiles : null}
+													workspaceFiles={
+														isRuntimeAvailable ? runtimeFiles : null
+													}
 													selectedPath={selectedPath}
 													onSelectPath={setSelectedPath}
 													panelFlex="1 1 0"

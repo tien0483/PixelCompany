@@ -54,7 +54,10 @@ export interface CollapsedContextBlock {
 	expanded: boolean;
 }
 
-export type ExpandedBlockState = Record<string, boolean | { top: number; bottom: number }>;
+export type ExpandedBlockState = Record<
+	string,
+	boolean | { top: number; bottom: number }
+>;
 
 export type DiffDisplayItem =
 	| { type: "row"; row: UnifiedDiffRow }
@@ -121,7 +124,9 @@ export function resolvePrismLanguage(path: string): string | null {
 	return Prism.languages[language] ? language : null;
 }
 
-export function resolvePrismGrammar(language: string | null): Prism.Grammar | null {
+export function resolvePrismGrammar(
+	language: string | null,
+): Prism.Grammar | null {
 	if (!language) {
 		return null;
 	}
@@ -178,7 +183,11 @@ function buildModifiedSegments(
 			continue;
 		}
 		if (part.removed) {
-			oldSegments.push({ key: `o-${index}`, text: part.value, tone: "removed" });
+			oldSegments.push({
+				key: `o-${index}`,
+				text: part.value,
+				tone: "removed",
+			});
 			continue;
 		}
 		if (part.added) {
@@ -191,7 +200,10 @@ function buildModifiedSegments(
 	return { oldSegments, newSegments };
 }
 
-export function buildUnifiedDiffRows(oldText: string | null | undefined, newText: string): UnifiedDiffRow[] {
+export function buildUnifiedDiffRows(
+	oldText: string | null | undefined,
+	newText: string,
+): UnifiedDiffRow[] {
 	const rows: UnifiedDiffRow[] = [];
 	let oldLine = 1;
 	let newLine = 1;
@@ -223,7 +235,10 @@ export function buildUnifiedDiffRows(oldText: string | null | undefined, newText
 				const addedLine = addedLines[pairIndex];
 
 				if (removedLine != null && addedLine != null) {
-					const { oldSegments, newSegments } = buildModifiedSegments(removedLine, addedLine);
+					const { oldSegments, newSegments } = buildModifiedSegments(
+						removedLine,
+						addedLine,
+					);
 					removedRows.push({
 						key: `m-old-${localOldLine}-${localNewLine}`,
 						lineNumber: localOldLine,
@@ -269,21 +284,73 @@ export function buildUnifiedDiffRows(oldText: string | null | undefined, newText
 		const lines = toLines(change.value);
 		for (const line of lines) {
 			if (change.added) {
-				rows.push({ key: `n-${newLine}`, lineNumber: newLine, variant: "added", text: line });
+				rows.push({
+					key: `n-${newLine}`,
+					lineNumber: newLine,
+					variant: "added",
+					text: line,
+				});
 				newLine += 1;
 				continue;
 			}
 			if (change.removed) {
-				rows.push({ key: `o-${oldLine}`, lineNumber: oldLine, variant: "removed", text: line });
+				rows.push({
+					key: `o-${oldLine}`,
+					lineNumber: oldLine,
+					variant: "removed",
+					text: line,
+				});
 				oldLine += 1;
 				continue;
 			}
-			rows.push({ key: `c-${oldLine}-${newLine}`, lineNumber: newLine, variant: "context", text: line });
+			rows.push({
+				key: `c-${oldLine}-${newLine}`,
+				lineNumber: newLine,
+				variant: "context",
+				text: line,
+			});
 			oldLine += 1;
 			newLine += 1;
 		}
 	}
 	return rows;
+}
+
+export interface DiffHunkInfo {
+	/** Zero-based hunk ordinal, top-to-bottom — matches `git diff` hunk order. */
+	hunkIndexByRowKey: Map<string, number>;
+	/** Row key of the first changed row of each hunk (where a revert control anchors). */
+	hunkStartRowKeys: Set<string>;
+}
+
+/**
+ * Groups the changed rows of a unified diff into hunks, mirroring how `git diff`
+ * merges nearby changes: two change groups separated by more than `2 * context`
+ * unchanged lines are distinct hunks, otherwise they merge. With the shared
+ * {@link CONTEXT_RADIUS} of 3 this matches git's default hunking for the common
+ * case, so a hunk's ordinal here aligns with `git diff HEAD -- <path>`'s Nth hunk
+ * — which is what the per-hunk revert backend selects.
+ */
+export function computeHunks(rows: UnifiedDiffRow[]): DiffHunkInfo {
+	const hunkIndexByRowKey = new Map<string, number>();
+	const hunkStartRowKeys = new Set<string>();
+	let hunk = -1;
+	let contextSinceChange = Number.POSITIVE_INFINITY;
+
+	for (const row of rows) {
+		if (row.variant === "context") {
+			contextSinceChange += 1;
+			continue;
+		}
+		if (contextSinceChange > 2 * CONTEXT_RADIUS) {
+			hunk += 1;
+			hunkStartRowKeys.add(row.key);
+		}
+		hunkIndexByRowKey.set(row.key, hunk);
+		contextSinceChange = 0;
+	}
+
+	return { hunkIndexByRowKey, hunkStartRowKeys };
 }
 
 export function parsePatchToRows(patch: string): UnifiedDiffRow[] {
@@ -313,13 +380,28 @@ export function parsePatchToRows(patch: string): UnifiedDiffRow[] {
 			continue;
 		}
 		if (raw.startsWith("+")) {
-			rows.push({ key: `n-${newLine}`, lineNumber: newLine, variant: "added", text: raw.slice(1) });
+			rows.push({
+				key: `n-${newLine}`,
+				lineNumber: newLine,
+				variant: "added",
+				text: raw.slice(1),
+			});
 			newLine++;
 		} else if (raw.startsWith("-")) {
-			rows.push({ key: `o-${oldLine}`, lineNumber: oldLine, variant: "removed", text: raw.slice(1) });
+			rows.push({
+				key: `o-${oldLine}`,
+				lineNumber: oldLine,
+				variant: "removed",
+				text: raw.slice(1),
+			});
 			oldLine++;
 		} else if (raw.startsWith(" ")) {
-			rows.push({ key: `c-${oldLine}-${newLine}`, lineNumber: newLine, variant: "context", text: raw.slice(1) });
+			rows.push({
+				key: `c-${oldLine}-${newLine}`,
+				lineNumber: newLine,
+				variant: "context",
+				text: raw.slice(1),
+			});
 			oldLine++;
 			newLine++;
 		}
@@ -331,7 +413,9 @@ export function parsePatchToRows(patch: string): UnifiedDiffRow[] {
  * Post-process rows to add word-level inline diff segments for adjacent
  * removed/added blocks (e.g. rows parsed from a git patch which lack them).
  */
-function enrichRowsWithInlineSegments(rows: UnifiedDiffRow[]): UnifiedDiffRow[] {
+function enrichRowsWithInlineSegments(
+	rows: UnifiedDiffRow[],
+): UnifiedDiffRow[] {
 	const result: UnifiedDiffRow[] = [];
 	let index = 0;
 
@@ -369,7 +453,10 @@ function enrichRowsWithInlineSegments(rows: UnifiedDiffRow[]): UnifiedDiffRow[] 
 			const removedRow = removedBlock[pi]!;
 			const addedRow = addedBlock[pi]!;
 			if (!removedRow.segments && !addedRow.segments) {
-				const { oldSegments, newSegments } = buildModifiedSegments(removedRow.text, addedRow.text);
+				const { oldSegments, newSegments } = buildModifiedSegments(
+					removedRow.text,
+					addedRow.text,
+				);
 				removedBlock[pi] = { ...removedRow, segments: oldSegments };
 				addedBlock[pi] = { ...addedRow, segments: newSegments };
 			}
@@ -381,7 +468,10 @@ function enrichRowsWithInlineSegments(rows: UnifiedDiffRow[]): UnifiedDiffRow[] 
 	return result;
 }
 
-export function buildDisplayItems(rows: UnifiedDiffRow[], expandedBlocks: ExpandedBlockState): DiffDisplayItem[] {
+export function buildDisplayItems(
+	rows: UnifiedDiffRow[],
+	expandedBlocks: ExpandedBlockState,
+): DiffDisplayItem[] {
 	const changedIndices: number[] = [];
 	for (let index = 0; index < rows.length; index += 1) {
 		if (rows[index]?.variant !== "context") {
@@ -440,14 +530,22 @@ export function buildDisplayItems(rows: UnifiedDiffRow[], expandedBlocks: Expand
 			// Fully expanded (legacy boolean toggle)
 			items.push({
 				type: "collapsed",
-				block: { id: blockId, count: blockRows.length, rows: blockRows, expanded: true },
+				block: {
+					id: blockId,
+					count: blockRows.length,
+					rows: blockRows,
+					expanded: true,
+				},
 			});
 			continue;
 		}
 
 		if (typeof blockState === "object" && blockState !== null) {
 			const topReveal = Math.min(blockState.top, blockRows.length);
-			const bottomReveal = Math.min(blockState.bottom, blockRows.length - topReveal);
+			const bottomReveal = Math.min(
+				blockState.bottom,
+				blockRows.length - topReveal,
+			);
 
 			// Rows revealed from the top
 			for (let ri = 0; ri < topReveal; ri += 1) {
@@ -464,12 +562,21 @@ export function buildDisplayItems(rows: UnifiedDiffRow[], expandedBlocks: Expand
 				const remainingRows = blockRows.slice(remainingStart, remainingEnd);
 				items.push({
 					type: "collapsed",
-					block: { id: blockId, count: remainingRows.length, rows: remainingRows, expanded: false },
+					block: {
+						id: blockId,
+						count: remainingRows.length,
+						rows: remainingRows,
+						expanded: false,
+					},
 				});
 			}
 
 			// Rows revealed from the bottom
-			for (let ri = blockRows.length - bottomReveal; ri < blockRows.length; ri += 1) {
+			for (
+				let ri = blockRows.length - bottomReveal;
+				ri < blockRows.length;
+				ri += 1
+			) {
 				const row = blockRows[ri];
 				if (row) {
 					items.push({ type: "row", row });
@@ -481,7 +588,12 @@ export function buildDisplayItems(rows: UnifiedDiffRow[], expandedBlocks: Expand
 		// Not expanded at all
 		items.push({
 			type: "collapsed",
-			block: { id: blockId, count: blockRows.length, rows: blockRows, expanded: false },
+			block: {
+				id: blockId,
+				count: blockRows.length,
+				rows: blockRows,
+				expanded: false,
+			},
 		});
 	}
 	return items;
@@ -511,7 +623,12 @@ export function DiffRowText({
 }): React.ReactElement {
 	if (!row.segments) {
 		if (highlightedLineHtml) {
-			return <span className="font-mono kb-diff-text" dangerouslySetInnerHTML={{ __html: highlightedLineHtml }} />;
+			return (
+				<span
+					className="font-mono kb-diff-text"
+					dangerouslySetInnerHTML={{ __html: highlightedLineHtml }}
+				/>
+			);
 		}
 		return <span className="font-mono kb-diff-text">{row.text || " "}</span>;
 	}
@@ -525,7 +642,11 @@ export function DiffRowText({
 						: segment.tone === "removed"
 							? "kb-diff-segment-removed"
 							: undefined;
-				const highlightedSegmentHtml = getHighlightedLineHtml(segment.text, grammar, language);
+				const highlightedSegmentHtml = getHighlightedLineHtml(
+					segment.text,
+					grammar,
+					language,
+				);
 				if (highlightedSegmentHtml) {
 					return (
 						<span
@@ -635,7 +756,10 @@ export function useIncrementalExpand(): {
 		setExpandedBlocks((prev) => {
 			const current = prev[id];
 			if (typeof current === "object" && current !== null) {
-				return { ...prev, [id]: { top: current.top + count, bottom: current.bottom } };
+				return {
+					...prev,
+					[id]: { top: current.top + count, bottom: current.bottom },
+				};
 			}
 			return { ...prev, [id]: { top: count, bottom: 0 } };
 		});
@@ -645,7 +769,10 @@ export function useIncrementalExpand(): {
 		setExpandedBlocks((prev) => {
 			const current = prev[id];
 			if (typeof current === "object" && current !== null) {
-				return { ...prev, [id]: { top: current.top, bottom: current.bottom + count } };
+				return {
+					...prev,
+					[id]: { top: current.top, bottom: current.bottom + count },
+				};
 			}
 			return { ...prev, [id]: { top: 0, bottom: count } };
 		});
@@ -667,11 +794,24 @@ export function useIncrementalExpand(): {
 	return { expandedBlocks, expandTop, expandBottom, expandAll };
 }
 
-export function ReadOnlyUnifiedDiff({ rows, path }: { rows: UnifiedDiffRow[]; path: string }): React.ReactElement {
-	const { expandedBlocks, expandTop, expandBottom, expandAll } = useIncrementalExpand();
+export function ReadOnlyUnifiedDiff({
+	rows,
+	path,
+}: {
+	rows: UnifiedDiffRow[];
+	path: string;
+}): React.ReactElement {
+	const { expandedBlocks, expandTop, expandBottom, expandAll } =
+		useIncrementalExpand();
 	const prismLanguage = useMemo(() => resolvePrismLanguage(path), [path]);
-	const prismGrammar = useMemo(() => resolvePrismGrammar(prismLanguage), [prismLanguage]);
-	const displayItems = useMemo(() => buildDisplayItems(rows, expandedBlocks), [expandedBlocks, rows]);
+	const prismGrammar = useMemo(
+		() => resolvePrismGrammar(prismLanguage),
+		[prismLanguage],
+	);
+	const displayItems = useMemo(
+		() => buildDisplayItems(rows, expandedBlocks),
+		[expandedBlocks, rows],
+	);
 
 	const renderRow = (row: UnifiedDiffRow): React.ReactElement => {
 		const baseClass =
@@ -680,12 +820,21 @@ export function ReadOnlyUnifiedDiff({ rows, path }: { rows: UnifiedDiffRow[]; pa
 				: row.variant === "removed"
 					? "kb-diff-row kb-diff-row-removed"
 					: "kb-diff-row kb-diff-row-context";
-		const highlightedLineHtml = getHighlightedLineHtml(row.text, prismGrammar, prismLanguage);
+		const highlightedLineHtml = getHighlightedLineHtml(
+			row.text,
+			prismGrammar,
+			prismLanguage,
+		);
 
 		return (
 			<div key={row.key} className={baseClass} style={{ cursor: "default" }}>
-				<span className="kb-diff-line-number" style={{ color: "var(--color-text-tertiary)" }}>
-					<span className="kb-diff-line-number-text">{row.lineNumber ?? ""}</span>
+				<span
+					className="kb-diff-line-number"
+					style={{ color: "var(--color-text-tertiary)" }}
+				>
+					<span className="kb-diff-line-number-text">
+						{row.lineNumber ?? ""}
+					</span>
 				</span>
 				<DiffRowText
 					row={row}
@@ -711,7 +860,9 @@ export function ReadOnlyUnifiedDiff({ rows, path }: { rows: UnifiedDiffRow[]; pa
 							onExpandBottom={expandBottom}
 							onExpandAll={expandAll}
 						/>
-						{item.block.expanded ? item.block.rows.map((row) => renderRow(row)) : null}
+						{item.block.expanded
+							? item.block.rows.map((row) => renderRow(row))
+							: null}
 					</div>
 				);
 			})}

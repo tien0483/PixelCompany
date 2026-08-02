@@ -170,51 +170,51 @@ export const runtimeBoardCardSchema = z.preprocess(
 		return raw;
 	},
 	z
-	.object({
-		id: z.string(),
-		title: z.string().optional(),
-		prompt: z.string(),
-		startInPlanMode: z.boolean(),
-		autoReviewEnabled: z.boolean().optional(),
-		autoReviewMode: runtimeTaskAutoReviewModeSchema.optional(),
-		images: z.array(runtimeTaskImageSchema).optional(),
-		agentId: runtimeAgentIdSchema.optional(),
-		/** Claude account (Manager id) this card's session runs on; unset follows auto-swap. */
-		managerAccountId: z.number().int().positive().optional(),
-		/**
-		 * When true, a session that hits the Claude usage limit parks as "usage_paused" and the
-		 * runtime auto-resumes it (--continue) once its window resets, instead of stopping in Review.
-		 */
-		autoResumeOnUsageLimit: z.boolean().optional(),
-		clineSettings: runtimeTaskClineSettingsSchema.optional(),
-		taskLaunchSettings: runtimeTaskLaunchSettingsSchema.optional(),
-		clineProviderId: z.string().optional(),
-		clineModelId: z.string().optional(),
-		clineReasoningEffort: runtimeLegacyTaskClineReasoningEffortSchema.optional(),
-		baseRef: z.string(),
-		createdAt: z.number(),
-		updatedAt: z.number(),
-	})
-	.transform(
-		({
-			clineProviderId: _legacyProviderId,
-			clineModelId: _legacyModelId,
-			clineReasoningEffort: _legacyReasoningEffort,
-			...card
-		}) => {
-			const clineSettings = normalizeRuntimeTaskClineSettings({
-				clineSettings: card.clineSettings,
+		.object({
+			id: z.string(),
+			title: z.string().optional(),
+			prompt: z.string(),
+			startInPlanMode: z.boolean(),
+			autoReviewEnabled: z.boolean().optional(),
+			autoReviewMode: runtimeTaskAutoReviewModeSchema.optional(),
+			images: z.array(runtimeTaskImageSchema).optional(),
+			agentId: runtimeAgentIdSchema.optional(),
+			/** Claude account (Manager id) this card's session runs on; unset follows auto-swap. */
+			managerAccountId: z.number().int().positive().optional(),
+			/**
+			 * When true, a session that hits the Claude usage limit parks as "usage_paused" and the
+			 * runtime auto-resumes it (--continue) once its window resets, instead of stopping in Review.
+			 */
+			autoResumeOnUsageLimit: z.boolean().optional(),
+			clineSettings: runtimeTaskClineSettingsSchema.optional(),
+			taskLaunchSettings: runtimeTaskLaunchSettingsSchema.optional(),
+			clineProviderId: z.string().optional(),
+			clineModelId: z.string().optional(),
+			clineReasoningEffort: runtimeLegacyTaskClineReasoningEffortSchema.optional(),
+			baseRef: z.string(),
+			createdAt: z.number(),
+			updatedAt: z.number(),
+		})
+		.transform(
+			({
 				clineProviderId: _legacyProviderId,
 				clineModelId: _legacyModelId,
 				clineReasoningEffort: _legacyReasoningEffort,
-			});
-			return {
-				...card,
-				...(clineSettings !== undefined ? { clineSettings } : {}),
-				title: resolveTaskTitle(card.title, card.prompt),
-			};
-		},
-	),
+				...card
+			}) => {
+				const clineSettings = normalizeRuntimeTaskClineSettings({
+					clineSettings: card.clineSettings,
+					clineProviderId: _legacyProviderId,
+					clineModelId: _legacyModelId,
+					clineReasoningEffort: _legacyReasoningEffort,
+				});
+				return {
+					...card,
+					...(clineSettings !== undefined ? { clineSettings } : {}),
+					title: resolveTaskTitle(card.title, card.prompt),
+				};
+			},
+		),
 );
 export type RuntimeBoardCard = z.infer<typeof runtimeBoardCardSchema>;
 
@@ -254,7 +254,7 @@ export const runtimeGitRepositoryInfoSchema = z.object({
 });
 export type RuntimeGitRepositoryInfo = z.infer<typeof runtimeGitRepositoryInfoSchema>;
 
-export const runtimeGitSyncActionSchema = z.enum(["fetch", "pull", "push"]);
+export const runtimeGitSyncActionSchema = z.enum(["fetch", "pull", "push", "stash", "stash-pop"]);
 export type RuntimeGitSyncAction = z.infer<typeof runtimeGitSyncActionSchema>;
 
 export const runtimeGitSyncSummarySchema = z.object({
@@ -305,6 +305,52 @@ export const runtimeGitDiscardResponseSchema = z.object({
 	error: z.string().optional(),
 });
 export type RuntimeGitDiscardResponse = z.infer<typeof runtimeGitDiscardResponseSchema>;
+
+export const runtimeGitRevertFileRequestSchema = z.object({
+	path: z.string(),
+	taskInfo: z
+		.object({
+			taskId: z.string(),
+			baseRef: z.string(),
+		})
+		.nullable()
+		.optional(),
+});
+export type RuntimeGitRevertFileRequest = z.infer<typeof runtimeGitRevertFileRequestSchema>;
+
+export const runtimeGitRevertHunkRequestSchema = runtimeGitRevertFileRequestSchema.extend({
+	hunkIndex: z.number().int().nonnegative(),
+});
+export type RuntimeGitRevertHunkRequest = z.infer<typeof runtimeGitRevertHunkRequestSchema>;
+
+export const runtimeGitRevertResponseSchema = z.object({
+	ok: z.boolean(),
+	summary: runtimeGitSyncSummarySchema,
+	output: z.string(),
+	error: z.string().optional(),
+});
+export type RuntimeGitRevertResponse = z.infer<typeof runtimeGitRevertResponseSchema>;
+
+export const runtimeGitCommitRequestSchema = z.object({
+	message: z.string(),
+	paths: z.array(z.string()).optional(),
+	taskInfo: z
+		.object({
+			taskId: z.string(),
+			baseRef: z.string(),
+		})
+		.nullable()
+		.optional(),
+});
+export type RuntimeGitCommitRequest = z.infer<typeof runtimeGitCommitRequestSchema>;
+
+export const runtimeGitCommitResponseSchema = z.object({
+	ok: z.boolean(),
+	summary: runtimeGitSyncSummarySchema,
+	output: z.string(),
+	error: z.string().optional(),
+});
+export type RuntimeGitCommitResponse = z.infer<typeof runtimeGitCommitResponseSchema>;
 
 export const runtimeTaskSessionStateSchema = z.enum(["idle", "running", "awaiting_review", "failed", "interrupted"]);
 export type RuntimeTaskSessionState = z.infer<typeof runtimeTaskSessionStateSchema>;
@@ -750,9 +796,7 @@ export const RuntimeManagerAccountAuthorizeCcRequestSchema = z.object({
 	/** True when the browser cannot reach jacked's loopback callback (paste-code mode). */
 	remote: z.boolean().optional(),
 });
-export type RuntimeManagerAccountAuthorizeCcRequest = z.infer<
-	typeof RuntimeManagerAccountAuthorizeCcRequestSchema
->;
+export type RuntimeManagerAccountAuthorizeCcRequest = z.infer<typeof RuntimeManagerAccountAuthorizeCcRequestSchema>;
 
 /** Auto-swap priority order, first entry highest (jacked POST /api/auth/accounts/reorder). */
 export const RuntimeManagerAccountReorderRequestSchema = z.object({
@@ -1384,6 +1428,12 @@ export const runtimeUpdateStatusResponseSchema = z.object({
 });
 export type RuntimeUpdateStatusResponse = z.infer<typeof runtimeUpdateStatusResponseSchema>;
 
+export const runtimeHostEnvironmentResponseSchema = z.object({
+	platform: z.enum(["mac", "windows", "linux"]),
+	isWsl: z.boolean(),
+});
+export type RuntimeHostEnvironmentResponse = z.infer<typeof runtimeHostEnvironmentResponseSchema>;
+
 export const runtimeRunUpdateResponseSchema = z.object({
 	status: z.enum([
 		"updated",
@@ -1800,6 +1850,115 @@ export const runtimeGitRefsResponseSchema = z.object({
 	error: z.string().optional(),
 });
 export type RuntimeGitRefsResponse = z.infer<typeof runtimeGitRefsResponseSchema>;
+
+export const runtimeGitBlameRequestSchema = z.object({
+	path: z.string(),
+	taskInfo: z
+		.object({
+			taskId: z.string(),
+			baseRef: z.string(),
+		})
+		.nullable()
+		.optional(),
+});
+export type RuntimeGitBlameRequest = z.infer<typeof runtimeGitBlameRequestSchema>;
+
+export const runtimeGitBlameLineSchema = z.object({
+	lineNumber: z.number(),
+	commitHash: z.string(),
+	shortHash: z.string(),
+	author: z.string(),
+	date: z.string().nullable(),
+	summary: z.string(),
+});
+export type RuntimeGitBlameLine = z.infer<typeof runtimeGitBlameLineSchema>;
+
+export const runtimeGitBlameResponseSchema = z.object({
+	ok: z.boolean(),
+	path: z.string(),
+	lines: z.array(runtimeGitBlameLineSchema),
+	error: z.string().optional(),
+});
+export type RuntimeGitBlameResponse = z.infer<typeof runtimeGitBlameResponseSchema>;
+
+export const runtimeGitConflictSideSchema = z.enum(["ours", "theirs", "manual"]);
+export type RuntimeGitConflictSide = z.infer<typeof runtimeGitConflictSideSchema>;
+
+export const runtimeGitConflictFileSchema = z.object({
+	path: z.string(),
+	base: z.string().nullable(),
+	ours: z.string().nullable(),
+	theirs: z.string().nullable(),
+});
+export type RuntimeGitConflictFile = z.infer<typeof runtimeGitConflictFileSchema>;
+
+export const runtimeGitConflictsResponseSchema = z.object({
+	ok: z.boolean(),
+	conflicts: z.array(runtimeGitConflictFileSchema),
+	error: z.string().optional(),
+});
+export type RuntimeGitConflictsResponse = z.infer<typeof runtimeGitConflictsResponseSchema>;
+
+export const runtimeGitResolveConflictRequestSchema = z.object({
+	path: z.string(),
+	side: runtimeGitConflictSideSchema,
+	content: z.string().optional(),
+	taskInfo: z
+		.object({
+			taskId: z.string(),
+			baseRef: z.string(),
+		})
+		.nullable()
+		.optional(),
+});
+export type RuntimeGitResolveConflictRequest = z.infer<typeof runtimeGitResolveConflictRequestSchema>;
+
+export const runtimeGitResolveConflictResponseSchema = z.object({
+	ok: z.boolean(),
+	summary: runtimeGitSyncSummarySchema,
+	output: z.string(),
+	error: z.string().optional(),
+});
+export type RuntimeGitResolveConflictResponse = z.infer<typeof runtimeGitResolveConflictResponseSchema>;
+
+export const runtimeGitWorktreeEntrySchema = z.object({
+	path: z.string(),
+	head: z.string().nullable(),
+	branch: z.string().nullable(),
+	isMain: z.boolean(),
+	isDetached: z.boolean(),
+	isBare: z.boolean(),
+});
+export type RuntimeGitWorktreeEntry = z.infer<typeof runtimeGitWorktreeEntrySchema>;
+
+export const runtimeGitWorktreeInventoryResponseSchema = z.object({
+	ok: z.boolean(),
+	worktrees: z.array(runtimeGitWorktreeEntrySchema),
+	error: z.string().optional(),
+});
+export type RuntimeGitWorktreeInventoryResponse = z.infer<typeof runtimeGitWorktreeInventoryResponseSchema>;
+
+export const runtimeGitPullRequestRequestSchema = z.object({
+	title: z.string(),
+	body: z.string(),
+	base: z.string().optional(),
+	taskInfo: z
+		.object({
+			taskId: z.string(),
+			baseRef: z.string(),
+		})
+		.nullable()
+		.optional(),
+});
+export type RuntimeGitPullRequestRequest = z.infer<typeof runtimeGitPullRequestRequestSchema>;
+
+export const runtimeGitPullRequestResponseSchema = z.object({
+	ok: z.boolean(),
+	url: z.string().nullable(),
+	output: z.string(),
+	error: z.string().optional(),
+});
+export type RuntimeGitPullRequestResponse = z.infer<typeof runtimeGitPullRequestResponseSchema>;
 
 export const runtimeHookEventSchema = z.enum(["to_review", "to_in_progress", "activity"]);
 export type RuntimeHookEvent = z.infer<typeof runtimeHookEventSchema>;

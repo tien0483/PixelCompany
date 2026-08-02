@@ -5,7 +5,22 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
 import { Spinner } from "@/components/ui/spinner";
-import type { OpenTargetId, OpenTargetOption } from "@/utils/open-targets";
+import {
+	OPEN_PLATFORM_OVERRIDE_IDS,
+	OPEN_PLATFORM_OVERRIDE_LABELS,
+	type OpenPlatformOverride,
+	type OpenTargetId,
+	type OpenTargetOption,
+	type OpenTargetPlatform,
+} from "@/utils/open-targets";
+
+const PLATFORM_DISPLAY_LABELS: Record<OpenTargetPlatform, string> = {
+	mac: "macOS",
+	windows: "Windows",
+	wsl: "WSL",
+	linux: "Linux",
+	other: "Unknown",
+};
 
 function OpenTargetIcon({ option }: { option: OpenTargetOption }): React.ReactElement {
 	return (
@@ -32,6 +47,9 @@ export function OpenWorkspaceButton({
 	loading,
 	onOpen,
 	onSelectOption,
+	platformOverride,
+	detectedPlatform,
+	onSelectPlatform,
 }: {
 	options: readonly OpenTargetOption[];
 	selectedOptionId: OpenTargetId;
@@ -39,6 +57,9 @@ export function OpenWorkspaceButton({
 	loading: boolean;
 	onOpen: () => void;
 	onSelectOption: (optionId: OpenTargetId) => void;
+	platformOverride: OpenPlatformOverride;
+	detectedPlatform: OpenTargetPlatform | null;
+	onSelectPlatform: (override: OpenPlatformOverride) => void;
 }): React.ReactElement {
 	const [isPopoverOpen, setIsPopoverOpen] = useState(false);
 	const selectedOption = options.find((option) => option.id === selectedOptionId) ?? options[0];
@@ -97,6 +118,34 @@ export function OpenWorkspaceButton({
 									>
 										<OpenTargetIcon option={option} />
 										<span className="flex-1">{option.label}</span>
+										{isActive ? <Check size={14} className="text-text-secondary" /> : null}
+									</button>
+								);
+							})}
+							<div className="my-1 border-t border-border" />
+							<div className="px-2.5 pb-1 pt-0.5 text-[11px] font-medium uppercase tracking-wide text-text-tertiary">
+								Environment
+							</div>
+							{OPEN_PLATFORM_OVERRIDE_IDS.map((override) => {
+								const isActive = override === platformOverride;
+								const label =
+									override === "auto" && detectedPlatform
+										? `${OPEN_PLATFORM_OVERRIDE_LABELS.auto} (${PLATFORM_DISPLAY_LABELS[detectedPlatform]})`
+										: OPEN_PLATFORM_OVERRIDE_LABELS[override];
+								return (
+									<button
+										type="button"
+										key={override}
+										className={cn(
+											"flex w-full items-center gap-2 px-2.5 py-1.5 text-[13px] text-text-primary rounded-md hover:bg-surface-3 text-left cursor-pointer",
+											isActive && "bg-surface-3",
+										)}
+										onClick={() => {
+											onSelectPlatform(override);
+											setIsPopoverOpen(false);
+										}}
+									>
+										<span className="flex-1">{label}</span>
 										{isActive ? <Check size={14} className="text-text-secondary" /> : null}
 									</button>
 								);

@@ -17,6 +17,7 @@ import { updateGlobalRuntimeConfig, updateRuntimeConfig } from "../config/runtim
 import type {
 	RuntimeCommandRunResponse,
 	RuntimeRunUpdateResponse,
+	RuntimeHostEnvironmentResponse,
 	RuntimeUpdateStatusResponse,
 } from "../core/api-contract";
 import {
@@ -88,6 +89,7 @@ export interface CreateRuntimeApiDependencies {
 	bumpClineSessionContextVersion?: () => void;
 	prepareForStateReset?: () => Promise<void>;
 	getUpdateStatus: () => RuntimeUpdateStatusResponse;
+	getHostEnvironment: () => RuntimeHostEnvironmentResponse;
 	runUpdateNow: () => Promise<RuntimeRunUpdateResponse>;
 }
 
@@ -789,6 +791,9 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 		},
 		getUpdateStatus: async () => {
 			return deps.getUpdateStatus();
+		},
+		getHostEnvironment: async () => {
+			return deps.getHostEnvironment();
 		},
 		runUpdateNow: async () => {
 			return await deps.runUpdateNow();

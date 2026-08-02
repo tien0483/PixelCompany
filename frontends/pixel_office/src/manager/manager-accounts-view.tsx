@@ -1,14 +1,16 @@
+import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
+import {
+	ArrowLeft,
+	ChevronDown,
+	ChevronRight,
+	Pause,
+	Play,
+	Plus,
+	RefreshCw,
+	X,
+} from "lucide-react";
 import type { ReactElement, ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
-import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
-import { ArrowLeft, ChevronDown, ChevronRight, Pause, Play, Plus, RefreshCw, X } from "lucide-react";
-
-import type {
-	RuntimeManagerAccount,
-	RuntimeManagerSnapshot,
-	RuntimeManagerSwapLog,
-} from "@/runtime/types";
-
 import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
 import { ManagerAccountActions } from "@/manager/manager-account-actions";
@@ -19,15 +21,20 @@ import {
 	isDonateExhausted,
 	pressureBarColor,
 } from "@/manager/manager-format";
+import { MANAGER_LABELS } from "@/manager/manager-labels";
 import { buildClaudeCcOAuthInviteEmail } from "@/manager/manager-oauth-cc-invite-email";
 import {
 	buildClaudeOAuthInviteEmail,
-	copyClaudeOAuthInviteEmail,
 	type ClaudeOAuthInviteEmail,
+	copyClaudeOAuthInviteEmail,
 } from "@/manager/manager-oauth-invite-email";
-import { MANAGER_LABELS } from "@/manager/manager-labels";
 import { useManagerSessions } from "@/manager/use-manager-sessions";
 import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
+import type {
+	RuntimeManagerAccount,
+	RuntimeManagerSnapshot,
+	RuntimeManagerSwapLog,
+} from "@/runtime/types";
 
 const OAUTH_POLL_MS = 1000;
 const OAUTH_BROWSER_MAX_POLLS = 120;
@@ -47,7 +54,8 @@ function UsageWindowBar({
 	resetsAt: string | null;
 	canAutoSwap: boolean;
 }): ReactElement {
-	const width = percent === null ? 0 : Math.max(0, Math.min(100, Math.round(percent)));
+	const width =
+		percent === null ? 0 : Math.max(0, Math.min(100, Math.round(percent)));
 	const resetHint = formatResetHint(resetsAt);
 	return (
 		<div className="flex flex-col gap-0.5">
@@ -75,18 +83,26 @@ type AddAccountMenuStep = "provider" | "claude" | "cursor";
 type OauthFlowKind = "account" | "cc";
 
 /** Claude + Cursor accounts managed from PixelOffice. */
-function managedAccounts(accounts: RuntimeManagerAccount[]): RuntimeManagerAccount[] {
-	return accounts.filter((account) => account.provider === "claude" || account.provider === "cursor");
+function managedAccounts(
+	accounts: RuntimeManagerAccount[],
+): RuntimeManagerAccount[] {
+	return accounts.filter(
+		(account) => account.provider === "claude" || account.provider === "cursor",
+	);
 }
 
-function providerDisplayName(provider: RuntimeManagerAccount["provider"]): string {
+function providerDisplayName(
+	provider: RuntimeManagerAccount["provider"],
+): string {
 	if (provider === "cursor") {
 		return "Cursor";
 	}
 	return "Claude";
 }
 
-function sessionBadgeTitle(provider: RuntimeManagerAccount["provider"]): string {
+function sessionBadgeTitle(
+	provider: RuntimeManagerAccount["provider"],
+): string {
 	if (provider === "cursor") {
 		return "Cursor Agent sessions currently running on this account";
 	}
@@ -94,7 +110,10 @@ function sessionBadgeTitle(provider: RuntimeManagerAccount["provider"]): string 
 }
 
 /** Claude Code "active" seat vs Cursor IDE seat — never share one global badge. */
-function accountIsSelected(account: RuntimeManagerAccount, manager: RuntimeManagerSnapshot | null): boolean {
+function accountIsSelected(
+	account: RuntimeManagerAccount,
+	manager: RuntimeManagerSnapshot | null,
+): boolean {
 	if (!manager) {
 		return false;
 	}
@@ -120,7 +139,11 @@ function activeBadgeLabel(provider: RuntimeManagerAccount["provider"]): string {
  * jacked's reorder endpoint takes the complete order and turns index into priority,
  * so a single move still submits every id.
  */
-function moveAccount(accounts: RuntimeManagerAccount[], index: number, offset: number): number[] {
+function moveAccount(
+	accounts: RuntimeManagerAccount[],
+	index: number,
+	offset: number,
+): number[] {
 	const ids = accounts.map((account) => account.id);
 	const target = index + offset;
 	if (target < 0 || target >= ids.length) {
@@ -210,144 +233,164 @@ function AccountRow({
 			)}
 		>
 			<div className={cn(isSeatDisabled && "opacity-50 saturate-0")}>
-			<div className="flex items-start justify-between gap-2">
-				<div className="min-w-0 flex-1">
-					<div className="flex items-center gap-1.5">
-						<span className="truncate text-[12px] font-medium text-text-primary">
-							{account.displayName ?? account.email}
-						</span>
-						{isSelected ? (
-							<span
-								className="shrink-0 rounded bg-accent/20 px-1 py-0.5 text-[9px] uppercase tracking-wide text-accent"
-								title={
-									isCursorAccount
-										? "This seat is written into the Cursor IDE database"
-										: "Active in Claude Code"
-								}
-							>
-								{activeBadgeLabel(account.provider)}
+				<div className="flex items-start justify-between gap-2">
+					<div className="min-w-0 flex-1">
+						<div className="flex items-center gap-1.5">
+							<span className="truncate text-[12px] font-medium text-text-primary">
+								{account.displayName ?? account.email}
 							</span>
-						) : null}
-						{isPrimary ? (
-							<span
-								className="shrink-0 rounded bg-surface-2 px-1 py-0.5 text-[9px] uppercase tracking-wide text-text-secondary"
-								title="Primary seat in fleet order — Use Account or move up/down to change"
-							>
-								primary
-							</span>
-						) : null}
-						{!account.isActive ? (
-							<span className="shrink-0 rounded bg-surface-2 px-1 py-0.5 text-[9px] uppercase tracking-wide text-text-tertiary">
-								disabled
-							</span>
-						) : null}
-						{!account.canAutoSwap ? (
-							<span className="shrink-0 text-[9px] uppercase tracking-wide text-text-tertiary">manual</span>
-						) : null}
-						{donateExhausted ? (
-							<span
-								data-testid={`manager-account-donate-exhausted-${account.id}`}
-								className="shrink-0 rounded bg-status-orange/15 px-1 py-0.5 text-[9px] uppercase tracking-wide text-status-orange"
-								title="Usage is at or above the donate limit. Auto pick skips this seat; pinned tasks may still use it."
-							>
-								donate exhausted
-							</span>
-						) : null}
-						{donateLocked ? (
-							<span
-								data-testid={`manager-account-donate-locked-${account.id}`}
-								className="shrink-0 rounded bg-surface-2 px-1 py-0.5 text-[9px] uppercase tracking-wide text-text-tertiary"
-								title="Donate cap was agreed in the invite email and cannot be changed"
-							>
-								donate locked
-							</span>
-						) : null}
-						{account.subscriptionType ? (
-							<span className="shrink-0 rounded bg-surface-2 px-1 py-0.5 text-[9px] uppercase tracking-wide text-text-tertiary">
-								{account.subscriptionType}
-							</span>
-						) : null}
-						{sessionCount > 0 ? (
-							<span
-								data-testid={`manager-account-sessions-${account.id}`}
-								className="shrink-0 rounded bg-status-green/15 px-1 py-0.5 text-[9px] uppercase tracking-wide text-status-green"
-								title={sessionBadgeTitle(account.provider)}
-							>
-								{sessionCount} live
-							</span>
+							{isSelected ? (
+								<span
+									className="shrink-0 rounded bg-accent/20 px-1 py-0.5 text-[9px] uppercase tracking-wide text-accent"
+									title={
+										isCursorAccount
+											? "This seat is written into the Cursor IDE database"
+											: "Active in Claude Code"
+									}
+								>
+									{activeBadgeLabel(account.provider)}
+								</span>
+							) : null}
+							{isPrimary ? (
+								<span
+									className="shrink-0 rounded bg-surface-2 px-1 py-0.5 text-[9px] uppercase tracking-wide text-text-secondary"
+									title="Primary seat in fleet order — Use Account or move up/down to change"
+								>
+									primary
+								</span>
+							) : null}
+							{!account.isActive ? (
+								<span className="shrink-0 rounded bg-surface-2 px-1 py-0.5 text-[9px] uppercase tracking-wide text-text-tertiary">
+									disabled
+								</span>
+							) : null}
+							{!account.canAutoSwap ? (
+								<span className="shrink-0 text-[9px] uppercase tracking-wide text-text-tertiary">
+									manual
+								</span>
+							) : null}
+							{donateExhausted ? (
+								<span
+									data-testid={`manager-account-donate-exhausted-${account.id}`}
+									className="shrink-0 rounded bg-status-orange/15 px-1 py-0.5 text-[9px] uppercase tracking-wide text-status-orange"
+									title="Usage is at or above the donate limit. Auto pick skips this seat; pinned tasks may still use it."
+								>
+									donate exhausted
+								</span>
+							) : null}
+							{donateLocked ? (
+								<span
+									data-testid={`manager-account-donate-locked-${account.id}`}
+									className="shrink-0 rounded bg-surface-2 px-1 py-0.5 text-[9px] uppercase tracking-wide text-text-tertiary"
+									title="Donate cap was agreed in the invite email and cannot be changed"
+								>
+									donate locked
+								</span>
+							) : null}
+							{account.subscriptionType ? (
+								<span className="shrink-0 rounded bg-surface-2 px-1 py-0.5 text-[9px] uppercase tracking-wide text-text-tertiary">
+									{account.subscriptionType}
+								</span>
+							) : null}
+							{sessionCount > 0 ? (
+								<span
+									data-testid={`manager-account-sessions-${account.id}`}
+									className="shrink-0 rounded bg-status-green/15 px-1 py-0.5 text-[9px] uppercase tracking-wide text-status-green"
+									title={sessionBadgeTitle(account.provider)}
+								>
+									{sessionCount} live
+								</span>
+							) : null}
+						</div>
+						<p className="truncate text-[10px] text-text-tertiary">
+							{providerDisplayName(account.provider)}
+							{account.organizationName ? ` · ${account.organizationName}` : ""}
+						</p>
+						{account.displayName && account.displayName !== account.email ? (
+							<p className="truncate text-[10px] text-text-tertiary">
+								{account.email}
+							</p>
 						) : null}
 					</div>
-					<p className="truncate text-[10px] text-text-tertiary">
-						{providerDisplayName(account.provider)}
-						{account.organizationName ? ` · ${account.organizationName}` : ""}
-					</p>
-					{account.displayName && account.displayName !== account.email ? (
-						<p className="truncate text-[10px] text-text-tertiary">{account.email}</p>
-					) : null}
 				</div>
-			</div>
-			{account.canTrackUsage ? (
-				<div className="mt-2 flex flex-col gap-1.5" data-testid={`manager-account-usage-${account.id}`}>
-					{/* Cursor Plan & Usage uses Cursor Models / Other Models pools (monthly),
+				{account.canTrackUsage ? (
+					<div
+						className="mt-2 flex flex-col gap-1.5"
+						data-testid={`manager-account-usage-${account.id}`}
+					>
+						{/* Cursor Plan & Usage uses Cursor Models / Other Models pools (monthly),
 					    stored in the shared five_hour / seven_day columns. Claude keeps 5h/7d. */}
-					<UsageWindowBar
-						label={isCursorAccount ? "Cursor" : "5h"}
-						percent={account.fiveHourPercent}
-						resetsAt={account.fiveHourResetsAt}
-						canAutoSwap={account.canAutoSwap}
-					/>
-					<UsageWindowBar
-						label={isCursorAccount ? "Other" : "7d"}
-						percent={account.sevenDayPercent}
-						resetsAt={account.sevenDayResetsAt}
-						canAutoSwap={account.canAutoSwap}
-					/>
-					<p className="text-[10px] text-text-tertiary">
-						Usage updated {formatUsageCacheAge(account.usageCachedAt)}
+						<UsageWindowBar
+							label={isCursorAccount ? "Cursor" : "5h"}
+							percent={account.fiveHourPercent}
+							resetsAt={account.fiveHourResetsAt}
+							canAutoSwap={account.canAutoSwap}
+						/>
+						<UsageWindowBar
+							label={isCursorAccount ? "Other" : "7d"}
+							percent={account.sevenDayPercent}
+							resetsAt={account.sevenDayResetsAt}
+							canAutoSwap={account.canAutoSwap}
+						/>
+						<p className="text-[10px] text-text-tertiary">
+							Usage updated {formatUsageCacheAge(account.usageCachedAt)}
+						</p>
+					</div>
+				) : (
+					<p className="mt-1 text-[10px] text-text-tertiary">
+						Usage not tracked
 					</p>
-				</div>
-			) : (
-				<p className="mt-1 text-[10px] text-text-tertiary">Usage not tracked</p>
-			)}
-			<label className="mt-2 flex flex-col gap-0.5" data-testid={`manager-account-donate-${account.id}`}>
-				<span className="text-[10px] text-text-tertiary">
-					Donate up to {donateDraft}%
-					{donateLocked ? " (locked from invite)" : ""}
-				</span>
-				<input
-					type="range"
-					min={0}
-					max={100}
-					step={1}
-					value={donateDraft}
-					disabled={seatControlsLocked || donateLocked}
-					aria-label={`Donate up to percent for ${account.email}`}
-					className="w-full accent-[var(--color-accent)] disabled:opacity-40"
-					onChange={(event) => {
-						if (donateLocked) {
-							return;
-						}
-						scheduleDonatePatch(Number(event.target.value));
-					}}
-				/>
-				<span className="text-[9px] text-text-tertiary">
-					{donateLocked
-						? "Invite seats keep the donate cap agreed in email."
-						: "Auto skips this seat at the limit; pinned tasks still work."}
-				</span>
-			</label>
-			{isCursorAccount ? (
-				<p className="mt-1 text-[10px] text-text-tertiary">
-					Kanban: pin this account on a Cursor task — no IDE switch needed.
-				</p>
-			) : null}
-			{account.lastError ? (
-				<p className="mt-1 text-[10px] text-status-red" title={account.lastError}>
-					{account.lastError}
-				</p>
-			) : null}
+				)}
+				<label
+					className="mt-2 flex flex-col gap-0.5"
+					data-testid={`manager-account-donate-${account.id}`}
+				>
+					<span className="text-[10px] text-text-tertiary">
+						Donate up to {donateDraft}%
+						{donateLocked ? " (locked from invite)" : ""}
+					</span>
+					<input
+						type="range"
+						min={0}
+						max={100}
+						step={1}
+						value={donateDraft}
+						disabled={seatControlsLocked || donateLocked}
+						aria-label={`Donate up to percent for ${account.email}`}
+						className="w-full accent-[var(--color-accent)] disabled:opacity-40"
+						onChange={(event) => {
+							if (donateLocked) {
+								return;
+							}
+							scheduleDonatePatch(Number(event.target.value));
+						}}
+					/>
+					<span className="text-[9px] text-text-tertiary">
+						{donateLocked
+							? "Invite seats keep the donate cap agreed in email."
+							: "Auto skips this seat at the limit; pinned tasks still work."}
+					</span>
+				</label>
+				{isCursorAccount ? (
+					<p className="mt-1 text-[10px] text-text-tertiary">
+						Kanban: pin this account on a Cursor task — no IDE switch needed.
+					</p>
+				) : null}
+				{account.lastError ? (
+					<p
+						className="mt-1 text-[10px] text-status-red"
+						title={account.lastError}
+					>
+						{account.lastError}
+					</p>
+				) : null}
 			</div>
-			<div className={cn("mt-2 flex gap-1", isSeatDisabled && "opacity-50 saturate-0")}>
+			<div
+				className={cn(
+					"mt-2 flex gap-1",
+					isSeatDisabled && "opacity-50 saturate-0",
+				)}
+			>
 				<Button
 					variant="ghost"
 					size="sm"
@@ -384,22 +427,31 @@ function AccountRow({
  * (Refresh All / Add Account → provider → method / auto-swap), and recent swap history.
  * Mounted in the home upper-right pane only (not duplicated in the left Jacked sidebar).
  */
-export function ManagerAccountsView({ online, manager }: ManagerAccountsViewProps): ReactElement {
-	const [busyId, setBusyId] = useState<number | "all" | "swap" | "oauth" | "import-cursor" | null>(null);
+export function ManagerAccountsView({
+	online,
+	manager,
+}: ManagerAccountsViewProps): ReactElement {
+	const [busyId, setBusyId] = useState<
+		number | "all" | "swap" | "oauth" | "import-cursor" | "import-claude" | null
+	>(null);
 	const [error, setError] = useState<string | null>(null);
 	const [actionStatus, setActionStatus] = useState<string | null>(null);
 	const [swapLog, setSwapLog] = useState<RuntimeManagerSwapLog | null>(null);
-	const [addAccountStep, setAddAccountStep] = useState<AddAccountMenuStep>("provider");
+	const [addAccountStep, setAddAccountStep] =
+		useState<AddAccountMenuStep>("provider");
 	const [oauthStatus, setOauthStatus] = useState<string | null>(null);
 	const [oauthAuthUrl, setOauthAuthUrl] = useState<string | null>(null);
 	const [oauthManual, setOauthManual] = useState(false);
 	const [oauthFlowId, setOauthFlowId] = useState<string | null>(null);
 	const [oauthCode, setOauthCode] = useState("");
 	const [oauthSubmitError, setOauthSubmitError] = useState<string | null>(null);
-	const [oauthInviteEmail, setOauthInviteEmail] = useState<ClaudeOAuthInviteEmail | null>(null);
+	const [oauthInviteEmail, setOauthInviteEmail] =
+		useState<ClaudeOAuthInviteEmail | null>(null);
 	const [oauthEmailCopied, setOauthEmailCopied] = useState(false);
 	const [oauthFlowKind, setOauthFlowKind] = useState<OauthFlowKind>("account");
-	const [inviteDonatePercent, setInviteDonatePercent] = useState(DEFAULT_INVITE_DONATE_PERCENT);
+	const [inviteDonatePercent, setInviteDonatePercent] = useState(
+		DEFAULT_INVITE_DONATE_PERCENT,
+	);
 	const pendingInviteDonateRef = useRef<Map<string, number>>(new Map());
 	const oauthGenerationRef = useRef(0);
 	const oauthFlowKindRef = useRef<OauthFlowKind>("account");
@@ -407,7 +459,8 @@ export function ManagerAccountsView({ online, manager }: ManagerAccountsViewProp
 	// its own account instead of all of them sharing the active credential.
 	const sessions = useManagerSessions(online);
 	const paused = Boolean(
-		manager?.swapPausedUntil && Date.parse(manager.swapPausedUntil) > Date.now(),
+		manager?.swapPausedUntil &&
+			Date.parse(manager.swapPausedUntil) > Date.now(),
 	);
 
 	useEffect(() => {
@@ -418,7 +471,9 @@ export function ManagerAccountsView({ online, manager }: ManagerAccountsViewProp
 		let cancelled = false;
 		void (async () => {
 			try {
-				const result = await getRuntimeTrpcClient(null).manager.swapLog.query({ limit: 8 });
+				const result = await getRuntimeTrpcClient(null).manager.swapLog.query({
+					limit: 8,
+				});
 				if (!cancelled) {
 					setSwapLog(result);
 				}
@@ -440,7 +495,7 @@ export function ManagerAccountsView({ online, manager }: ManagerAccountsViewProp
 	}, []);
 
 	const run = async (
-		id: number | "all" | "swap" | "oauth" | "import-cursor",
+		id: number | "all" | "swap" | "oauth" | "import-cursor" | "import-claude",
 		action: () => Promise<{ ok: boolean; error?: string }>,
 		successMessage?: string,
 	) => {
@@ -498,13 +553,18 @@ export function ManagerAccountsView({ online, manager }: ManagerAccountsViewProp
 		setBusyId(null);
 	};
 
-	const applyPendingInviteDonate = async (_flowId: string, _accountId: number | null | undefined) => {
+	const applyPendingInviteDonate = async (
+		_flowId: string,
+		_accountId: number | null | undefined,
+	) => {
 		// Donate cap is set and locked at account creation in the OAuth paste-code path.
 		pendingInviteDonateRef.current.delete(_flowId);
 	};
 
 	const rebuildInviteEmail = (authUrl: string, donateLimitPercent: number) => {
-		setOauthInviteEmail(buildClaudeOAuthInviteEmail(authUrl, { donateLimitPercent }));
+		setOauthInviteEmail(
+			buildClaudeOAuthInviteEmail(authUrl, { donateLimitPercent }),
+		);
 		setOauthEmailCopied(false);
 	};
 
@@ -555,7 +615,9 @@ export function ManagerAccountsView({ online, manager }: ManagerAccountsViewProp
 				return;
 			}
 			try {
-				const poll = await getRuntimeTrpcClient(null).manager.oauthFlowStatus.query({ flowId });
+				const poll = await getRuntimeTrpcClient(
+					null,
+				).manager.oauthFlowStatus.query({ flowId });
 				if (oauthGenerationRef.current !== generation) {
 					return;
 				}
@@ -596,7 +658,13 @@ export function ManagerAccountsView({ online, manager }: ManagerAccountsViewProp
 	 * endpoints answer with the same flow handle and are polled identically.
 	 */
 	const beginOAuthFlow = async (
-		startFlow: () => Promise<{ ok: boolean; error?: string; flowId?: string; authUrl?: string; mode?: string }>,
+		startFlow: () => Promise<{
+			ok: boolean;
+			error?: string;
+			flowId?: string;
+			authUrl?: string;
+			mode?: string;
+		}>,
 		remote: boolean,
 		startingStatus: string,
 		failureMessage: string,
@@ -634,7 +702,11 @@ export function ManagerAccountsView({ online, manager }: ManagerAccountsViewProp
 			setOauthFlowId(start.flowId);
 			setOauthAuthUrl(start.authUrl ?? null);
 			if (manual && flowKind === "account") {
-				syncInviteDonate(start.flowId, inviteDonatePercent, start.authUrl ?? null);
+				syncInviteDonate(
+					start.flowId,
+					inviteDonatePercent,
+					start.authUrl ?? null,
+				);
 			}
 			if (remote && start.authUrl && flowKind === "cc") {
 				setOauthInviteEmail(
@@ -678,7 +750,9 @@ export function ManagerAccountsView({ online, manager }: ManagerAccountsViewProp
 	const startClaudeOauth = async (remote: boolean) => {
 		await beginOAuthFlow(
 			async () =>
-				await getRuntimeTrpcClient(null).manager.startClaudeOAuth.mutate(remote ? { remote: true } : {}),
+				await getRuntimeTrpcClient(null).manager.startClaudeOAuth.mutate(
+					remote ? { remote: true } : {},
+				),
 			remote,
 			remote ? "Preparing invite email…" : "Starting Claude OAuth…",
 			"Could not start Claude OAuth",
@@ -711,14 +785,20 @@ export function ManagerAccountsView({ online, manager }: ManagerAccountsViewProp
 		);
 	};
 
-	const startAccountAuthorizeCc = async (accountId: number, remote = false, accountEmail?: string) => {
+	const startAccountAuthorizeCc = async (
+		accountId: number,
+		remote = false,
+		accountEmail?: string,
+	) => {
 		await beginOAuthFlow(
 			async () =>
 				await getRuntimeTrpcClient(null).manager.startAccountAuthorizeCc.mutate(
 					remote ? { accountId, remote: true } : { accountId },
 				),
 			remote,
-			remote ? "Preparing CC invite email…" : "Starting Claude Code authorization…",
+			remote
+				? "Preparing CC invite email…"
+				: "Starting Claude Code authorization…",
 			"Could not authorize Claude Code",
 			"cc",
 			false,
@@ -733,15 +813,21 @@ export function ManagerAccountsView({ online, manager }: ManagerAccountsViewProp
 		setOauthSubmitError(null);
 		setBusyId("oauth");
 		const donateForNewSeat =
-			oauthFlowKindRef.current === "account" && oauthManual ? inviteDonatePercent : undefined;
+			oauthFlowKindRef.current === "account" && oauthManual
+				? inviteDonatePercent
+				: undefined;
 		if (oauthFlowKindRef.current === "account" && oauthManual) {
 			syncInviteDonate(oauthFlowId, inviteDonatePercent);
 		}
 		try {
-			const result = await getRuntimeTrpcClient(null).manager.submitOAuthCode.mutate({
+			const result = await getRuntimeTrpcClient(
+				null,
+			).manager.submitOAuthCode.mutate({
 				flowId: oauthFlowId,
 				code: oauthCode.trim(),
-				...(donateForNewSeat === undefined ? {} : { donateLimitPercent: donateForNewSeat }),
+				...(donateForNewSeat === undefined
+					? {}
+					: { donateLimitPercent: donateForNewSeat }),
 			});
 			if (!result) {
 				setOauthSubmitError("Could not submit authorization code.");
@@ -766,7 +852,9 @@ export function ManagerAccountsView({ online, manager }: ManagerAccountsViewProp
 			}
 			setBusyId(null);
 		} catch (err) {
-			setOauthSubmitError(err instanceof Error ? err.message : "Could not submit code");
+			setOauthSubmitError(
+				err instanceof Error ? err.message : "Could not submit code",
+			);
 			setBusyId(null);
 		}
 	};
@@ -777,8 +865,12 @@ export function ManagerAccountsView({ online, manager }: ManagerAccountsViewProp
 				data-testid="manager-accounts-view"
 				className="flex h-full min-h-0 flex-1 flex-col items-center justify-center gap-2 bg-surface-1 p-4 text-center"
 			>
-				<p className="text-[12px] text-text-secondary">{MANAGER_LABELS.offline}</p>
-				<p className="text-[11px] text-text-tertiary">{MANAGER_LABELS.offlineHint}</p>
+				<p className="text-[12px] text-text-secondary">
+					{MANAGER_LABELS.offline}
+				</p>
+				<p className="text-[11px] text-text-tertiary">
+					{MANAGER_LABELS.offlineHint}
+				</p>
 			</div>
 		);
 	}
@@ -823,7 +915,9 @@ export function ManagerAccountsView({ online, manager }: ManagerAccountsViewProp
 						aria-label={MANAGER_LABELS.refreshAllUsage}
 						className="h-7 px-2 text-[10px]"
 						onClick={() => {
-							void run("all", () => getRuntimeTrpcClient(null).manager.refreshAllUsage.mutate());
+							void run("all", () =>
+								getRuntimeTrpcClient(null).manager.refreshAllUsage.mutate(),
+							);
 						}}
 					>
 						Refresh All
@@ -872,9 +966,15 @@ export function ManagerAccountsView({ online, manager }: ManagerAccountsViewProp
 										>
 											<span>
 												<p className="font-medium">Claude Code</p>
-												<p className="text-[10px] text-text-tertiary">OAuth or paste invite code</p>
+												<p className="text-[10px] text-text-tertiary">
+													OAuth or paste invite code
+												</p>
 											</span>
-											<ChevronRight size={12} className="shrink-0 text-text-tertiary" aria-hidden />
+											<ChevronRight
+												size={12}
+												className="shrink-0 text-text-tertiary"
+												aria-hidden
+											/>
 										</DropdownMenu.Item>
 										<DropdownMenu.Item
 											className="flex cursor-pointer items-center justify-between gap-2 rounded-sm px-2 py-1.5 text-[11px] text-text-primary outline-none data-[highlighted]:bg-surface-3"
@@ -886,9 +986,15 @@ export function ManagerAccountsView({ online, manager }: ManagerAccountsViewProp
 										>
 											<span>
 												<p className="font-medium">Cursor Agent</p>
-												<p className="text-[10px] text-text-tertiary">Import signed-in IDE session</p>
+												<p className="text-[10px] text-text-tertiary">
+													Import signed-in IDE session
+												</p>
 											</span>
-											<ChevronRight size={12} className="shrink-0 text-text-tertiary" aria-hidden />
+											<ChevronRight
+												size={12}
+												className="shrink-0 text-text-tertiary"
+												aria-hidden
+											/>
 										</DropdownMenu.Item>
 									</>
 								) : null}
@@ -914,7 +1020,9 @@ export function ManagerAccountsView({ online, manager }: ManagerAccountsViewProp
 											}}
 										>
 											<p className="font-medium">OAuth</p>
-											<p className="text-[10px] text-text-tertiary">Sign in on this computer</p>
+											<p className="text-[10px] text-text-tertiary">
+												Sign in on this computer
+											</p>
 										</DropdownMenu.Item>
 										<DropdownMenu.Item
 											className="cursor-pointer rounded-sm px-2 py-1.5 text-[11px] text-text-primary outline-none data-[highlighted]:bg-surface-3"
@@ -924,7 +1032,26 @@ export function ManagerAccountsView({ online, manager }: ManagerAccountsViewProp
 											}}
 										>
 											<p className="font-medium">Paste code</p>
-											<p className="text-[10px] text-text-tertiary">Invite a colleague by email</p>
+											<p className="text-[10px] text-text-tertiary">
+												Invite a colleague by email
+											</p>
+										</DropdownMenu.Item>
+										<DropdownMenu.Item
+											className="cursor-pointer rounded-sm px-2 py-1.5 text-[11px] text-text-primary outline-none data-[highlighted]:bg-surface-3"
+											data-testid="manager-add-account-import-claude"
+											onSelect={() => {
+												void run("import-claude", () =>
+													getRuntimeTrpcClient(
+														null,
+													).manager.importClaudeAccount.mutate(),
+												);
+											}}
+										>
+											<p className="font-medium">Import local CLI login</p>
+											<p className="text-[10px] text-text-tertiary">
+												Use the Claude Code account already signed in on this
+												computer
+											</p>
 										</DropdownMenu.Item>
 									</>
 								) : null}
@@ -947,7 +1074,9 @@ export function ManagerAccountsView({ online, manager }: ManagerAccountsViewProp
 											data-testid="manager-add-account-import-cursor"
 											onSelect={() => {
 												void run("import-cursor", () =>
-													getRuntimeTrpcClient(null).manager.importCursorAccount.mutate(),
+													getRuntimeTrpcClient(
+														null,
+													).manager.importCursorAccount.mutate(),
 												);
 											}}
 										>
@@ -970,7 +1099,9 @@ export function ManagerAccountsView({ online, manager }: ManagerAccountsViewProp
 							aria-label="Resume auto-swap"
 							className="h-7 px-2 text-[10px]"
 							onClick={() => {
-								void run("swap", () => getRuntimeTrpcClient(null).manager.resumeSwap.mutate());
+								void run("swap", () =>
+									getRuntimeTrpcClient(null).manager.resumeSwap.mutate(),
+								);
 							}}
 						>
 							Resume
@@ -985,7 +1116,9 @@ export function ManagerAccountsView({ online, manager }: ManagerAccountsViewProp
 							className="h-7 px-2 text-[10px]"
 							onClick={() => {
 								void run("swap", () =>
-									getRuntimeTrpcClient(null).manager.pauseSwap.mutate({ minutes: 30 }),
+									getRuntimeTrpcClient(null).manager.pauseSwap.mutate({
+										minutes: 30,
+									}),
 								);
 							}}
 						>
@@ -1003,14 +1136,19 @@ export function ManagerAccountsView({ online, manager }: ManagerAccountsViewProp
 			</div>
 			{!online && manager !== null ? (
 				<p className="shrink-0 border-b border-border px-2 py-1 text-[10px] text-status-orange">
-					Manager is unreachable — showing last-known seats. Reconnect to use Re-import / Re-auth / Check.
+					Manager is unreachable — showing last-known seats. Reconnect to use
+					Re-import / Re-auth / Check.
 				</p>
 			) : null}
 			{error ? (
-				<p className="shrink-0 border-b border-border px-2 py-1 text-[10px] text-status-red">{error}</p>
+				<p className="shrink-0 border-b border-border px-2 py-1 text-[10px] text-status-red">
+					{error}
+				</p>
 			) : null}
 			{actionStatus ? (
-				<p className="shrink-0 border-b border-border px-2 py-1 text-[10px] text-status-green">{actionStatus}</p>
+				<p className="shrink-0 border-b border-border px-2 py-1 text-[10px] text-status-green">
+					{actionStatus}
+				</p>
 			) : null}
 			{oauthStatus ? (
 				<div
@@ -1018,7 +1156,9 @@ export function ManagerAccountsView({ online, manager }: ManagerAccountsViewProp
 					data-testid="manager-oauth-status"
 				>
 					<div className="flex items-start gap-1">
-						<p className="min-w-0 flex-1 text-[10px] text-text-secondary">{oauthStatus}</p>
+						<p className="min-w-0 flex-1 text-[10px] text-text-secondary">
+							{oauthStatus}
+						</p>
 						{/* Without this, a pending flow would hold the panel until it timed out
 						    (10 minutes in paste-code mode) or the page was reloaded. */}
 						<Button
@@ -1037,7 +1177,10 @@ export function ManagerAccountsView({ online, manager }: ManagerAccountsViewProp
 							data-testid="manager-oauth-invite-email"
 						>
 							{oauthManual && oauthFlowKind === "account" && oauthFlowId ? (
-								<label className="mb-2 flex flex-col gap-0.5" data-testid="manager-oauth-invite-donate">
+								<label
+									className="mb-2 flex flex-col gap-0.5"
+									data-testid="manager-oauth-invite-donate"
+								>
 									<span className="text-[10px] text-text-tertiary">
 										Donate up to {inviteDonatePercent}%
 									</span>
@@ -1152,7 +1295,9 @@ export function ManagerAccountsView({ online, manager }: ManagerAccountsViewProp
 								</Button>
 							</div>
 							{oauthSubmitError ? (
-								<p className="text-[10px] text-status-red">{oauthSubmitError}</p>
+								<p className="text-[10px] text-status-red">
+									{oauthSubmitError}
+								</p>
 							) : null}
 						</div>
 					) : null}
@@ -1172,132 +1317,159 @@ export function ManagerAccountsView({ online, manager }: ManagerAccountsViewProp
 								busyId === "import-cursor" ||
 								busyId === "all";
 							return (
-							<AccountRow
-								key={account.id}
-								account={account}
-								isSelected={accountIsSelected(account, manager)}
-								isPrimary={index === 0}
-								busy={rowBusy}
-								online={online}
-								sessionCount={sessions.byAccountId.get(account.id)?.length ?? 0}
-								onUse={() => {
-									void run(
-										account.id,
-										async () => {
-											const result = await getRuntimeTrpcClient(null).manager.useAccount.mutate({
-												accountId: account.id,
-											});
-											if (result.ok || account.provider !== "cursor") {
-												return result;
-											}
-											return {
-												ok: false,
-												error: `${result.error ?? "Could not use Cursor account."} For Kanban, pin this account on a Cursor task card instead.`,
-											};
-										},
-										"Seat updated and set as primary.",
-									);
-								}}
-								onRefresh={() => {
-									void run(
-										account.id,
-										() =>
-											getRuntimeTrpcClient(null).manager.refreshAccount.mutate({
-												accountId: account.id,
-											}),
-										"Usage refreshed.",
-									);
-								}}
-								onDonateChange={(percent) => {
-									void getRuntimeTrpcClient(null).manager.updateAccount.mutate({
-										accountId: account.id,
-										donateLimitPercent: percent,
-									});
-								}}
-								actions={
-									<ManagerAccountActions
-										account={account}
-										online={online}
-										busy={rowBusy}
-										isFirst={index === 0}
-										isLast={index === accounts.length - 1}
-										onReauth={() => {
-											void startAccountReauth(account.id);
-										}}
-										onReauthRemote={() => {
-											void startAccountReauth(account.id, true);
-										}}
-										onAuthorizeCc={() => {
-											void startAccountAuthorizeCc(account.id);
-										}}
-										onAuthorizeCcRemote={() => {
-											void startAccountAuthorizeCc(account.id, true, account.email);
-										}}
-										onReimport={
-											account.provider === "cursor"
-												? () => {
-														void run(
-															account.id,
-															() =>
-																getRuntimeTrpcClient(null).manager.reimportCursorAccount.mutate({
-																	accountId: account.id,
-																}),
-															"Cursor session re-imported. Restart the task to use it.",
-														);
-													}
-												: undefined
-										}
-										onValidate={() => {
-											void run(
-												account.id,
-												() =>
-													getRuntimeTrpcClient(null).manager.validateAccount.mutate({
-														accountId: account.id,
-													}),
-												"Credential check finished.",
-											);
-										}}
-										onToggleEnabled={() => {
-											void run(
-												account.id,
-												() =>
-													getRuntimeTrpcClient(null).manager.updateAccount.mutate({
-														accountId: account.id,
-														isActive: !account.isActive,
-													}),
-												account.isActive ? "Seat disabled." : "Seat enabled.",
-											);
-										}}
-										onDelete={() => {
-											void run(account.id, () =>
-												getRuntimeTrpcClient(null).manager.deleteAccount.mutate({
+								<AccountRow
+									key={account.id}
+									account={account}
+									isSelected={accountIsSelected(account, manager)}
+									isPrimary={index === 0}
+									busy={rowBusy}
+									online={online}
+									sessionCount={
+										sessions.byAccountId.get(account.id)?.length ?? 0
+									}
+									onUse={() => {
+										void run(
+											account.id,
+											async () => {
+												const result = await getRuntimeTrpcClient(
+													null,
+												).manager.useAccount.mutate({
+													accountId: account.id,
+												});
+												if (result.ok || account.provider !== "cursor") {
+													return result;
+												}
+												return {
+													ok: false,
+													error: `${result.error ?? "Could not use Cursor account."} For Kanban, pin this account on a Cursor task card instead.`,
+												};
+											},
+											"Seat updated and set as primary.",
+										);
+									}}
+									onRefresh={() => {
+										void run(
+											account.id,
+											() =>
+												getRuntimeTrpcClient(
+													null,
+												).manager.refreshAccount.mutate({
 													accountId: account.id,
 												}),
-											);
-										}}
-										onMoveUp={() => {
-											void run(account.id, () =>
-												getRuntimeTrpcClient(null).manager.reorderAccounts.mutate({
-													accountIds: moveAccount(accounts, index, -1),
-												}),
-											);
-										}}
-										onMoveDown={() => {
-											void run(account.id, () =>
-												getRuntimeTrpcClient(null).manager.reorderAccounts.mutate({
-													accountIds: moveAccount(accounts, index, 1),
-												}),
-											);
-										}}
-									/>
-								}
-							/>
+											"Usage refreshed.",
+										);
+									}}
+									onDonateChange={(percent) => {
+										void getRuntimeTrpcClient(
+											null,
+										).manager.updateAccount.mutate({
+											accountId: account.id,
+											donateLimitPercent: percent,
+										});
+									}}
+									actions={
+										<ManagerAccountActions
+											account={account}
+											online={online}
+											busy={rowBusy}
+											isFirst={index === 0}
+											isLast={index === accounts.length - 1}
+											onReauth={() => {
+												void startAccountReauth(account.id);
+											}}
+											onReauthRemote={() => {
+												void startAccountReauth(account.id, true);
+											}}
+											onAuthorizeCc={() => {
+												void startAccountAuthorizeCc(account.id);
+											}}
+											onAuthorizeCcRemote={() => {
+												void startAccountAuthorizeCc(
+													account.id,
+													true,
+													account.email,
+												);
+											}}
+											onReimport={
+												account.provider === "cursor"
+													? () => {
+															void run(
+																account.id,
+																() =>
+																	getRuntimeTrpcClient(
+																		null,
+																	).manager.reimportCursorAccount.mutate({
+																		accountId: account.id,
+																	}),
+																"Cursor session re-imported. Restart the task to use it.",
+															);
+														}
+													: undefined
+											}
+											onValidate={() => {
+												void run(
+													account.id,
+													() =>
+														getRuntimeTrpcClient(
+															null,
+														).manager.validateAccount.mutate({
+															accountId: account.id,
+														}),
+													"Credential check finished.",
+												);
+											}}
+											onToggleEnabled={() => {
+												void run(
+													account.id,
+													() =>
+														getRuntimeTrpcClient(
+															null,
+														).manager.updateAccount.mutate({
+															accountId: account.id,
+															isActive: !account.isActive,
+														}),
+													account.isActive ? "Seat disabled." : "Seat enabled.",
+												);
+											}}
+											onDelete={() => {
+												void run(account.id, () =>
+													getRuntimeTrpcClient(
+														null,
+													).manager.deleteAccount.mutate({
+														accountId: account.id,
+													}),
+												);
+											}}
+											onMoveUp={() => {
+												void run(account.id, () =>
+													getRuntimeTrpcClient(
+														null,
+													).manager.reorderAccounts.mutate({
+														accountIds: moveAccount(accounts, index, -1),
+													}),
+												);
+											}}
+											onMoveDown={() => {
+												void run(account.id, () =>
+													getRuntimeTrpcClient(
+														null,
+													).manager.reorderAccounts.mutate({
+														accountIds: moveAccount(accounts, index, 1),
+													}),
+												);
+											}}
+										/>
+									}
+								/>
 							);
 						})}
 					</div>
 				)}
 
-				<section className="mt-3 border-t border-border pt-2" data-testid="manager-accounts-swap-history">
+				<section
+					className="mt-3 border-t border-border pt-2"
+					data-testid="manager-accounts-swap-history"
+				>
 					<p className="mb-1.5 text-[10px] font-medium uppercase tracking-wide text-text-tertiary">
 						Swap history
 					</p>

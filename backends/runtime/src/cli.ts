@@ -12,6 +12,7 @@ import { registerTaskCommand } from "./commands/task";
 import { loadGlobalRuntimeConfig, loadRuntimeConfig } from "./config/runtime-config";
 import type { RuntimeCommandRunResponse } from "./core/api-contract";
 import { createGitProcessEnv } from "./core/git-process-env";
+import { detectHostEnvironment } from "./core/host-environment";
 import {
 	installGracefulShutdownHandlers,
 	shouldSuppressImmediateDuplicateShutdownSignals,
@@ -511,6 +512,9 @@ async function startServer(): Promise<{
 				updateTiming: notification.updateTiming,
 				installCommand: notification.installCommand,
 			};
+		},
+		getHostEnvironment: () => {
+			return detectHostEnvironment();
 		},
 		runUpdateNow: async () => {
 			const result = await runOnDemandUpdate({

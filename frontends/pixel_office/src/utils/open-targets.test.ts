@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { buildOpenCommand, getOpenTargetOption, getOpenTargetOptions } from "@/utils/open-targets";
+import {
+	buildOpenCommand,
+	getOpenTargetOption,
+	getOpenTargetOptions,
+	normalizeOpenPlatformOverride,
+	resolveEffectiveOpenPlatform,
+} from "@/utils/open-targets";
 
 describe("open-targets", () => {
 	it("filters unsupported options on windows", () => {
@@ -48,5 +54,34 @@ describe("open-targets", () => {
 
 	it("falls back to default command when target is unsupported on windows", () => {
 		expect(buildOpenCommand("iterm2", "C:\\Users\\dev\\my repo", "windows")).toBe('code "C:\\Users\\dev\\my repo"');
+	});
+
+	it("opens editors on WSL with the Linux remote CLI form", () => {
+		expect(buildOpenCommand("vscode", "/home/dev/my repo", "wsl")).toBe("code '/home/dev/my repo'");
+		expect(buildOpenCommand("cursor", "/home/dev/repo", "wsl")).toBe("cursor '/home/dev/repo'");
+	});
+
+	it("opens the WSL file manager via explorer.exe with a wslpath-translated path", () => {
+		expect(buildOpenCommand("finder", "/home/dev/my repo", "wsl")).toBe(
+			`explorer.exe "$(wslpath -w '/home/dev/my repo')"`,
+		);
+	});
+
+	it("labels the WSL file manager as File Explorer", () => {
+		expect(getOpenTargetOption("finder", "wsl").label).toBe("File Explorer");
+	});
+
+	it("normalizes unknown override values to auto", () => {
+		expect(normalizeOpenPlatformOverride("wsl")).toBe("wsl");
+		expect(normalizeOpenPlatformOverride("bogus")).toBe("auto");
+		expect(normalizeOpenPlatformOverride(null)).toBe("auto");
+		// "other" is a fallback platform, never a selectable override.
+		expect(normalizeOpenPlatformOverride("other")).toBe("auto");
+	});
+
+	it("resolves effective platform with override precedence over host and navigator", () => {
+		expect(resolveEffectiveOpenPlatform("windows", "wsl", "linux")).toBe("windows");
+		expect(resolveEffectiveOpenPlatform("auto", "wsl", "windows")).toBe("wsl");
+		expect(resolveEffectiveOpenPlatform("auto", null, "mac")).toBe("mac");
 	});
 });

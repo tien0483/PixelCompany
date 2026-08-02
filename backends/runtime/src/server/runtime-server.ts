@@ -14,6 +14,7 @@ import type {
 	RuntimeCommandRunResponse,
 	RuntimeRunUpdateResponse,
 	RuntimeTaskSessionSummary,
+	RuntimeHostEnvironmentResponse,
 	RuntimeUpdateStatusResponse,
 	RuntimeWorkspaceStateResponse,
 } from "../core/api-contract";
@@ -84,6 +85,7 @@ export interface CreateRuntimeServerDependencies {
 	collectProjectWorktreeTaskIdsForRemoval: (board: RuntimeWorkspaceStateResponse["board"]) => Set<string>;
 	pickDirectoryPathFromSystemDialog: () => string | null | Promise<string | null>;
 	getUpdateStatus: () => RuntimeUpdateStatusResponse;
+	getHostEnvironment: () => RuntimeHostEnvironmentResponse;
 	runUpdateNow: () => Promise<RuntimeRunUpdateResponse>;
 }
 
@@ -260,6 +262,7 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 		bumpClineSessionContextVersion: deps.runtimeStateHub.bumpClineSessionContextVersion,
 		prepareForStateReset,
 		getUpdateStatus: deps.getUpdateStatus,
+		getHostEnvironment: deps.getHostEnvironment,
 		runUpdateNow: deps.runUpdateNow,
 	};
 

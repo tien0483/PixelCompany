@@ -1,5 +1,7 @@
 import * as RadixPopover from "@radix-ui/react-popover";
 import {
+	Archive,
+	ArchiveRestore,
 	ArrowDown,
 	ArrowLeft,
 	ArrowUp,
@@ -9,7 +11,11 @@ import {
 	ChevronDown,
 	CircleArrowDown,
 	Command,
+	FolderGit2,
 	GitBranch,
+	GitCommitHorizontal,
+	GitMerge,
+	GitPullRequestArrow,
 	Menu,
 	Play,
 	Plus,
@@ -26,17 +32,30 @@ import {
 } from "@/components/shared/runtime-shortcut-icons";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
-import { Dialog, DialogBody, DialogFooter, DialogHeader } from "@/components/ui/dialog";
+import {
+	Dialog,
+	DialogBody,
+	DialogFooter,
+	DialogHeader,
+} from "@/components/ui/dialog";
 import { Spinner } from "@/components/ui/spinner";
 import { Tooltip } from "@/components/ui/tooltip";
 import { useIsMobile } from "@/hooks/use-is-mobile";
-import type { RuntimeGitSyncAction, RuntimeProjectShortcut } from "@/runtime/types";
+import type {
+	RuntimeGitSyncAction,
+	RuntimeProjectShortcut,
+} from "@/runtime/types";
 import {
 	useHomeGitSummaryValue,
 	useTaskWorkspaceInfoValue,
 	useTaskWorkspaceSnapshotValue,
 } from "@/stores/workspace-metadata-store";
-import type { OpenTargetId, OpenTargetOption } from "@/utils/open-targets";
+import type {
+	OpenPlatformOverride,
+	OpenTargetId,
+	OpenTargetOption,
+	OpenTargetPlatform,
+} from "@/utils/open-targets";
 import { formatPathForDisplay } from "@/utils/path-display";
 import { isMacPlatform } from "@/utils/platform";
 
@@ -85,7 +104,9 @@ function FirstShortcutIconPicker({
 				>
 					<div className="flex gap-0.5">
 						{RUNTIME_SHORTCUT_ICON_OPTIONS.map((option) => {
-							const IconComponent = getRuntimeShortcutIconComponent(option.value);
+							const IconComponent = getRuntimeShortcutIconComponent(
+								option.value,
+							);
 							return (
 								<button
 									key={option.value}
@@ -153,7 +174,11 @@ function GitBranchStatusControl({
 
 	return (
 		<span className="font-mono text-xs text-text-secondary mr-1 whitespace-nowrap">
-			<GitBranch size={12} className="inline-block mr-1" style={{ verticalAlign: -1 }} />
+			<GitBranch
+				size={12}
+				className="inline-block mr-1"
+				style={{ verticalAlign: -1 }}
+			/>
 			<span className="text-text-primary">{branchLabel}</span>
 			<span className="ml-1.5">
 				<span className="text-text-tertiary">
@@ -177,6 +202,12 @@ function TopBarGitStatusSection({
 	onGitFetch,
 	onGitPull,
 	onGitPush,
+	onGitStash,
+	onGitStashPop,
+	onGitCommit,
+	onGitPullRequest,
+	onGitWorktrees,
+	onGitConflicts,
 }: {
 	showHomeGitSummary: boolean;
 	selectedTaskId: string | null;
@@ -187,9 +218,18 @@ function TopBarGitStatusSection({
 	onGitFetch?: () => void;
 	onGitPull?: () => void;
 	onGitPush?: () => void;
+	onGitStash?: () => void;
+	onGitStashPop?: () => void;
+	onGitCommit?: () => void;
+	onGitPullRequest?: () => void;
+	onGitWorktrees?: () => void;
+	onGitConflicts?: () => void;
 }): React.ReactElement | null {
 	const homeGitSummary = useHomeGitSummaryValue();
-	const taskWorkspaceInfo = useTaskWorkspaceInfoValue(selectedTaskId, selectedTaskBaseRef);
+	const taskWorkspaceInfo = useTaskWorkspaceInfoValue(
+		selectedTaskId,
+		selectedTaskBaseRef,
+	);
 	const taskWorkspaceSnapshot = useTaskWorkspaceSnapshotValue(selectedTaskId);
 
 	if (showHomeGitSummary && homeGitSummary) {
@@ -223,7 +263,13 @@ function TopBarGitStatusSection({
 						<Button
 							variant="ghost"
 							size="sm"
-							icon={runningGitAction === "fetch" ? <Spinner size={14} /> : <CircleArrowDown size={18} />}
+							icon={
+								runningGitAction === "fetch" ? (
+									<Spinner size={14} />
+								) : (
+									<CircleArrowDown size={18} />
+								)
+							}
 							onClick={onGitFetch}
 							disabled={runningGitAction === "fetch"}
 							aria-label="Fetch from upstream"
@@ -233,7 +279,13 @@ function TopBarGitStatusSection({
 						<Button
 							variant="ghost"
 							size="sm"
-							icon={runningGitAction === "pull" ? <Spinner size={14} /> : <ArrowDown size={14} />}
+							icon={
+								runningGitAction === "pull" ? (
+									<Spinner size={14} />
+								) : (
+									<ArrowDown size={14} />
+								)
+							}
 							onClick={onGitPull}
 							disabled={runningGitAction === "pull"}
 							aria-label="Pull from upstream"
@@ -245,13 +297,100 @@ function TopBarGitStatusSection({
 						<Button
 							variant="ghost"
 							size="sm"
-							icon={runningGitAction === "push" ? <Spinner size={14} /> : <ArrowUp size={14} />}
+							icon={
+								runningGitAction === "push" ? (
+									<Spinner size={14} />
+								) : (
+									<ArrowUp size={14} />
+								)
+							}
 							onClick={onGitPush}
 							disabled={runningGitAction === "push"}
 							aria-label="Push to upstream"
 						>
 							<span className="text-text-tertiary">{pushCount}</span>
 						</Button>
+					</Tooltip>
+					<Tooltip
+						side="bottom"
+						content="Stash your working-copy changes, leaving the tree clean."
+					>
+						<Button
+							variant="ghost"
+							size="sm"
+							icon={
+								runningGitAction === "stash" ? (
+									<Spinner size={14} />
+								) : (
+									<Archive size={14} />
+								)
+							}
+							onClick={onGitStash}
+							disabled={
+								runningGitAction === "stash" ||
+								(homeGitSummary.changedFiles ?? 0) === 0
+							}
+							aria-label="Stash working changes"
+						/>
+					</Tooltip>
+					<Tooltip
+						side="bottom"
+						content="Restore the most recently stashed changes (git stash pop)."
+					>
+						<Button
+							variant="ghost"
+							size="sm"
+							icon={
+								runningGitAction === "stash-pop" ? (
+									<Spinner size={14} />
+								) : (
+									<ArchiveRestore size={14} />
+								)
+							}
+							onClick={onGitStashPop}
+							disabled={runningGitAction === "stash-pop"}
+							aria-label="Pop stashed changes"
+						/>
+					</Tooltip>
+					<Tooltip side="bottom" content="Commit your working-copy changes.">
+						<Button
+							variant="ghost"
+							size="sm"
+							icon={<GitCommitHorizontal size={16} />}
+							onClick={onGitCommit}
+							disabled={(homeGitSummary.changedFiles ?? 0) === 0}
+							aria-label="Commit changes"
+						/>
+					</Tooltip>
+					<Tooltip
+						side="bottom"
+						content="Create a pull request with the GitHub CLI."
+					>
+						<Button
+							variant="ghost"
+							size="sm"
+							icon={<GitPullRequestArrow size={16} />}
+							onClick={onGitPullRequest}
+							aria-label="Create pull request"
+						/>
+					</Tooltip>
+					<Tooltip side="bottom" content="List git worktrees.">
+						<Button
+							variant="ghost"
+							size="sm"
+							icon={<FolderGit2 size={16} />}
+							onClick={onGitWorktrees}
+							aria-label="List worktrees"
+						/>
+					</Tooltip>
+					<Tooltip side="bottom" content="Resolve merge conflicts.">
+						<Button
+							variant="ghost"
+							size="sm"
+							icon={<GitMerge size={16} />}
+							onClick={onGitConflicts}
+							aria-label="Resolve merge conflicts"
+						/>
 					</Tooltip>
 				</div>
 			</>
@@ -264,7 +403,9 @@ function TopBarGitStatusSection({
 				<div className="w-px h-5 bg-border mx-1" />
 				<GitBranchStatusControl
 					branchLabel={
-						taskWorkspaceInfo?.branch ?? taskWorkspaceSnapshot?.headCommit?.slice(0, 8) ?? "initializing"
+						taskWorkspaceInfo?.branch ??
+						taskWorkspaceSnapshot?.headCommit?.slice(0, 8) ??
+						"initializing"
 					}
 					changedFiles={taskWorkspaceSnapshot?.changedFiles ?? 0}
 					additions={taskWorkspaceSnapshot?.additions ?? 0}
@@ -293,6 +434,12 @@ export function TopBar({
 	onGitFetch,
 	onGitPull,
 	onGitPush,
+	onGitStash,
+	onGitStashPop,
+	onGitCommit,
+	onGitPullRequest,
+	onGitWorktrees,
+	onGitConflicts,
 	onToggleTerminal,
 	isTerminalOpen,
 	isTerminalLoading,
@@ -312,6 +459,9 @@ export function TopBar({
 	openTargetOptions,
 	selectedOpenTargetId,
 	onSelectOpenTarget,
+	openPlatformOverride,
+	onSelectOpenPlatform,
+	detectedOpenPlatform,
 	onOpenWorkspace,
 	canOpenWorkspace,
 	isOpeningWorkspace,
@@ -330,6 +480,12 @@ export function TopBar({
 	onGitFetch?: () => void;
 	onGitPull?: () => void;
 	onGitPush?: () => void;
+	onGitStash?: () => void;
+	onGitStashPop?: () => void;
+	onGitCommit?: () => void;
+	onGitPullRequest?: () => void;
+	onGitWorktrees?: () => void;
+	onGitConflicts?: () => void;
 	onToggleTerminal?: () => void;
 	isTerminalOpen?: boolean;
 	isTerminalLoading?: boolean;
@@ -345,19 +501,30 @@ export function TopBar({
 	onSelectShortcutLabel?: (shortcutLabel: string) => void;
 	runningShortcutLabel?: string | null;
 	onRunShortcut?: (shortcutLabel: string) => void;
-	onCreateFirstShortcut?: (shortcut: RuntimeProjectShortcut) => Promise<CreateShortcutResult>;
+	onCreateFirstShortcut?: (
+		shortcut: RuntimeProjectShortcut,
+	) => Promise<CreateShortcutResult>;
 	openTargetOptions: readonly OpenTargetOption[];
 	selectedOpenTargetId: OpenTargetId;
 	onSelectOpenTarget: (targetId: OpenTargetId) => void;
+	openPlatformOverride: OpenPlatformOverride;
+	onSelectOpenPlatform: (override: OpenPlatformOverride) => void;
+	detectedOpenPlatform: OpenTargetPlatform | null;
 	onOpenWorkspace: () => void;
 	canOpenWorkspace: boolean;
 	isOpeningWorkspace: boolean;
 	hideProjectDependentActions?: boolean;
 }): React.ReactElement {
 	const isMobile = useIsMobile();
-	const displayWorkspacePath = workspacePath ? formatPathForDisplay(workspacePath) : null;
-	const workspaceSegments = displayWorkspacePath ? getWorkspacePathSegments(displayWorkspacePath) : [];
-	const hasAbsoluteLeadingSlash = Boolean(displayWorkspacePath?.startsWith("/"));
+	const displayWorkspacePath = workspacePath
+		? formatPathForDisplay(workspacePath)
+		: null;
+	const workspaceSegments = displayWorkspacePath
+		? getWorkspacePathSegments(displayWorkspacePath)
+		: [];
+	const hasAbsoluteLeadingSlash = Boolean(
+		displayWorkspacePath?.startsWith("/"),
+	);
 	const handleAddShortcut = () => {
 		onOpenSettings?.("shortcuts");
 	};
@@ -365,13 +532,23 @@ export function TopBar({
 	const selectedShortcutIndex =
 		selectedShortcutLabel === null || selectedShortcutLabel === undefined
 			? 0
-			: shortcutItems.findIndex((shortcut) => shortcut.label === selectedShortcutLabel);
-	const selectedShortcut = shortcutItems[selectedShortcutIndex >= 0 ? selectedShortcutIndex : 0] ?? null;
-	const SelectedShortcutIcon = selectedShortcut ? getRuntimeShortcutIconComponent(selectedShortcut.icon) : Terminal;
-	const [isCreateShortcutDialogOpen, setIsCreateShortcutDialogOpen] = useState(false);
+			: shortcutItems.findIndex(
+					(shortcut) => shortcut.label === selectedShortcutLabel,
+				);
+	const selectedShortcut =
+		shortcutItems[selectedShortcutIndex >= 0 ? selectedShortcutIndex : 0] ??
+		null;
+	const SelectedShortcutIcon = selectedShortcut
+		? getRuntimeShortcutIconComponent(selectedShortcut.icon)
+		: Terminal;
+	const [isCreateShortcutDialogOpen, setIsCreateShortcutDialogOpen] =
+		useState(false);
 	const [isCreateShortcutSaving, setIsCreateShortcutSaving] = useState(false);
-	const [createShortcutError, setCreateShortcutError] = useState<string | null>(null);
-	const [newShortcutIcon, setNewShortcutIcon] = useState<RuntimeShortcutPickerIconId>("play");
+	const [createShortcutError, setCreateShortcutError] = useState<string | null>(
+		null,
+	);
+	const [newShortcutIcon, setNewShortcutIcon] =
+		useState<RuntimeShortcutPickerIconId>("play");
 	const [newShortcutLabel, setNewShortcutLabel] = useState("Run");
 	const [newShortcutCommand, setNewShortcutCommand] = useState("");
 	const canSaveNewShortcut = newShortcutCommand.trim().length > 0;
@@ -383,7 +560,11 @@ export function TopBar({
 		setIsCreateShortcutDialogOpen(true);
 	};
 	const handleSaveFirstShortcut = async () => {
-		if (!onCreateFirstShortcut || !canSaveNewShortcut || isCreateShortcutSaving) {
+		if (
+			!onCreateFirstShortcut ||
+			!canSaveNewShortcut ||
+			isCreateShortcutSaving
+		) {
 			return;
 		}
 		setCreateShortcutError(null);
@@ -440,18 +621,29 @@ export function TopBar({
 					{isWorkspacePathLoading ? (
 						<span
 							className="kb-skeleton inline-block"
-							style={{ height: 14, width: isMobile ? 120 : 320, borderRadius: 3 }}
+							style={{
+								height: 14,
+								width: isMobile ? 120 : 320,
+								borderRadius: 3,
+							}}
 							aria-hidden
 						/>
 					) : displayWorkspacePath ? (
-						<div className={cn("shrink min-w-0 overflow-hidden", isMobile ? "max-w-[180px]" : "max-w-[640px]")}>
+						<div
+							className={cn(
+								"shrink min-w-0 overflow-hidden",
+								isMobile ? "max-w-[180px]" : "max-w-[640px]",
+							)}
+						>
 							<span
 								className="font-mono truncate block w-full min-w-0 text-xs max-w-full text-text-secondary"
 								title={workspacePath}
 								data-testid="workspace-path"
 							>
 								{isMobile ? (
-									<span className="text-text-primary">{workspaceSegments[workspaceSegments.length - 1]}</span>
+									<span className="text-text-primary">
+										{workspaceSegments[workspaceSegments.length - 1]}
+									</span>
 								) : (
 									<>
 										{hasAbsoluteLeadingSlash ? "/" : ""}
@@ -460,7 +652,11 @@ export function TopBar({
 											return (
 												<span key={`${segment}-${index}`}>
 													{index === 0 ? "" : "/"}
-													<span className={isLast ? "text-text-primary" : undefined}>{segment}</span>
+													<span
+														className={isLast ? "text-text-primary" : undefined}
+													>
+														{segment}
+													</span>
 												</span>
 											);
 										})}
@@ -482,6 +678,9 @@ export function TopBar({
 										loading={isOpeningWorkspace}
 										onOpen={onOpenWorkspace}
 										onSelectOption={onSelectOpenTarget}
+										platformOverride={openPlatformOverride}
+										detectedPlatform={detectedOpenPlatform}
+										onSelectPlatform={onSelectOpenPlatform}
 									/>
 								</div>
 							) : null}
@@ -516,6 +715,12 @@ export function TopBar({
 									onGitFetch={onGitFetch}
 									onGitPull={onGitPull}
 									onGitPush={onGitPush}
+									onGitStash={onGitStash}
+									onGitStashPop={onGitStashPop}
+									onGitCommit={onGitCommit}
+									onGitPullRequest={onGitPullRequest}
+									onGitWorktrees={onGitWorktrees}
+									onGitConflicts={onGitConflicts}
 								/>
 							) : null}
 						</>
@@ -534,7 +739,11 @@ export function TopBar({
 											variant="default"
 											size="sm"
 											icon={
-												runningShortcutLabel ? <Spinner size={12} /> : <SelectedShortcutIcon size={14} />
+												runningShortcutLabel ? (
+													<Spinner size={12} />
+												) : (
+													<SelectedShortcutIcon size={14} />
+												)
 											}
 											disabled={Boolean(runningShortcutLabel)}
 											onClick={() => onRunShortcut(selectedShortcut.label)}
@@ -563,10 +772,13 @@ export function TopBar({
 												>
 													<div className="min-w-[180px]">
 														{shortcutItems.map((shortcut, shortcutIndex) => {
-															const ShortcutIcon = getRuntimeShortcutIconComponent(shortcut.icon);
+															const ShortcutIcon =
+																getRuntimeShortcutIconComponent(shortcut.icon);
 															const isActive =
 																shortcutIndex ===
-																(selectedShortcutIndex >= 0 ? selectedShortcutIndex : 0);
+																(selectedShortcutIndex >= 0
+																	? selectedShortcutIndex
+																	: 0);
 															return (
 																<button
 																	type="button"
@@ -575,12 +787,19 @@ export function TopBar({
 																		"flex w-full items-center gap-2 px-2.5 py-1.5 text-[13px] text-text-primary rounded-md hover:bg-surface-3 text-left",
 																		isActive && "bg-surface-3",
 																	)}
-																	onClick={() => onSelectShortcutLabel?.(shortcut.label)}
+																	onClick={() =>
+																		onSelectShortcutLabel?.(shortcut.label)
+																	}
 																>
 																	<ShortcutIcon size={14} />
-																	<span className="flex-1">{shortcut.label}</span>
+																	<span className="flex-1">
+																		{shortcut.label}
+																	</span>
 																	{isActive ? (
-																		<Check size={14} className="text-text-secondary" />
+																		<Check
+																			size={14}
+																			className="text-text-secondary"
+																		/>
 																	) : null}
 																</button>
 															);
@@ -618,7 +837,11 @@ export function TopBar({
 										size="sm"
 										icon={<Building2 size={16} />}
 										onClick={onToggleOffice}
-										aria-label={isOfficeOpen ? "Hide watch and office column" : "Show watch and office column"}
+										aria-label={
+											isOfficeOpen
+												? "Hide watch and office column"
+												: "Show watch and office column"
+										}
 										data-testid="toggle-office-button"
 										className="ml-2"
 									>
@@ -634,7 +857,11 @@ export function TopBar({
 											<span>Toggle terminal</span>
 											<span className="inline-flex items-center gap-0.5 whitespace-nowrap">
 												<span>(</span>
-												{isMacPlatform ? <Command size={11} /> : <span>Ctrl</span>}
+												{isMacPlatform ? (
+													<Command size={11} />
+												) : (
+													<span>Ctrl</span>
+												)}
 												<span>+ J)</span>
 											</span>
 										</span>
@@ -646,7 +873,9 @@ export function TopBar({
 										icon={<Terminal size={16} />}
 										onClick={onToggleTerminal}
 										disabled={Boolean(isTerminalLoading)}
-										aria-label={isTerminalOpen ? "Close terminal" : "Open terminal"}
+										aria-label={
+											isTerminalOpen ? "Close terminal" : "Open terminal"
+										}
 										className="ml-2"
 									/>
 								</Tooltip>
@@ -674,15 +903,27 @@ export function TopBar({
 									size="sm"
 									icon={<Building2 size={16} />}
 									onClick={onToggleOffice}
-									aria-label={isOfficeOpen ? "Hide watch and office column" : "Show watch and office column"}
+									aria-label={
+										isOfficeOpen
+											? "Hide watch and office column"
+											: "Show watch and office column"
+									}
 									className={MOBILE_TOUCH_TARGET}
 								/>
 							) : null}
-							{!hideProjectDependentActions && onRunShortcut && selectedShortcut ? (
+							{!hideProjectDependentActions &&
+							onRunShortcut &&
+							selectedShortcut ? (
 								<Button
 									variant="ghost"
 									size="sm"
-									icon={runningShortcutLabel ? <Spinner size={14} /> : <SelectedShortcutIcon size={14} />}
+									icon={
+										runningShortcutLabel ? (
+											<Spinner size={14} />
+										) : (
+											<SelectedShortcutIcon size={14} />
+										)
+									}
 									disabled={Boolean(runningShortcutLabel)}
 									onClick={() => onRunShortcut(selectedShortcut.label)}
 									aria-label={selectedShortcut.label}
@@ -696,7 +937,9 @@ export function TopBar({
 									icon={<Terminal size={16} />}
 									onClick={onToggleTerminal}
 									disabled={Boolean(isTerminalLoading)}
-									aria-label={isTerminalOpen ? "Close terminal" : "Open terminal"}
+									aria-label={
+										isTerminalOpen ? "Close terminal" : "Open terminal"
+									}
 									className={MOBILE_TOUCH_TARGET}
 								/>
 							) : null}
@@ -728,16 +971,26 @@ export function TopBar({
 					}
 				}}
 			>
-				<DialogHeader title="Set up your first script shortcut" icon={<Play size={16} />} />
+				<DialogHeader
+					title="Set up your first script shortcut"
+					icon={<Play size={16} />}
+				/>
 				<DialogBody>
 					<p className="text-text-secondary text-[13px] mt-0 mb-2">
-						Script shortcuts run a command in the bottom terminal so you can quickly run and test your project.
+						Script shortcuts run a command in the bottom terminal so you can
+						quickly run and test your project.
 					</p>
 					<p className="text-text-secondary text-[13px] mt-0 mb-3">
 						You can always open Settings to add and manage more shortcuts later.
 					</p>
-					<div className="grid gap-2" style={{ gridTemplateColumns: "max-content 1fr 2fr" }}>
-						<FirstShortcutIconPicker value={newShortcutIcon} onSelect={setNewShortcutIcon} />
+					<div
+						className="grid gap-2"
+						style={{ gridTemplateColumns: "max-content 1fr 2fr" }}
+					>
+						<FirstShortcutIconPicker
+							value={newShortcutIcon}
+							onSelect={setNewShortcutIcon}
+						/>
 						<input
 							value={newShortcutLabel}
 							onChange={(event) => setNewShortcutLabel(event.target.value)}
@@ -754,7 +1007,9 @@ export function TopBar({
 						/>
 					</div>
 					{createShortcutError ? (
-						<p className="text-status-red text-[13px] mt-3 mb-0">{createShortcutError}</p>
+						<p className="text-status-red text-[13px] mt-3 mb-0">
+							{createShortcutError}
+						</p>
 					) : null}
 				</DialogBody>
 				<DialogFooter>

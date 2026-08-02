@@ -6,6 +6,7 @@ import { initTRPC, TRPCError } from "@trpc/server";
 import { z } from "zod";
 
 import type {
+	RuntimeAgentModelInventory,
 	RuntimeClineAccountBalanceResponse,
 	RuntimeClineAccountOrganizationsResponse,
 	RuntimeClineAccountProfileResponse,
@@ -40,23 +41,38 @@ import type {
 	RuntimeDirectoryListRequest,
 	RuntimeDirectoryListResponse,
 	RuntimeFeaturebaseTokenResponse,
+	RuntimeGitBlameRequest,
+	RuntimeGitBlameResponse,
 	RuntimeGitCheckoutRequest,
 	RuntimeGitCheckoutResponse,
 	RuntimeGitCommitDiffRequest,
 	RuntimeGitCommitDiffResponse,
+	RuntimeGitCommitRequest,
+	RuntimeGitCommitResponse,
+	RuntimeGitConflictsResponse,
 	RuntimeGitDiscardResponse,
 	RuntimeGitLogRequest,
 	RuntimeGitLogResponse,
+	RuntimeGitPullRequestRequest,
+	RuntimeGitPullRequestResponse,
 	RuntimeGitRefsResponse,
+	RuntimeGitResolveConflictRequest,
+	RuntimeGitResolveConflictResponse,
+	RuntimeGitRevertFileRequest,
+	RuntimeGitRevertHunkRequest,
+	RuntimeGitRevertResponse,
 	RuntimeGitSummaryResponse,
 	RuntimeGitSyncAction,
 	RuntimeGitSyncResponse,
+	RuntimeGitWorktreeInventoryResponse,
 	RuntimeHookIngestRequest,
 	RuntimeHookIngestResponse,
+	RuntimeHostEnvironmentResponse,
+	RuntimeListAgentModelsRequest,
 	RuntimeManagerAccountAuthorizeCcRequest,
 	RuntimeManagerAccountIdRequest,
-	RuntimeManagerAccountLaunchDir,
 	RuntimeManagerAccountLaunchCredential,
+	RuntimeManagerAccountLaunchDir,
 	RuntimeManagerAccountReauthRequest,
 	RuntimeManagerAccountReorderRequest,
 	RuntimeManagerAccountUpdateRequest,
@@ -78,6 +94,7 @@ import type {
 	RuntimeManagerSwapLog,
 	RuntimeManagerSwapPauseRequest,
 	RuntimeManagerUsageOverview,
+	RuntimeMcpInventory,
 	RuntimeOpenFileRequest,
 	RuntimeOpenFileResponse,
 	RuntimeProjectAddRequest,
@@ -87,9 +104,6 @@ import type {
 	RuntimeProjectRemoveResponse,
 	RuntimeProjectsResponse,
 	RuntimeRunUpdateResponse,
-	RuntimeAgentModelInventory,
-	RuntimeListAgentModelsRequest,
-	RuntimeMcpInventory,
 	RuntimeShellSessionStartRequest,
 	RuntimeShellSessionStartResponse,
 	RuntimeSkillInventory,
@@ -126,6 +140,32 @@ import type {
 	RuntimeWorktreeEnsureResponse,
 } from "../core/api-contract";
 import {
+	RuntimeManagerAccountAuthorizeCcRequestSchema,
+	RuntimeManagerAccountIdRequestSchema,
+	RuntimeManagerAccountLaunchCredentialSchema,
+	RuntimeManagerAccountLaunchDirSchema,
+	RuntimeManagerAccountReauthRequestSchema,
+	RuntimeManagerAccountReorderRequestSchema,
+	RuntimeManagerAccountUpdateRequestSchema,
+	RuntimeManagerFeatureToggleRequestSchema,
+	RuntimeManagerHookLogsSchema,
+	RuntimeManagerInstallationsOverviewSchema,
+	RuntimeManagerMutationResponseSchema,
+	RuntimeManagerOAuthFlowStatusRequestSchema,
+	RuntimeManagerOAuthFlowStatusSchema,
+	RuntimeManagerOAuthStartRequestSchema,
+	RuntimeManagerOAuthStartResponseSchema,
+	RuntimeManagerOAuthSubmitCodeRequestSchema,
+	RuntimeManagerPacksSchema,
+	RuntimeManagerPackToggleRequestSchema,
+	RuntimeManagerProviderSchema,
+	RuntimeManagerServerLogsSchema,
+	RuntimeManagerSessionsSchema,
+	RuntimeManagerStateSchema,
+	RuntimeManagerSwapLogSchema,
+	RuntimeManagerSwapPauseRequestSchema,
+	RuntimeManagerUsageOverviewSchema,
+	runtimeAgentModelInventorySchema,
 	runtimeClineAccountBalanceResponseSchema,
 	runtimeClineAccountOrganizationsResponseSchema,
 	runtimeClineAccountProfileResponseSchema,
@@ -160,44 +200,35 @@ import {
 	runtimeDirectoryListRequestSchema,
 	runtimeDirectoryListResponseSchema,
 	runtimeFeaturebaseTokenResponseSchema,
+	runtimeGitBlameRequestSchema,
+	runtimeGitBlameResponseSchema,
 	runtimeGitCheckoutRequestSchema,
 	runtimeGitCheckoutResponseSchema,
 	runtimeGitCommitDiffRequestSchema,
 	runtimeGitCommitDiffResponseSchema,
+	runtimeGitCommitRequestSchema,
+	runtimeGitCommitResponseSchema,
+	runtimeGitConflictsResponseSchema,
 	runtimeGitDiscardResponseSchema,
 	runtimeGitLogRequestSchema,
 	runtimeGitLogResponseSchema,
+	runtimeGitPullRequestRequestSchema,
+	runtimeGitPullRequestResponseSchema,
 	runtimeGitRefsResponseSchema,
+	runtimeGitResolveConflictRequestSchema,
+	runtimeGitResolveConflictResponseSchema,
+	runtimeGitRevertFileRequestSchema,
+	runtimeGitRevertHunkRequestSchema,
+	runtimeGitRevertResponseSchema,
 	runtimeGitSummaryResponseSchema,
 	runtimeGitSyncActionSchema,
 	runtimeGitSyncResponseSchema,
+	runtimeGitWorktreeInventoryResponseSchema,
 	runtimeHookIngestRequestSchema,
 	runtimeHookIngestResponseSchema,
-	RuntimeManagerAccountAuthorizeCcRequestSchema,
-	RuntimeManagerAccountIdRequestSchema,
-	RuntimeManagerAccountLaunchDirSchema,
-	RuntimeManagerAccountLaunchCredentialSchema,
-	RuntimeManagerAccountReauthRequestSchema,
-	RuntimeManagerAccountReorderRequestSchema,
-	RuntimeManagerAccountUpdateRequestSchema,
-	RuntimeManagerFeatureToggleRequestSchema,
-	RuntimeManagerHookLogsSchema,
-	RuntimeManagerInstallationsOverviewSchema,
-	RuntimeManagerMutationResponseSchema,
-	RuntimeManagerOAuthFlowStatusRequestSchema,
-	RuntimeManagerOAuthFlowStatusSchema,
-	RuntimeManagerOAuthStartRequestSchema,
-	RuntimeManagerOAuthStartResponseSchema,
-	RuntimeManagerOAuthSubmitCodeRequestSchema,
-	RuntimeManagerPacksSchema,
-	RuntimeManagerPackToggleRequestSchema,
-	RuntimeManagerProviderSchema,
-	RuntimeManagerServerLogsSchema,
-	RuntimeManagerSessionsSchema,
-	RuntimeManagerStateSchema,
-	RuntimeManagerSwapLogSchema,
-	RuntimeManagerSwapPauseRequestSchema,
-	RuntimeManagerUsageOverviewSchema,
+	runtimeHostEnvironmentResponseSchema,
+	runtimeListAgentModelsRequestSchema,
+	runtimeMcpInventorySchema,
 	runtimeOpenFileRequestSchema,
 	runtimeOpenFileResponseSchema,
 	runtimeProjectAddRequestSchema,
@@ -207,9 +238,6 @@ import {
 	runtimeProjectRemoveResponseSchema,
 	runtimeProjectsResponseSchema,
 	runtimeRunUpdateResponseSchema,
-	runtimeAgentModelInventorySchema,
-	runtimeListAgentModelsRequestSchema,
-	runtimeMcpInventorySchema,
 	runtimeShellSessionStartRequestSchema,
 	runtimeShellSessionStartResponseSchema,
 	runtimeSkillInventorySchema,
@@ -356,6 +384,7 @@ export interface RuntimeTrpcContext {
 		resetAllState: (scope: RuntimeTrpcWorkspaceScope | null) => Promise<RuntimeDebugResetAllStateResponse>;
 		openFile: (input: RuntimeOpenFileRequest) => Promise<RuntimeOpenFileResponse>;
 		getUpdateStatus: (scope: RuntimeTrpcWorkspaceScope | null) => Promise<RuntimeUpdateStatusResponse>;
+		getHostEnvironment: (scope: RuntimeTrpcWorkspaceScope | null) => Promise<RuntimeHostEnvironmentResponse>;
 		runUpdateNow: (scope: RuntimeTrpcWorkspaceScope | null) => Promise<RuntimeRunUpdateResponse>;
 	};
 	workspaceApi: {
@@ -375,6 +404,32 @@ export interface RuntimeTrpcContext {
 			scope: RuntimeTrpcWorkspaceScope,
 			input: RuntimeTaskWorkspaceInfoRequest | null,
 		) => Promise<RuntimeGitDiscardResponse>;
+		revertGitFile: (
+			scope: RuntimeTrpcWorkspaceScope,
+			input: RuntimeGitRevertFileRequest,
+		) => Promise<RuntimeGitRevertResponse>;
+		revertGitHunk: (
+			scope: RuntimeTrpcWorkspaceScope,
+			input: RuntimeGitRevertHunkRequest,
+		) => Promise<RuntimeGitRevertResponse>;
+		commitWorkspaceChanges: (
+			scope: RuntimeTrpcWorkspaceScope,
+			input: RuntimeGitCommitRequest,
+		) => Promise<RuntimeGitCommitResponse>;
+		listWorktrees: (scope: RuntimeTrpcWorkspaceScope) => Promise<RuntimeGitWorktreeInventoryResponse>;
+		getBlame: (scope: RuntimeTrpcWorkspaceScope, input: RuntimeGitBlameRequest) => Promise<RuntimeGitBlameResponse>;
+		getMergeConflicts: (
+			scope: RuntimeTrpcWorkspaceScope,
+			input: RuntimeTaskWorkspaceInfoRequest | null,
+		) => Promise<RuntimeGitConflictsResponse>;
+		resolveMergeConflict: (
+			scope: RuntimeTrpcWorkspaceScope,
+			input: RuntimeGitResolveConflictRequest,
+		) => Promise<RuntimeGitResolveConflictResponse>;
+		createPullRequest: (
+			scope: RuntimeTrpcWorkspaceScope,
+			input: RuntimeGitPullRequestRequest,
+		) => Promise<RuntimeGitPullRequestResponse>;
 		loadChanges: (
 			scope: RuntimeTrpcWorkspaceScope,
 			input: RuntimeWorkspaceChangesRequest,
@@ -455,6 +510,7 @@ export interface RuntimeTrpcContext {
 			input: RuntimeManagerAccountIdRequest,
 		) => Promise<RuntimeManagerAccountLaunchCredential | null>;
 		importCursorAccount: () => Promise<{ ok: boolean; error?: string; accountId?: number; email?: string }>;
+		importClaudeAccount: () => Promise<{ ok: boolean; error?: string; accountId?: number; email?: string }>;
 		reimportCursorAccount: (
 			input: RuntimeManagerAccountIdRequest,
 		) => Promise<{ ok: boolean; error?: string; accountId?: number; email?: string }>;
@@ -465,7 +521,9 @@ export interface RuntimeTrpcContext {
 		getUsageOverview: (days?: number) => Promise<RuntimeManagerUsageOverview | null>;
 		getSwapLog: (limit?: number) => Promise<RuntimeManagerSwapLog | null>;
 		startClaudeOAuth: (input?: RuntimeManagerOAuthStartRequest) => Promise<RuntimeManagerOAuthStartResponse>;
-		getOAuthFlowStatus: (input: RuntimeManagerOAuthFlowStatusRequest) => Promise<RuntimeManagerOAuthFlowStatus | null>;
+		getOAuthFlowStatus: (
+			input: RuntimeManagerOAuthFlowStatusRequest,
+		) => Promise<RuntimeManagerOAuthFlowStatus | null>;
 		submitOAuthCode: (input: RuntimeManagerOAuthSubmitCodeRequest) => Promise<RuntimeManagerOAuthFlowStatus | null>;
 	};
 }
@@ -705,6 +763,9 @@ export const runtimeAppRouter = t.router({
 		getUpdateStatus: t.procedure.output(runtimeUpdateStatusResponseSchema).query(async ({ ctx }) => {
 			return await ctx.runtimeApi.getUpdateStatus(ctx.workspaceScope);
 		}),
+		getHostEnvironment: t.procedure.output(runtimeHostEnvironmentResponseSchema).query(async ({ ctx }) => {
+			return await ctx.runtimeApi.getHostEnvironment(ctx.workspaceScope);
+		}),
 		runUpdateNow: t.procedure.output(runtimeRunUpdateResponseSchema).mutation(async ({ ctx }) => {
 			return await ctx.runtimeApi.runUpdateNow(ctx.workspaceScope);
 		}),
@@ -733,6 +794,51 @@ export const runtimeAppRouter = t.router({
 			.output(runtimeGitDiscardResponseSchema)
 			.mutation(async ({ ctx, input }) => {
 				return await ctx.workspaceApi.discardGitChanges(ctx.workspaceScope, input ?? null);
+			}),
+		revertGitFile: workspaceProcedure
+			.input(runtimeGitRevertFileRequestSchema)
+			.output(runtimeGitRevertResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.workspaceApi.revertGitFile(ctx.workspaceScope, input);
+			}),
+		revertGitHunk: workspaceProcedure
+			.input(runtimeGitRevertHunkRequestSchema)
+			.output(runtimeGitRevertResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.workspaceApi.revertGitHunk(ctx.workspaceScope, input);
+			}),
+		commitWorkspaceChanges: workspaceProcedure
+			.input(runtimeGitCommitRequestSchema)
+			.output(runtimeGitCommitResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.workspaceApi.commitWorkspaceChanges(ctx.workspaceScope, input);
+			}),
+		listWorktrees: workspaceProcedure.output(runtimeGitWorktreeInventoryResponseSchema).query(async ({ ctx }) => {
+			return await ctx.workspaceApi.listWorktrees(ctx.workspaceScope);
+		}),
+		getBlame: workspaceProcedure
+			.input(runtimeGitBlameRequestSchema)
+			.output(runtimeGitBlameResponseSchema)
+			.query(async ({ ctx, input }) => {
+				return await ctx.workspaceApi.getBlame(ctx.workspaceScope, input);
+			}),
+		getMergeConflicts: workspaceProcedure
+			.input(optionalTaskWorkspaceInfoRequestSchema)
+			.output(runtimeGitConflictsResponseSchema)
+			.query(async ({ ctx, input }) => {
+				return await ctx.workspaceApi.getMergeConflicts(ctx.workspaceScope, input ?? null);
+			}),
+		resolveMergeConflict: workspaceProcedure
+			.input(runtimeGitResolveConflictRequestSchema)
+			.output(runtimeGitResolveConflictResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.workspaceApi.resolveMergeConflict(ctx.workspaceScope, input);
+			}),
+		createPullRequest: workspaceProcedure
+			.input(runtimeGitPullRequestRequestSchema)
+			.output(runtimeGitPullRequestResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.workspaceApi.createPullRequest(ctx.workspaceScope, input);
 			}),
 		getChanges: workspaceProcedure
 			.input(runtimeWorkspaceChangesRequestSchema)
@@ -939,6 +1045,18 @@ export const runtimeAppRouter = t.router({
 			)
 			.mutation(async ({ ctx }) => {
 				return await ctx.managerApi.importCursorAccount();
+			}),
+		importClaudeAccount: t.procedure
+			.output(
+				z.object({
+					ok: z.boolean(),
+					error: z.string().optional(),
+					accountId: z.number().int().positive().optional(),
+					email: z.string().optional(),
+				}),
+			)
+			.mutation(async ({ ctx }) => {
+				return await ctx.managerApi.importClaudeAccount();
 			}),
 		reimportCursorAccount: t.procedure
 			.input(RuntimeManagerAccountIdRequestSchema)

@@ -17,6 +17,7 @@ export enum LocalStorageKey {
 	OnboardingDialogShown = "kanban.onboarding.dialog.shown",
 	NotificationPermissionPrompted = "kanban.notifications.permission-prompted",
 	PreferredOpenTarget = "kanban.preferred-open-target",
+	PreferredOpenPlatform = "kanban.preferred-open-platform",
 	OfficeViewOpen = "kanban.office-view-open",
 	HomeRightColumnWidth = "kanban.home-right-column-width",
 	HomeRightSplitRatio = "kanban.home-right-split-ratio",

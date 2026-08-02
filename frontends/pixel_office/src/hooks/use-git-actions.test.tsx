@@ -2,13 +2,28 @@ import { act, useEffect } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { type UseGitActionsResult, useGitActions } from "@/hooks/use-git-actions";
-import type { RuntimeConfigResponse, RuntimeTaskWorkspaceInfoResponse } from "@/runtime/types";
-import { clearTaskWorkspaceInfo, clearTaskWorkspaceSnapshot } from "@/stores/workspace-metadata-store";
+import {
+	type UseGitActionsResult,
+	useGitActions,
+} from "@/hooks/use-git-actions";
+import type {
+	RuntimeConfigResponse,
+	RuntimeTaskWorkspaceInfoResponse,
+} from "@/runtime/types";
+import {
+	clearTaskWorkspaceInfo,
+	clearTaskWorkspaceSnapshot,
+} from "@/stores/workspace-metadata-store";
 import type { BoardData } from "@/types";
 
 const showAppToastMock = vi.hoisted(() => vi.fn());
 const useGitHistoryDataMock = vi.hoisted(() => vi.fn());
+const workspaceMutateMocks = vi.hoisted(() => ({
+	revertGitFile: vi.fn(),
+	revertGitHunk: vi.fn(),
+	commitWorkspaceChanges: vi.fn(),
+	createPullRequest: vi.fn(),
+}));
 
 vi.mock("@/components/app-toaster", () => ({
 	showAppToast: showAppToastMock,
@@ -18,8 +33,25 @@ vi.mock("@/components/git-history/use-git-history-data", () => ({
 	useGitHistoryData: useGitHistoryDataMock,
 }));
 
+vi.mock("@/runtime/trpc-client", () => ({
+	getRuntimeTrpcClient: () => ({
+		workspace: {
+			revertGitFile: { mutate: workspaceMutateMocks.revertGitFile },
+			revertGitHunk: { mutate: workspaceMutateMocks.revertGitHunk },
+			commitWorkspaceChanges: {
+				mutate: workspaceMutateMocks.commitWorkspaceChanges,
+			},
+			createPullRequest: { mutate: workspaceMutateMocks.createPullRequest },
+		},
+	}),
+}));
+
 interface HookSnapshot {
 	handleAgentCommitTask: UseGitActionsResult["handleAgentCommitTask"];
+	revertTaskFile: UseGitActionsResult["revertTaskFile"];
+	revertTaskHunk: UseGitActionsResult["revertTaskHunk"];
+	commitHomeChanges: UseGitActionsResult["commitHomeChanges"];
+	createHomePullRequest: UseGitActionsResult["createHomePullRequest"];
 }
 
 function createGitHistoryResult(): UseGitActionsResult["gitHistory"] {
@@ -76,7 +108,9 @@ function createBoard(): BoardData {
 	};
 }
 
-function createRuntimeConfig(selectedAgentId: RuntimeConfigResponse["selectedAgentId"]): RuntimeConfigResponse {
+function createRuntimeConfig(
+	selectedAgentId: RuntimeConfigResponse["selectedAgentId"],
+): RuntimeConfigResponse {
 	return {
 		selectedAgentId,
 		selectedShortcutLabel: null,
@@ -134,8 +168,12 @@ function HookHarness({
 	sendTaskChatMessage,
 }: {
 	onSnapshot: (snapshot: HookSnapshot) => void;
-	sendTaskSessionInput: Parameters<typeof useGitActions>[0]["sendTaskSessionInput"];
-	sendTaskChatMessage: Parameters<typeof useGitActions>[0]["sendTaskChatMessage"];
+	sendTaskSessionInput: Parameters<
+		typeof useGitActions
+	>[0]["sendTaskSessionInput"];
+	sendTaskChatMessage: Parameters<
+		typeof useGitActions
+	>[0]["sendTaskChatMessage"];
 }): null {
 	const gitActions = useGitActions({
 		currentProjectId: "project-1",
@@ -152,8 +190,19 @@ function HookHarness({
 	useEffect(() => {
 		onSnapshot({
 			handleAgentCommitTask: gitActions.handleAgentCommitTask,
+			revertTaskFile: gitActions.revertTaskFile,
+			revertTaskHunk: gitActions.revertTaskHunk,
+			commitHomeChanges: gitActions.commitHomeChanges,
+			createHomePullRequest: gitActions.createHomePullRequest,
 		});
-	}, [gitActions.handleAgentCommitTask, onSnapshot]);
+	}, [
+		gitActions.handleAgentCommitTask,
+		gitActions.revertTaskFile,
+		gitActions.revertTaskHunk,
+		gitActions.commitHomeChanges,
+		gitActions.createHomePullRequest,
+		onSnapshot,
+	]);
 
 	return null;
 }
@@ -166,12 +215,18 @@ describe("useGitActions", () => {
 	beforeEach(() => {
 		showAppToastMock.mockReset();
 		useGitHistoryDataMock.mockReset();
+		for (const fn of Object.values(workspaceMutateMocks)) {
+			fn.mockReset();
+		}
 		useGitHistoryDataMock.mockReturnValue(createGitHistoryResult());
 		clearTaskWorkspaceInfo("task-1");
 		clearTaskWorkspaceSnapshot("task-1");
-		previousActEnvironment = (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean })
-			.IS_REACT_ACT_ENVIRONMENT;
-		(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+		previousActEnvironment = (
+			globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
+		).IS_REACT_ACT_ENVIRONMENT;
+		(
+			globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
+		).IS_REACT_ACT_ENVIRONMENT = true;
 		container = document.createElement("div");
 		document.body.appendChild(container);
 		root = createRoot(container);
@@ -185,10 +240,13 @@ describe("useGitActions", () => {
 		clearTaskWorkspaceInfo("task-1");
 		clearTaskWorkspaceSnapshot("task-1");
 		if (previousActEnvironment === undefined) {
-			delete (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT;
+			delete (
+				globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
+			).IS_REACT_ACT_ENVIRONMENT;
 		} else {
-			(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT =
-				previousActEnvironment;
+			(
+				globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
+			).IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
 		}
 	});
 
@@ -221,8 +279,118 @@ describe("useGitActions", () => {
 			await Promise.resolve();
 		});
 
-		expect(sendTaskChatMessage).toHaveBeenCalledWith("task-1", expect.any(String), { mode: "act" });
+		expect(sendTaskChatMessage).toHaveBeenCalledWith(
+			"task-1",
+			expect.any(String),
+			{ mode: "act" },
+		);
 		expect(sendTaskSessionInput).not.toHaveBeenCalled();
 		expect(showAppToastMock).not.toHaveBeenCalled();
+	});
+
+	async function mountHook(): Promise<HookSnapshot> {
+		let snapshot: HookSnapshot | null = null;
+		await act(async () => {
+			root.render(
+				<HookHarness
+					sendTaskSessionInput={vi.fn(async () => ({ ok: true }))}
+					sendTaskChatMessage={vi.fn(async () => ({ ok: true }))}
+					onSnapshot={(next) => {
+						snapshot = next;
+					}}
+				/>,
+			);
+			await Promise.resolve();
+		});
+		if (snapshot === null) {
+			throw new Error("Expected a hook snapshot.");
+		}
+		return snapshot;
+	}
+
+	it("reverts a task file with the task scope and toasts success", async () => {
+		workspaceMutateMocks.revertGitFile.mockResolvedValue({ ok: true });
+		const snapshot = await mountHook();
+
+		await act(async () => {
+			await snapshot.revertTaskFile("task-1", "main", "src/a.ts");
+		});
+
+		expect(workspaceMutateMocks.revertGitFile).toHaveBeenCalledWith({
+			path: "src/a.ts",
+			taskInfo: { taskId: "task-1", baseRef: "main" },
+		});
+		expect(showAppToastMock).toHaveBeenCalledWith(
+			expect.objectContaining({ intent: "success" }),
+		);
+	});
+
+	it("shows a danger toast when a file revert is refused", async () => {
+		workspaceMutateMocks.revertGitFile.mockResolvedValue({
+			ok: false,
+			error: "locked",
+		});
+		const snapshot = await mountHook();
+
+		await act(async () => {
+			await snapshot.revertTaskFile("task-1", "main", "src/a.ts");
+		});
+
+		expect(showAppToastMock).toHaveBeenCalledWith(
+			expect.objectContaining({ intent: "danger", message: "locked" }),
+		);
+	});
+
+	it("forwards the hunk index when reverting a hunk", async () => {
+		workspaceMutateMocks.revertGitHunk.mockResolvedValue({ ok: true });
+		const snapshot = await mountHook();
+
+		await act(async () => {
+			await snapshot.revertTaskHunk("task-1", "main", "src/a.ts", 3);
+		});
+
+		expect(workspaceMutateMocks.revertGitHunk).toHaveBeenCalledWith({
+			path: "src/a.ts",
+			hunkIndex: 3,
+			taskInfo: { taskId: "task-1", baseRef: "main" },
+		});
+	});
+
+	it("returns true from commitHomeChanges on success", async () => {
+		workspaceMutateMocks.commitWorkspaceChanges.mockResolvedValue({
+			ok: true,
+			summary: { changedFiles: 0 },
+		});
+		const snapshot = await mountHook();
+
+		let result = false;
+		await act(async () => {
+			result = await snapshot.commitHomeChanges("my commit");
+		});
+
+		expect(workspaceMutateMocks.commitWorkspaceChanges).toHaveBeenCalledWith({
+			message: "my commit",
+		});
+		expect(result).toBe(true);
+	});
+
+	it("returns the PR url from createHomePullRequest on success", async () => {
+		workspaceMutateMocks.createPullRequest.mockResolvedValue({
+			ok: true,
+			url: "https://pr/1",
+		});
+		const snapshot = await mountHook();
+
+		let result: { ok: boolean; url: string | null } = { ok: false, url: null };
+		await act(async () => {
+			result = await snapshot.createHomePullRequest("T", "B", "main");
+		});
+
+		expect(workspaceMutateMocks.createPullRequest).toHaveBeenCalledWith({
+			title: "T",
+			body: "B",
+			base: "main",
+		});
+		expect(result).toEqual({ ok: true, url: "https://pr/1" });
 	});
 });

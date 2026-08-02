@@ -1,4 +1,13 @@
-import { ChevronDown, ChevronRight, Command, CornerDownLeft, MessageSquare, X } from "lucide-react";
+import {
+	ChevronDown,
+	ChevronRight,
+	Command,
+	CornerDownLeft,
+	History,
+	MessageSquare,
+	RotateCcw,
+	X,
+} from "lucide-react";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
@@ -7,6 +16,7 @@ import {
 	buildHighlightedLineMap,
 	buildUnifiedDiffRows,
 	CollapsedBlockControls,
+	computeHunks,
 	DiffRowText,
 	getHighlightedLineHtml,
 	resolvePrismGrammar,
@@ -16,7 +26,21 @@ import {
 	useIncrementalExpand,
 } from "@/components/shared/diff-renderer";
 import { Button } from "@/components/ui/button";
-import type { RuntimeWorkspaceFileChange } from "@/runtime/types";
+import { cn } from "@/components/ui/cn";
+import {
+	AlertDialog,
+	AlertDialogAction,
+	AlertDialogBody,
+	AlertDialogCancel,
+	AlertDialogDescription,
+	AlertDialogFooter,
+	AlertDialogHeader,
+	AlertDialogTitle,
+} from "@/components/ui/dialog";
+import type {
+	RuntimeGitBlameLine,
+	RuntimeWorkspaceFileChange,
+} from "@/runtime/types";
 import { buildFileTree } from "@/utils/file-tree";
 import { isBinaryFilePath } from "@/utils/is-binary-file-path";
 import { isMacPlatform } from "@/utils/platform";
@@ -43,14 +67,20 @@ export interface DiffLineComment {
 
 export type DiffViewMode = "unified" | "split";
 
-function commentKey(filePath: string, lineNumber: number, variant: DiffLineComment["variant"]): string {
+function commentKey(
+	filePath: string,
+	lineNumber: number,
+	variant: DiffLineComment["variant"],
+): string {
 	return `${filePath}:${variant}:${lineNumber}`;
 }
 
 function formatCommentsForTerminal(comments: DiffLineComment[]): string {
 	const lines: string[] = [];
 	for (const comment of comments) {
-		lines.push(`${comment.filePath}:${comment.lineNumber} | ${comment.lineText}`);
+		lines.push(
+			`${comment.filePath}:${comment.lineNumber} | ${comment.lineText}`,
+		);
 		for (const commentLine of comment.comment.split("\n")) {
 			lines.push(`> ${commentLine}`);
 		}
@@ -77,10 +107,17 @@ function flattenFilePathsForDisplay(paths: string[]): string[] {
 	return ordered;
 }
 
-function getSectionTopWithinScrollContainer(container: HTMLElement, section: HTMLElement): number {
+function getSectionTopWithinScrollContainer(
+	container: HTMLElement,
+	section: HTMLElement,
+): number {
 	const containerRect = container.getBoundingClientRect();
 	const sectionRect = section.getBoundingClientRect();
-	return container.scrollTop + sectionRect.top - (containerRect.top + container.clientTop);
+	return (
+		container.scrollTop +
+		sectionRect.top -
+		(containerRect.top + container.clientTop)
+	);
 }
 
 function InlineComment({
@@ -128,18 +165,39 @@ function UnifiedDiff({
 	onAddComment,
 	onUpdateComment,
 	onDeleteComment,
+	onRevertHunk,
+	blameByLine,
 }: {
 	path: string;
 	oldText: string | null | undefined;
 	newText: string;
 	comments: Map<string, DiffLineComment>;
-	onAddComment: (lineNumber: number, lineText: string, variant: "added" | "removed" | "context") => void;
-	onUpdateComment: (lineNumber: number, variant: "added" | "removed" | "context", text: string) => void;
-	onDeleteComment: (lineNumber: number, variant: "added" | "removed" | "context") => void;
+	onAddComment: (
+		lineNumber: number,
+		lineText: string,
+		variant: "added" | "removed" | "context",
+	) => void;
+	onUpdateComment: (
+		lineNumber: number,
+		variant: "added" | "removed" | "context",
+		text: string,
+	) => void;
+	onDeleteComment: (
+		lineNumber: number,
+		variant: "added" | "removed" | "context",
+	) => void;
+	/** When set, each hunk's first changed row shows a revert-hunk control. */
+	onRevertHunk?: (hunkIndex: number) => void;
+	/** Current-file line number → blame info; when set, a blame gutter is rendered. */
+	blameByLine?: Map<number, RuntimeGitBlameLine>;
 }): React.ReactElement {
-	const { expandedBlocks, expandTop, expandBottom, expandAll } = useIncrementalExpand();
+	const { expandedBlocks, expandTop, expandBottom, expandAll } =
+		useIncrementalExpand();
 	const prismLanguage = useMemo(() => resolvePrismLanguage(path), [path]);
-	const prismGrammar = useMemo(() => resolvePrismGrammar(prismLanguage), [prismLanguage]);
+	const prismGrammar = useMemo(
+		() => resolvePrismGrammar(prismLanguage),
+		[prismLanguage],
+	);
 	const highlightedOldByLine = useMemo(
 		() => buildHighlightedLineMap(oldText, prismGrammar, prismLanguage),
 		[oldText, prismGrammar, prismLanguage],
@@ -148,11 +206,21 @@ function UnifiedDiff({
 		() => buildHighlightedLineMap(newText, prismGrammar, prismLanguage),
 		[newText, prismGrammar, prismLanguage],
 	);
-	const rows = useMemo(() => buildUnifiedDiffRows(oldText, newText), [oldText, newText]);
-	const displayItems = useMemo(() => buildDisplayItems(rows, expandedBlocks), [expandedBlocks, rows]);
+	const rows = useMemo(
+		() => buildUnifiedDiffRows(oldText, newText),
+		[oldText, newText],
+	);
+	const displayItems = useMemo(
+		() => buildDisplayItems(rows, expandedBlocks),
+		[expandedBlocks, rows],
+	);
+	const hunks = useMemo(() => computeHunks(rows), [rows]);
 
 	const renderRow = (row: UnifiedDiffRow): React.ReactElement => {
-		const rowKey = row.lineNumber != null ? commentKey(path, row.lineNumber, row.variant) : null;
+		const rowKey =
+			row.lineNumber != null
+				? commentKey(path, row.lineNumber, row.variant)
+				: null;
 		const existingComment = rowKey ? comments.get(rowKey) : null;
 		const hasComment = existingComment != null;
 		const baseClass =
@@ -161,7 +229,9 @@ function UnifiedDiff({
 				: row.variant === "removed"
 					? "kb-diff-row kb-diff-row-removed"
 					: "kb-diff-row kb-diff-row-context";
-		const rowClass = hasComment ? `${baseClass} kb-diff-row-commented` : baseClass;
+		const rowClass = hasComment
+			? `${baseClass} kb-diff-row-commented`
+			: baseClass;
 		const canClickRow = row.lineNumber != null && !hasComment;
 		const highlightedLineHtml =
 			row.lineNumber == null
@@ -177,11 +247,71 @@ function UnifiedDiff({
 					}
 				: undefined;
 
+		const blame =
+			blameByLine && row.lineNumber != null && row.variant !== "removed"
+				? (blameByLine.get(row.lineNumber) ?? null)
+				: null;
+		const hunkIndex = hunks.hunkStartRowKeys.has(row.key)
+			? (hunks.hunkIndexByRowKey.get(row.key) ?? null)
+			: null;
+
 		return (
 			<div key={row.key}>
-				<div className={rowClass} style={canClickRow ? undefined : { cursor: "default" }} onClick={handleRowClick}>
-					<span className="kb-diff-line-number" style={{ color: "var(--color-text-tertiary)" }}>
-						<span className="kb-diff-line-number-text">{row.lineNumber ?? ""}</span>
+				<div
+					className={rowClass}
+					style={canClickRow ? undefined : { cursor: "default" }}
+					onClick={handleRowClick}
+				>
+					{blameByLine ? (
+						<span
+							className="kb-diff-blame-gutter"
+							title={
+								blame
+									? `${blame.shortHash} · ${blame.author}${blame.summary ? ` · ${blame.summary}` : ""}`
+									: undefined
+							}
+							style={{
+								display: "inline-block",
+								width: 62,
+								flexShrink: 0,
+								overflow: "hidden",
+								whiteSpace: "nowrap",
+								textOverflow: "ellipsis",
+								paddingRight: 6,
+								fontSize: 10,
+								color: "var(--color-text-tertiary)",
+							}}
+						>
+							{blame ? `${blame.shortHash} ${blame.author}` : ""}
+						</span>
+					) : null}
+					{onRevertHunk && hunkIndex != null ? (
+						<button
+							type="button"
+							className="kb-diff-hunk-revert"
+							aria-label={`Revert hunk ${String(hunkIndex + 1)}`}
+							title="Revert this hunk to HEAD"
+							onClick={(event) => {
+								event.stopPropagation();
+								onRevertHunk(hunkIndex);
+							}}
+							style={{
+								flexShrink: 0,
+								marginRight: 2,
+								color: "var(--color-text-tertiary)",
+								cursor: "pointer",
+							}}
+						>
+							<RotateCcw size={11} />
+						</button>
+					) : null}
+					<span
+						className="kb-diff-line-number"
+						style={{ color: "var(--color-text-tertiary)" }}
+					>
+						<span className="kb-diff-line-number-text">
+							{row.lineNumber ?? ""}
+						</span>
 						{row.lineNumber != null ? (
 							<span
 								className="kb-diff-comment-gutter"
@@ -214,7 +344,9 @@ function UnifiedDiff({
 				{existingComment ? (
 					<InlineComment
 						comment={existingComment}
-						onChange={(text) => onUpdateComment(row.lineNumber!, row.variant, text)}
+						onChange={(text) =>
+							onUpdateComment(row.lineNumber!, row.variant, text)
+						}
 						onDelete={() => onDeleteComment(row.lineNumber!, row.variant)}
 					/>
 				) : null}
@@ -237,7 +369,9 @@ function UnifiedDiff({
 							onExpandBottom={expandBottom}
 							onExpandAll={expandAll}
 						/>
-						{item.block.expanded ? item.block.rows.map((row) => renderRow(row)) : null}
+						{item.block.expanded
+							? item.block.rows.map((row) => renderRow(row))
+							: null}
 					</div>
 				);
 			})}
@@ -313,7 +447,10 @@ function pairRowsForSplit(rows: UnifiedDiffRow[]): SplitDiffRowPair[] {
 	return pairs;
 }
 
-function isCommentableOnSplitSide(row: UnifiedDiffRow, side: "left" | "right"): boolean {
+function isCommentableOnSplitSide(
+	row: UnifiedDiffRow,
+	side: "left" | "right",
+): boolean {
 	if (row.variant === "removed") {
 		return side === "left";
 	}
@@ -336,24 +473,50 @@ function SplitDiff({
 	oldText: string | null | undefined;
 	newText: string;
 	comments: Map<string, DiffLineComment>;
-	onAddComment: (lineNumber: number, lineText: string, variant: "added" | "removed" | "context") => void;
-	onUpdateComment: (lineNumber: number, variant: "added" | "removed" | "context", text: string) => void;
-	onDeleteComment: (lineNumber: number, variant: "added" | "removed" | "context") => void;
+	onAddComment: (
+		lineNumber: number,
+		lineText: string,
+		variant: "added" | "removed" | "context",
+	) => void;
+	onUpdateComment: (
+		lineNumber: number,
+		variant: "added" | "removed" | "context",
+		text: string,
+	) => void;
+	onDeleteComment: (
+		lineNumber: number,
+		variant: "added" | "removed" | "context",
+	) => void;
 }): React.ReactElement {
-	const { expandedBlocks, expandTop, expandBottom, expandAll } = useIncrementalExpand();
+	const { expandedBlocks, expandTop, expandBottom, expandAll } =
+		useIncrementalExpand();
 	const prismLanguage = useMemo(() => resolvePrismLanguage(path), [path]);
-	const prismGrammar = useMemo(() => resolvePrismGrammar(prismLanguage), [prismLanguage]);
-	const rows = useMemo(() => buildUnifiedDiffRows(oldText, newText), [oldText, newText]);
-	const displayItems = useMemo(() => buildDisplayItems(rows, expandedBlocks), [expandedBlocks, rows]);
+	const prismGrammar = useMemo(
+		() => resolvePrismGrammar(prismLanguage),
+		[prismLanguage],
+	);
+	const rows = useMemo(
+		() => buildUnifiedDiffRows(oldText, newText),
+		[oldText, newText],
+	);
+	const displayItems = useMemo(
+		() => buildDisplayItems(rows, expandedBlocks),
+		[expandedBlocks, rows],
+	);
 
-	const renderSide = (row: UnifiedDiffRow, side: "left" | "right"): React.ReactElement => {
+	const renderSide = (
+		row: UnifiedDiffRow,
+		side: "left" | "right",
+	): React.ReactElement => {
 		const rowLineNumber = row.lineNumber;
 		if (rowLineNumber == null) {
 			return <></>;
 		}
 
 		const canCommentOnSide = isCommentableOnSplitSide(row, side);
-		const rowKey = canCommentOnSide ? commentKey(path, rowLineNumber, row.variant) : null;
+		const rowKey = canCommentOnSide
+			? commentKey(path, rowLineNumber, row.variant)
+			: null;
 		const existingComment = rowKey ? comments.get(rowKey) : null;
 		const hasComment = existingComment != null;
 		const baseClass =
@@ -368,7 +531,11 @@ function SplitDiff({
 				? baseClass
 				: `${baseClass} kb-diff-row-noncommentable`;
 		const canClickRow = canCommentOnSide && !hasComment;
-		const highlightedLineHtml = getHighlightedLineHtml(row.text, prismGrammar, prismLanguage);
+		const highlightedLineHtml = getHighlightedLineHtml(
+			row.text,
+			prismGrammar,
+			prismLanguage,
+		);
 
 		return (
 			<div style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
@@ -383,7 +550,10 @@ function SplitDiff({
 							: undefined
 					}
 				>
-					<span className="kb-diff-line-number" style={{ color: "var(--color-text-tertiary)" }}>
+					<span
+						className="kb-diff-line-number"
+						style={{ color: "var(--color-text-tertiary)" }}
+					>
 						<span className="kb-diff-line-number-text">{rowLineNumber}</span>
 						{canCommentOnSide ? (
 							<span
@@ -417,7 +587,9 @@ function SplitDiff({
 				{existingComment ? (
 					<InlineComment
 						comment={existingComment}
-						onChange={(text) => onUpdateComment(rowLineNumber, row.variant, text)}
+						onChange={(text) =>
+							onUpdateComment(rowLineNumber, row.variant, text)
+						}
 						onDelete={() => onDeleteComment(rowLineNumber, row.variant)}
 					/>
 				) : null}
@@ -511,6 +683,9 @@ export function DiffViewerPanel({
 	comments,
 	onCommentsChange,
 	viewMode = "unified",
+	onRevertFile,
+	onRevertHunk,
+	onRequestBlame,
 }: {
 	workspaceFiles: RuntimeWorkspaceFileChange[] | null;
 	selectedPath: string | null;
@@ -520,14 +695,65 @@ export function DiffViewerPanel({
 	comments: Map<string, DiffLineComment>;
 	onCommentsChange: (comments: Map<string, DiffLineComment>) => void;
 	viewMode?: DiffViewMode;
+	/** When set, each file header shows a revert-to-HEAD control. */
+	onRevertFile?: (path: string) => void;
+	/** When set, each hunk shows a revert-hunk control (unified view only). */
+	onRevertHunk?: (path: string, hunkIndex: number) => void;
+	/** When set, each file header shows a blame toggle; resolves the file's blame lines. */
+	onRequestBlame?: (path: string) => Promise<RuntimeGitBlameLine[] | null>;
 }): React.ReactElement {
-	const [expandedPaths, setExpandedPaths] = useState<Record<string, boolean>>({});
+	const [expandedPaths, setExpandedPaths] = useState<Record<string, boolean>>(
+		{},
+	);
+	const [pendingRevertPath, setPendingRevertPath] = useState<string | null>(
+		null,
+	);
+	const [pendingHunkRevert, setPendingHunkRevert] = useState<{
+		path: string;
+		hunkIndex: number;
+	} | null>(null);
+	const [blameByPath, setBlameByPath] = useState<
+		Record<string, Map<number, RuntimeGitBlameLine> | "loading">
+	>({});
+
+	const toggleBlame = useCallback(
+		(path: string) => {
+			const turningOn = !blameByPath[path];
+			setBlameByPath((current) => {
+				if (current[path]) {
+					const { [path]: _removed, ...rest } = current;
+					return rest;
+				}
+				return { ...current, [path]: "loading" };
+			});
+			if (!turningOn || !onRequestBlame) {
+				return;
+			}
+			void onRequestBlame(path).then((lines) => {
+				setBlameByPath((next) => {
+					if (next[path] !== "loading") {
+						return next; // toggled off again before the fetch resolved
+					}
+					const map = new Map<number, RuntimeGitBlameLine>();
+					for (const line of lines ?? []) {
+						map.set(line.lineNumber, line);
+					}
+					return { ...next, [path]: map };
+				});
+			});
+		},
+		[blameByPath, onRequestBlame],
+	);
 	const scrollContainerRef = useRef<HTMLDivElement>(null);
 	const sectionElementsRef = useRef<Record<string, HTMLElement | null>>({});
-	const scrollSyncSelectionRef = useRef<{ path: string; at: number } | null>(null);
+	const scrollSyncSelectionRef = useRef<{ path: string; at: number } | null>(
+		null,
+	);
 	const suppressScrollSyncUntilRef = useRef(0);
 	const programmaticScrollUntilRef = useRef(0);
-	const programmaticScrollClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+	const programmaticScrollClearTimerRef = useRef<ReturnType<
+		typeof setTimeout
+	> | null>(null);
 
 	const diffEntries = useMemo(() => {
 		return (workspaceFiles ?? []).map((file, index) => ({
@@ -546,7 +772,9 @@ export function DiffViewerPanel({
 	const groupedByPath = useMemo((): FileDiffGroup[] => {
 		const sourcePaths = workspaceFiles?.map((file) => file.path) ?? [];
 		const orderedPaths = flattenFilePathsForDisplay(sourcePaths);
-		const orderIndex = new Map(orderedPaths.map((path, index) => [path, index]));
+		const orderIndex = new Map(
+			orderedPaths.map((path, index) => [path, index]),
+		);
 		const map = new Map<string, FileDiffGroup>();
 		for (const entry of diffEntries) {
 			let group = map.get(entry.path);
@@ -593,7 +821,9 @@ export function DiffViewerPanel({
 			if (!section) {
 				continue;
 			}
-			if (getSectionTopWithinScrollContainer(container, section) <= probeOffset) {
+			if (
+				getSectionTopWithinScrollContainer(container, section) <= probeOffset
+			) {
 				activePath = group.path;
 				continue;
 			}
@@ -638,7 +868,10 @@ export function DiffViewerPanel({
 		}, 320);
 		const sectionStyle = window.getComputedStyle(section);
 		const marginTop = Number.parseFloat(sectionStyle.marginTop) || 0;
-		const targetScrollTop = Math.max(0, getSectionTopWithinScrollContainer(container, section) - marginTop);
+		const targetScrollTop = Math.max(
+			0,
+			getSectionTopWithinScrollContainer(container, section) - marginTop,
+		);
 		container.scrollTop = targetScrollTop;
 	}, []);
 
@@ -656,7 +889,11 @@ export function DiffViewerPanel({
 		}
 
 		const syncSelection = scrollSyncSelectionRef.current;
-		if (syncSelection && syncSelection.path === selectedPath && Date.now() - syncSelection.at < 150) {
+		if (
+			syncSelection &&
+			syncSelection.path === selectedPath &&
+			Date.now() - syncSelection.at < 150
+		) {
 			scrollSyncSelectionRef.current = null;
 			return;
 		}
@@ -665,7 +902,12 @@ export function DiffViewerPanel({
 	}, [scrollToPath, selectedPath]);
 
 	const handleAddComment = useCallback(
-		(filePath: string, lineNumber: number, lineText: string, variant: "added" | "removed" | "context") => {
+		(
+			filePath: string,
+			lineNumber: number,
+			lineText: string,
+			variant: "added" | "removed" | "context",
+		) => {
 			const key = commentKey(filePath, lineNumber, variant);
 			if (comments.has(key)) {
 				return;
@@ -690,7 +932,12 @@ export function DiffViewerPanel({
 	);
 
 	const handleUpdateComment = useCallback(
-		(filePath: string, lineNumber: number, variant: "added" | "removed" | "context", text: string) => {
+		(
+			filePath: string,
+			lineNumber: number,
+			variant: "added" | "removed" | "context",
+			text: string,
+		) => {
 			const key = commentKey(filePath, lineNumber, variant);
 			const existing = comments.get(key);
 			if (!existing) {
@@ -704,7 +951,11 @@ export function DiffViewerPanel({
 	);
 
 	const handleDeleteComment = useCallback(
-		(filePath: string, lineNumber: number, variant: "added" | "removed" | "context") => {
+		(
+			filePath: string,
+			lineNumber: number,
+			variant: "added" | "removed" | "context",
+		) => {
 			const next = new Map(comments);
 			next.delete(commentKey(filePath, lineNumber, variant));
 			onCommentsChange(next);
@@ -713,7 +964,9 @@ export function DiffViewerPanel({
 	);
 
 	const nonEmptyComments = useMemo(() => {
-		return Array.from(comments.values()).filter((c) => c.comment.trim().length > 0);
+		return Array.from(comments.values()).filter(
+			(c) => c.comment.trim().length > 0,
+		);
 	}, [comments]);
 
 	const buildFormattedComments = useCallback((): string | null => {
@@ -837,7 +1090,9 @@ export function DiffViewerPanel({
 					>
 						{groupedByPath.map((group) => {
 							const isExpanded = expandedPaths[group.path] ?? true;
-							const hasBinaryEntry = group.entries.some((entry) => entry.isBinary);
+							const hasBinaryEntry = group.entries.some(
+								(entry) => entry.isBinary,
+							);
 							return (
 								<section
 									key={group.path}
@@ -846,42 +1101,93 @@ export function DiffViewerPanel({
 									}}
 									style={{ marginTop: 12 }}
 								>
-									<button
-										type="button"
-										className="kb-diff-file-header flex w-full items-center gap-2 rounded-t-md border border-border bg-surface-1 px-2 py-1.5 text-left text-[12px] text-text-primary hover:bg-surface-3 active:bg-surface-4 cursor-pointer"
-										aria-expanded={isExpanded}
-										aria-current={selectedPath === group.path ? "true" : undefined}
-										onClick={() => {
-											const container = scrollContainerRef.current;
-											const sectionEl = sectionElementsRef.current[group.path];
-											const previousTop = sectionEl?.getBoundingClientRect().top ?? null;
-											const nextExpanded = !(expandedPaths[group.path] ?? true);
-											suppressScrollSyncUntilRef.current = Date.now() + 250;
-											setExpandedPaths((prev) => ({
-												...prev,
-												[group.path]: nextExpanded,
-											}));
-											requestAnimationFrame(() => {
-												if (previousTop == null || !container || !sectionEl) {
-													return;
-												}
-												const nextTop = sectionEl.getBoundingClientRect().top;
-												container.scrollTop += nextTop - previousTop;
-											});
-										}}
-									>
-										{isExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-										<span className="truncate" title={group.path} style={{ flex: "1 1 auto", minWidth: 0 }}>
-											{truncatePathMiddle(group.path)}
-										</span>
-										<span style={{ flexShrink: 0 }}>
-											<span className="text-status-green">+{group.added}</span>{" "}
-											<span className="text-status-red">-{group.removed}</span>
-											{group.added === 0 && group.removed === 0 && hasBinaryEntry ? (
-												<span className="ml-2 text-text-tertiary">Binary</span>
-											) : null}
-										</span>
-									</button>
+									<div className="flex items-stretch overflow-hidden rounded-t-md border border-border bg-surface-1">
+										<button
+											type="button"
+											className="kb-diff-file-header flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5 text-left text-[12px] text-text-primary hover:bg-surface-3 active:bg-surface-4 cursor-pointer"
+											aria-expanded={isExpanded}
+											aria-current={
+												selectedPath === group.path ? "true" : undefined
+											}
+											onClick={() => {
+												const container = scrollContainerRef.current;
+												const sectionEl =
+													sectionElementsRef.current[group.path];
+												const previousTop =
+													sectionEl?.getBoundingClientRect().top ?? null;
+												const nextExpanded = !(
+													expandedPaths[group.path] ?? true
+												);
+												suppressScrollSyncUntilRef.current = Date.now() + 250;
+												setExpandedPaths((prev) => ({
+													...prev,
+													[group.path]: nextExpanded,
+												}));
+												requestAnimationFrame(() => {
+													if (previousTop == null || !container || !sectionEl) {
+														return;
+													}
+													const nextTop = sectionEl.getBoundingClientRect().top;
+													container.scrollTop += nextTop - previousTop;
+												});
+											}}
+										>
+											{isExpanded ? (
+												<ChevronDown size={12} />
+											) : (
+												<ChevronRight size={12} />
+											)}
+											<span
+												className="truncate"
+												title={group.path}
+												style={{ flex: "1 1 auto", minWidth: 0 }}
+											>
+												{truncatePathMiddle(group.path)}
+											</span>
+											<span style={{ flexShrink: 0 }}>
+												<span className="text-status-green">
+													+{group.added}
+												</span>{" "}
+												<span className="text-status-red">
+													-{group.removed}
+												</span>
+												{group.added === 0 &&
+												group.removed === 0 &&
+												hasBinaryEntry ? (
+													<span className="ml-2 text-text-tertiary">
+														Binary
+													</span>
+												) : null}
+											</span>
+										</button>
+										{onRequestBlame ? (
+											<button
+												type="button"
+												className={cn(
+													"flex shrink-0 items-center border-l border-border px-2 cursor-pointer hover:bg-surface-3",
+													blameByPath[group.path]
+														? "text-accent"
+														: "text-text-tertiary hover:text-text-primary",
+												)}
+												aria-label={`Toggle blame for ${group.path}`}
+												title="Toggle git blame"
+												onClick={() => toggleBlame(group.path)}
+											>
+												<History size={13} />
+											</button>
+										) : null}
+										{onRevertFile ? (
+											<button
+												type="button"
+												className="flex shrink-0 items-center border-l border-border px-2 text-text-tertiary hover:bg-surface-3 hover:text-status-red cursor-pointer"
+												aria-label={`Revert ${group.path}`}
+												title="Revert file to HEAD"
+												onClick={() => setPendingRevertPath(group.path)}
+											>
+												<RotateCcw size={13} />
+											</button>
+										) : null}
+									</div>
 									{isExpanded ? (
 										<div
 											className="rounded-b-md border-x border-b border-border bg-surface-1"
@@ -896,13 +1202,27 @@ export function DiffViewerPanel({
 															newText={entry.newText}
 															comments={comments}
 															onAddComment={(lineNumber, lineText, variant) =>
-																handleAddComment(group.path, lineNumber, lineText, variant)
+																handleAddComment(
+																	group.path,
+																	lineNumber,
+																	lineText,
+																	variant,
+																)
 															}
 															onUpdateComment={(lineNumber, variant, text) =>
-																handleUpdateComment(group.path, lineNumber, variant, text)
+																handleUpdateComment(
+																	group.path,
+																	lineNumber,
+																	variant,
+																	text,
+																)
 															}
 															onDeleteComment={(lineNumber, variant) =>
-																handleDeleteComment(group.path, lineNumber, variant)
+																handleDeleteComment(
+																	group.path,
+																	lineNumber,
+																	variant,
+																)
 															}
 														/>
 													) : (
@@ -912,13 +1232,46 @@ export function DiffViewerPanel({
 															newText={entry.newText}
 															comments={comments}
 															onAddComment={(lineNumber, lineText, variant) =>
-																handleAddComment(group.path, lineNumber, lineText, variant)
+																handleAddComment(
+																	group.path,
+																	lineNumber,
+																	lineText,
+																	variant,
+																)
 															}
 															onUpdateComment={(lineNumber, variant, text) =>
-																handleUpdateComment(group.path, lineNumber, variant, text)
+																handleUpdateComment(
+																	group.path,
+																	lineNumber,
+																	variant,
+																	text,
+																)
 															}
 															onDeleteComment={(lineNumber, variant) =>
-																handleDeleteComment(group.path, lineNumber, variant)
+																handleDeleteComment(
+																	group.path,
+																	lineNumber,
+																	variant,
+																)
+															}
+															onRevertHunk={
+																onRevertHunk
+																	? (hunkIndex) =>
+																			setPendingHunkRevert({
+																				path: group.path,
+																				hunkIndex,
+																			})
+																	: undefined
+															}
+															blameByLine={
+																blameByPath[group.path] === undefined
+																	? undefined
+																	: blameByPath[group.path] === "loading"
+																		? new Map()
+																		: (blameByPath[group.path] as Map<
+																				number,
+																				RuntimeGitBlameLine
+																			>)
 															}
 														/>
 													)}
@@ -936,7 +1289,11 @@ export function DiffViewerPanel({
 								<span className="kb-diff-comments-count text-text-secondary">
 									{nonEmptyCount} {nonEmptyCount === 1 ? "comment" : "comments"}
 								</span>
-								<Button variant="danger" size="sm" onClick={handleClearAllComments}>
+								<Button
+									variant="danger"
+									size="sm"
+									onClick={handleClearAllComments}
+								>
 									Clear All
 								</Button>
 							</div>
@@ -948,7 +1305,9 @@ export function DiffViewerPanel({
 										disabled={nonEmptyCount === 0}
 										onClick={handleAddComments}
 									>
-										<span style={{ display: "inline-flex", alignItems: "center" }}>
+										<span
+											style={{ display: "inline-flex", alignItems: "center" }}
+										>
 											<span>Add</span>
 											<span
 												style={{
@@ -959,7 +1318,11 @@ export function DiffViewerPanel({
 												}}
 												aria-hidden
 											>
-												{isMacPlatform ? <Command size={12} /> : <span style={{ fontSize: 12 }}>Ctrl</span>}
+												{isMacPlatform ? (
+													<Command size={12} />
+												) : (
+													<span style={{ fontSize: 12 }}>Ctrl</span>
+												)}
 												<CornerDownLeft size={12} />
 											</span>
 										</span>
@@ -972,7 +1335,9 @@ export function DiffViewerPanel({
 										disabled={nonEmptyCount === 0}
 										onClick={handleSendComments}
 									>
-										<span style={{ display: "inline-flex", alignItems: "center" }}>
+										<span
+											style={{ display: "inline-flex", alignItems: "center" }}
+										>
 											<span>Send</span>
 											<span
 												style={{
@@ -983,7 +1348,11 @@ export function DiffViewerPanel({
 												}}
 												aria-hidden
 											>
-												{isMacPlatform ? <Command size={12} /> : <span style={{ fontSize: 12 }}>Ctrl</span>}
+												{isMacPlatform ? (
+													<Command size={12} />
+												) : (
+													<span style={{ fontSize: 12 }}>Ctrl</span>
+												)}
 												<span style={{ fontSize: 12 }}>Shift</span>
 												<CornerDownLeft size={12} />
 											</span>
@@ -995,6 +1364,94 @@ export function DiffViewerPanel({
 					) : null}
 				</>
 			)}
+			{onRevertFile ? (
+				<AlertDialog
+					open={pendingRevertPath !== null}
+					onOpenChange={(open) => {
+						if (!open) {
+							setPendingRevertPath(null);
+						}
+					}}
+				>
+					<AlertDialogHeader>
+						<AlertDialogTitle>Revert file?</AlertDialogTitle>
+					</AlertDialogHeader>
+					<AlertDialogBody>
+						<AlertDialogDescription>
+							Discard all working-copy changes to{" "}
+							<span className="text-text-primary">{pendingRevertPath}</span> and
+							restore it to HEAD. This cannot be undone.
+						</AlertDialogDescription>
+					</AlertDialogBody>
+					<AlertDialogFooter>
+						<AlertDialogCancel asChild>
+							<Button variant="default" size="sm">
+								Cancel
+							</Button>
+						</AlertDialogCancel>
+						<AlertDialogAction asChild>
+							<Button
+								variant="danger"
+								size="sm"
+								onClick={() => {
+									const path = pendingRevertPath;
+									setPendingRevertPath(null);
+									if (path) {
+										onRevertFile(path);
+									}
+								}}
+							>
+								Revert
+							</Button>
+						</AlertDialogAction>
+					</AlertDialogFooter>
+				</AlertDialog>
+			) : null}
+			{onRevertHunk ? (
+				<AlertDialog
+					open={pendingHunkRevert !== null}
+					onOpenChange={(open) => {
+						if (!open) {
+							setPendingHunkRevert(null);
+						}
+					}}
+				>
+					<AlertDialogHeader>
+						<AlertDialogTitle>Revert hunk?</AlertDialogTitle>
+					</AlertDialogHeader>
+					<AlertDialogBody>
+						<AlertDialogDescription>
+							Discard this hunk's working-copy changes in{" "}
+							<span className="text-text-primary">
+								{pendingHunkRevert?.path}
+							</span>{" "}
+							and restore those lines to HEAD. This cannot be undone.
+						</AlertDialogDescription>
+					</AlertDialogBody>
+					<AlertDialogFooter>
+						<AlertDialogCancel asChild>
+							<Button variant="default" size="sm">
+								Cancel
+							</Button>
+						</AlertDialogCancel>
+						<AlertDialogAction asChild>
+							<Button
+								variant="danger"
+								size="sm"
+								onClick={() => {
+									const target = pendingHunkRevert;
+									setPendingHunkRevert(null);
+									if (target) {
+										onRevertHunk(target.path, target.hunkIndex);
+									}
+								}}
+							>
+								Revert hunk
+							</Button>
+						</AlertDialogAction>
+					</AlertDialogFooter>
+				</AlertDialog>
+			) : null}
 		</div>
 	);
 }

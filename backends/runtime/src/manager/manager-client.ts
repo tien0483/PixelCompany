@@ -6,8 +6,8 @@
 import { WebSocket } from "ws";
 import type {
 	RuntimeManagerAccount,
-	RuntimeManagerAccountLaunchDir,
 	RuntimeManagerAccountLaunchCredential,
+	RuntimeManagerAccountLaunchDir,
 	RuntimeManagerFeature,
 	RuntimeManagerFeatureCategory,
 	RuntimeManagerHookLogs,
@@ -94,8 +94,11 @@ export interface ManagerClient {
 	fetchAccountLaunchCredential: (accountId: number) => Promise<RuntimeManagerAccountLaunchCredential | null>;
 	/** Import the signed-in Cursor IDE user as a jacked account. */
 	importCursorAccount: () => Promise<{ ok: boolean; error?: string; accountId?: number; email?: string }>;
+	importClaudeAccount: () => Promise<{ ok: boolean; error?: string; accountId?: number; email?: string }>;
 	/** Refresh an existing Cursor account slot from the live IDE session. */
-	reimportCursorAccount: (accountId: number) => Promise<{ ok: boolean; error?: string; accountId?: number; email?: string }>;
+	reimportCursorAccount: (
+		accountId: number,
+	) => Promise<{ ok: boolean; error?: string; accountId?: number; email?: string }>;
 	fetchInstallationsOverview: () => Promise<RuntimeManagerInstallationsOverview | null>;
 	fetchServerLogs: (limit?: number) => Promise<RuntimeManagerServerLogs | null>;
 	fetchHookLogs: (limit?: number) => Promise<RuntimeManagerHookLogs | null>;
@@ -213,15 +216,10 @@ function parseAccount(raw: unknown): RuntimeManagerAccount | null {
 	const usage = isRecord(raw.usage) ? raw.usage : null;
 	const fiveHourPercent = usage ? readNumber(usage, "five_hour") : readNumber(raw, "cached_usage_5h");
 	const sevenDayPercent = usage ? readNumber(usage, "seven_day") : readNumber(raw, "cached_usage_7d");
-	const fiveHourResetsAt = usage
-		? readString(usage, "five_hour_resets_at")
-		: readString(raw, "cached_5h_resets_at");
-	const sevenDayResetsAt = usage
-		? readString(usage, "seven_day_resets_at")
-		: readString(raw, "cached_7d_resets_at");
+	const fiveHourResetsAt = usage ? readString(usage, "five_hour_resets_at") : readString(raw, "cached_5h_resets_at");
+	const sevenDayResetsAt = usage ? readString(usage, "seven_day_resets_at") : readString(raw, "cached_7d_resets_at");
 	const donateRaw = readNumber(raw, "donate_limit_percent");
-	const donateLimitPercent =
-		donateRaw === null ? 100 : Math.max(0, Math.min(100, Math.round(donateRaw)));
+	const donateLimitPercent = donateRaw === null ? 100 : Math.max(0, Math.min(100, Math.round(donateRaw)));
 	// Prefer jacked's registry flags from the API; local table is offline fallback only.
 	const canAutoSwap = typeof raw.can_auto_swap === "boolean" ? raw.can_auto_swap : fallback.canAutoSwap;
 	const canTrackUsage = typeof raw.can_track_usage === "boolean" ? raw.can_track_usage : fallback.canTrackUsage;
@@ -846,19 +844,56 @@ export function createManagerClient(deps: CreateManagerClientDependencies): Mana
 				clearTimeout(timeout);
 			}
 		},
+		importClaudeAccount: async () => {
+			const controller = new AbortController();
+			const timeout = setTimeout(() => {
+				controller.abort();
+			}, LONG_REQUEST_TIMEOUT_MS);
+			try {
+				const response = await fetch(`${baseUrl}/api/auth/accounts/add?provider=claude&import_local=true`, {
+					method: "POST",
+					signal: controller.signal,
+				});
+				let payload: unknown = null;
+				try {
+					payload = await response.json();
+				} catch {
+					payload = null;
+				}
+				if (!response.ok) {
+					const message =
+						isRecord(payload) && isRecord(payload.error) && typeof payload.error.message === "string"
+							? payload.error.message
+							: isRecord(payload) && typeof payload.error === "string"
+								? payload.error
+								: `Manager returned HTTP ${String(response.status)}.`;
+					return { ok: false, error: message };
+				}
+				if (!isRecord(payload)) {
+					return { ok: false, error: "Invalid Claude import response." };
+				}
+				didWarnUnreachable = false;
+				return {
+					ok: true,
+					accountId: readNumber(payload, "account_id") ?? undefined,
+					email: readString(payload, "email") ?? undefined,
+				};
+			} catch {
+				return { ok: false, error: "Manager is not reachable." };
+			} finally {
+				clearTimeout(timeout);
+			}
+		},
 		reimportCursorAccount: async (accountId: number) => {
 			const controller = new AbortController();
 			const timeout = setTimeout(() => {
 				controller.abort();
 			}, LONG_REQUEST_TIMEOUT_MS);
 			try {
-				const response = await fetch(
-					`${baseUrl}/api/auth/accounts/${String(accountId)}/reimport?provider=cursor`,
-					{
-						method: "POST",
-						signal: controller.signal,
-					},
-				);
+				const response = await fetch(`${baseUrl}/api/auth/accounts/${String(accountId)}/reimport?provider=cursor`, {
+					method: "POST",
+					signal: controller.signal,
+				});
 				let payload: unknown = null;
 				try {
 					payload = await response.json();

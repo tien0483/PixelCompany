@@ -79,11 +79,41 @@ function createDeps() {
 			accountId: 3,
 			email: "cursor@example.com",
 		})),
+		importClaudeAccount: vi.fn(async () => ({
+			ok: true,
+			accountId: 5,
+			email: "dev@example.com",
+		})),
 		startAccountReauth: vi.fn(),
 		startAccountAuthorizeCc: vi.fn(),
 	};
 	return { monitor, client, api: createManagerApi({ monitor: monitor as never, client: client as never }) };
 }
+
+describe("createManagerApi importClaudeAccount", () => {
+	it("imports the local Claude CLI account and refreshes the monitor", async () => {
+		const { api, client, monitor } = createDeps();
+
+		const result = await api.importClaudeAccount();
+
+		expect(result).toEqual({ ok: true, accountId: 5, email: "dev@example.com" });
+		expect(client.importClaudeAccount).toHaveBeenCalledTimes(1);
+		expect(monitor.refresh).toHaveBeenCalledTimes(1);
+	});
+
+	it("does not refresh the monitor when the import fails", async () => {
+		const { api, client, monitor } = createDeps();
+		client.importClaudeAccount.mockResolvedValueOnce({
+			ok: false,
+			error: "no Claude Code login found",
+		} as never);
+
+		const result = await api.importClaudeAccount();
+
+		expect(result.ok).toBe(false);
+		expect(monitor.refresh).not.toHaveBeenCalled();
+	});
+});
 
 describe("createManagerApi reimportCursorAccount", () => {
 	it("reimports a Cursor account and refreshes the monitor", async () => {

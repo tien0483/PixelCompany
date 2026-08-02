@@ -1,4 +1,6 @@
 import type {
+	RuntimeGitBlameLine,
+	RuntimeGitBlameResponse,
 	RuntimeGitCommit,
 	RuntimeGitCommitDiffResponse,
 	RuntimeGitLogResponse,
@@ -392,6 +394,93 @@ function parseCommitPatchEntries(output: string): Array<{
 	}
 
 	return entries;
+}
+
+interface BlameCommitMeta {
+	author: string;
+	authorTime: number | null;
+	summary: string;
+}
+
+/**
+ * Parses `git blame --porcelain` output. The porcelain format emits a commit's
+ * full metadata (author, time, summary) only the first time that commit appears;
+ * later lines from the same commit carry just the hash header, so metadata is
+ * cached by hash and reused.
+ */
+export function parseBlamePorcelain(output: string): RuntimeGitBlameLine[] {
+	const lines = output.split("\n");
+	const metaByHash = new Map<string, BlameCommitMeta>();
+	const result: RuntimeGitBlameLine[] = [];
+
+	let currentHash: string | null = null;
+	let currentFinalLine = 0;
+
+	for (const line of lines) {
+		const headerMatch = line.match(/^([0-9a-f]{40}) \d+ (\d+)(?: \d+)?$/);
+		if (headerMatch?.[1] && headerMatch[2]) {
+			currentHash = headerMatch[1];
+			currentFinalLine = Number.parseInt(headerMatch[2], 10);
+			if (!metaByHash.has(currentHash)) {
+				metaByHash.set(currentHash, { author: "", authorTime: null, summary: "" });
+			}
+			continue;
+		}
+		if (currentHash === null) {
+			continue;
+		}
+		const meta = metaByHash.get(currentHash);
+		if (meta) {
+			if (line.startsWith("author ")) {
+				meta.author = line.slice("author ".length);
+				continue;
+			}
+			if (line.startsWith("author-time ")) {
+				const epoch = Number.parseInt(line.slice("author-time ".length), 10);
+				meta.authorTime = Number.isFinite(epoch) ? epoch : null;
+				continue;
+			}
+			if (line.startsWith("summary ")) {
+				meta.summary = line.slice("summary ".length);
+				continue;
+			}
+		}
+		if (line.startsWith("\t")) {
+			// The tab-prefixed line is the actual file content — it closes the entry.
+			const resolved = metaByHash.get(currentHash) ?? { author: "", authorTime: null, summary: "" };
+			result.push({
+				lineNumber: currentFinalLine,
+				commitHash: currentHash,
+				shortHash: currentHash.slice(0, 7),
+				author: resolved.author,
+				date: resolved.authorTime === null ? null : new Date(resolved.authorTime * 1000).toISOString(),
+				summary: resolved.summary,
+			});
+		}
+	}
+
+	return result;
+}
+
+export async function getBlame(options: { cwd: string; path: string }): Promise<RuntimeGitBlameResponse> {
+	const { cwd, path } = options;
+	const targetPath = path.trim();
+	if (!targetPath) {
+		return { ok: false, path: targetPath, lines: [], error: "No file path provided for blame." };
+	}
+
+	const repoRootResult = await runGit(cwd, ["rev-parse", "--show-toplevel"]);
+	if (!repoRootResult.ok || !repoRootResult.stdout) {
+		return { ok: false, path: targetPath, lines: [], error: "No git repository detected." };
+	}
+	const repoRoot = repoRootResult.stdout;
+
+	const blameResult = await runGit(repoRoot, ["blame", "--porcelain", "--", targetPath], { trimStdout: false });
+	if (!blameResult.ok) {
+		return { ok: false, path: targetPath, lines: [], error: blameResult.error ?? "Failed to blame file." };
+	}
+
+	return { ok: true, path: targetPath, lines: parseBlamePorcelain(blameResult.stdout) };
 }
 
 export async function getCommitDiff(options: {

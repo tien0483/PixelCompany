@@ -28,12 +28,20 @@ import type {
 	RuntimeConfigResponse,
 	RuntimeDebugResetAllStateResponse,
 	RuntimeFeaturebaseTokenResponse,
+	RuntimeGitBlameResponse,
+	RuntimeGitConflictSide,
+	RuntimeGitConflictsResponse,
+	RuntimeGitResolveConflictResponse,
+	RuntimeGitWorktreeInventoryResponse,
+	RuntimeHostEnvironmentResponse,
 	RuntimeProjectShortcut,
 	RuntimeRunUpdateResponse,
 	RuntimeUpdateStatusResponse,
 } from "@/runtime/types";
 
-export async function fetchRuntimeConfig(workspaceId: string | null): Promise<RuntimeConfigResponse> {
+export async function fetchRuntimeConfig(
+	workspaceId: string | null,
+): Promise<RuntimeConfigResponse> {
 	const trpcClient = getRuntimeTrpcClient(workspaceId);
 	return await trpcClient.runtime.getConfig.query();
 }
@@ -135,12 +143,16 @@ export async function fetchClineAccountProfile(
 	return await trpcClient.runtime.getClineAccountProfile.query();
 }
 
-export async function fetchClineKanbanAccess(workspaceId: string | null): Promise<RuntimeClineKanbanAccessResponse> {
+export async function fetchClineKanbanAccess(
+	workspaceId: string | null,
+): Promise<RuntimeClineKanbanAccessResponse> {
 	const trpcClient = getRuntimeTrpcClient(workspaceId);
 	return await trpcClient.runtime.getClineKanbanAccess.query();
 }
 
-export async function fetchFeaturebaseToken(workspaceId: string | null): Promise<RuntimeFeaturebaseTokenResponse> {
+export async function fetchFeaturebaseToken(
+	workspaceId: string | null,
+): Promise<RuntimeFeaturebaseTokenResponse> {
 	const trpcClient = getRuntimeTrpcClient(workspaceId);
 	return await trpcClient.runtime.getFeaturebaseToken.query();
 }
@@ -150,7 +162,9 @@ export async function fetchClineProviderModels(
 	providerId: string,
 ): Promise<RuntimeClineProviderModel[]> {
 	const trpcClient = getRuntimeTrpcClient(workspaceId);
-	const response = await trpcClient.runtime.getClineProviderModels.query({ providerId });
+	const response = await trpcClient.runtime.getClineProviderModels.query({
+		providerId,
+	});
 	return response.models;
 }
 
@@ -165,7 +179,9 @@ export async function runClineProviderOauthLogin(
 	return await trpcClient.runtime.runClineProviderOAuthLogin.mutate(input);
 }
 
-export async function startClineDeviceAuth(workspaceId: string | null): Promise<RuntimeClineDeviceAuthStartResponse> {
+export async function startClineDeviceAuth(
+	workspaceId: string | null,
+): Promise<RuntimeClineDeviceAuthStartResponse> {
 	const trpcClient = getRuntimeTrpcClient(workspaceId);
 	return await trpcClient.runtime.startClineDeviceAuth.mutate();
 }
@@ -178,7 +194,9 @@ export async function completeClineDeviceAuth(
 	return await trpcClient.runtime.completeClineDeviceAuth.mutate(input);
 }
 
-export async function fetchClineMcpSettings(workspaceId: string | null): Promise<RuntimeClineMcpSettingsResponse> {
+export async function fetchClineMcpSettings(
+	workspaceId: string | null,
+): Promise<RuntimeClineMcpSettingsResponse> {
 	const trpcClient = getRuntimeTrpcClient(workspaceId);
 	return await trpcClient.runtime.getClineMcpSettings.query();
 }
@@ -210,12 +228,17 @@ export async function runClineMcpServerOAuth(
 	return await trpcClient.runtime.runClineMcpServerOAuth.mutate(input);
 }
 
-export async function resetRuntimeDebugState(workspaceId: string | null): Promise<RuntimeDebugResetAllStateResponse> {
+export async function resetRuntimeDebugState(
+	workspaceId: string | null,
+): Promise<RuntimeDebugResetAllStateResponse> {
 	const trpcClient = getRuntimeTrpcClient(workspaceId);
 	return await trpcClient.runtime.resetAllState.mutate();
 }
 
-export async function openFileOnHost(workspaceId: string | null, filePath: string): Promise<void> {
+export async function openFileOnHost(
+	workspaceId: string | null,
+	filePath: string,
+): Promise<void> {
 	const trpcClient = getRuntimeTrpcClient(workspaceId);
 	await trpcClient.runtime.openFile.mutate({ filePath });
 }
@@ -242,12 +265,56 @@ export async function switchClineAccount(
 	return await trpcClient.runtime.switchClineAccount.mutate({ organizationId });
 }
 
-export async function fetchRuntimeUpdateStatus(workspaceId: string | null): Promise<RuntimeUpdateStatusResponse> {
+export async function fetchRuntimeUpdateStatus(
+	workspaceId: string | null,
+): Promise<RuntimeUpdateStatusResponse> {
 	const trpcClient = getRuntimeTrpcClient(workspaceId);
 	return await trpcClient.runtime.getUpdateStatus.query();
 }
 
-export async function runRuntimeUpdateNow(workspaceId: string | null): Promise<RuntimeRunUpdateResponse> {
+export async function fetchRuntimeHostEnvironment(
+	workspaceId: string | null,
+): Promise<RuntimeHostEnvironmentResponse> {
+	const trpcClient = getRuntimeTrpcClient(workspaceId);
+	return await trpcClient.runtime.getHostEnvironment.query();
+}
+
+export async function runRuntimeUpdateNow(
+	workspaceId: string | null,
+): Promise<RuntimeRunUpdateResponse> {
 	const trpcClient = getRuntimeTrpcClient(workspaceId);
 	return await trpcClient.runtime.runUpdateNow.mutate();
+}
+
+export async function fetchRuntimeBlame(
+	workspaceId: string | null,
+	input: {
+		path: string;
+		taskInfo?: { taskId: string; baseRef: string } | null;
+	},
+): Promise<RuntimeGitBlameResponse> {
+	const trpcClient = getRuntimeTrpcClient(workspaceId);
+	return await trpcClient.workspace.getBlame.query(input);
+}
+
+export async function fetchRuntimeWorktrees(
+	workspaceId: string | null,
+): Promise<RuntimeGitWorktreeInventoryResponse> {
+	const trpcClient = getRuntimeTrpcClient(workspaceId);
+	return await trpcClient.workspace.listWorktrees.query();
+}
+
+export async function fetchRuntimeMergeConflicts(
+	workspaceId: string | null,
+): Promise<RuntimeGitConflictsResponse> {
+	const trpcClient = getRuntimeTrpcClient(workspaceId);
+	return await trpcClient.workspace.getMergeConflicts.query(null);
+}
+
+export async function resolveRuntimeMergeConflict(
+	workspaceId: string | null,
+	input: { path: string; side: RuntimeGitConflictSide },
+): Promise<RuntimeGitResolveConflictResponse> {
+	const trpcClient = getRuntimeTrpcClient(workspaceId);
+	return await trpcClient.workspace.resolveMergeConflict.mutate(input);
 }

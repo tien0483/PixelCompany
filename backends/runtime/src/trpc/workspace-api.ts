@@ -3,6 +3,7 @@ import type { ClineTaskSessionService } from "../cline-sdk/cline-task-session-se
 import type {
 	RuntimeGitCheckoutResponse,
 	RuntimeGitDiscardResponse,
+	RuntimeGitRevertResponse,
 	RuntimeGitSummaryResponse,
 	RuntimeGitSyncAction,
 	RuntimeGitSyncResponse,
@@ -24,8 +25,20 @@ import {
 	getWorkspaceChangesBetweenRefs,
 	getWorkspaceChangesFromRef,
 } from "../workspace/get-workspace-changes";
-import { getCommitDiff, getGitLog, getGitRefs } from "../workspace/git-history";
-import { discardGitChanges, getGitSyncSummary, runGitCheckoutAction, runGitSyncAction } from "../workspace/git-sync";
+import { createPullRequest } from "../workspace/git-gh";
+import { getBlame, getCommitDiff, getGitLog, getGitRefs } from "../workspace/git-history";
+import {
+	commitWorkspaceChanges,
+	discardGitChanges,
+	getGitSyncSummary,
+	getMergeConflicts,
+	resolveMergeConflict,
+	revertGitFile,
+	revertGitHunk,
+	runGitCheckoutAction,
+	runGitSyncAction,
+} from "../workspace/git-sync";
+import { listGitWorktrees } from "../workspace/git-worktree-inventory";
 import { searchWorkspaceFiles } from "../workspace/search-workspace-files";
 import {
 	deleteTaskWorktree,
@@ -116,19 +129,21 @@ function selectLastTurnSummary(
 	return terminalSummary;
 }
 
+const EMPTY_GIT_SYNC_SUMMARY = {
+	currentBranch: null,
+	upstreamBranch: null,
+	changedFiles: 0,
+	additions: 0,
+	deletions: 0,
+	aheadCount: 0,
+	behindCount: 0,
+} as const;
+
 function createEmptyGitSummaryErrorResponse(error: unknown): RuntimeGitSummaryResponse {
 	const message = error instanceof Error ? error.message : String(error);
 	return {
 		ok: false,
-		summary: {
-			currentBranch: null,
-			upstreamBranch: null,
-			changedFiles: 0,
-			additions: 0,
-			deletions: 0,
-			aheadCount: 0,
-			behindCount: 0,
-		},
+		summary: EMPTY_GIT_SYNC_SUMMARY,
 		error: message,
 	};
 }
@@ -138,15 +153,7 @@ function createEmptyGitSyncErrorResponse(action: RuntimeGitSyncAction, error: un
 	return {
 		ok: false,
 		action,
-		summary: {
-			currentBranch: null,
-			upstreamBranch: null,
-			changedFiles: 0,
-			additions: 0,
-			deletions: 0,
-			aheadCount: 0,
-			behindCount: 0,
-		},
+		summary: EMPTY_GIT_SYNC_SUMMARY,
 		output: "",
 		error: message,
 	};
@@ -157,15 +164,7 @@ function createEmptyGitCheckoutErrorResponse(error: unknown): RuntimeGitCheckout
 	return {
 		ok: false,
 		branch: "",
-		summary: {
-			currentBranch: null,
-			upstreamBranch: null,
-			changedFiles: 0,
-			additions: 0,
-			deletions: 0,
-			aheadCount: 0,
-			behindCount: 0,
-		},
+		summary: EMPTY_GIT_SYNC_SUMMARY,
 		output: "",
 		error: message,
 	};
@@ -175,18 +174,36 @@ function createEmptyGitDiscardErrorResponse(error: unknown): RuntimeGitDiscardRe
 	const message = error instanceof Error ? error.message : String(error);
 	return {
 		ok: false,
-		summary: {
-			currentBranch: null,
-			upstreamBranch: null,
-			changedFiles: 0,
-			additions: 0,
-			deletions: 0,
-			aheadCount: 0,
-			behindCount: 0,
-		},
+		summary: EMPTY_GIT_SYNC_SUMMARY,
 		output: "",
 		error: message,
 	};
+}
+
+function createEmptyGitRevertErrorResponse(error: unknown): RuntimeGitRevertResponse {
+	const message = error instanceof Error ? error.message : String(error);
+	return {
+		ok: false,
+		summary: EMPTY_GIT_SYNC_SUMMARY,
+		output: "",
+		error: message,
+	};
+}
+
+async function resolveGitOpCwd(
+	workspacePath: string,
+	taskInfo: { taskId: string; baseRef: string } | null | undefined,
+): Promise<string> {
+	const taskScope = normalizeOptionalTaskWorkspaceScopeInput(taskInfo ?? null);
+	if (!taskScope) {
+		return workspacePath;
+	}
+	return await resolveTaskCwd({
+		cwd: workspacePath,
+		taskId: taskScope.taskId,
+		baseRef: taskScope.baseRef,
+		ensure: false,
+	});
 }
 
 function isMissingTaskWorktreeError(error: unknown): boolean {
@@ -271,6 +288,107 @@ export function createWorkspaceApi(deps: CreateWorkspaceApiDependencies): Runtim
 				return response;
 			} catch (error) {
 				return createEmptyGitDiscardErrorResponse(error);
+			}
+		},
+		revertGitFile: async (workspaceScope, input) => {
+			try {
+				const cwd = await resolveGitOpCwd(workspaceScope.workspacePath, input.taskInfo ?? null);
+				const response = await revertGitFile({ cwd, path: input.path });
+				if (response.ok) {
+					void deps.broadcastRuntimeWorkspaceStateUpdated(
+						workspaceScope.workspaceId,
+						workspaceScope.workspacePath,
+					);
+				}
+				return response;
+			} catch (error) {
+				return createEmptyGitRevertErrorResponse(error);
+			}
+		},
+		revertGitHunk: async (workspaceScope, input) => {
+			try {
+				const cwd = await resolveGitOpCwd(workspaceScope.workspacePath, input.taskInfo ?? null);
+				const response = await revertGitHunk({ cwd, path: input.path, hunkIndex: input.hunkIndex });
+				if (response.ok) {
+					void deps.broadcastRuntimeWorkspaceStateUpdated(
+						workspaceScope.workspaceId,
+						workspaceScope.workspacePath,
+					);
+				}
+				return response;
+			} catch (error) {
+				return createEmptyGitRevertErrorResponse(error);
+			}
+		},
+		commitWorkspaceChanges: async (workspaceScope, input) => {
+			try {
+				const cwd = await resolveGitOpCwd(workspaceScope.workspacePath, input.taskInfo ?? null);
+				const response = await commitWorkspaceChanges({ cwd, message: input.message, paths: input.paths });
+				if (response.ok) {
+					void deps.broadcastRuntimeWorkspaceStateUpdated(
+						workspaceScope.workspaceId,
+						workspaceScope.workspacePath,
+					);
+				}
+				return response;
+			} catch (error) {
+				return createEmptyGitRevertErrorResponse(error);
+			}
+		},
+		listWorktrees: async (workspaceScope) => {
+			try {
+				return await listGitWorktrees(workspaceScope.workspacePath);
+			} catch (error) {
+				return { ok: false, worktrees: [], error: error instanceof Error ? error.message : String(error) };
+			}
+		},
+		getBlame: async (workspaceScope, input) => {
+			try {
+				const cwd = await resolveGitOpCwd(workspaceScope.workspacePath, input.taskInfo ?? null);
+				return await getBlame({ cwd, path: input.path });
+			} catch (error) {
+				return {
+					ok: false,
+					path: input.path,
+					lines: [],
+					error: error instanceof Error ? error.message : String(error),
+				};
+			}
+		},
+		getMergeConflicts: async (workspaceScope, input) => {
+			try {
+				const cwd = await resolveGitOpCwd(workspaceScope.workspacePath, input);
+				return await getMergeConflicts({ cwd });
+			} catch (error) {
+				return { ok: false, conflicts: [], error: error instanceof Error ? error.message : String(error) };
+			}
+		},
+		resolveMergeConflict: async (workspaceScope, input) => {
+			try {
+				const cwd = await resolveGitOpCwd(workspaceScope.workspacePath, input.taskInfo ?? null);
+				const response = await resolveMergeConflict({
+					cwd,
+					path: input.path,
+					side: input.side,
+					content: input.content,
+				});
+				if (response.ok) {
+					void deps.broadcastRuntimeWorkspaceStateUpdated(
+						workspaceScope.workspaceId,
+						workspaceScope.workspacePath,
+					);
+				}
+				return response;
+			} catch (error) {
+				return createEmptyGitRevertErrorResponse(error);
+			}
+		},
+		createPullRequest: async (workspaceScope, input) => {
+			try {
+				const cwd = await resolveGitOpCwd(workspaceScope.workspacePath, input.taskInfo ?? null);
+				return await createPullRequest({ cwd, title: input.title, body: input.body, base: input.base });
+			} catch (error) {
+				return { ok: false, url: null, output: "", error: error instanceof Error ? error.message : String(error) };
 			}
 		},
 		loadChanges: async (workspaceScope, input) => {

@@ -1,10 +1,20 @@
 import { useCallback, useMemo, useState } from "react";
 import { showAppToast } from "@/components/app-toaster";
-import { type UseGitHistoryDataResult, useGitHistoryData } from "@/components/git-history/use-git-history-data";
-import { buildTaskGitActionPrompt, type TaskGitAction } from "@/git-actions/build-task-git-action-prompt";
+import {
+	type UseGitHistoryDataResult,
+	useGitHistoryData,
+} from "@/components/git-history/use-git-history-data";
+import {
+	buildTaskGitActionPrompt,
+	type TaskGitAction,
+} from "@/git-actions/build-task-git-action-prompt";
 import { isNativeClineAgentSelected } from "@/runtime/native-agent";
 import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
-import type { RuntimeConfigResponse, RuntimeGitSyncAction, RuntimeTaskWorkspaceInfoResponse } from "@/runtime/types";
+import type {
+	RuntimeConfigResponse,
+	RuntimeGitSyncAction,
+	RuntimeTaskWorkspaceInfoResponse,
+} from "@/runtime/types";
 import { findCardSelection } from "@/state/board-state";
 import {
 	getTaskWorkspaceInfo,
@@ -41,7 +51,9 @@ interface UseGitActionsInput {
 		text: string,
 		options?: { mode?: "plan" | "act" },
 	) => Promise<{ ok: boolean; message?: string }>;
-	fetchTaskWorkspaceInfo: (task: BoardCard) => Promise<RuntimeTaskWorkspaceInfoResponse | null>;
+	fetchTaskWorkspaceInfo: (
+		task: BoardCard,
+	) => Promise<RuntimeTaskWorkspaceInfoResponse | null>;
 	isGitHistoryOpen: boolean;
 	refreshWorkspaceState: () => Promise<void>;
 }
@@ -66,11 +78,31 @@ export interface UseGitActionsResult {
 	runGitAction: (action: RuntimeGitSyncAction) => Promise<void>;
 	switchHomeBranch: (branch: string) => Promise<void>;
 	discardHomeWorkingChanges: () => Promise<void>;
+	revertTaskFile: (
+		taskId: string,
+		baseRef: string,
+		path: string,
+	) => Promise<void>;
+	revertTaskHunk: (
+		taskId: string,
+		baseRef: string,
+		path: string,
+		hunkIndex: number,
+	) => Promise<void>;
+	commitHomeChanges: (message: string) => Promise<boolean>;
+	createHomePullRequest: (
+		title: string,
+		body: string,
+		base?: string,
+	) => Promise<{ ok: boolean; url: string | null }>;
 	handleCommitTask: (taskId: string) => void;
 	handleOpenPrTask: (taskId: string) => void;
 	handleAgentCommitTask: (taskId: string) => void;
 	handleAgentOpenPrTask: (taskId: string) => void;
-	runAutoReviewGitAction: (taskId: string, action: TaskGitAction) => Promise<boolean>;
+	runAutoReviewGitAction: (
+		taskId: string,
+		action: TaskGitAction,
+	) => Promise<boolean>;
 	resetGitActionState: () => void;
 }
 
@@ -81,7 +113,9 @@ function matchesWorkspaceInfoSelection(
 	if (!workspaceInfo || !card) {
 		return false;
 	}
-	return workspaceInfo.taskId === card.id && workspaceInfo.baseRef === card.baseRef;
+	return (
+		workspaceInfo.taskId === card.id && workspaceInfo.baseRef === card.baseRef
+	);
 }
 
 export function useGitActions({
@@ -95,12 +129,13 @@ export function useGitActions({
 	isGitHistoryOpen,
 	refreshWorkspaceState,
 }: UseGitActionsInput): UseGitActionsResult {
-	const [runningGitAction, setRunningGitAction] = useState<RuntimeGitSyncAction | null>(null);
-	const [taskGitActionLoadingByTaskId, setTaskGitActionLoadingByTaskId] = useState<
-		Record<string, TaskGitActionLoadingState>
-	>({});
+	const [runningGitAction, setRunningGitAction] =
+		useState<RuntimeGitSyncAction | null>(null);
+	const [taskGitActionLoadingByTaskId, setTaskGitActionLoadingByTaskId] =
+		useState<Record<string, TaskGitActionLoadingState>>({});
 	const [isSwitchingHomeBranch, setIsSwitchingHomeBranch] = useState(false);
-	const [isDiscardingHomeWorkingChanges, setIsDiscardingHomeWorkingChanges] = useState(false);
+	const [isDiscardingHomeWorkingChanges, setIsDiscardingHomeWorkingChanges] =
+		useState(false);
 	const [gitActionError, setGitActionError] = useState<{
 		action: RuntimeGitSyncAction;
 		message: string;
@@ -108,8 +143,12 @@ export function useGitActions({
 	} | null>(null);
 	const homeGitSummary = useHomeGitSummaryValue();
 	const homeGitStateVersion = useHomeGitStateVersionValue();
-	const selectedTaskWorkspaceSnapshot = useTaskWorkspaceSnapshotValue(selectedCard?.card.id ?? null);
-	const selectedTaskWorkspaceStateVersion = useTaskWorkspaceStateVersionValue(selectedCard?.card.id ?? null);
+	const selectedTaskWorkspaceSnapshot = useTaskWorkspaceSnapshotValue(
+		selectedCard?.card.id ?? null,
+	);
+	const selectedTaskWorkspaceStateVersion = useTaskWorkspaceStateVersionValue(
+		selectedCard?.card.id ?? null,
+	);
 
 	const gitHistoryTaskScope = useMemo(() => {
 		if (!selectedCard) {
@@ -138,7 +177,9 @@ export function useGitActions({
 			behindCount: 0,
 		};
 	}, [homeGitSummary, selectedCard, selectedTaskWorkspaceSnapshot]);
-	const gitHistoryStateVersion = selectedCard ? selectedTaskWorkspaceStateVersion : homeGitStateVersion;
+	const gitHistoryStateVersion = selectedCard
+		? selectedTaskWorkspaceStateVersion
+		: homeGitStateVersion;
 
 	const gitHistory = useGitHistoryData({
 		workspaceId: currentProjectId,
@@ -150,9 +191,16 @@ export function useGitActions({
 	const refreshGitHistory = gitHistory.refresh;
 
 	const setTaskGitActionLoading = useCallback(
-		(taskId: string, action: TaskGitAction, source: TaskGitActionSource | null) => {
+		(
+			taskId: string,
+			action: TaskGitAction,
+			source: TaskGitActionSource | null,
+		) => {
 			setTaskGitActionLoadingByTaskId((current) => {
-				const existing = current[taskId] ?? { commitSource: null, prSource: null };
+				const existing = current[taskId] ?? {
+					commitSource: null,
+					prSource: null,
+				};
 				const key = action === "commit" ? "commitSource" : "prSource";
 				if (existing[key] === source) {
 					return current;
@@ -176,7 +224,9 @@ export function useGitActions({
 
 	const commitTaskLoadingById = useMemo(() => {
 		const next: Record<string, boolean> = {};
-		for (const [taskId, loading] of Object.entries(taskGitActionLoadingByTaskId)) {
+		for (const [taskId, loading] of Object.entries(
+			taskGitActionLoadingByTaskId,
+		)) {
 			if (loading.commitSource === "card") {
 				next[taskId] = true;
 			}
@@ -186,7 +236,9 @@ export function useGitActions({
 
 	const openPrTaskLoadingById = useMemo(() => {
 		const next: Record<string, boolean> = {};
-		for (const [taskId, loading] of Object.entries(taskGitActionLoadingByTaskId)) {
+		for (const [taskId, loading] of Object.entries(
+			taskGitActionLoadingByTaskId,
+		)) {
 			if (loading.prSource === "card") {
 				next[taskId] = true;
 			}
@@ -196,7 +248,9 @@ export function useGitActions({
 
 	const agentCommitTaskLoadingById = useMemo(() => {
 		const next: Record<string, boolean> = {};
-		for (const [taskId, loading] of Object.entries(taskGitActionLoadingByTaskId)) {
+		for (const [taskId, loading] of Object.entries(
+			taskGitActionLoadingByTaskId,
+		)) {
 			if (loading.commitSource === "agent") {
 				next[taskId] = true;
 			}
@@ -206,7 +260,9 @@ export function useGitActions({
 
 	const agentOpenPrTaskLoadingById = useMemo(() => {
 		const next: Record<string, boolean> = {};
-		for (const [taskId, loading] of Object.entries(taskGitActionLoadingByTaskId)) {
+		for (const [taskId, loading] of Object.entries(
+			taskGitActionLoadingByTaskId,
+		)) {
 			if (loading.prSource === "agent") {
 				next[taskId] = true;
 			}
@@ -219,9 +275,16 @@ export function useGitActions({
 	);
 
 	const runTaskGitAction = useCallback(
-		async (taskId: string, action: TaskGitAction, source: TaskGitActionSource) => {
+		async (
+			taskId: string,
+			action: TaskGitAction,
+			source: TaskGitActionSource,
+		) => {
 			const taskLoadingState = taskGitActionLoadingByTaskId[taskId];
-			const actionInFlightSource = action === "commit" ? taskLoadingState?.commitSource : taskLoadingState?.prSource;
+			const actionInFlightSource =
+				action === "commit"
+					? taskLoadingState?.commitSource
+					: taskLoadingState?.prSource;
 			if (actionInFlightSource !== null && actionInFlightSource !== undefined) {
 				return false;
 			}
@@ -241,7 +304,8 @@ export function useGitActions({
 					showAppToast({
 						intent: "warning",
 						icon: "warning-sign",
-						message: "Commit and PR actions are only available for tasks in Review.",
+						message:
+							"Commit and PR actions are only available for tasks in Review.",
 						timeout: 5000,
 					});
 					return false;
@@ -259,10 +323,17 @@ export function useGitActions({
 							headCommit: snapshot.headCommit,
 						}
 					: null;
-				const storedWorkspaceInfo = getTaskWorkspaceInfo(selection.card.id, selection.card.baseRef);
-				const workspaceInfo = matchesWorkspaceInfoSelection(storedWorkspaceInfo, selection.card)
+				const storedWorkspaceInfo = getTaskWorkspaceInfo(
+					selection.card.id,
+					selection.card.baseRef,
+				);
+				const workspaceInfo = matchesWorkspaceInfoSelection(
+					storedWorkspaceInfo,
+					selection.card,
+				)
 					? storedWorkspaceInfo
-					: (snapshotWorkspaceInfo ?? (await fetchTaskWorkspaceInfo(selection.card)));
+					: (snapshotWorkspaceInfo ??
+						(await fetchTaskWorkspaceInfo(selection.card)));
 				if (!workspaceInfo) {
 					showAppToast({
 						intent: "danger",
@@ -281,30 +352,41 @@ export function useGitActions({
 						? {
 								commitPromptTemplate: runtimeProjectConfig.commitPromptTemplate,
 								openPrPromptTemplate: runtimeProjectConfig.openPrPromptTemplate,
-								commitPromptTemplateDefault: runtimeProjectConfig.commitPromptTemplateDefault,
-								openPrPromptTemplateDefault: runtimeProjectConfig.openPrPromptTemplateDefault,
+								commitPromptTemplateDefault:
+									runtimeProjectConfig.commitPromptTemplateDefault,
+								openPrPromptTemplateDefault:
+									runtimeProjectConfig.openPrPromptTemplateDefault,
 							}
 						: null,
 				});
 				if (shouldUseClineChatForTaskGitActions) {
-					const sent = await sendTaskChatMessage(taskId, prompt, { mode: "act" });
+					const sent = await sendTaskChatMessage(taskId, prompt, {
+						mode: "act",
+					});
 					if (!sent.ok) {
 						showAppToast({
 							intent: "danger",
 							icon: "warning-sign",
-							message: sent.message ?? "Could not send instructions to the task chat session.",
+							message:
+								sent.message ??
+								"Could not send instructions to the task chat session.",
 							timeout: 7000,
 						});
 						return false;
 					}
 					return true;
 				}
-				const typed = await sendTaskSessionInput(taskId, prompt, { appendNewline: false, mode: "paste" });
+				const typed = await sendTaskSessionInput(taskId, prompt, {
+					appendNewline: false,
+					mode: "paste",
+				});
 				if (!typed.ok) {
 					showAppToast({
 						intent: "danger",
 						icon: "warning-sign",
-						message: typed.message ?? "Could not send instructions to the task session.",
+						message:
+							typed.message ??
+							"Could not send instructions to the task session.",
 						timeout: 7000,
 					});
 					return false;
@@ -312,12 +394,16 @@ export function useGitActions({
 				await new Promise<void>((resolve) => {
 					window.setTimeout(resolve, 200);
 				});
-				const submitted = await sendTaskSessionInput(taskId, "\r", { appendNewline: false });
+				const submitted = await sendTaskSessionInput(taskId, "\r", {
+					appendNewline: false,
+				});
 				if (!submitted.ok) {
 					showAppToast({
 						intent: "danger",
 						icon: "warning-sign",
-						message: submitted.message ?? "Could not submit instructions to the task session.",
+						message:
+							submitted.message ??
+							"Could not submit instructions to the task session.",
 						timeout: 7000,
 					});
 					return false;
@@ -375,7 +461,9 @@ export function useGitActions({
 			setRunningGitAction(action);
 			try {
 				const trpcClient = getRuntimeTrpcClient(currentProjectId);
-				const payload = await trpcClient.workspace.runGitSyncAction.mutate({ action });
+				const payload = await trpcClient.workspace.runGitSyncAction.mutate({
+					action,
+				});
 				if (!payload.ok || !payload.summary) {
 					const errorMessage = payload.error ?? `${action} failed.`;
 					const output = payload.output ?? "";
@@ -403,14 +491,24 @@ export function useGitActions({
 				setRunningGitAction(null);
 			}
 		},
-		[currentProjectId, isSwitchingHomeBranch, refreshGitHistory, runningGitAction],
+		[
+			currentProjectId,
+			isSwitchingHomeBranch,
+			refreshGitHistory,
+			runningGitAction,
+		],
 	);
 
 	const switchHomeBranch = useCallback(
 		async (branch: string) => {
 			const normalizedBranch = branch.trim();
 			const currentBranch = homeGitSummary?.currentBranch ?? null;
-			if (!currentProjectId || isSwitchingHomeBranch || !normalizedBranch || normalizedBranch === currentBranch) {
+			if (
+				!currentProjectId ||
+				isSwitchingHomeBranch ||
+				!normalizedBranch ||
+				normalizedBranch === currentBranch
+			) {
 				return;
 			}
 			setIsSwitchingHomeBranch(true);
@@ -498,6 +596,183 @@ export function useGitActions({
 		}
 	}, [currentProjectId, isDiscardingHomeWorkingChanges, refreshGitHistory]);
 
+	const revertTaskFile = useCallback(
+		async (taskId: string, baseRef: string, path: string): Promise<void> => {
+			if (!currentProjectId) {
+				return;
+			}
+			try {
+				const trpcClient = getRuntimeTrpcClient(currentProjectId);
+				const payload = await trpcClient.workspace.revertGitFile.mutate({
+					path,
+					taskInfo: { taskId, baseRef },
+				});
+				if (!payload.ok) {
+					showAppToast({
+						intent: "danger",
+						icon: "warning-sign",
+						message: payload.error ?? `Could not revert ${path}.`,
+						timeout: 7000,
+					});
+					return;
+				}
+				// The runtime broadcasts a workspace-state update on success, so the
+				// diff refreshes on its own — no manual invalidation needed here.
+				showAppToast({
+					intent: "success",
+					icon: "tick",
+					message: `Reverted ${path}.`,
+					timeout: 4000,
+				});
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error);
+				showAppToast({
+					intent: "danger",
+					icon: "warning-sign",
+					message: `Could not revert ${path}. ${message}`,
+					timeout: 7000,
+				});
+			}
+		},
+		[currentProjectId],
+	);
+
+	const revertTaskHunk = useCallback(
+		async (
+			taskId: string,
+			baseRef: string,
+			path: string,
+			hunkIndex: number,
+		): Promise<void> => {
+			if (!currentProjectId) {
+				return;
+			}
+			try {
+				const trpcClient = getRuntimeTrpcClient(currentProjectId);
+				const payload = await trpcClient.workspace.revertGitHunk.mutate({
+					path,
+					hunkIndex,
+					taskInfo: { taskId, baseRef },
+				});
+				if (!payload.ok) {
+					showAppToast({
+						intent: "danger",
+						icon: "warning-sign",
+						message: payload.error ?? `Could not revert hunk in ${path}.`,
+						timeout: 7000,
+					});
+					return;
+				}
+				showAppToast({
+					intent: "success",
+					icon: "tick",
+					message: `Reverted a hunk in ${path}.`,
+					timeout: 4000,
+				});
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error);
+				showAppToast({
+					intent: "danger",
+					icon: "warning-sign",
+					message: `Could not revert hunk in ${path}. ${message}`,
+					timeout: 7000,
+				});
+			}
+		},
+		[currentProjectId],
+	);
+
+	const commitHomeChanges = useCallback(
+		async (message: string): Promise<boolean> => {
+			if (!currentProjectId) {
+				return false;
+			}
+			try {
+				const trpcClient = getRuntimeTrpcClient(currentProjectId);
+				const payload =
+					await trpcClient.workspace.commitWorkspaceChanges.mutate({ message });
+				if (!payload.ok) {
+					showAppToast({
+						intent: "danger",
+						icon: "warning-sign",
+						message: payload.error ?? "Could not commit changes.",
+						timeout: 7000,
+					});
+					return false;
+				}
+				setHomeGitSummary(payload.summary);
+				refreshGitHistory();
+				showAppToast({
+					intent: "success",
+					icon: "tick",
+					message: "Committed changes.",
+					timeout: 4000,
+				});
+				return true;
+			} catch (error) {
+				const errorMessage =
+					error instanceof Error ? error.message : String(error);
+				showAppToast({
+					intent: "danger",
+					icon: "warning-sign",
+					message: `Could not commit changes. ${errorMessage}`,
+					timeout: 7000,
+				});
+				return false;
+			}
+		},
+		[currentProjectId, refreshGitHistory],
+	);
+
+	const createHomePullRequest = useCallback(
+		async (
+			title: string,
+			body: string,
+			base?: string,
+		): Promise<{ ok: boolean; url: string | null }> => {
+			if (!currentProjectId) {
+				return { ok: false, url: null };
+			}
+			try {
+				const trpcClient = getRuntimeTrpcClient(currentProjectId);
+				const payload = await trpcClient.workspace.createPullRequest.mutate({
+					title,
+					body,
+					base,
+				});
+				if (!payload.ok) {
+					showAppToast({
+						intent: "danger",
+						icon: "warning-sign",
+						message: payload.error ?? "Could not create pull request.",
+						timeout: 8000,
+					});
+					return { ok: false, url: null };
+				}
+				showAppToast({
+					intent: "success",
+					icon: "tick",
+					message: payload.url
+						? `Pull request created: ${payload.url}`
+						: "Pull request created.",
+					timeout: 6000,
+				});
+				return { ok: true, url: payload.url };
+			} catch (error) {
+				const errorMessage =
+					error instanceof Error ? error.message : String(error);
+				showAppToast({
+					intent: "danger",
+					icon: "warning-sign",
+					message: `Could not create pull request. ${errorMessage}`,
+					timeout: 8000,
+				});
+				return { ok: false, url: null };
+			}
+		},
+		[currentProjectId],
+	);
+
 	const runAutoReviewGitAction = useCallback(
 		async (taskId: string, action: TaskGitAction) => {
 			return await runTaskGitAction(taskId, action, "card");
@@ -523,6 +798,12 @@ export function useGitActions({
 		if (gitActionError.action === "pull") {
 			return "Pull failed";
 		}
+		if (gitActionError.action === "stash") {
+			return "Stash failed";
+		}
+		if (gitActionError.action === "stash-pop") {
+			return "Stash pop failed";
+		}
 		return "Push failed";
 	}, [gitActionError]);
 
@@ -544,6 +825,10 @@ export function useGitActions({
 		runGitAction,
 		switchHomeBranch,
 		discardHomeWorkingChanges,
+		revertTaskFile,
+		revertTaskHunk,
+		commitHomeChanges,
+		createHomePullRequest,
 		handleCommitTask,
 		handleOpenPrTask,
 		handleAgentCommitTask,

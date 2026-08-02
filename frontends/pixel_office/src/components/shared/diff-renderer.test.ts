@@ -2,11 +2,58 @@ import { describe, expect, it } from "vitest";
 import {
 	buildDisplayItems,
 	CONTEXT_RADIUS,
+	computeHunks,
 	INCREMENTAL_EXPAND_STEP,
 	INCREMENTAL_EXPAND_THRESHOLD,
 	MIN_COLLAPSE_LINES,
 	type UnifiedDiffRow,
 } from "@/components/shared/diff-renderer";
+
+function ctx(line: number): UnifiedDiffRow {
+	return {
+		key: `c-${line}`,
+		lineNumber: line,
+		variant: "context",
+		text: `line ${line}`,
+	};
+}
+function added(line: number): UnifiedDiffRow {
+	return {
+		key: `n-${line}`,
+		lineNumber: line,
+		variant: "added",
+		text: `add ${line}`,
+	};
+}
+
+describe("computeHunks", () => {
+	it("merges changes separated by few context lines into one hunk", () => {
+		// change, 3 context (<= 2*CONTEXT_RADIUS=6), change → one hunk
+		const rows = [added(1), ctx(2), ctx(3), ctx(4), added(5)];
+		const { hunkIndexByRowKey, hunkStartRowKeys } = computeHunks(rows);
+		expect(hunkIndexByRowKey.get("n-1")).toBe(0);
+		expect(hunkIndexByRowKey.get("n-5")).toBe(0);
+		expect([...hunkStartRowKeys]).toEqual(["n-1"]);
+	});
+
+	it("splits changes separated by many context lines into distinct hunks", () => {
+		// change, 10 context (> 6), change → two hunks
+		const gap = Array.from({ length: 10 }, (_, i) => ctx(i + 2));
+		const rows = [added(1), ...gap, added(12)];
+		const { hunkIndexByRowKey, hunkStartRowKeys } = computeHunks(rows);
+		expect(hunkIndexByRowKey.get("n-1")).toBe(0);
+		expect(hunkIndexByRowKey.get("n-12")).toBe(1);
+		expect(hunkStartRowKeys.has("n-1")).toBe(true);
+		expect(hunkStartRowKeys.has("n-12")).toBe(true);
+		expect(hunkStartRowKeys.size).toBe(2);
+	});
+
+	it("marks only the first changed row of each hunk as a start", () => {
+		const rows = [added(1), added(2), ctx(3)];
+		const { hunkStartRowKeys } = computeHunks(rows);
+		expect([...hunkStartRowKeys]).toEqual(["n-1"]);
+	});
+});
 
 function makeContextRows(count: number, startLine = 1): UnifiedDiffRow[] {
 	const rows: UnifiedDiffRow[] = [];
@@ -22,17 +69,35 @@ function makeContextRows(count: number, startLine = 1): UnifiedDiffRow[] {
 	return rows;
 }
 
-function makeRowsWithChange(beforeCount: number, afterCount: number): UnifiedDiffRow[] {
+function makeRowsWithChange(
+	beforeCount: number,
+	afterCount: number,
+): UnifiedDiffRow[] {
 	const rows: UnifiedDiffRow[] = [];
 	let lineNumber = 1;
 	for (let i = 0; i < beforeCount; i += 1) {
-		rows.push({ key: `c-${lineNumber}-${lineNumber}`, lineNumber, variant: "context", text: `line ${lineNumber}` });
+		rows.push({
+			key: `c-${lineNumber}-${lineNumber}`,
+			lineNumber,
+			variant: "context",
+			text: `line ${lineNumber}`,
+		});
 		lineNumber += 1;
 	}
-	rows.push({ key: `n-${lineNumber}`, lineNumber, variant: "added", text: `added line ${lineNumber}` });
+	rows.push({
+		key: `n-${lineNumber}`,
+		lineNumber,
+		variant: "added",
+		text: `added line ${lineNumber}`,
+	});
 	lineNumber += 1;
 	for (let i = 0; i < afterCount; i += 1) {
-		rows.push({ key: `c-${lineNumber}-${lineNumber}`, lineNumber, variant: "context", text: `line ${lineNumber}` });
+		rows.push({
+			key: `c-${lineNumber}-${lineNumber}`,
+			lineNumber,
+			variant: "context",
+			text: `line ${lineNumber}`,
+		});
 		lineNumber += 1;
 	}
 	return rows;
@@ -86,9 +151,13 @@ describe("buildDisplayItems", () => {
 			const rows = makeContextRows(50);
 			const items = buildDisplayItems(rows, {});
 			const blockId = items[0]!.type === "collapsed" ? items[0]!.block.id : "";
-			const result = buildDisplayItems(rows, { [blockId]: { top: 10, bottom: 0 } });
+			const result = buildDisplayItems(rows, {
+				[blockId]: { top: 10, bottom: 0 },
+			});
 			const visibleRows = result.filter((item) => item.type === "row");
-			const collapsedBlocks = result.filter((item) => item.type === "collapsed");
+			const collapsedBlocks = result.filter(
+				(item) => item.type === "collapsed",
+			);
 			expect(visibleRows.length).toBe(10);
 			expect(collapsedBlocks.length).toBe(1);
 			if (collapsedBlocks[0]!.type === "collapsed") {
@@ -109,9 +178,13 @@ describe("buildDisplayItems", () => {
 			const rows = makeContextRows(50);
 			const items = buildDisplayItems(rows, {});
 			const blockId = items[0]!.type === "collapsed" ? items[0]!.block.id : "";
-			const result = buildDisplayItems(rows, { [blockId]: { top: 0, bottom: 10 } });
+			const result = buildDisplayItems(rows, {
+				[blockId]: { top: 0, bottom: 10 },
+			});
 			const visibleRows = result.filter((item) => item.type === "row");
-			const collapsedBlocks = result.filter((item) => item.type === "collapsed");
+			const collapsedBlocks = result.filter(
+				(item) => item.type === "collapsed",
+			);
 			expect(visibleRows.length).toBe(10);
 			expect(collapsedBlocks.length).toBe(1);
 			if (collapsedBlocks[0]!.type === "collapsed") {
@@ -132,9 +205,13 @@ describe("buildDisplayItems", () => {
 			const rows = makeContextRows(60);
 			const items = buildDisplayItems(rows, {});
 			const blockId = items[0]!.type === "collapsed" ? items[0]!.block.id : "";
-			const result = buildDisplayItems(rows, { [blockId]: { top: 15, bottom: 10 } });
+			const result = buildDisplayItems(rows, {
+				[blockId]: { top: 15, bottom: 10 },
+			});
 			const visibleRows = result.filter((item) => item.type === "row");
-			const collapsedBlocks = result.filter((item) => item.type === "collapsed");
+			const collapsedBlocks = result.filter(
+				(item) => item.type === "collapsed",
+			);
 			expect(visibleRows.length).toBe(25);
 			expect(collapsedBlocks.length).toBe(1);
 			if (collapsedBlocks[0]!.type === "collapsed") {
@@ -146,7 +223,9 @@ describe("buildDisplayItems", () => {
 			const rows = makeContextRows(30);
 			const items = buildDisplayItems(rows, {});
 			const blockId = items[0]!.type === "collapsed" ? items[0]!.block.id : "";
-			const result = buildDisplayItems(rows, { [blockId]: { top: 20, bottom: 20 } });
+			const result = buildDisplayItems(rows, {
+				[blockId]: { top: 20, bottom: 20 },
+			});
 			expect(result.filter((item) => item.type === "collapsed").length).toBe(0);
 			expect(result.filter((item) => item.type === "row").length).toBe(30);
 		});
@@ -157,7 +236,9 @@ describe("buildDisplayItems", () => {
 			const rows = makeContextRows(20);
 			const items = buildDisplayItems(rows, {});
 			const blockId = items[0]!.type === "collapsed" ? items[0]!.block.id : "";
-			const result = buildDisplayItems(rows, { [blockId]: { top: 100, bottom: 0 } });
+			const result = buildDisplayItems(rows, {
+				[blockId]: { top: 100, bottom: 0 },
+			});
 			expect(result.filter((item) => item.type === "collapsed").length).toBe(0);
 			expect(result.length).toBe(20);
 		});
@@ -166,13 +247,17 @@ describe("buildDisplayItems", () => {
 			const rows = makeContextRows(50);
 			const items = buildDisplayItems(rows, {});
 			const blockId = items[0]!.type === "collapsed" ? items[0]!.block.id : "";
-			const result1 = buildDisplayItems(rows, { [blockId]: { top: 10, bottom: 0 } });
+			const result1 = buildDisplayItems(rows, {
+				[blockId]: { top: 10, bottom: 0 },
+			});
 			const remainingBlock1 = result1.find((item) => item.type === "collapsed");
 			expect(remainingBlock1).toBeDefined();
 			if (remainingBlock1 && remainingBlock1.type === "collapsed") {
 				expect(remainingBlock1.block.id).toBe(blockId);
 			}
-			const result2 = buildDisplayItems(rows, { [blockId]: { top: 20, bottom: 0 } });
+			const result2 = buildDisplayItems(rows, {
+				[blockId]: { top: 20, bottom: 0 },
+			});
 			const remainingBlock2 = result2.find((item) => item.type === "collapsed");
 			if (remainingBlock2 && remainingBlock2.type === "collapsed") {
 				expect(remainingBlock2.block.id).toBe(blockId);

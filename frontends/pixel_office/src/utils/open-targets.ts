@@ -13,7 +13,7 @@ import { LocalStorageKey, readLocalStorageItem, writeLocalStorageItem } from "@/
 
 export const PREFERRED_OPEN_TARGET_STORAGE_KEY = LocalStorageKey.PreferredOpenTarget;
 
-export type OpenTargetPlatform = "mac" | "windows" | "linux" | "other";
+export type OpenTargetPlatform = "mac" | "windows" | "linux" | "wsl" | "other";
 
 export type OpenTargetId =
 	| "vscode"
@@ -117,12 +117,58 @@ const OPEN_TARGET_IDS_BY_PLATFORM: Record<OpenTargetPlatform, readonly OpenTarge
 	],
 	windows: ["vscode", "cursor", "windsurf", "finder", "vscode-insiders", "zed"],
 	linux: ["vscode", "cursor", "windsurf", "finder", "vscode-insiders", "zed"],
+	// WSL: editors ship a Remote-WSL CLI and open the Linux path directly; the file
+	// manager is Windows Explorer via `wslpath` translation. IntelliJ is omitted —
+	// no reliable WSL launcher, and a wrong-launch is worse than a hidden option.
+	wsl: ["vscode", "cursor", "windsurf", "finder", "vscode-insiders", "zed"],
 	other: ["vscode", "vscode-insiders", "finder"],
 };
 
 const openTargetById = new Map<OpenTargetId, OpenTargetOption>(
 	OPEN_TARGET_OPTIONS.map((option) => [option.id, option]),
 );
+
+/**
+ * User-selectable host platforms for the Open menu. `"auto"` defers to the
+ * runtime-reported host environment; the rest force a specific command form for
+ * users who switch environments (Windows / WSL / native Linux / Mac) often.
+ * `"other"` is intentionally excluded — it is a fallback, never a deliberate choice.
+ */
+export const OPEN_PLATFORM_OVERRIDE_IDS = ["auto", "mac", "windows", "wsl", "linux"] as const;
+export type OpenPlatformOverride = (typeof OPEN_PLATFORM_OVERRIDE_IDS)[number];
+
+export const OPEN_PLATFORM_OVERRIDE_LABELS: Record<OpenPlatformOverride, string> = {
+	auto: "Auto-detect",
+	mac: "macOS",
+	windows: "Windows",
+	wsl: "WSL",
+	linux: "Linux",
+};
+
+export function normalizeOpenPlatformOverride(value: string | null): OpenPlatformOverride {
+	if (value && (OPEN_PLATFORM_OVERRIDE_IDS as readonly string[]).includes(value)) {
+		return value as OpenPlatformOverride;
+	}
+	return "auto";
+}
+
+/**
+ * Picks the platform whose command form the Open action should use. A manual
+ * override wins; otherwise the runtime-reported host platform; otherwise the
+ * browser-derived guess as a pre-load fallback. The browser guess is unreliable
+ * on WSL (browser = Windows, host = Linux), so `hostPlatform` should be preferred
+ * whenever it is known.
+ */
+export function resolveEffectiveOpenPlatform(
+	override: OpenPlatformOverride,
+	hostPlatform: OpenTargetPlatform | null,
+	navigatorFallback: OpenTargetPlatform,
+): OpenTargetPlatform {
+	if (override !== "auto") {
+		return override;
+	}
+	return hostPlatform ?? navigatorFallback;
+}
 
 export function resolveOpenTargetPlatform(): OpenTargetPlatform {
 	if (typeof navigator === "undefined") {
@@ -148,7 +194,7 @@ function getDefaultOpenTargetId(platform: OpenTargetPlatform): OpenTargetId {
 
 function getOpenTargetLabel(targetId: OpenTargetId, platform: OpenTargetPlatform): string {
 	if (targetId === "finder") {
-		if (platform === "windows") {
+		if (platform === "windows" || platform === "wsl") {
 			return "File Explorer";
 		}
 		if (platform === "linux" || platform === "other") {
@@ -230,6 +276,19 @@ function buildOpenLinuxCommand(targetId: OpenTargetId, path: string): string {
 	return `xdg-open ${quotedPath}`;
 }
 
+function buildOpenWslCommand(targetId: OpenTargetId, path: string): string {
+	if (targetId === "finder") {
+		// The host is Linux (WSL) but the file manager is Windows Explorer, which
+		// only understands Windows paths. `wslpath -w` translates the Linux path;
+		// the runtime runs with `shell: true`, so the `$(...)` substitution resolves
+		// on the host. Outer double-quotes guard the translated path's spaces.
+		return `explorer.exe "$(wslpath -w ${quoteShellArgument(path)})"`;
+	}
+	// Editors ship a Remote-WSL CLI (`code`, `cursor`, …) that opens the Linux path
+	// as a remote folder — identical invocation to native Linux.
+	return buildOpenLinuxCommand(targetId, path);
+}
+
 function buildOpenWindowsCommand(targetId: OpenTargetId, path: string): string {
 	const quotedPath = quoteWindowsShellArgument(path);
 	if (targetId === "finder") {
@@ -297,6 +356,10 @@ export function buildOpenCommand(targetId: OpenTargetId, path: string, platform:
 
 	if (platform === "windows") {
 		return buildOpenWindowsCommand(targetId, path);
+	}
+
+	if (platform === "wsl") {
+		return buildOpenWslCommand(targetId, path);
 	}
 
 	if (platform === "linux" || platform === "other") {

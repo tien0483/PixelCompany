@@ -10,13 +10,13 @@ import type {
 	RuntimeManagerHookLogs,
 	RuntimeManagerInstallationsOverview,
 	RuntimeManagerMutationResponse,
-	RuntimeManagerPacks,
-	RuntimeManagerPackToggleRequest,
 	RuntimeManagerOAuthFlowStatus,
 	RuntimeManagerOAuthFlowStatusRequest,
 	RuntimeManagerOAuthStartRequest,
 	RuntimeManagerOAuthStartResponse,
 	RuntimeManagerOAuthSubmitCodeRequest,
+	RuntimeManagerPacks,
+	RuntimeManagerPackToggleRequest,
 	RuntimeManagerProvider,
 	RuntimeManagerServerLogs,
 	RuntimeManagerSessions,
@@ -63,9 +63,7 @@ export function createManagerApi(deps: CreateManagerApiDependencies): RuntimeTrp
 		return { account, error: null };
 	};
 
-	const refuseUnmanagedAccount = async (
-		accountId: number,
-	): Promise<RuntimeManagerMutationResponse | null> => {
+	const refuseUnmanagedAccount = async (accountId: number): Promise<RuntimeManagerMutationResponse | null> => {
 		const lookup = await lookupManagedAccount(accountId);
 		if (lookup.error !== null) {
 			return { ok: false, error: lookup.error };
@@ -73,9 +71,7 @@ export function createManagerApi(deps: CreateManagerApiDependencies): RuntimeTrp
 		return null;
 	};
 
-	const refuseNonClaudeAccount = async (
-		accountId: number,
-	): Promise<RuntimeManagerMutationResponse | null> => {
+	const refuseNonClaudeAccount = async (accountId: number): Promise<RuntimeManagerMutationResponse | null> => {
 		const lookup = await lookupManagedAccount(accountId);
 		if (lookup.error !== null) {
 			return { ok: false, error: lookup.error };
@@ -86,9 +82,7 @@ export function createManagerApi(deps: CreateManagerApiDependencies): RuntimeTrp
 		return null;
 	};
 
-	const refuseNonCursorAccount = async (
-		accountId: number,
-	): Promise<RuntimeManagerMutationResponse | null> => {
+	const refuseNonCursorAccount = async (accountId: number): Promise<RuntimeManagerMutationResponse | null> => {
 		const lookup = await lookupManagedAccount(accountId);
 		if (lookup.error !== null) {
 			return { ok: false, error: lookup.error };
@@ -139,9 +133,7 @@ export function createManagerApi(deps: CreateManagerApiDependencies): RuntimeTrp
 					accountId: input.accountId,
 					...(input.isActive === undefined ? {} : { isActive: input.isActive }),
 					...(input.displayName === undefined ? {} : { displayName: input.displayName }),
-					...(input.donateLimitPercent === undefined
-						? {}
-						: { donateLimitPercent: input.donateLimitPercent }),
+					...(input.donateLimitPercent === undefined ? {} : { donateLimitPercent: input.donateLimitPercent }),
 				}),
 			);
 		},
@@ -222,6 +214,13 @@ export function createManagerApi(deps: CreateManagerApiDependencies): RuntimeTrp
 			}
 			return result;
 		},
+		importClaudeAccount: async () => {
+			const result = await deps.client.importClaudeAccount();
+			if (result.ok) {
+				await deps.monitor.refresh();
+			}
+			return result;
+		},
 		reimportCursorAccount: async (input: RuntimeManagerAccountIdRequest) => {
 			const refused = await refuseNonCursorAccount(input.accountId);
 			if (refused !== null) {
@@ -267,11 +266,7 @@ export function createManagerApi(deps: CreateManagerApiDependencies): RuntimeTrp
 		submitOAuthCode: async (
 			input: RuntimeManagerOAuthSubmitCodeRequest,
 		): Promise<RuntimeManagerOAuthFlowStatus | null> => {
-			const result = await deps.client.submitOAuthCode(
-				input.flowId,
-				input.code,
-				input.donateLimitPercent,
-			);
+			const result = await deps.client.submitOAuthCode(input.flowId, input.code, input.donateLimitPercent);
 			if (result?.status === "completed") {
 				await deps.monitor.refresh();
 			}

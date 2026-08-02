@@ -2,7 +2,10 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { type DiffLineComment, DiffViewerPanel } from "@/components/detail-panels/diff-viewer-panel";
+import {
+	type DiffLineComment,
+	DiffViewerPanel,
+} from "@/components/detail-panels/diff-viewer-panel";
 import type { RuntimeWorkspaceFileChange } from "@/runtime/types";
 
 const hotkeyRegistrations: Array<{
@@ -37,9 +40,12 @@ describe("DiffViewerPanel", () => {
 
 	beforeEach(() => {
 		hotkeyRegistrations.length = 0;
-		previousActEnvironment = (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean })
-			.IS_REACT_ACT_ENVIRONMENT;
-		(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+		previousActEnvironment = (
+			globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
+		).IS_REACT_ACT_ENVIRONMENT;
+		(
+			globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
+		).IS_REACT_ACT_ENVIRONMENT = true;
 		container = document.createElement("div");
 		document.body.appendChild(container);
 		root = createRoot(container);
@@ -52,10 +58,13 @@ describe("DiffViewerPanel", () => {
 		vi.restoreAllMocks();
 		container.remove();
 		if (previousActEnvironment === undefined) {
-			delete (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT;
+			delete (
+				globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
+			).IS_REACT_ACT_ENVIRONMENT;
 		} else {
-			(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT =
-				previousActEnvironment;
+			(
+				globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
+			).IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
 		}
 	});
 
@@ -115,17 +124,27 @@ describe("DiffViewerPanel", () => {
 			value: 620,
 		});
 
-		vi.spyOn(scrollContainer, "getBoundingClientRect").mockReturnValue(createRect(100));
-		vi.spyOn(sections[0]!, "getBoundingClientRect").mockReturnValue(createRect(140));
-		vi.spyOn(sections[1]!, "getBoundingClientRect").mockReturnValue(createRect(460));
+		vi.spyOn(scrollContainer, "getBoundingClientRect").mockReturnValue(
+			createRect(100),
+		);
+		vi.spyOn(sections[0]!, "getBoundingClientRect").mockReturnValue(
+			createRect(140),
+		);
+		vi.spyOn(sections[1]!, "getBoundingClientRect").mockReturnValue(
+			createRect(460),
+		);
 
 		const originalGetComputedStyle = window.getComputedStyle.bind(window);
-		vi.spyOn(window, "getComputedStyle").mockImplementation((element: Element) => {
-			if (element === scrollContainer) {
-				return Object.assign({}, originalGetComputedStyle(element), { paddingTop: "12px" }) as CSSStyleDeclaration;
-			}
-			return originalGetComputedStyle(element);
-		});
+		vi.spyOn(window, "getComputedStyle").mockImplementation(
+			(element: Element) => {
+				if (element === scrollContainer) {
+					return Object.assign({}, originalGetComputedStyle(element), {
+						paddingTop: "12px",
+					}) as CSSStyleDeclaration;
+				}
+				return originalGetComputedStyle(element);
+			},
+		);
 
 		await act(async () => {
 			root.render(
@@ -167,11 +186,19 @@ describe("DiffViewerPanel", () => {
 			);
 		});
 
-		const splitRows = Array.from(container.querySelectorAll(".kb-diff-split-grid-row"));
+		const splitRows = Array.from(
+			container.querySelectorAll(".kb-diff-split-grid-row"),
+		);
 		expect(splitRows).toHaveLength(1);
-		expect(splitRows[0]?.querySelector(".kb-diff-row-removed")).toBeInstanceOf(HTMLDivElement);
-		expect(splitRows[0]?.querySelector(".kb-diff-row-added")).toBeInstanceOf(HTMLDivElement);
-		expect(splitRows[0]?.querySelector(".kb-diff-split-cell-placeholder")).toBeNull();
+		expect(splitRows[0]?.querySelector(".kb-diff-row-removed")).toBeInstanceOf(
+			HTMLDivElement,
+		);
+		expect(splitRows[0]?.querySelector(".kb-diff-row-added")).toBeInstanceOf(
+			HTMLDivElement,
+		);
+		expect(
+			splitRows[0]?.querySelector(".kb-diff-split-cell-placeholder"),
+		).toBeNull();
 	});
 
 	it("renders uneven split replacements with an empty placeholder cell", async () => {
@@ -199,14 +226,26 @@ describe("DiffViewerPanel", () => {
 			);
 		});
 
-		const splitRows = Array.from(container.querySelectorAll(".kb-diff-split-grid-row"));
+		const splitRows = Array.from(
+			container.querySelectorAll(".kb-diff-split-grid-row"),
+		);
 		expect(splitRows).toHaveLength(2);
-		expect(splitRows[0]?.querySelector(".kb-diff-row-removed")).toBeInstanceOf(HTMLDivElement);
-		expect(splitRows[0]?.querySelector(".kb-diff-row-added")).toBeInstanceOf(HTMLDivElement);
-		expect(splitRows[1]?.querySelector(".kb-diff-row-removed")).toBeInstanceOf(HTMLDivElement);
-		const placeholderCell = splitRows[1]?.querySelector(".kb-diff-split-cell-right");
+		expect(splitRows[0]?.querySelector(".kb-diff-row-removed")).toBeInstanceOf(
+			HTMLDivElement,
+		);
+		expect(splitRows[0]?.querySelector(".kb-diff-row-added")).toBeInstanceOf(
+			HTMLDivElement,
+		);
+		expect(splitRows[1]?.querySelector(".kb-diff-row-removed")).toBeInstanceOf(
+			HTMLDivElement,
+		);
+		const placeholderCell = splitRows[1]?.querySelector(
+			".kb-diff-split-cell-right",
+		);
 		expect(placeholderCell).toBeInstanceOf(HTMLDivElement);
-		expect(placeholderCell?.classList.contains("kb-diff-split-cell-placeholder")).toBe(true);
+		expect(
+			placeholderCell?.classList.contains("kb-diff-split-cell-placeholder"),
+		).toBe(true);
 		expect(placeholderCell?.childElementCount).toBe(0);
 		expect(placeholderCell?.querySelector(".kb-diff-line-number")).toBeNull();
 	});
@@ -307,8 +346,12 @@ describe("DiffViewerPanel", () => {
 		});
 
 		const buttons = Array.from(container.querySelectorAll("button"));
-		const addButton = buttons.find((button) => button.textContent?.includes("Add"));
-		const sendButton = buttons.find((button) => button.textContent?.includes("Send"));
+		const addButton = buttons.find((button) =>
+			button.textContent?.includes("Add"),
+		);
+		const sendButton = buttons.find((button) =>
+			button.textContent?.includes("Send"),
+		);
 
 		expect(addButton).toBeDefined();
 		expect(sendButton).toBeDefined();
@@ -359,28 +402,153 @@ describe("DiffViewerPanel", () => {
 			);
 		});
 
-		const enterHotkey = hotkeyRegistrations.find((registration) => registration.keys === "meta+enter,ctrl+enter");
+		const enterHotkey = hotkeyRegistrations.find(
+			(registration) => registration.keys === "meta+enter,ctrl+enter",
+		);
 		const sendHotkey = hotkeyRegistrations.find(
-			(registration) => registration.keys === "meta+shift+enter,ctrl+shift+enter",
+			(registration) =>
+				registration.keys === "meta+shift+enter,ctrl+shift+enter",
 		);
 
 		expect(enterHotkey).toBeDefined();
 		expect(sendHotkey).toBeDefined();
 
 		act(() => {
-			enterHotkey?.callback(new KeyboardEvent("keydown", { key: "Enter", metaKey: true }));
+			enterHotkey?.callback(
+				new KeyboardEvent("keydown", { key: "Enter", metaKey: true }),
+			);
 		});
 
-		expect(onAddToTerminal).toHaveBeenCalledWith("src/example.ts:1 | const value = 2;\n> Ship this");
+		expect(onAddToTerminal).toHaveBeenCalledWith(
+			"src/example.ts:1 | const value = 2;\n> Ship this",
+		);
 		expect(onCommentsChange).toHaveBeenCalledWith(new Map());
 
 		onCommentsChange.mockClear();
 
 		act(() => {
-			sendHotkey?.callback(new KeyboardEvent("keydown", { key: "Enter", metaKey: true, shiftKey: true }));
+			sendHotkey?.callback(
+				new KeyboardEvent("keydown", {
+					key: "Enter",
+					metaKey: true,
+					shiftKey: true,
+				}),
+			);
 		});
 
-		expect(onSendToTerminal).toHaveBeenCalledWith("src/example.ts:1 | const value = 2;\n> Ship this");
+		expect(onSendToTerminal).toHaveBeenCalledWith(
+			"src/example.ts:1 | const value = 2;\n> Ship this",
+		);
 		expect(onCommentsChange).toHaveBeenCalledWith(new Map());
+	});
+
+	const CHANGED_FILE: RuntimeWorkspaceFileChange = {
+		path: "src/a.ts",
+		status: "modified",
+		additions: 1,
+		deletions: 1,
+		oldText: "const a = 1;\n",
+		newText: "const a = 2;\n",
+	};
+
+	function query(selector: string): HTMLElement | null {
+		return document.querySelector(selector);
+	}
+
+	it("confirms then reverts a file to HEAD", async () => {
+		const onRevertFile = vi.fn();
+		await act(async () => {
+			root.render(
+				<DiffViewerPanel
+					workspaceFiles={[CHANGED_FILE]}
+					selectedPath="src/a.ts"
+					onSelectedPathChange={() => {}}
+					comments={new Map()}
+					onCommentsChange={() => {}}
+					onRevertFile={onRevertFile}
+				/>,
+			);
+		});
+
+		await act(async () => {
+			query('[aria-label="Revert src/a.ts"]')?.dispatchEvent(
+				new MouseEvent("click", { bubbles: true }),
+			);
+		});
+		// Confirm dialog "Revert" button.
+		const revertBtn = Array.from(document.querySelectorAll("button")).find(
+			(b) => b.textContent?.trim() === "Revert",
+		);
+		await act(async () => {
+			revertBtn?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+		});
+
+		expect(onRevertFile).toHaveBeenCalledWith("src/a.ts");
+	});
+
+	it("reverts a hunk via the hunk gutter control", async () => {
+		const onRevertHunk = vi.fn();
+		await act(async () => {
+			root.render(
+				<DiffViewerPanel
+					workspaceFiles={[CHANGED_FILE]}
+					selectedPath="src/a.ts"
+					onSelectedPathChange={() => {}}
+					comments={new Map()}
+					onCommentsChange={() => {}}
+					onRevertHunk={onRevertHunk}
+				/>,
+			);
+		});
+
+		await act(async () => {
+			query('[aria-label="Revert hunk 1"]')?.dispatchEvent(
+				new MouseEvent("click", { bubbles: true }),
+			);
+		});
+		const revertHunkBtn = Array.from(document.querySelectorAll("button")).find(
+			(b) => b.textContent?.trim() === "Revert hunk",
+		);
+		await act(async () => {
+			revertHunkBtn?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+		});
+
+		expect(onRevertHunk).toHaveBeenCalledWith("src/a.ts", 0);
+	});
+
+	it("fetches and renders the blame gutter when toggled", async () => {
+		const onRequestBlame = vi.fn(async () => [
+			{
+				lineNumber: 1,
+				commitHash: "abcdef0000",
+				shortHash: "abcdef0",
+				author: "Alice",
+				date: null,
+				summary: "init",
+			},
+		]);
+		await act(async () => {
+			root.render(
+				<DiffViewerPanel
+					workspaceFiles={[CHANGED_FILE]}
+					selectedPath="src/a.ts"
+					onSelectedPathChange={() => {}}
+					comments={new Map()}
+					onCommentsChange={() => {}}
+					onRequestBlame={onRequestBlame}
+				/>,
+			);
+		});
+
+		await act(async () => {
+			query('[aria-label="Toggle blame for src/a.ts"]')?.dispatchEvent(
+				new MouseEvent("click", { bubbles: true }),
+			);
+			await Promise.resolve();
+			await Promise.resolve();
+		});
+
+		expect(onRequestBlame).toHaveBeenCalledWith("src/a.ts");
+		expect(document.body.textContent).toContain("abcdef0 Alice");
 	});
 });

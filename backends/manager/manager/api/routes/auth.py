@@ -530,7 +530,8 @@ def _account_to_response(row: dict, db=None) -> AccountResponse:
 
 @router.post("/accounts/add")
 async def start_add_account(
-    request: Request, provider: str = "claude", remote: bool = False
+    request: Request, provider: str = "claude", remote: bool = False,
+    import_local: bool = False,
 ):
     """Add an account.
 
@@ -615,6 +616,31 @@ async def start_add_account(
             "plan": acct.get("subscription_type"),
             "manual_switch_warning": caps.manual_switch_warning,
             "can_auto_swap": False,
+        }
+
+    if provider == "claude" and import_local:
+        from manager.api.claude_import import (
+            ClaudeImportError,
+            import_claude_cli_account,
+        )
+
+        try:
+            acct = await import_claude_cli_account(db)
+        except ClaudeImportError as exc:
+            return JSONResponse(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                content={
+                    "error": {"message": str(exc), "code": "CLAUDE_LOGIN_REQUIRED"},
+                    "needs_login": True,
+                    "command": "claude",
+                },
+            )
+        return {
+            "provider": "claude",
+            "imported": True,
+            "account_id": acct["id"],
+            "email": acct["email"],
+            "plan": acct.get("subscription_type"),
         }
 
     if provider not in ("claude",):
