@@ -1,6 +1,18 @@
 import { Fzf } from "fzf";
-import { AlertCircle, ArrowDown, ArrowUp, Cloud, FileText, GitBranch, Info, Locate, Search } from "lucide-react";
-import { useMemo, useState } from "react";
+import {
+	AlertCircle,
+	ArrowDown,
+	ArrowUp,
+	ArrowRightLeft,
+	Cloud,
+	FileText,
+	GitBranch,
+	Info,
+	Locate,
+	Search,
+	Trash2,
+} from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 
 import { renderFuzzyHighlightedText } from "@/components/shared/render-fuzzy-highlighted-text";
 import { Button } from "@/components/ui/button";
@@ -72,6 +84,7 @@ export function GitRefsPanel({
 	onSelectRef,
 	onSelectWorkingCopy,
 	onCheckoutRef,
+	onDeleteRef,
 }: {
 	refs: RuntimeGitRef[];
 	selectedRefName: string | null;
@@ -83,8 +96,36 @@ export function GitRefsPanel({
 	onSelectRef: (ref: RuntimeGitRef) => void;
 	onSelectWorkingCopy?: () => void;
 	onCheckoutRef?: (branchName: string) => void;
+	onDeleteRef?: (branchName: string) => void;
 }): React.ReactElement {
 	const [searchQuery, setSearchQuery] = useState("");
+	const [contextMenu, setContextMenu] = useState<{ branch: string; x: number; y: number } | null>(null);
+
+	useEffect(() => {
+		if (!contextMenu) {
+			return;
+		}
+		const close = (): void => setContextMenu(null);
+		const onKeyDown = (event: KeyboardEvent): void => {
+			if (event.key === "Escape") {
+				setContextMenu(null);
+			}
+		};
+		window.addEventListener("resize", close);
+		window.addEventListener("keydown", onKeyDown);
+		return () => {
+			window.removeEventListener("resize", close);
+			window.removeEventListener("keydown", onKeyDown);
+		};
+	}, [contextMenu]);
+
+	const openBranchContextMenu = (branch: string, event: React.MouseEvent): void => {
+		if (!onCheckoutRef && !onDeleteRef) {
+			return;
+		}
+		event.preventDefault();
+		setContextMenu({ branch, x: event.clientX, y: event.clientY });
+	};
 
 	const detachedRef = refs.find((r) => r.type === "detached");
 	const branchRefs = refs.filter((r) => r.type === "branch");
@@ -156,7 +197,8 @@ export function GitRefsPanel({
 								Use {closeShortcutLabel} to close, or Escape to close, or click the button in the branch menu to
 								close.
 							</div>
-							<div>Double-click a branch to switch to that branch.</div>
+							<div>Double-click a branch to switch to it.</div>
+							<div>Right-click a local branch to switch or delete it.</div>
 						</div>
 					}
 					side="bottom"
@@ -271,6 +313,11 @@ export function GitRefsPanel({
 									isSelected={isSelected}
 									onSelect={() => onSelectRef(ref)}
 									onDoubleClick={onCheckoutRef ? () => onCheckoutRef(ref.name) : undefined}
+									onContextMenu={
+										onCheckoutRef || onDeleteRef
+											? (event) => openBranchContextMenu(ref.name, event)
+											: undefined
+									}
 								>
 									<GitBranch size={12} />
 									<span className="kb-line-clamp-1" style={{ flex: 1 }}>
@@ -321,7 +368,109 @@ export function GitRefsPanel({
 					</>
 				)}
 			</div>
+			{contextMenu ? (
+				<BranchContextMenu
+					branch={contextMenu.branch}
+					x={contextMenu.x}
+					y={contextMenu.y}
+					onCheckout={
+						onCheckoutRef
+							? () => {
+									onCheckoutRef(contextMenu.branch);
+									setContextMenu(null);
+								}
+							: undefined
+					}
+					onDelete={
+						onDeleteRef
+							? () => {
+									onDeleteRef(contextMenu.branch);
+									setContextMenu(null);
+								}
+							: undefined
+					}
+					onClose={() => setContextMenu(null)}
+				/>
+			) : null}
 		</div>
+	);
+}
+
+function BranchContextMenu({
+	branch,
+	x,
+	y,
+	onCheckout,
+	onDelete,
+	onClose,
+}: {
+	branch: string;
+	x: number;
+	y: number;
+	onCheckout?: () => void;
+	onDelete?: () => void;
+	onClose: () => void;
+}): React.ReactElement {
+	return (
+		<>
+			{/* Full-viewport backdrop closes the menu on any outside click or right-click. */}
+			<div
+				style={{ position: "fixed", inset: 0, zIndex: 60 }}
+				onClick={onClose}
+				onContextMenu={(event) => {
+					event.preventDefault();
+					onClose();
+				}}
+			/>
+			<div
+				role="menu"
+				className="kb-branch-context-menu"
+				style={{
+					position: "fixed",
+					top: y,
+					left: x,
+					zIndex: 61,
+					minWidth: 176,
+					padding: 4,
+					borderRadius: 6,
+					border: "1px solid var(--color-border)",
+					background: "var(--color-surface-2)",
+					boxShadow: "0 8px 24px rgba(0, 0, 0, 0.4)",
+				}}
+			>
+				<div
+					style={{
+						padding: "4px 8px 6px",
+						fontSize: 10,
+						fontWeight: 600,
+						letterSpacing: "0.03em",
+						color: "var(--color-text-tertiary)",
+						overflow: "hidden",
+						textOverflow: "ellipsis",
+						whiteSpace: "nowrap",
+					}}
+				>
+					{branch}
+				</div>
+				{onCheckout ? (
+					<button type="button" role="menuitem" className="kb-branch-context-menu-item" onClick={onCheckout}>
+						<ArrowRightLeft size={13} aria-hidden />
+						<span>Switch to branch</span>
+					</button>
+				) : null}
+				{onDelete ? (
+					<button
+						type="button"
+						role="menuitem"
+						className="kb-branch-context-menu-item kb-branch-context-menu-item-danger"
+						onClick={onDelete}
+					>
+						<Trash2 size={13} aria-hidden />
+						<span>Delete branch</span>
+					</button>
+				) : null}
+			</div>
+		</>
 	);
 }
 
@@ -347,18 +496,21 @@ function RefRow({
 	selectedClassName,
 	onSelect,
 	onDoubleClick,
+	onContextMenu,
 	children,
 }: {
 	isSelected: boolean;
 	selectedClassName?: string;
 	onSelect: () => void;
 	onDoubleClick?: () => void;
+	onContextMenu?: (event: React.MouseEvent) => void;
 	children: React.ReactNode;
 }): React.ReactElement {
 	const resolvedSelectedClass = selectedClassName ?? "kb-git-ref-row-selected";
 	return (
 		<div
 			className={isSelected ? `kb-git-ref-row ${resolvedSelectedClass}` : "kb-git-ref-row"}
+			onContextMenu={onContextMenu}
 			style={{
 				display: "flex",
 				alignItems: "center",

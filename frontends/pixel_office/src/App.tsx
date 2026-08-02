@@ -437,6 +437,8 @@ export default function App(): ReactElement {
 		gitHistory,
 		runGitAction,
 		switchHomeBranch,
+		deleteHomeBranch,
+		isDeletingHomeBranch,
 		discardHomeWorkingChanges,
 		revertTaskFile,
 		revertTaskHunk,
@@ -1208,6 +1210,12 @@ export default function App(): ReactElement {
 												onCheckoutBranch={(branch) => {
 													void switchHomeBranch(branch);
 												}}
+												onDeleteBranch={(branch) => {
+													void deleteHomeBranch(branch);
+												}}
+												isDeleteBranchPending={
+													isDeletingHomeBranch
+												}
 												onDiscardWorkingChanges={() => {
 													void discardHomeWorkingChanges();
 												}}

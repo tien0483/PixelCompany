@@ -66,6 +66,7 @@ export interface UseGitActionsResult {
 	agentCommitTaskLoadingById: Record<string, boolean>;
 	agentOpenPrTaskLoadingById: Record<string, boolean>;
 	isSwitchingHomeBranch: boolean;
+	isDeletingHomeBranch: boolean;
 	isDiscardingHomeWorkingChanges: boolean;
 	gitActionError: {
 		action: RuntimeGitSyncAction;
@@ -77,6 +78,7 @@ export interface UseGitActionsResult {
 	gitHistory: UseGitHistoryDataResult;
 	runGitAction: (action: RuntimeGitSyncAction) => Promise<void>;
 	switchHomeBranch: (branch: string) => Promise<void>;
+	deleteHomeBranch: (branch: string) => Promise<void>;
 	discardHomeWorkingChanges: () => Promise<void>;
 	revertTaskFile: (
 		taskId: string,
@@ -134,6 +136,7 @@ export function useGitActions({
 	const [taskGitActionLoadingByTaskId, setTaskGitActionLoadingByTaskId] =
 		useState<Record<string, TaskGitActionLoadingState>>({});
 	const [isSwitchingHomeBranch, setIsSwitchingHomeBranch] = useState(false);
+	const [isDeletingHomeBranch, setIsDeletingHomeBranch] = useState(false);
 	const [isDiscardingHomeWorkingChanges, setIsDiscardingHomeWorkingChanges] =
 		useState(false);
 	const [gitActionError, setGitActionError] = useState<{
@@ -555,6 +558,67 @@ export function useGitActions({
 		],
 	);
 
+	const deleteHomeBranch = useCallback(
+		async (branch: string) => {
+			const normalizedBranch = branch.trim();
+			const currentBranch = homeGitSummary?.currentBranch ?? null;
+			if (
+				!currentProjectId ||
+				isDeletingHomeBranch ||
+				!normalizedBranch ||
+				normalizedBranch === currentBranch
+			) {
+				return;
+			}
+			setIsDeletingHomeBranch(true);
+			try {
+				const trpcClient = getRuntimeTrpcClient(currentProjectId);
+				const payload = await trpcClient.workspace.deleteGitBranch.mutate({
+					branch: normalizedBranch,
+				});
+				if (!payload.ok) {
+					if (payload.summary) {
+						setHomeGitSummary(payload.summary);
+					}
+					const errorMessage = payload.error ?? "Delete branch failed.";
+					showAppToast({
+						intent: "danger",
+						icon: "warning-sign",
+						message: `Could not delete ${normalizedBranch}. ${errorMessage}`,
+						timeout: 7000,
+					});
+					return;
+				}
+				setHomeGitSummary(payload.summary);
+				refreshGitHistory();
+				await refreshWorkspaceState();
+				showAppToast({
+					intent: "success",
+					icon: "tick",
+					message: `Deleted branch ${normalizedBranch}.`,
+					timeout: 4000,
+				});
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error);
+				showAppToast({
+					intent: "danger",
+					icon: "warning-sign",
+					message: `Could not delete ${normalizedBranch}. ${message}`,
+					timeout: 7000,
+				});
+			} finally {
+				setIsDeletingHomeBranch(false);
+			}
+		},
+		[
+			currentProjectId,
+			homeGitSummary?.currentBranch,
+			isDeletingHomeBranch,
+			refreshGitHistory,
+			refreshWorkspaceState,
+		],
+	);
+
 	const discardHomeWorkingChanges = useCallback(async () => {
 		if (!currentProjectId || isDiscardingHomeWorkingChanges) {
 			return;
@@ -784,6 +848,7 @@ export function useGitActions({
 		setRunningGitAction(null);
 		setTaskGitActionLoadingByTaskId({});
 		setIsSwitchingHomeBranch(false);
+		setIsDeletingHomeBranch(false);
 		setIsDiscardingHomeWorkingChanges(false);
 		setGitActionError(null);
 	}, []);
@@ -815,6 +880,7 @@ export function useGitActions({
 		agentCommitTaskLoadingById,
 		agentOpenPrTaskLoadingById,
 		isSwitchingHomeBranch,
+		isDeletingHomeBranch,
 		isDiscardingHomeWorkingChanges,
 		gitActionError,
 		gitActionErrorTitle,
@@ -824,6 +890,7 @@ export function useGitActions({
 		gitHistory,
 		runGitAction,
 		switchHomeBranch,
+		deleteHomeBranch,
 		discardHomeWorkingChanges,
 		revertTaskFile,
 		revertTaskHunk,

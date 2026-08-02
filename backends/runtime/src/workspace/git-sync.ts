@@ -4,6 +4,7 @@ import { join } from "node:path";
 
 import type {
 	RuntimeGitCheckoutResponse,
+	RuntimeGitDeleteBranchResponse,
 	RuntimeGitCommitResponse,
 	RuntimeGitConflictSide,
 	RuntimeGitConflictsResponse,
@@ -396,6 +397,71 @@ export async function runGitCheckoutAction(options: {
 			summary: nextSummary,
 			output: commandResult.output,
 			error: commandResult.error ?? "Git branch switch failed.",
+		};
+	}
+
+	return {
+		ok: true,
+		branch: requestedBranch,
+		summary: nextSummary,
+		output: commandResult.output,
+	};
+}
+
+export async function runGitDeleteBranchAction(options: {
+	cwd: string;
+	branch: string;
+	force?: boolean;
+}): Promise<RuntimeGitDeleteBranchResponse> {
+	const requestedBranch = options.branch.trim();
+	const summary = await getGitSyncSummary(options.cwd);
+
+	if (!requestedBranch) {
+		return {
+			ok: false,
+			branch: requestedBranch,
+			summary,
+			output: "",
+			error: "Branch name cannot be empty.",
+		};
+	}
+
+	if (summary.currentBranch === requestedBranch) {
+		return {
+			ok: false,
+			branch: requestedBranch,
+			summary,
+			output: "",
+			error: `Cannot delete '${requestedBranch}' because it is the current branch. Switch to another branch first.`,
+		};
+	}
+
+	const repoRoot = await resolveRepoRoot(options.cwd);
+
+	const hasLocalBranch = await hasGitRef(repoRoot, `refs/heads/${requestedBranch}`);
+	if (!hasLocalBranch) {
+		return {
+			ok: false,
+			branch: requestedBranch,
+			summary,
+			output: "",
+			error: `Local branch '${requestedBranch}' does not exist.`,
+		};
+	}
+
+	// `-d` refuses to drop a branch that is not fully merged, which keeps the
+	// action data-safe; callers pass `force: true` for an explicit `-D`.
+	const deleteFlag = options.force ? "-D" : "-d";
+	const commandResult = await runGit(repoRoot, ["branch", deleteFlag, requestedBranch]);
+	const nextSummary = await getGitSyncSummary(repoRoot);
+
+	if (!commandResult.ok) {
+		return {
+			ok: false,
+			branch: requestedBranch,
+			summary: nextSummary,
+			output: commandResult.output,
+			error: commandResult.error ?? "Git branch delete failed.",
 		};
 	}
 

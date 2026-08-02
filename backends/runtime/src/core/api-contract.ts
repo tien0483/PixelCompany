@@ -298,6 +298,21 @@ export const runtimeGitCheckoutResponseSchema = z.object({
 });
 export type RuntimeGitCheckoutResponse = z.infer<typeof runtimeGitCheckoutResponseSchema>;
 
+export const runtimeGitDeleteBranchRequestSchema = z.object({
+	branch: z.string(),
+	force: z.boolean().optional(),
+});
+export type RuntimeGitDeleteBranchRequest = z.infer<typeof runtimeGitDeleteBranchRequestSchema>;
+
+export const runtimeGitDeleteBranchResponseSchema = z.object({
+	ok: z.boolean(),
+	branch: z.string(),
+	summary: runtimeGitSyncSummarySchema,
+	output: z.string(),
+	error: z.string().optional(),
+});
+export type RuntimeGitDeleteBranchResponse = z.infer<typeof runtimeGitDeleteBranchResponseSchema>;
+
 export const runtimeGitDiscardResponseSchema = z.object({
 	ok: z.boolean(),
 	summary: runtimeGitSyncSummarySchema,

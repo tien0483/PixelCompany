@@ -2,6 +2,7 @@ import { TRPCError } from "@trpc/server";
 import type { ClineTaskSessionService } from "../cline-sdk/cline-task-session-service";
 import type {
 	RuntimeGitCheckoutResponse,
+	RuntimeGitDeleteBranchResponse,
 	RuntimeGitDiscardResponse,
 	RuntimeGitRevertResponse,
 	RuntimeGitSummaryResponse,
@@ -14,6 +15,7 @@ import type {
 } from "../core/api-contract";
 import {
 	parseGitCheckoutRequest,
+	parseGitDeleteBranchRequest,
 	parseWorktreeDeleteRequest,
 	parseWorktreeEnsureRequest,
 } from "../core/api-validation";
@@ -36,6 +38,7 @@ import {
 	revertGitFile,
 	revertGitHunk,
 	runGitCheckoutAction,
+	runGitDeleteBranchAction,
 	runGitSyncAction,
 } from "../workspace/git-sync";
 import { listGitWorktrees } from "../workspace/git-worktree-inventory";
@@ -170,6 +173,17 @@ function createEmptyGitCheckoutErrorResponse(error: unknown): RuntimeGitCheckout
 	};
 }
 
+function createEmptyGitDeleteBranchErrorResponse(error: unknown): RuntimeGitDeleteBranchResponse {
+	const message = error instanceof Error ? error.message : String(error);
+	return {
+		ok: false,
+		branch: "",
+		summary: EMPTY_GIT_SYNC_SUMMARY,
+		output: "",
+		error: message,
+	};
+}
+
 function createEmptyGitDiscardErrorResponse(error: unknown): RuntimeGitDiscardResponse {
 	const message = error instanceof Error ? error.message : String(error);
 	return {
@@ -262,6 +276,25 @@ export function createWorkspaceApi(deps: CreateWorkspaceApiDependencies): Runtim
 				return response;
 			} catch (error) {
 				return createEmptyGitCheckoutErrorResponse(error);
+			}
+		},
+		deleteGitBranch: async (workspaceScope, input) => {
+			try {
+				const body = parseGitDeleteBranchRequest(input);
+				const response = await runGitDeleteBranchAction({
+					cwd: workspaceScope.workspacePath,
+					branch: body.branch,
+					force: body.force,
+				});
+				if (response.ok) {
+					void deps.broadcastRuntimeWorkspaceStateUpdated(
+						workspaceScope.workspaceId,
+						workspaceScope.workspacePath,
+					);
+				}
+				return response;
+			} catch (error) {
+				return createEmptyGitDeleteBranchErrorResponse(error);
 			}
 		},
 		discardGitChanges: async (workspaceScope, input) => {

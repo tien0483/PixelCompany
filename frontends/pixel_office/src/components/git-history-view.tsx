@@ -73,6 +73,8 @@ interface GitHistoryViewProps {
 	workspaceId: string | null;
 	gitHistory: UseGitHistoryDataResult;
 	onCheckoutBranch?: (branch: string) => void;
+	onDeleteBranch?: (branch: string) => void;
+	isDeleteBranchPending?: boolean;
 	onDiscardWorkingChanges?: () => void;
 	isDiscardWorkingChangesPending?: boolean;
 }
@@ -81,10 +83,13 @@ export function GitHistoryView({
 	workspaceId,
 	gitHistory,
 	onCheckoutBranch,
+	onDeleteBranch,
+	isDeleteBranchPending = false,
 	onDiscardWorkingChanges,
 	isDiscardWorkingChangesPending = false,
 }: GitHistoryViewProps): React.ReactElement {
 	const [isDiscardAlertOpen, setIsDiscardAlertOpen] = useState(false);
+	const [branchPendingDelete, setBranchPendingDelete] = useState<string | null>(null);
 	const [historyLayoutWidth, setHistoryLayoutWidth] = useState<number | null>(null);
 	const historyLayoutRef = useRef<HTMLDivElement | null>(null);
 	const { startDrag: startRefsPanelResize } = useResizeDrag();
@@ -196,6 +201,7 @@ export function GitHistoryView({
 				onSelectRef={gitHistory.selectRef}
 				onSelectWorkingCopy={gitHistory.hasWorkingCopy ? gitHistory.selectWorkingCopy : undefined}
 				onCheckoutRef={onCheckoutBranch}
+				onDeleteRef={onDeleteBranch ? setBranchPendingDelete : undefined}
 			/>
 			<ResizeHandle
 				orientation="vertical"
@@ -295,6 +301,49 @@ export function GitHistoryView({
 						>
 							{isDiscardWorkingChangesPending ? <Spinner size={14} /> : null}
 							Discard All
+						</Button>
+					</AlertDialogAction>
+				</AlertDialogFooter>
+			</AlertDialog>
+			<AlertDialog
+				open={branchPendingDelete !== null}
+				onOpenChange={(open) => {
+					if (!open) setBranchPendingDelete(null);
+				}}
+			>
+				<AlertDialogHeader>
+					<AlertDialogTitle>Delete branch?</AlertDialogTitle>
+				</AlertDialogHeader>
+				<AlertDialogBody>
+					<AlertDialogDescription>
+						Delete the local branch <code className="font-mono">{branchPendingDelete}</code>? Unmerged
+						branches are protected and will not be deleted.
+					</AlertDialogDescription>
+				</AlertDialogBody>
+				<AlertDialogFooter>
+					<AlertDialogCancel asChild>
+						<Button
+							variant="default"
+							onClick={() => setBranchPendingDelete(null)}
+							disabled={isDeleteBranchPending}
+						>
+							Cancel
+						</Button>
+					</AlertDialogCancel>
+					<AlertDialogAction asChild>
+						<Button
+							variant="danger"
+							disabled={isDeleteBranchPending}
+							onClick={() => {
+								const branch = branchPendingDelete;
+								setBranchPendingDelete(null);
+								if (branch) {
+									onDeleteBranch?.(branch);
+								}
+							}}
+						>
+							{isDeleteBranchPending ? <Spinner size={14} /> : null}
+							Delete Branch
 						</Button>
 					</AlertDialogAction>
 				</AlertDialogFooter>

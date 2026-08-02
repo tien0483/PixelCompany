@@ -44,6 +44,8 @@ import type {
 	RuntimeGitBlameRequest,
 	RuntimeGitBlameResponse,
 	RuntimeGitCheckoutRequest,
+	RuntimeGitDeleteBranchRequest,
+	RuntimeGitDeleteBranchResponse,
 	RuntimeGitCheckoutResponse,
 	RuntimeGitCommitDiffRequest,
 	RuntimeGitCommitDiffResponse,
@@ -204,6 +206,8 @@ import {
 	runtimeGitBlameResponseSchema,
 	runtimeGitCheckoutRequestSchema,
 	runtimeGitCheckoutResponseSchema,
+	runtimeGitDeleteBranchRequestSchema,
+	runtimeGitDeleteBranchResponseSchema,
 	runtimeGitCommitDiffRequestSchema,
 	runtimeGitCommitDiffResponseSchema,
 	runtimeGitCommitRequestSchema,
@@ -400,6 +404,10 @@ export interface RuntimeTrpcContext {
 			scope: RuntimeTrpcWorkspaceScope,
 			input: RuntimeGitCheckoutRequest,
 		) => Promise<RuntimeGitCheckoutResponse>;
+		deleteGitBranch: (
+			scope: RuntimeTrpcWorkspaceScope,
+			input: RuntimeGitDeleteBranchRequest,
+		) => Promise<RuntimeGitDeleteBranchResponse>;
 		discardGitChanges: (
 			scope: RuntimeTrpcWorkspaceScope,
 			input: RuntimeTaskWorkspaceInfoRequest | null,
@@ -788,6 +796,12 @@ export const runtimeAppRouter = t.router({
 			.output(runtimeGitCheckoutResponseSchema)
 			.mutation(async ({ ctx, input }) => {
 				return await ctx.workspaceApi.checkoutGitBranch(ctx.workspaceScope, input);
+			}),
+		deleteGitBranch: workspaceProcedure
+			.input(runtimeGitDeleteBranchRequestSchema)
+			.output(runtimeGitDeleteBranchResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.workspaceApi.deleteGitBranch(ctx.workspaceScope, input);
 			}),
 		discardGitChanges: workspaceProcedure
 			.input(optionalTaskWorkspaceInfoRequestSchema)
