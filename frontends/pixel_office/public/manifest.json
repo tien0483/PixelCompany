@@ -1,6 +1,6 @@
 {
-	"name": "Askee",
-	"short_name": "Askee",
+	"name": "PixelOffice",
+	"short_name": "PixelOffice",
 	"start_url": "/",
 	"display": "standalone",
 	"display_override": ["window-controls-overlay"],

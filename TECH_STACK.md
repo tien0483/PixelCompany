@@ -117,6 +117,15 @@ If `npm install` on Linux fails building the UI with `Cannot find module
 `node_modules` and reinstall — see the npm optional-deps bug
 [npm/cli#4828](https://github.com/npm/cli/issues/4828).
 
+### Install as a standalone window (PWA)
+
+PixelOffice can run in its own OS window via the browser’s Progressive Web App install — useful on WSL where the Electron desktop shell is not a good fit.
+
+1. Start the stack from the native Linux filesystem (`npm run solo` or `npm start`).
+2. Open `http://127.0.0.1:3484` (or the URL printed by solo) in **Windows** Chrome or Edge — not a browser inside WSL.
+3. Install via the browser UI: ⋮ → **Apps** → **Install PixelOffice** (Chrome) or **Apps** → **Install this site as an app** / **Open as window** (Edge).
+4. Closing the installed window does **not** stop the WSL stack — stop the terminal process separately. Reopening the app while the stack is down shows the waiting page until you start the server again; then it auto-reloads.
+
 ## UI dist auto-rebuild
 
 `frontends/pixel_office/dist` is gitignored, and the runtime falls back to serving whatever's
