@@ -133,6 +133,8 @@ import type {
 	RuntimeTaskChatSendResponse,
 	RuntimeTaskSessionInputRequest,
 	RuntimeTaskSessionInputResponse,
+	RuntimeTaskSessionPauseRequest,
+	RuntimeTaskSessionPauseResponse,
 	RuntimeTaskSessionStartRequest,
 	RuntimeTaskSessionStartResponse,
 	RuntimeTaskSessionStopRequest,
@@ -280,6 +282,8 @@ import {
 	runtimeTaskChatSendResponseSchema,
 	runtimeTaskSessionInputRequestSchema,
 	runtimeTaskSessionInputResponseSchema,
+	runtimeTaskSessionPauseRequestSchema,
+	runtimeTaskSessionPauseResponseSchema,
 	runtimeTaskSessionStartRequestSchema,
 	runtimeTaskSessionStartResponseSchema,
 	runtimeTaskSessionStopRequestSchema,
@@ -334,6 +338,14 @@ export interface RuntimeTrpcContext {
 			scope: RuntimeTrpcWorkspaceScope,
 			input: RuntimeTaskSessionStopRequest,
 		) => Promise<RuntimeTaskSessionStopResponse>;
+		pauseTaskSession: (
+			scope: RuntimeTrpcWorkspaceScope,
+			input: RuntimeTaskSessionPauseRequest,
+		) => Promise<RuntimeTaskSessionPauseResponse>;
+		resumeTaskSession: (
+			scope: RuntimeTrpcWorkspaceScope,
+			input: RuntimeTaskSessionPauseRequest,
+		) => Promise<RuntimeTaskSessionPauseResponse>;
 		sendTaskSessionInput: (
 			scope: RuntimeTrpcWorkspaceScope,
 			input: RuntimeTaskSessionInputRequest,
@@ -665,6 +677,18 @@ export const runtimeAppRouter = t.router({
 			.mutation(async ({ ctx, input }) => {
 				return await ctx.runtimeApi.stopTaskSession(ctx.workspaceScope, input);
 			}),
+		pauseTaskSession: workspaceProcedure
+			.input(runtimeTaskSessionPauseRequestSchema)
+			.output(runtimeTaskSessionPauseResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.runtimeApi.pauseTaskSession(ctx.workspaceScope, input);
+			}),
+		resumeTaskSession: workspaceProcedure
+			.input(runtimeTaskSessionPauseRequestSchema)
+			.output(runtimeTaskSessionPauseResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.runtimeApi.resumeTaskSession(ctx.workspaceScope, input);
+			}),
 		sendTaskSessionInput: workspaceProcedure
 			.input(runtimeTaskSessionInputRequestSchema)
 			.output(runtimeTaskSessionInputResponseSchema)
@@ -684,7 +708,21 @@ export const runtimeAppRouter = t.router({
 			.input(runtimeSkillInventoryRequestSchema)
 			.output(runtimeSkillInventorySchema)
 			.query(async ({ ctx, input }) => {
-				return await ctx.runtimeApi.listSkillInventory(input);
+				const [inventory, managerState] = await Promise.all([
+					ctx.runtimeApi.listSkillInventory(input),
+					ctx.managerApi.getState().catch(() => null),
+				]);
+				if (!managerState?.features?.length) return inventory;
+				const disabled = new Set(
+					managerState.features.filter((f) => !f.installed).map((f) => `${f.category}:${f.name}`),
+				);
+				return {
+					...inventory,
+					skills: inventory.skills.filter((s) => !disabled.has(`knowledge:skill_${s.id}`)),
+					agents: inventory.agents.filter((a) => !disabled.has(`agents:${a.id}`)),
+					commands: inventory.commands.filter((c) => !disabled.has(`commands:${c.id}`)),
+					workflows: inventory.workflows,
+				};
 			}),
 		setWorkspaceLocalAssets: t.procedure
 			.input(runtimeSetWorkspaceLocalAssetsRequestSchema)

@@ -33,6 +33,8 @@ export function KanbanBoard({
 	onCardSelect,
 	onCreateTask,
 	onStartTask,
+	onPauseTask,
+	onResumeTask,
 	onDeleteTask,
 	onStartAllTasks,
 	onClearTrash,
@@ -65,6 +67,8 @@ export function KanbanBoard({
 	onCardSelect: (taskId: string) => void;
 	onCreateTask: () => void;
 	onStartTask?: (taskId: string) => void;
+	onPauseTask?: (taskId: string) => void;
+	onResumeTask?: (taskId: string) => void;
 	onDeleteTask?: (taskId: string) => void;
 	onStartAllTasks?: () => void;
 	onClearTrash?: () => void;
@@ -404,6 +408,8 @@ export function KanbanBoard({
 						taskSessions={taskSessions}
 						onCreateTask={column.id === "backlog" ? onCreateTask : undefined}
 						onStartTask={column.id === "backlog" ? onStartTask : undefined}
+						onPauseTask={column.id === "in_progress" ? onPauseTask : undefined}
+						onResumeTask={column.id === "in_progress" ? onResumeTask : undefined}
 						onDeleteTask={column.id === "backlog" ? onDeleteTask : undefined}
 						onStartAllTasks={column.id === "backlog" ? onStartAllTasks : undefined}
 						onClearTrash={column.id === "trash" ? onClearTrash : undefined}

@@ -439,6 +439,18 @@ export const runtimeTaskSessionSummarySchema = z.object({
 	pid: z.number().nullable(),
 	startedAt: z.number().nullable(),
 	updatedAt: z.number(),
+	/**
+	 * Accumulated active-run time in ms (sum of every running segment, excluding
+	 * paused/awaiting gaps). Combine with `runningSince` for live elapsed:
+	 * `activeRunMs + (runningSince != null ? now - runningSince : 0)`.
+	 */
+	activeRunMs: z.number().default(0),
+	/** Epoch ms the current running segment started; null whenever the clock is frozen (paused, awaiting, idle, done). */
+	runningSince: z.number().nullable().default(null),
+	/** Epoch ms of a manual (Esc) or force-pause hold; null when not manually paused. Distinct from usage `resumeAt`. */
+	pausedAt: z.number().nullable().default(null),
+	/** Why a manual/force pause is held: user-initiated vs an automatic max-runtime cutoff. Null when not paused. */
+	pauseReason: z.enum(["manual", "max_runtime"]).nullable().default(null),
 	lastOutputAt: z.number().nullable(),
 	reviewReason: runtimeTaskSessionReviewReasonSchema,
 	exitCode: z.number().nullable(),
@@ -1706,6 +1718,18 @@ export const runtimeTaskSessionStopResponseSchema = z.object({
 	error: z.string().optional(),
 });
 export type RuntimeTaskSessionStopResponse = z.infer<typeof runtimeTaskSessionStopResponseSchema>;
+
+export const runtimeTaskSessionPauseRequestSchema = z.object({
+	taskId: z.string(),
+});
+export type RuntimeTaskSessionPauseRequest = z.infer<typeof runtimeTaskSessionPauseRequestSchema>;
+
+export const runtimeTaskSessionPauseResponseSchema = z.object({
+	ok: z.boolean(),
+	summary: runtimeTaskSessionSummarySchema.nullable(),
+	error: z.string().optional(),
+});
+export type RuntimeTaskSessionPauseResponse = z.infer<typeof runtimeTaskSessionPauseResponseSchema>;
 
 export const runtimeTaskSessionInputRequestSchema = z.object({
 	taskId: z.string(),

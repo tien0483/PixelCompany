@@ -60,6 +60,8 @@ export interface UseTaskSessionsResult {
 	ensureTaskWorkspace: (task: BoardCard, options?: EnsureTaskWorkspaceOptions) => Promise<EnsureTaskWorkspaceResult>;
 	startTaskSession: (task: BoardCard, options?: StartTaskSessionOptions) => Promise<StartTaskSessionResult>;
 	stopTaskSession: (taskId: string) => Promise<void>;
+	pauseTaskSession: (taskId: string) => Promise<void>;
+	resumeTaskSession: (taskId: string) => Promise<void>;
 	sendTaskSessionInput: (
 		taskId: string,
 		text: string,
@@ -218,6 +220,46 @@ export function useTaskSessions({ currentProjectId, setSessions }: UseTaskSessio
 		[currentProjectId],
 	);
 
+	const pauseTaskSession = useCallback(
+		async (taskId: string): Promise<void> => {
+			if (!currentProjectId) {
+				return;
+			}
+			try {
+				const trpcClient = getRuntimeTrpcClient(currentProjectId);
+				const payload = await trpcClient.runtime.pauseTaskSession.mutate({ taskId });
+				if (payload.summary) {
+					upsertSession(payload.summary);
+				} else if (!payload.ok) {
+					notifyError(payload.error ?? "Could not pause task.");
+				}
+			} catch (error) {
+				notifyError(error instanceof Error ? error.message : String(error));
+			}
+		},
+		[currentProjectId, upsertSession],
+	);
+
+	const resumeTaskSession = useCallback(
+		async (taskId: string): Promise<void> => {
+			if (!currentProjectId) {
+				return;
+			}
+			try {
+				const trpcClient = getRuntimeTrpcClient(currentProjectId);
+				const payload = await trpcClient.runtime.resumeTaskSession.mutate({ taskId });
+				if (payload.summary) {
+					upsertSession(payload.summary);
+				} else if (!payload.ok) {
+					notifyError(payload.error ?? "Could not resume task.");
+				}
+			} catch (error) {
+				notifyError(error instanceof Error ? error.message : String(error));
+			}
+		},
+		[currentProjectId, upsertSession],
+	);
+
 	const sendTaskSessionInput = useCallback(
 		async (taskId: string, text: string, options?: SendTerminalInputOptions): Promise<SendTaskSessionInputResult> => {
 			const appendNewline = options?.appendNewline ?? true;
@@ -305,6 +347,8 @@ export function useTaskSessions({ currentProjectId, setSessions }: UseTaskSessio
 		ensureTaskWorkspace,
 		startTaskSession,
 		stopTaskSession,
+		pauseTaskSession,
+		resumeTaskSession,
 		sendTaskSessionInput,
 		sendTaskChatMessage,
 		abortTaskChatTurn,

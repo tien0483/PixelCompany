@@ -18,6 +18,8 @@ function ColumnSection({
 	taskSessions,
 	onCreateTask,
 	onStartTask,
+	onPauseTask,
+	onResumeTask,
 	onStartAllTasks,
 	onClearTrash,
 	editingTaskId,
@@ -42,6 +44,8 @@ function ColumnSection({
 	taskSessions: Record<string, RuntimeTaskSessionSummary>;
 	onCreateTask?: () => void;
 	onStartTask?: (taskId: string) => void;
+	onPauseTask?: (taskId: string) => void;
+	onResumeTask?: (taskId: string) => void;
 	onStartAllTasks?: () => void;
 	onClearTrash?: () => void;
 	editingTaskId?: string | null;
@@ -191,6 +195,8 @@ function ColumnSection({
 												sessionSummary={taskSessions[card.id]}
 												selected={card.id === selectedCardId}
 												onStart={onStartTask}
+												onPause={onPauseTask}
+												onResume={onResumeTask}
 												onMoveToTrash={onMoveToTrashTask}
 												onRestoreFromTrash={onRestoreFromTrashTask}
 												onCommit={onCommitTask}
@@ -236,6 +242,8 @@ export function ColumnContextPanel({
 	onTaskDragEnd,
 	onCreateTask,
 	onStartTask,
+	onPauseTask,
+	onResumeTask,
 	onStartAllTasks,
 	onClearTrash,
 	editingTaskId,
@@ -258,6 +266,8 @@ export function ColumnContextPanel({
 	onTaskDragEnd: (result: DropResult) => void;
 	onCreateTask?: () => void;
 	onStartTask?: (taskId: string) => void;
+	onPauseTask?: (taskId: string) => void;
+	onResumeTask?: (taskId: string) => void;
 	onStartAllTasks?: () => void;
 	onClearTrash?: () => void;
 	editingTaskId?: string | null;
@@ -347,6 +357,8 @@ export function ColumnContextPanel({
 							taskSessions={taskSessions}
 							onCreateTask={column.id === "backlog" ? onCreateTask : undefined}
 							onStartTask={column.id === "backlog" ? onStartTask : undefined}
+							onPauseTask={column.id === "in_progress" ? onPauseTask : undefined}
+							onResumeTask={column.id === "in_progress" ? onResumeTask : undefined}
 							onStartAllTasks={column.id === "backlog" ? onStartAllTasks : undefined}
 							onClearTrash={column.id === "trash" ? onClearTrash : undefined}
 							editingTaskId={column.id === "backlog" ? editingTaskId : null}

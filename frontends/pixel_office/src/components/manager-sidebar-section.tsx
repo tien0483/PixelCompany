@@ -3,9 +3,10 @@ import { useEffect, useState } from "react";
 import {
 	BarChart3,
 	BookOpen,
+	GitBranch,
 	GraduationCap,
-	ScrollText,
 	Settings,
+	Terminal,
 	Users,
 	Wrench,
 } from "lucide-react";
@@ -22,12 +23,14 @@ import { ManagerStatusBar } from "@/manager/manager-status-bar";
 import { MANAGER_LABELS } from "@/manager/manager-labels";
 import { TrainingDiskSkillsPanel } from "@/manager/training-disk-skills-panel";
 import { TrainingPacksPanel } from "@/manager/training-packs-panel";
+import { WorkflowsView } from "@/manager/workflows-view";
 
 export type ManagerSidebarRoute =
-	| "staff"
-	| "playbooks"
-	| "training"
-	| "handbook"
+	| "agents"
+	| "commands"
+	| "skills"
+	| "rules"
+	| "workflows"
 	| "installations"
 	| "settings"
 	| "logs"
@@ -38,21 +41,22 @@ const ROUTES: Array<{
 	label: string;
 	icon: typeof Settings;
 }> = [
-	{ id: "staff", label: MANAGER_LABELS.routes.staff, icon: Users },
-	{ id: "playbooks", label: MANAGER_LABELS.routes.playbooks, icon: ScrollText },
-	{ id: "training", label: MANAGER_LABELS.routes.training, icon: GraduationCap },
-	{ id: "handbook", label: MANAGER_LABELS.routes.handbook, icon: BookOpen },
+	{ id: "agents", label: MANAGER_LABELS.routes.agents, icon: Users },
+	{ id: "commands", label: MANAGER_LABELS.routes.commands, icon: Terminal },
+	{ id: "skills", label: MANAGER_LABELS.routes.skills, icon: GraduationCap },
+	{ id: "rules", label: MANAGER_LABELS.routes.rules, icon: BookOpen },
+	{ id: "workflows", label: MANAGER_LABELS.routes.workflows, icon: GitBranch },
 	{ id: "installations", label: MANAGER_LABELS.routes.installations, icon: Wrench },
 	{ id: "settings", label: MANAGER_LABELS.routes.settings, icon: Settings },
-	{ id: "logs", label: MANAGER_LABELS.routes.logs, icon: ScrollText },
+	{ id: "logs", label: MANAGER_LABELS.routes.logs, icon: Terminal },
 	{ id: "analytics", label: MANAGER_LABELS.routes.analytics, icon: BarChart3 },
 ];
 
 /**
  * Manager navigation + native Kanban-styled views inside the left sidebar.
  *
- * Staff / Playbooks / Training / Handbook are four slices of the same feature list the
- * runtime already streams, so they need no fetch of their own — see feature-shelf-view.
+ * Agents / Commands / Skills / Rules & Reference are four slices of the same feature
+ * list the runtime already streams, so they need no fetch of their own — see feature-shelf-view.
  *
  * Accounts live only in the home upper-right pane (not duplicated here).
  * No raw :8321 iframe / dashboard embed — native surfaces only.
@@ -108,48 +112,49 @@ export function ManagerSidebarSection({
 					{active?.label ?? route} · native
 				</span>
 			</div>
-			{route === "staff" ? (
+			{route === "agents" ? (
 				<FeatureShelfView
 					online={online}
 					manager={manager}
-					copy={MANAGER_LABELS.shelves.staff}
-					select={FEATURE_SHELF_SELECTORS.staff}
-					testId="manager-shelf-staff"
+					copy={MANAGER_LABELS.shelves.agents}
+					select={FEATURE_SHELF_SELECTORS.agents}
+					testId="manager-shelf-agents"
 				/>
 			) : null}
-			{route === "playbooks" ? (
+			{route === "commands" ? (
 				<FeatureShelfView
 					online={online}
 					manager={manager}
-					copy={MANAGER_LABELS.shelves.playbooks}
-					select={FEATURE_SHELF_SELECTORS.playbooks}
-					testId="manager-shelf-playbooks"
+					copy={MANAGER_LABELS.shelves.commands}
+					select={FEATURE_SHELF_SELECTORS.commands}
+					testId="manager-shelf-commands"
 				/>
 			) : null}
-			{route === "training" ? (
+			{route === "skills" ? (
 				<FeatureShelfView
 					online={online}
 					manager={manager}
-					copy={MANAGER_LABELS.shelves.training}
-					select={FEATURE_SHELF_SELECTORS.training}
+					copy={MANAGER_LABELS.shelves.skills}
+					select={FEATURE_SHELF_SELECTORS.skills}
 					header={
 						<>
 							<TrainingPacksPanel online={online} />
 							<TrainingDiskSkillsPanel online={online} />
 						</>
 					}
-					testId="manager-shelf-training"
+					testId="manager-shelf-skills"
 				/>
 			) : null}
-			{route === "handbook" ? (
+			{route === "rules" ? (
 				<FeatureShelfView
 					online={online}
 					manager={manager}
-					copy={MANAGER_LABELS.shelves.handbook}
-					select={FEATURE_SHELF_SELECTORS.handbook}
-					testId="manager-shelf-handbook"
+					copy={MANAGER_LABELS.shelves.rules}
+					select={FEATURE_SHELF_SELECTORS.rules}
+					testId="manager-shelf-rules"
 				/>
 			) : null}
+			{route === "workflows" ? <WorkflowsView online={online} /> : null}
 			{route === "installations" ? <ManagerInstallationsView online={online} /> : null}
 			{route === "settings" ? <ManagerSettingsView online={online} manager={manager} /> : null}
 			{route === "logs" ? <ManagerLogsView online={online} /> : null}

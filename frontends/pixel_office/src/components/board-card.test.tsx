@@ -36,6 +36,7 @@ vi.mock("@/stores/workspace-metadata-store", () => ({
 
 vi.mock("@/utils/react-use", () => ({
 	useMedia: () => false,
+	useInterval: () => {},
 	useMeasure: () => {
 		mockMeasureCallCount += 1;
 		const width = mockMeasureWidths[(mockMeasureCallCount - 1) % mockMeasureWidths.length] ?? 240;
@@ -104,6 +105,10 @@ function createSummary(
 		workspacePath: "/tmp/worktree",
 		pid: null,
 		startedAt: 1,
+		activeRunMs: 0,
+		runningSince: null,
+		pausedAt: null,
+		pauseReason: null,
 		updatedAt: 1,
 		lastOutputAt: 1,
 		reviewReason: null,
@@ -413,6 +418,10 @@ describe("BoardCard", () => {
 						workspacePath: "/tmp/worktree",
 						pid: null,
 						startedAt: Date.now(),
+						activeRunMs: 0,
+						runningSince: null,
+						pausedAt: null,
+						pauseReason: null,
 						updatedAt: Date.now(),
 						lastOutputAt: Date.now(),
 						reviewReason: null,
@@ -559,6 +568,10 @@ describe("BoardCard", () => {
 						workspacePath: "/tmp/worktree",
 						pid: null,
 						startedAt: Date.now(),
+						activeRunMs: 0,
+						runningSince: null,
+						pausedAt: null,
+						pauseReason: null,
 						updatedAt: Date.now(),
 						lastOutputAt: Date.now(),
 						reviewReason: null,

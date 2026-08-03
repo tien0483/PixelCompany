@@ -6,10 +6,6 @@
  * `jacked` name so they stay traceable to the upstream Manager API they wrap,
  * while everything a person reads says Manager. Retheming later means editing this
  * file, not hunting literals across the views.
- *
- * The metaphor: you hire Staff (subagents), give them Playbooks (slash commands),
- * send them to Training (skills), and hold them to a Handbook (behaviour rules).
- * Seats are the Claude subscriptions those people work under.
  */
 export const MANAGER_LABELS = {
 	/** Left-sidebar tab and section heading. */
@@ -23,10 +19,11 @@ export const MANAGER_LABELS = {
 	metersStale: "Manager unreachable (cached)",
 	refreshAllUsage: "Refresh all usage",
 	routes: {
-		staff: "Staff",
-		playbooks: "Playbooks",
-		training: "Training",
-		handbook: "Handbook",
+		agents: "Agents",
+		commands: "Commands",
+		skills: "Skills",
+		rules: "Rules & Reference",
+		workflows: "Workflows",
 		installations: "Installations",
 		settings: "Settings",
 		logs: "Logs",
@@ -35,25 +32,30 @@ export const MANAGER_LABELS = {
 	/** Shown once per shelf: installing writes into the user's global ~/.claude. */
 	globalInstallNotice: "Hiring and training write into your global ~/.claude, for every project.",
 	shelves: {
-		staff: {
-			title: "Staff",
+		agents: {
+			title: "Agents",
 			description: "Specialist subagents you can put on the payroll — reviewers, testers, doc writers.",
-			empty: "No staff available.",
+			empty: "No agents available.",
 		},
-		playbooks: {
-			title: "Playbooks",
+		commands: {
+			title: "Commands",
 			description: "Slash commands your agents can run: releases, QA passes, PRs, retros.",
-			empty: "No playbooks available.",
+			empty: "No commands available.",
 		},
-		training: {
-			title: "Training",
+		skills: {
+			title: "Skills",
 			description: "Skills your agents pick up. Packs install a whole curriculum at once.",
-			empty: "No training available.",
+			empty: "No skills available.",
 		},
-		handbook: {
-			title: "Handbook",
+		rules: {
+			title: "Rules & Reference",
 			description: "House rules and reference material added to your global CLAUDE.md.",
-			empty: "No handbook entries available.",
+			empty: "No rules or reference entries available.",
+		},
+		workflows: {
+			title: "Workflows",
+			description: "Project workflows auto-discovered from .agent/workflows/ in each repository.",
+			empty: "No workflows found. Add .md files to .agent/workflows/ in your project.",
 		},
 	},
 	packs: {
@@ -64,7 +66,7 @@ export const MANAGER_LABELS = {
 	diskSkills: {
 		title: "Installed on disk",
 		description:
-			"Skills already in ~/.claude/skills (and ~/.agents/skills). These appear on card Training tags automatically.",
-		empty: "No skills installed on disk yet. Enable Training or a Pack above.",
+			"Skills already in ~/.claude/skills (and ~/.agents/skills). These appear on card Skills tags automatically.",
+		empty: "No skills installed on disk yet. Enable Skills or a Pack above.",
 	},
 } as const;
