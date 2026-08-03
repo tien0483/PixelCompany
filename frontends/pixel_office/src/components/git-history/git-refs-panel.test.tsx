@@ -139,6 +139,38 @@ describe("GitRefsPanel branch context menu", () => {
 		expect(labels.some((label) => label.includes("Delete branch"))).toBe(true);
 	});
 
+	it("shows merge and rebase actions for non-HEAD branches and hides them for HEAD", () => {
+		const onMergeIntoCurrent = vi.fn();
+		const onRebaseCurrentOnto = vi.fn();
+		act(() => {
+			renderUi(
+				<GitRefsPanel
+					refs={[HEAD_BRANCH, FEATURE_BRANCH]}
+					selectedRefName="master"
+					isLoading={false}
+					panelWidth={240}
+					workingCopyChanges={null}
+					onSelectRef={() => undefined}
+					onCheckoutRef={() => undefined}
+					onMergeIntoCurrent={onMergeIntoCurrent}
+					onRebaseCurrentOnto={onRebaseCurrentOnto}
+				/>,
+			);
+		});
+
+		rightClick(findBranchRow("feature/login"));
+		let labels = menuItemLabels();
+		expect(labels.some((label) => label.includes("Merge into Current"))).toBe(true);
+		expect(labels.some((label) => label.includes("Rebase Current onto Selected"))).toBe(true);
+		clickMenuItem("Merge into Current");
+		expect(onMergeIntoCurrent).toHaveBeenCalledWith("feature/login");
+
+		rightClick(findBranchRow("master"));
+		labels = menuItemLabels();
+		expect(labels.some((label) => label.includes("Merge into Current"))).toBe(false);
+		expect(labels.some((label) => label.includes("Rebase Current onto Selected"))).toBe(false);
+	});
+
 	it("invokes onCheckoutRef with the branch name when choosing Switch to branch", () => {
 		const onCheckoutRef = vi.fn();
 		act(() => {

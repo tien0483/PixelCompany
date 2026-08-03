@@ -54,6 +54,10 @@ import type {
 	RuntimeGitDeleteBranchResponse,
 	RuntimeGitMergeBranchRequest,
 	RuntimeGitMergeBranchResponse,
+	RuntimeGitMergeIntoCurrentRequest,
+	RuntimeGitMergeIntoCurrentResponse,
+	RuntimeGitRebaseCurrentOntoRequest,
+	RuntimeGitRebaseCurrentOntoResponse,
 	RuntimeGitCherryPickRequest,
 	RuntimeGitCherryPickResponse,
 	RuntimeGitPushBranchRequest,
@@ -233,6 +237,10 @@ import {
 	runtimeGitDeleteBranchResponseSchema,
 	runtimeGitMergeBranchRequestSchema,
 	runtimeGitMergeBranchResponseSchema,
+	runtimeGitMergeIntoCurrentRequestSchema,
+	runtimeGitMergeIntoCurrentResponseSchema,
+	runtimeGitRebaseCurrentOntoRequestSchema,
+	runtimeGitRebaseCurrentOntoResponseSchema,
 	runtimeGitCherryPickRequestSchema,
 	runtimeGitCherryPickResponseSchema,
 	runtimeGitPushBranchRequestSchema,
@@ -461,6 +469,14 @@ export interface RuntimeTrpcContext {
 			scope: RuntimeTrpcWorkspaceScope,
 			input: RuntimeGitMergeBranchRequest,
 		) => Promise<RuntimeGitMergeBranchResponse>;
+		mergeBranchIntoCurrent: (
+			scope: RuntimeTrpcWorkspaceScope,
+			input: RuntimeGitMergeIntoCurrentRequest,
+		) => Promise<RuntimeGitMergeIntoCurrentResponse>;
+		rebaseCurrentOnto: (
+			scope: RuntimeTrpcWorkspaceScope,
+			input: RuntimeGitRebaseCurrentOntoRequest,
+		) => Promise<RuntimeGitRebaseCurrentOntoResponse>;
 		cherryPickCommit: (
 			scope: RuntimeTrpcWorkspaceScope,
 			input: RuntimeGitCherryPickRequest,
@@ -911,6 +927,18 @@ export const runtimeAppRouter = t.router({
 			.output(runtimeGitMergeBranchResponseSchema)
 			.mutation(async ({ ctx, input }) => {
 				return await ctx.workspaceApi.mergeTaskBranch(ctx.workspaceScope, input);
+			}),
+		mergeBranchIntoCurrent: workspaceProcedure
+			.input(runtimeGitMergeIntoCurrentRequestSchema)
+			.output(runtimeGitMergeIntoCurrentResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.workspaceApi.mergeBranchIntoCurrent(ctx.workspaceScope, input);
+			}),
+		rebaseCurrentOnto: workspaceProcedure
+			.input(runtimeGitRebaseCurrentOntoRequestSchema)
+			.output(runtimeGitRebaseCurrentOntoResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.workspaceApi.rebaseCurrentOnto(ctx.workspaceScope, input);
 			}),
 		cherryPickCommit: workspaceProcedure
 			.input(runtimeGitCherryPickRequestSchema)

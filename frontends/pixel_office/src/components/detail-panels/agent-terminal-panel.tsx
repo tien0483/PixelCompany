@@ -100,19 +100,16 @@ function AgentTerminalReviewActions({
 	taskId,
 	taskColumnId,
 	onCommit,
-	onOpenPr,
 	isCommitLoading,
-	isOpenPrLoading,
 }: {
 	taskId: string;
 	taskColumnId: string;
 	onCommit?: () => void;
-	onOpenPr?: () => void;
 	isCommitLoading: boolean;
-	isOpenPrLoading: boolean;
 }): ReactElement | null {
 	const reviewWorkspaceSnapshot = useTaskWorkspaceSnapshotValue(taskId);
-	const showReviewGitActions = taskColumnId === "review" && (reviewWorkspaceSnapshot?.changedFiles ?? 0) > 0;
+	const showReviewGitActions =
+		taskColumnId === "review" && (reviewWorkspaceSnapshot?.changedFiles ?? 0) > 0 && Boolean(onCommit);
 
 	if (!showReviewGitActions) {
 		return null;
@@ -124,19 +121,10 @@ function AgentTerminalReviewActions({
 				variant="primary"
 				size="sm"
 				style={{ flex: "1 1 0" }}
-				disabled={isCommitLoading || isOpenPrLoading}
+				disabled={isCommitLoading}
 				onClick={onCommit}
 			>
 				{isCommitLoading ? "..." : "Commit"}
-			</Button>
-			<Button
-				variant="primary"
-				size="sm"
-				style={{ flex: "1 1 0" }}
-				disabled={isCommitLoading || isOpenPrLoading}
-				onClick={onOpenPr}
-			>
-				{isOpenPrLoading ? "..." : "Open PR"}
 			</Button>
 		</div>
 	);
@@ -147,9 +135,9 @@ function AgentTerminalPanelLayout({
 	summary,
 	onSummary: _onSummary,
 	onCommit,
-	onOpenPr,
+	onOpenPr: _onOpenPr,
 	isCommitLoading = false,
-	isOpenPrLoading = false,
+	isOpenPrLoading: _isOpenPrLoading = false,
 	taskColumnId = "in_progress",
 	onMoveToTrash,
 	isMoveToTrashLoading = false,
@@ -320,9 +308,7 @@ function AgentTerminalPanelLayout({
 						taskId={taskId}
 						taskColumnId={taskColumnId}
 						onCommit={onCommit}
-						onOpenPr={onOpenPr}
 						isCommitLoading={isCommitLoading}
-						isOpenPrLoading={isOpenPrLoading}
 					/>
 					{cancelAutomaticActionLabel && onCancelAutomaticAction ? (
 						<Button variant="default" fill onClick={onCancelAutomaticAction}>

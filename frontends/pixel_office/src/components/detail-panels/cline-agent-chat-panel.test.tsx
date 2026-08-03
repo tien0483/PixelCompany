@@ -1123,7 +1123,6 @@ describe("ClineAgentChatPanel", () => {
 					onLoadMessages={async () => messages}
 					taskColumnId="review"
 					onCommit={() => {}}
-					onOpenPr={() => {}}
 					onMoveToTrash={() => {}}
 					showMoveToTrash
 				/>,
@@ -1155,7 +1154,6 @@ describe("ClineAgentChatPanel", () => {
 					onLoadMessages={async () => []}
 					taskColumnId="review"
 					onCommit={() => {}}
-					onOpenPr={() => {}}
 					onMoveToTrash={() => {}}
 					showMoveToTrash
 				/>,
@@ -1166,5 +1164,37 @@ describe("ClineAgentChatPanel", () => {
 		expect(container.textContent).not.toContain("Commit");
 		expect(container.textContent).not.toContain("Open PR");
 		expect(container.textContent).toContain("Move Card To Done");
+	});
+
+	it("shows Commit without Open PR when the review workspace has changes", async () => {
+		setTaskWorkspaceSnapshot({
+			taskId: "task-1",
+			path: "/tmp/worktree",
+			branch: "task-1",
+			isDetached: false,
+			headCommit: "def5678",
+			changedFiles: 2,
+			additions: 3,
+			deletions: 1,
+		});
+
+		await act(async () => {
+			renderPanel(
+				root,
+				<ClineAgentChatPanel
+					taskId="task-1"
+					summary={createSummary("awaiting_review")}
+					onLoadMessages={async () => []}
+					taskColumnId="review"
+					onCommit={() => {}}
+					onMoveToTrash={() => {}}
+					showMoveToTrash
+				/>,
+			);
+			await Promise.resolve();
+		});
+
+		expect(container.textContent).toContain("Commit");
+		expect(container.textContent).not.toContain("Open PR");
 	});
 });

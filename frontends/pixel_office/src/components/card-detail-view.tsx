@@ -835,13 +835,7 @@ export function CardDetailView({
 					? () => onAgentCommitTask(selection.card.id)
 					: undefined
 			}
-			onOpenPr={
-				onAgentOpenPrTask
-					? () => onAgentOpenPrTask(selection.card.id)
-					: undefined
-			}
 			isCommitLoading={agentCommitTaskLoadingById?.[selection.card.id] ?? false}
-			isOpenPrLoading={agentOpenPrTaskLoadingById?.[selection.card.id] ?? false}
 			showMoveToTrash={showMoveToTrashActions}
 			onMoveToTrash={onMoveToTrash}
 			isMoveToTrashLoading={isMoveToTrashLoading}
@@ -868,13 +862,7 @@ export function CardDetailView({
 					? () => onAgentCommitTask(selection.card.id)
 					: undefined
 			}
-			onOpenPr={
-				onAgentOpenPrTask
-					? () => onAgentOpenPrTask(selection.card.id)
-					: undefined
-			}
 			isCommitLoading={agentCommitTaskLoadingById?.[selection.card.id] ?? false}
-			isOpenPrLoading={agentOpenPrTaskLoadingById?.[selection.card.id] ?? false}
 			showSessionToolbar={false}
 			autoFocus
 			showMoveToTrash={showMoveToTrashActions}
