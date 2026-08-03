@@ -488,9 +488,9 @@ export function TaskLaunchSettingsPicker({
 			/>
 
 			<ResourceAllowlistSection
-				title="Slash command"
+				title="Command"
 				allLabel="All installed"
-				addLabel="Add slash command…"
+				addLabel="Add command…"
 				attachedIds={attachedCommandIds}
 				items={commands}
 				pick={commandPick}
