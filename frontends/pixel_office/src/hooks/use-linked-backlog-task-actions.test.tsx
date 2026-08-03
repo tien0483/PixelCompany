@@ -464,10 +464,77 @@ describe("useLinkedBacklogTaskActions", () => {
 
 		expect(startBacklogTaskWithAnimation).not.toHaveBeenCalled();
 		expect(kickoffTaskInProgress).toHaveBeenCalledTimes(1);
-		const kickoffCall = kickoffTaskInProgress.mock.calls[0];
-		expect(kickoffCall?.[0]).toMatchObject({ id: "task-follower" });
-		expect(kickoffCall?.[2]).toBe("in_progress");
-		expect(kickoffCall?.[3]).toMatchObject({ optimisticMove: false });
+		expect(kickoffTaskInProgress).toHaveBeenCalledWith(
+			expect.objectContaining({ id: "task-follower" }),
+			"task-follower",
+			"in_progress",
+			expect.objectContaining({ optimisticMove: false }),
+		);
 		expect(trackTasksAutoStartedFromDependencyMock).toHaveBeenCalledWith(1);
+	});
+
+	it("keeps the shared worktree and starts the next follower when Done is already applied", async () => {
+		let latestSnapshot: HookSnapshot | null = null;
+		const kickoffTaskInProgress = vi.fn(async () => true);
+		const cleanupTaskWorkspace = vi.fn(async (_taskId: string) => null);
+		const boardFactory = (): BoardData => ({
+			columns: [
+				{ id: "backlog", title: "Backlog", cards: [] },
+				{
+					id: "in_progress",
+					title: "In Progress",
+					cards: [createTask("task-follower", "Queued follower", 2)],
+				},
+				{ id: "review", title: "Review", cards: [] },
+				{
+					id: "trash",
+					title: "Done",
+					// Optimistic drag/animation already moved the root into Done.
+					cards: [createTask("task-root", "Chain root", 1)],
+				},
+			],
+			dependencies: [
+				{
+					id: "dep-chain",
+					fromTaskId: "task-follower",
+					toTaskId: "task-root",
+					createdAt: 10,
+					chain: true,
+				},
+			],
+		});
+
+		await act(async () => {
+			root.render(
+				<HookHarness
+					boardFactory={boardFactory}
+					kickoffTaskInProgress={kickoffTaskInProgress}
+					cleanupTaskWorkspace={cleanupTaskWorkspace}
+					onSnapshot={(snapshot) => {
+						latestSnapshot = snapshot;
+					}}
+				/>,
+			);
+		});
+
+		if (latestSnapshot === null) {
+			throw new Error("Expected a hook snapshot.");
+		}
+		const initialSnapshot = latestSnapshot as HookSnapshot;
+
+		await act(async () => {
+			await initialSnapshot.requestMoveTaskToTrash("task-root", "review");
+		});
+
+		expect(kickoffTaskInProgress).toHaveBeenCalledTimes(1);
+		expect(kickoffTaskInProgress).toHaveBeenCalledWith(
+			expect.objectContaining({ id: "task-follower" }),
+			"task-follower",
+			"in_progress",
+			expect.objectContaining({ optimisticMove: false }),
+		);
+		expect(trackTasksAutoStartedFromDependencyMock).toHaveBeenCalledWith(1);
+		// Shared worktree must be handed off to the live follower, not deleted with the root.
+		expect(cleanupTaskWorkspace).not.toHaveBeenCalled();
 	});
 });

@@ -355,7 +355,13 @@ export function hasLiveChainMemberSharingWorktree(
 	return false;
 }
 
-function getLinkedBacklogTaskIdsReadyAfterTaskTrashed(
+/**
+ * Returns task ids that become runnable after `taskId` leaves Review for Done.
+ * `fromColumnId` is the column the task left (or was about to leave). Pass `"review"`
+ * explicitly when the card is already in trash from an optimistic UI move so unlock
+ * still runs.
+ */
+export function getReadyLinkedTaskIdsAfterLeavingReview(
 	board: RuntimeBoardData,
 	taskId: string,
 	fromColumnId: RuntimeBoardColumnId | null,
@@ -711,7 +717,7 @@ export function breakChain(board: RuntimeBoardData, memberIds: string[]): Runtim
 }
 
 export function getReadyLinkedTaskIdsForTaskInTrash(board: RuntimeBoardData, taskId: string): string[] {
-	return getLinkedBacklogTaskIdsReadyAfterTaskTrashed(board, taskId, getTaskColumnId(board, taskId));
+	return getReadyLinkedTaskIdsAfterLeavingReview(board, taskId, getTaskColumnId(board, taskId));
 }
 
 export function trashTaskAndGetReadyLinkedTaskIds(
@@ -720,7 +726,7 @@ export function trashTaskAndGetReadyLinkedTaskIds(
 	now: number = Date.now(),
 ): RuntimeTrashTaskResult {
 	const fromColumnId = getTaskColumnId(board, taskId);
-	const readyTaskIds = getLinkedBacklogTaskIdsReadyAfterTaskTrashed(board, taskId, fromColumnId);
+	const readyTaskIds = getReadyLinkedTaskIdsAfterLeavingReview(board, taskId, fromColumnId);
 	const movedToTrash = moveTaskToColumn(board, taskId, "trash", now);
 	return {
 		...movedToTrash,

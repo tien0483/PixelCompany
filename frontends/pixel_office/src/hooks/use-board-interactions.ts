@@ -17,6 +17,7 @@ import {
 	getTaskColumnId,
 	moveTaskToColumn,
 	removeTask,
+	reorderChainMembers,
 	resolveChainWorktreeOwnerTaskId,
 	updateTask,
 } from "@/state/board-state";
@@ -667,10 +668,25 @@ export function useBoardInteractions({
 				let boardAfterQueue = applied.board;
 				// If the dragged card is a chain root, queue remaining backlog members into the stack.
 				if (resolveChainWorktreeOwnerTaskId(applied.board, moveEvent.taskId) === moveEvent.taskId) {
+					const preDragBacklogCards = board.columns.find((column) => column.id === "backlog")?.cards ?? [];
+					const chainGroup = computeChainGroups(preDragBacklogCards, board.dependencies).groupByRootId.get(
+						moveEvent.taskId,
+					);
+					// Linearize forks to the UI run order while members are still in Backlog on the
+					// pre-drag board, then carry those edges onto the post-drag board before queueing.
+					if (chainGroup && chainGroup.memberIdsInOrder.length > 1) {
+						const linearized = reorderChainMembers(board, chainGroup.memberIdsInOrder);
+						if (linearized.reordered) {
+							boardAfterQueue = {
+								...applied.board,
+								dependencies: linearized.board.dependencies,
+							};
+						}
+					}
 					const backlogCards =
-						applied.board.columns.find((column) => column.id === "backlog")?.cards ?? [];
+						boardAfterQueue.columns.find((column) => column.id === "backlog")?.cards ?? [];
 					const remainingBacklogIds = new Set(backlogCards.map((card) => card.id));
-					const chainDeps = applied.board.dependencies.filter((dependency) => dependency.chain === true);
+					const chainDeps = boardAfterQueue.dependencies.filter((dependency) => dependency.chain === true);
 					const followerIds: string[] = [];
 					const visited = new Set<string>([moveEvent.taskId]);
 					const walkQueue = [moveEvent.taskId];
@@ -687,7 +703,7 @@ export function useBoardInteractions({
 							walkQueue.push(dependency.fromTaskId);
 						}
 					}
-					if (followerIds.length > 0) {
+					if (followerIds.length > 0 || boardAfterQueue !== applied.board) {
 						for (const followerId of followerIds) {
 							const moved = moveTaskToColumn(boardAfterQueue, followerId, "in_progress", {
 								insertAtTop: true,
@@ -741,6 +757,14 @@ export function useBoardInteractions({
 			}
 
 			let nextBoard = board;
+			// Rewrite forked edges into the UI run order before leaving Backlog so Done on
+			// the head unlocks only the next follower (not every sibling of the root).
+			if (orderedMemberIds.length > 1) {
+				const linearized = reorderChainMembers(nextBoard, orderedMemberIds);
+				if (linearized.reordered) {
+					nextBoard = linearized.board;
+				}
+			}
 			const backlogMemberIds = orderedMemberIds.filter(
 				(taskId) => getTaskColumnId(nextBoard, taskId) === "backlog",
 			);
@@ -861,6 +885,12 @@ export function useBoardInteractions({
 					chainGroup && chainGroup.memberIdsInOrder.length > 1
 						? chainGroup.memberIdsInOrder.filter((memberId) => getTaskColumnId(nextBoard, memberId) === "backlog")
 						: [taskId];
+				if (membersToQueue.length > 1) {
+					const linearized = reorderChainMembers(nextBoard, membersToQueue);
+					if (linearized.reordered) {
+						nextBoard = linearized.board;
+					}
+				}
 				for (const memberId of [...membersToQueue].reverse()) {
 					const moved = moveTaskToColumn(nextBoard, memberId, "in_progress", { insertAtTop: true });
 					if (moved.moved) {

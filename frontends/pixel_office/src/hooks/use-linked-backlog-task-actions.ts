@@ -7,6 +7,7 @@ import {
 	addTaskDependency,
 	breakChain,
 	findCardSelection,
+	getReadyLinkedTaskIdsAfterLeavingReview,
 	hasLiveChainMemberSharingWorktree,
 	moveTaskToColumn,
 	removeTaskDependency,
@@ -130,13 +131,119 @@ export function useLinkedBacklogTaskActions({
 		[setBoard],
 	);
 
+	const autoStartReadyLinkedTasks = useCallback(
+		async (boardAfterTrash: BoardData, readyTaskIds: string[]): Promise<number> => {
+			const readySelections = readyTaskIds
+				.map((readyTaskId) => findCardSelection(boardAfterTrash, readyTaskId))
+				.filter((selection): selection is NonNullable<typeof selection> => selection !== null);
+
+			if (readySelections.length === 0) {
+				return 0;
+			}
+
+			maybeRequestNotificationPermissionForTaskStart();
+			let startedTaskCount = 0;
+
+			// Queue-stack followers are already in In Progress; start a fresh agent in the
+			// shared worktree without moving columns again.
+			const queuedInProgress = readySelections.filter((selection) => selection.column.id === "in_progress");
+			for (const selection of queuedInProgress) {
+				const started = await kickoffTaskInProgress(selection.card, selection.card.id, "in_progress", {
+					optimisticMove: false,
+				});
+				if (started) {
+					startedTaskCount += 1;
+				}
+			}
+
+			const backlogReady = readySelections
+				.filter((selection) => selection.column.id === "backlog")
+				.map((selection) => selection.card);
+			if (backlogReady.length > 0) {
+				if (startBacklogTaskWithAnimation) {
+					const startedTaskPromises: Promise<boolean>[] = [];
+					for (const [index, readyTask] of backlogReady.entries()) {
+						startedTaskPromises.push(startBacklogTaskWithAnimation(readyTask));
+						if (index < backlogReady.length - 1) {
+							await waitForBacklogStartAnimationAvailability?.();
+						}
+					}
+					const startedTasks = await Promise.all(startedTaskPromises);
+					startedTaskCount += startedTasks.filter(Boolean).length;
+				} else {
+					setBoard((currentBoardState) => {
+						let nextBoardState = currentBoardState;
+						for (const readyTask of backlogReady) {
+							const moved = moveTaskToColumn(nextBoardState, readyTask.id, "in_progress", {
+								insertAtTop: true,
+							});
+							if (moved.moved) {
+								nextBoardState = moved.board;
+							}
+						}
+						return nextBoardState;
+					});
+					for (const readyTask of backlogReady) {
+						const started = await kickoffTaskInProgress(readyTask, readyTask.id, "backlog", {
+							optimisticMove: true,
+						});
+						if (started) {
+							startedTaskCount += 1;
+						}
+					}
+				}
+			}
+			return startedTaskCount;
+		},
+		[
+			kickoffTaskInProgress,
+			maybeRequestNotificationPermissionForTaskStart,
+			setBoard,
+			startBacklogTaskWithAnimation,
+			waitForBacklogStartAnimationAvailability,
+		],
+	);
+
+	const cleanupWorktreeAfterTrash = useCallback(
+		async (boardAfterTrash: BoardData, taskId: string): Promise<void> => {
+			// Chained tasks share one worktree keyed on the chain root. If a chain follower is
+			// still live (it may have just auto-started above), hand the worktree off instead of
+			// deleting it; only remove the root's worktree once no live chain member remains. For
+			// standalone tasks the owner is the task itself, so this stays the original cleanup.
+			const worktreeOwnerId = resolveChainWorktreeOwnerTaskId(boardAfterTrash, taskId);
+			const worktreeStillInUse = hasLiveChainMemberSharingWorktree(boardAfterTrash, worktreeOwnerId, taskId);
+			if (!worktreeStillInUse) {
+				await cleanupTaskWorkspace(worktreeOwnerId);
+			}
+		},
+		[cleanupTaskWorkspace],
+	);
+
 	const performMoveTaskToTrash = useCallback(
-		async (task: BoardCard, currentBoard?: BoardData): Promise<void> => {
+		async (
+			task: BoardCard,
+			currentBoard?: BoardData,
+			options?: { fromColumnId?: BoardColumnId; optimisticMoveApplied?: boolean },
+		): Promise<void> => {
 			const boardBeforeTrash = currentBoard ?? boardRef.current;
+			const fromColumnId = options?.fromColumnId;
 			const trashed = trashTaskAndGetReadyLinkedTaskIds(boardBeforeTrash, task.id);
+
+			// Optimistic drag/animation already put the card in Done: still unlock followers and
+			// honor chain worktree handoff — never delete the shared worktree blindly.
 			if (!trashed.moved) {
-				await stopTaskSession(task.id);
-				await cleanupTaskWorkspace(task.id);
+				const unlockFromColumnId = fromColumnId ?? "review";
+				const readyTaskIds = getReadyLinkedTaskIdsAfterLeavingReview(
+					boardBeforeTrash,
+					task.id,
+					unlockFromColumnId,
+				);
+				const startedTaskCount = await autoStartReadyLinkedTasks(boardBeforeTrash, readyTaskIds);
+				if (startedTaskCount > 0) {
+					trackTasksAutoStartedFromDependency(startedTaskCount);
+				}
+				await Promise.all([stopTaskSession(task.id), stopTaskSession(getDetailTerminalTaskId(task.id))]);
+				await cleanupWorktreeAfterTrash(boardBeforeTrash, task.id);
 				return;
 			}
 
@@ -150,94 +257,26 @@ export function useLinkedBacklogTaskActions({
 					: currentSelectedTaskId,
 			);
 
-			const readySelections = trashed.readyTaskIds
-				.map((readyTaskId) => findCardSelection(trashed.board, readyTaskId))
-				.filter((selection): selection is NonNullable<typeof selection> => selection !== null);
-
-			if (readySelections.length > 0) {
-				maybeRequestNotificationPermissionForTaskStart();
-				let startedTaskCount = 0;
-
-				// Queue-stack followers are already in In Progress; start a fresh agent in the
-				// shared worktree without moving columns again.
-				const queuedInProgress = readySelections.filter((selection) => selection.column.id === "in_progress");
-				for (const selection of queuedInProgress) {
-					const started = await kickoffTaskInProgress(selection.card, selection.card.id, "in_progress", {
-						optimisticMove: false,
-					});
-					if (started) {
-						startedTaskCount += 1;
-					}
-				}
-
-				const backlogReady = readySelections
-					.filter((selection) => selection.column.id === "backlog")
-					.map((selection) => selection.card);
-				if (backlogReady.length > 0) {
-					if (startBacklogTaskWithAnimation) {
-						const startedTaskPromises: Promise<boolean>[] = [];
-						for (const [index, readyTask] of backlogReady.entries()) {
-							startedTaskPromises.push(startBacklogTaskWithAnimation(readyTask));
-							if (index < backlogReady.length - 1) {
-								await waitForBacklogStartAnimationAvailability?.();
-							}
-						}
-						const startedTasks = await Promise.all(startedTaskPromises);
-						startedTaskCount += startedTasks.filter(Boolean).length;
-					} else {
-						setBoard((currentBoardState) => {
-							let nextBoardState = currentBoardState;
-							for (const readyTask of backlogReady) {
-								const moved = moveTaskToColumn(nextBoardState, readyTask.id, "in_progress", {
-									insertAtTop: true,
-								});
-								if (moved.moved) {
-									nextBoardState = moved.board;
-								}
-							}
-							return nextBoardState;
-						});
-						for (const readyTask of backlogReady) {
-							const started = await kickoffTaskInProgress(readyTask, readyTask.id, "backlog", {
-								optimisticMove: true,
-							});
-							if (started) {
-								startedTaskCount += 1;
-							}
-						}
-					}
-				}
-				if (startedTaskCount > 0) {
-					trackTasksAutoStartedFromDependency(startedTaskCount);
-				}
+			const startedTaskCount = await autoStartReadyLinkedTasks(trashed.board, trashed.readyTaskIds);
+			if (startedTaskCount > 0) {
+				trackTasksAutoStartedFromDependency(startedTaskCount);
 			}
 
 			await Promise.all([stopTaskSession(task.id), stopTaskSession(getDetailTerminalTaskId(task.id))]);
-			// Chained tasks share one worktree keyed on the chain root. If a chain follower is
-			// still live (it may have just auto-started above), hand the worktree off instead of
-			// deleting it; only remove the root's worktree once no live chain member remains. For
-			// standalone tasks the owner is the task itself, so this stays the original cleanup.
-			const latestBoard = boardRef.current;
-			const worktreeOwnerId = resolveChainWorktreeOwnerTaskId(latestBoard, task.id);
-			const worktreeStillInUse = hasLiveChainMemberSharingWorktree(latestBoard, worktreeOwnerId, task.id);
-			if (!worktreeStillInUse) {
-				await cleanupTaskWorkspace(worktreeOwnerId);
-			}
+			// Prefer the post-trash snapshot used for unlock over a raced boardRef update.
+			await cleanupWorktreeAfterTrash(trashed.board, task.id);
 		},
 		[
-			cleanupTaskWorkspace,
-			kickoffTaskInProgress,
-			maybeRequestNotificationPermissionForTaskStart,
+			autoStartReadyLinkedTasks,
+			cleanupWorktreeAfterTrash,
 			setBoard,
 			setSelectedTaskId,
-			startBacklogTaskWithAnimation,
 			stopTaskSession,
-			waitForBacklogStartAnimationAvailability,
 		],
 	);
 
 	const requestMoveTaskToTrash = useCallback(
-		async (taskId: string, _fromColumnId: BoardColumnId, options?: RequestMoveTaskToTrashOptions): Promise<void> => {
+		async (taskId: string, fromColumnId: BoardColumnId, options?: RequestMoveTaskToTrashOptions): Promise<void> => {
 			const boardSnapshot = boardRef.current;
 			const selection = findCardSelection(boardSnapshot, taskId);
 			if (!selection) {
@@ -256,7 +295,10 @@ export function useLinkedBacklogTaskActions({
 			};
 
 			moveSelectionIfOptimisticMoveIsConfirmed();
-			await performMoveTaskToTrash(selection.card, boardSnapshot);
+			await performMoveTaskToTrash(selection.card, boardSnapshot, {
+				fromColumnId,
+				optimisticMoveApplied: options?.optimisticMoveApplied,
+			});
 		},
 		[performMoveTaskToTrash, setSelectedTaskId],
 	);
