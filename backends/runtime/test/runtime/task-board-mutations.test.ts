@@ -6,6 +6,8 @@ import {
 	addTaskToColumn,
 	breakChain,
 	deleteTasksFromBoard,
+	getReadyLinkedTaskIdsAfterLeavingReview,
+	getReadyLinkedTaskIdsForTaskInTrash,
 	getTaskColumnId,
 	hasLiveChainMemberSharingWorktree,
 	moveTaskToColumn,
@@ -420,6 +422,43 @@ describe("task chains", () => {
 		expect(trashed.moved).toBe(true);
 		expect(trashed.readyTaskIds).toEqual(["bbbbb"]);
 		expect(getTaskColumnId(trashed.board, "bbbbb")).toBe("in_progress");
+	});
+
+	it("unlocks every direct waiter of a forked chain when the root is Done", () => {
+		// Fork without linearize: B and C both wait on A, so both unlock together.
+		const linkAB = addTaskDependency(boardWithThreeBacklogTasks(), "aaaaa", "bbbbb");
+		const forked = addTaskDependency(linkAB.board, "aaaaa", "ccccc").board;
+		let board = moveTaskToColumn(forked, "aaaaa", "in_progress").board;
+		board = moveTaskToColumn(board, "bbbbb", "in_progress").board;
+		board = moveTaskToColumn(board, "ccccc", "in_progress").board;
+		board = moveTaskToColumn(board, "aaaaa", "review").board;
+		const trashed = trashTaskAndGetReadyLinkedTaskIds(board, "aaaaa");
+		expect(trashed.readyTaskIds.sort()).toEqual(["bbbbb", "ccccc"]);
+	});
+
+	it("after linearizing a fork, Done on the root unlocks only the next follower", () => {
+		const linkAB = addTaskDependency(boardWithThreeBacklogTasks(), "aaaaa", "bbbbb");
+		const forked = addTaskDependency(linkAB.board, "aaaaa", "ccccc").board;
+		const linearized = reorderChainMembers(forked, ["aaaaa", "bbbbb", "ccccc"]);
+		expect(linearized.reordered).toBe(true);
+		let board = moveTaskToColumn(linearized.board, "aaaaa", "in_progress").board;
+		board = moveTaskToColumn(board, "bbbbb", "in_progress").board;
+		board = moveTaskToColumn(board, "ccccc", "in_progress").board;
+		board = moveTaskToColumn(board, "aaaaa", "review").board;
+		const trashed = trashTaskAndGetReadyLinkedTaskIds(board, "aaaaa");
+		expect(trashed.readyTaskIds).toEqual(["bbbbb"]);
+		expect(trashed.readyTaskIds).not.toContain("ccccc");
+	});
+
+	it("computes ready followers with an explicit review fromColumnId when already in Done", () => {
+		const linkAB = addTaskDependency(boardWithThreeBacklogTasks(), "aaaaa", "bbbbb");
+		let board = moveTaskToColumn(linkAB.board, "aaaaa", "in_progress").board;
+		board = moveTaskToColumn(board, "bbbbb", "in_progress").board;
+		board = moveTaskToColumn(board, "aaaaa", "review").board;
+		board = moveTaskToColumn(board, "aaaaa", "trash").board;
+		// Already in Done: column-based unlock would no-op; override keeps chain handoff working.
+		expect(getReadyLinkedTaskIdsForTaskInTrash(board, "aaaaa")).toEqual([]);
+		expect(getReadyLinkedTaskIdsAfterLeavingReview(board, "aaaaa", "review")).toEqual(["bbbbb"]);
 	});
 
 	it("releases the shared worktree once no live chain member remains", () => {

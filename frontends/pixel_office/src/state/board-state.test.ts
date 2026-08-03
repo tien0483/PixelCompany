@@ -9,9 +9,11 @@ import {
 	applyTaskDetailClineSettingsSelection,
 	clearColumnTasks,
 	disableTaskAutoReview,
+	getReadyLinkedTaskIdsAfterLeavingReview,
 	getTaskColumnId,
 	moveTaskToColumn,
 	normalizeBoardData,
+	reorderChainMembers,
 	trashTaskAndGetReadyLinkedTaskIds,
 	updateTaskTitle,
 } from "@/state/board-state";
@@ -142,6 +144,27 @@ describe("board dependency state", () => {
 		const trashed = trashTaskAndGetReadyLinkedTaskIds(board, taskA);
 		expect(trashed.moved).toBe(true);
 		expect(trashed.readyTaskIds).toEqual([taskB]);
+	});
+
+	it("after linearizing a forked chain like Run chain, Done unlocks only the next follower", () => {
+		const fixture = createBacklogBoard(["Task A", "Task B", "Task C"]);
+		const taskA = requireTaskId(fixture.taskIdByPrompt["Task A"], "Task A");
+		const taskB = requireTaskId(fixture.taskIdByPrompt["Task B"], "Task B");
+		const taskC = requireTaskId(fixture.taskIdByPrompt["Task C"], "Task C");
+		const linkAB = addTaskDependency(fixture.board, taskA, taskB);
+		const forked = addTaskDependency(linkAB.board, taskA, taskC);
+		expect(forked.added).toBe(true);
+
+		const linearized = reorderChainMembers(forked.board, [taskA, taskB, taskC]);
+		expect(linearized.reordered).toBe(true);
+
+		let board = moveTaskToColumn(linearized.board, taskA, "in_progress").board;
+		board = moveTaskToColumn(board, taskB, "in_progress").board;
+		board = moveTaskToColumn(board, taskC, "in_progress").board;
+		board = moveTaskToColumn(board, taskA, "review").board;
+		const trashed = trashTaskAndGetReadyLinkedTaskIds(board, taskA);
+		expect(trashed.readyTaskIds).toEqual([taskB]);
+		expect(getReadyLinkedTaskIdsAfterLeavingReview(trashed.board, taskA, "review")).toEqual([taskB]);
 	});
 
 	it("rejects a chain link that would close a cycle", () => {
