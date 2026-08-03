@@ -486,6 +486,14 @@ export function getReadyLinkedTaskIdsForTaskInTrash(board: BoardData, taskId: st
 	return runtimeTaskState.getReadyLinkedTaskIdsForTaskInTrash(board, taskId);
 }
 
+export function getReadyLinkedTaskIdsAfterLeavingReview(
+	board: BoardData,
+	taskId: string,
+	fromColumnId: BoardColumnId | null,
+): string[] {
+	return runtimeTaskState.getReadyLinkedTaskIdsAfterLeavingReview(board, taskId, fromColumnId);
+}
+
 export function trashTaskAndGetReadyLinkedTaskIds(
 	board: BoardData,
 	taskId: string,
