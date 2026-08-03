@@ -1329,6 +1329,7 @@ export function useGitActions({
 		setIsDeletingHomeBranch(false);
 		setIsCreatingHomeBranch(false);
 		setMergeTaskLoadingById({});
+		setReviewFollowOnById({});
 		setIsDiscardingHomeWorkingChanges(false);
 		setGitActionError(null);
 	}, []);
