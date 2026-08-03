@@ -208,6 +208,27 @@ export async function resolveManagerAccountPin(
 	// already authenticates via `agent login`; a Jacked snapshot often overrides
 	// that with a stale key and breaks an otherwise working CLI.
 	if (managerAccountId === undefined) {
+		// Unpinned Claude launches follow jacked's global auto-swap, so the seat
+		// that actually runs is jacked's active Claude seat — not a pin. The pin
+		// gate below never sees it, so a locked-over-cap active seat would run in
+		// the Claude CLI ungated (the CLI `start` path passes no pin at all).
+		// Resolve that active seat and hard-block it with the same locked-donate-cap
+		// rule as an explicit pin. Cursor unpinned launches keep their `agent login`
+		// credential, which does not map 1:1 to a Seats row, so they are not gated.
+		if (input.agentId === "claude") {
+			const activeSeatId = (await input.resolveActiveClaudeAccountId?.()) ?? null;
+			if (activeSeatId !== null) {
+				const activeSeat = (await input.getPinnedAccount?.(activeSeatId)) ?? null;
+				if (activeSeat && isManagerAccountDonatePinBlocked(activeSeat)) {
+					return {
+						env: {},
+						accountId: null,
+						blocked: true,
+						warning: `The active seat (account ${String(activeSeatId)}) is over its locked donate cap; refusing to launch until usage resets.`,
+					};
+				}
+			}
+		}
 		return mismatchWarning ? { ...UNPINNED, warning: mismatchWarning } : UNPINNED;
 	}
 

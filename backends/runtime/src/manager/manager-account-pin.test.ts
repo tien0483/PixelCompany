@@ -278,6 +278,85 @@ describe("resolveManagerAccountPin", () => {
 		expect(pin.accountId).toBeNull();
 	});
 
+	it("hard-blocks an unpinned Claude launch when the active seat is locked over its donate cap", async () => {
+		const getAccountLaunchDir = vi.fn();
+		const resolveActiveClaudeAccountId = vi.fn().mockResolvedValue(8);
+		const getPinnedAccount = vi.fn().mockResolvedValue({
+			id: 8,
+			provider: "claude",
+			fiveHourPercent: 99,
+			sevenDayPercent: 10,
+			donateLimitPercent: 80,
+			donateLimitLocked: true,
+		});
+
+		const pin = await resolveManagerAccountPin({
+			agentId: "claude",
+			managerAccountId: undefined,
+			getAccountLaunchDir,
+			resolveActiveClaudeAccountId,
+			getPinnedAccount,
+		});
+
+		expect(pin.blocked).toBe(true);
+		expect(pin.accountId).toBeNull();
+		expect(pin.env).toEqual({});
+		expect(pin.warning).toContain("locked donate cap");
+		expect(getPinnedAccount).toHaveBeenCalledWith(8);
+		expect(getAccountLaunchDir).not.toHaveBeenCalled();
+	});
+
+	it("allows an unpinned Claude launch when the active seat is over cap but unlocked (soft)", async () => {
+		const resolveActiveClaudeAccountId = vi.fn().mockResolvedValue(9);
+		const getPinnedAccount = vi.fn().mockResolvedValue({
+			id: 9,
+			provider: "claude",
+			fiveHourPercent: 99,
+			sevenDayPercent: 10,
+			donateLimitPercent: 80,
+			donateLimitLocked: false,
+		});
+
+		const pin = await resolveManagerAccountPin({
+			agentId: "claude",
+			managerAccountId: undefined,
+			getAccountLaunchDir: vi.fn(),
+			resolveActiveClaudeAccountId,
+			getPinnedAccount,
+		});
+
+		expect(pin.blocked).toBeUndefined();
+		expect(pin.env).toEqual({});
+		expect(pin.accountId).toBeNull();
+	});
+
+	it("does not gate unpinned Cursor launches on the default seat's donate cap", async () => {
+		const resolveDefaultCursorAccountId = vi.fn().mockResolvedValue(30);
+		const getPinnedAccount = vi.fn().mockResolvedValue({
+			id: 30,
+			provider: "cursor",
+			fiveHourPercent: 99,
+			sevenDayPercent: 10,
+			donateLimitPercent: 80,
+			donateLimitLocked: true,
+		});
+
+		const pin = await resolveManagerAccountPin({
+			agentId: "cursor",
+			managerAccountId: undefined,
+			getAccountLaunchDir: vi.fn(),
+			getAccountLaunchCredential: vi.fn(),
+			getAccountProvider: async () => "cursor",
+			resolveDefaultCursorAccountId,
+			getPinnedAccount,
+		});
+
+		expect(pin.blocked).toBeUndefined();
+		expect(getPinnedAccount).not.toHaveBeenCalled();
+		expect(pin.env).toEqual({});
+		expect(pin.accountId).toBeNull();
+	});
+
 	it("hard-blocks a pin on a locked seat that is over its donate cap", async () => {
 		const getAccountLaunchDir = vi.fn().mockResolvedValue({ configDir: "/home/u/.claude/accounts/5" });
 		const getPinnedAccount = vi.fn().mockResolvedValue({
