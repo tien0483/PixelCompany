@@ -122,14 +122,15 @@ def test_get_packs_npx_unavailable(monkeypatch):
     assert all(p["enabled"] is False for p in body["packs"])
 
 
-def test_get_default_pack_reads_enabled_without_explicit_state(monkeypatch, tmp_path):
-    """A default=True pack with NO recorded state reads enabled=True (the
-    registry default carries), while a default=False pack with no state reads
-    enabled=False. Both are explicit=False because neither was toggled.
+def test_get_default_pack_reads_disabled_without_explicit_state(monkeypatch, tmp_path):
+    """No pack auto-enables: a pack with NO recorded state reads enabled=False
+    regardless of its registry ``default`` flag (the flag is a non-binding hint,
+    surfaced in the ``default`` field but not gating ``enabled``). Both are
+    explicit=False because neither was toggled.
 
     This runs the REAL is_effectively_enabled / pack_state against an empty
-    $JACKED_HOME (no state file on disk), so the default-resolution wiring is
-    exercised end to end rather than through a fake."""
+    $JACKED_HOME (no state file on disk), so the resolution wiring is exercised
+    end to end rather than through a fake."""
     monkeypatch.setenv("JACKED_HOME", str(tmp_path))  # empty tree -> no state file
 
     def _registry() -> dict[str, packs.Pack]:
@@ -162,8 +163,9 @@ def test_get_default_pack_reads_enabled_without_explicit_state(monkeypatch, tmp_
     body = client.get("/api/packs").json()
     by_name = {p["name"]: p for p in body["packs"]}
 
-    assert by_name["on-by-default"]["enabled"] is True
-    assert by_name["on-by-default"]["default"] is True
+    # default=True no longer auto-enables — enabled stays False until toggled.
+    assert by_name["on-by-default"]["enabled"] is False
+    assert by_name["on-by-default"]["default"] is True   # hint still surfaced
     assert by_name["on-by-default"]["explicit"] is False
 
     assert by_name["opt-in"]["enabled"] is False

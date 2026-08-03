@@ -297,9 +297,13 @@ function AccountRow({
 								<span
 									data-testid={`manager-account-donate-exhausted-${account.id}`}
 									className="shrink-0 rounded bg-status-orange/15 px-1 py-0.5 text-[9px] uppercase tracking-wide text-status-orange"
-									title="Usage is at or above the donate limit. Auto pick skips this seat; pinned tasks may still use it."
+									title={
+										donateLocked
+											? "Usage is at or above your locked donate cap. This seat is blocked for Auto pick and for pinned tasks until usage resets."
+											: "Usage is at or above your donate cap. Auto pick skips this seat; pinned or direct use still works."
+									}
 								>
-									donate exhausted
+									over donate cap
 								</span>
 							) : null}
 							{donateLocked ? (

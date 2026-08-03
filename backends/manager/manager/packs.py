@@ -72,7 +72,7 @@ class Pack:
     source: str
     homepage: str
     skills: tuple[str, ...]
-    default: bool = False  # installed by a plain `jacked install` unless opted out
+    default: bool = False  # non-binding "recommended" hint only; does NOT auto-install (see is_effectively_enabled)
 
 
 @dataclass
@@ -204,13 +204,13 @@ def load_state(home: Path) -> dict:
     """Load pack state, normalized to the current v2 shape.
 
     v2 shape: ``{"version": 2, "packs": {name: {"state": "enabled"|"disabled",
-    "at": iso}}}``. A pack with NO entry has made no explicit decision -- the
-    registry's ``default`` flag decides whether it installs (see
-    ``is_effectively_enabled``). This three-state model (enabled / disabled /
-    unset) is what lets default-on packs be durably opted out: a plain "drop the
-    entry on disable" (the v1 behavior) would make "disabled" and "never
-    decided" indistinguishable, so a default-on pack the user removed would
-    silently reinstall on the next ``jacked install``.
+    "at": iso}}}``. A pack with NO entry has made no explicit decision and is
+    NOT installed -- only an explicit ``enabled`` state installs a pack (see
+    ``is_effectively_enabled``; the registry ``default`` flag is a non-binding
+    hint that no longer auto-installs). The three-state model (enabled /
+    disabled / unset) still records disable durably (rather than dropping the
+    entry) so an explicit opt-out survives restarts and is distinguishable from
+    "never decided".
 
     v1 files (``{"version": 1, "enabled": {name: {enabled_at}}}``) are migrated
     in memory: each enabled entry becomes ``state: "enabled"``. v1 had no
@@ -311,9 +311,8 @@ def set_enabled(home: Path, name: str, enabled: bool) -> None:
     """Record an EXPLICIT enable/disable decision for a pack, durably.
 
     Both directions write a state entry -- disable records ``state: "disabled"``
-    rather than dropping the entry, so the decision survives future
-    ``jacked install`` runs and a default-on pack the user removed is not
-    silently reinstalled.
+    rather than dropping the entry, so an explicit opt-out survives future
+    ``jacked install`` runs and stays distinguishable from "never decided".
     """
     state = load_state(home)  # already normalized to v2
     packs_map = state.setdefault("packs", {})
@@ -324,35 +323,36 @@ def set_enabled(home: Path, name: str, enabled: bool) -> None:
 def pack_state(home: Path, name: str) -> str | None:
     """The recorded state string for a pack, or ``None`` if no entry exists.
 
-    Normally ``"enabled"`` / ``"disabled"`` / ``None`` (no decision -> registry
-    default applies). May also return a state string a NEWER jacked wrote that
-    this build doesn't recognize; is_effectively_enabled treats any such value
-    as "no decision" (falls through to the default)."""
+    Normally ``"enabled"`` / ``"disabled"`` / ``None`` (no decision -> not
+    installed). May also return a state string a NEWER jacked wrote that this
+    build doesn't recognize; is_effectively_enabled treats any non-``enabled``
+    value as "not enabled"."""
     entry = load_state(home).get("packs", {}).get(name)
     return entry.get("state") if isinstance(entry, dict) else None
 
 
 def is_effectively_enabled(pack: Pack, home: Path) -> bool:
-    """Whether ``pack`` should be installed: a recognized explicit decision
-    wins, and otherwise the registry ``default`` flag decides.
+    """Whether ``pack`` should be installed: ONLY an explicit ``enabled``
+    decision counts. No pack auto-enables — the ``default`` flag no longer
+    gates installation, it is a non-binding "recommended" hint only.
 
-    A state value this build doesn't recognize (a future third state preserved
-    on disk) is NOT treated as disabled -- it falls through to the registry
-    default, matching the "no decision this build can interpret" contract in
-    _normalize_state. A future jacked that understands the state re-honors it.
+    A missing or unrecognized state (fresh install, or a future third state
+    preserved on disk) is treated as NOT enabled: nothing is installed until
+    the user explicitly toggles it on. This keeps the UI toggle the single
+    source of truth so a seat's skills are never active while its toggle reads
+    OFF.
     """
     state = pack_state(home, pack.name)
     if state == "enabled":
         return True
-    if state == "disabled":
-        return False
-    return pack.default
+    return False
 
 
 def enabled_pack_names(home: Path) -> list[str]:
-    """Names of packs with an EXPLICIT ``enabled`` decision, sorted. Does NOT
-    include default-on packs that were never explicitly toggled -- use
-    ``effective_enabled_pack_names`` for "what should be installed"."""
+    """Names of packs with an EXPLICIT ``enabled`` decision, sorted, read from
+    the state file alone (may include packs no longer in the registry). Use
+    ``effective_enabled_pack_names`` for "what should be installed" scoped to
+    the current registry."""
     packs_map = load_state(home).get("packs", {})
     return sorted(
         n for n, e in packs_map.items()
@@ -362,9 +362,10 @@ def enabled_pack_names(home: Path) -> list[str]:
 
 def effective_enabled_pack_names(home: Path, registry: dict[str, "Pack"]) -> list[str]:
     """Registry packs that should be installed right now, sorted: every pack
-    whose effective state is enabled (explicit ``enabled``, or unset with
-    ``default: true``). Packs in the state file but absent from the registry are
-    ignored here (handled loudly by the callers that surface deregistration)."""
+    whose effective state is enabled (i.e. an explicit ``enabled`` decision —
+    the ``default`` flag no longer auto-enables). Packs in the state file but
+    absent from the registry are ignored here (handled loudly by the callers
+    that surface deregistration)."""
     return sorted(n for n, p in registry.items() if is_effectively_enabled(p, home))
 
 

@@ -41,15 +41,14 @@ DESIGN = packs_mod.Pack(
 )
 REGISTRY = {"marketing": MARKETING, "design-extras": DESIGN}
 
-# A default-on pack: installed by a plain `jacked install` unless the user has
-# durably opted out (default=True is the crux of the state-model change these
-# tests cover). The base MARKETING/DESIGN packs stay default=False so the
-# existing explicit `--packs`/enable tests keep their meaning and a plain
-# install in the base registry installs nothing by default.
+# A pack carrying `default=True` — a non-binding "recommended" hint that no
+# longer auto-installs (the state model is now explicit-enable-only). Kept to
+# prove the default flag is inert: even default=True installs nothing until the
+# user explicitly enables it.
 DEFAULT_ON = packs_mod.Pack(
     name="core-extras",
     display_name="Core Extras",
-    description="Default-on curated skills that install unless opted out.",
+    description="Recommended curated skills; still install only when enabled.",
     source="jackneil/coreextras",
     homepage="https://github.com/jackneil/coreextras",
     skills=("triage", "summarize"),
@@ -154,10 +153,8 @@ def _fake_packs(
         return sorted(n for n, s in state_map.items() if s == "enabled")
 
     def is_effectively_enabled(pack, home):
-        s = state_map.get(pack.name)
-        if s is not None:
-            return s == "enabled"
-        return pack.default
+        # Explicit-only: the registry `default` flag no longer auto-enables.
+        return state_map.get(pack.name) == "enabled"
 
     def effective_enabled_pack_names(home, reg):
         return sorted(n for n, p in reg.items() if is_effectively_enabled(p, home))
@@ -703,32 +700,46 @@ def test_pack_failure_message_with_rich_markup_does_not_crash(env):
 
 
 # --------------------------------------------------------------------------- #
-# default-on packs: a plain `install` installs default:true packs, opt-out is
-# durable, and --no-packs skips the phase entirely
+# pack install gating: NO pack auto-installs (the `default` flag is inert); a
+# plain `install` installs only explicitly-enabled packs, opt-out is durable,
+# and --no-packs skips the phase entirely
 # --------------------------------------------------------------------------- #
 
-def test_install_default_on_installs_without_flag(env):
-    # A registry with one default-on and one default-off pack; a bare install
-    # (no --packs) installs the default-on one and leaves the default-off alone.
+def test_install_default_flag_does_not_auto_install(env):
+    # A bare install (no --packs) with no explicit enable installs NOTHING, even
+    # for a default=True pack — the default flag no longer auto-enables.
     registry = {"core-extras": DEFAULT_ON, "marketing": MARKETING}
     calls = _fake_packs(env.monkeypatch, registry=registry)
     r = CliRunner().invoke(main, ["install", "--no-codex"])
     assert r.exit_code == 0, r.output + env.buf.getvalue()
-    installed_names = [c.pack.name for c in calls.install_pack]
-    assert installed_names == ["core-extras"]  # default-on installs by itself
-    assert "marketing" not in installed_names  # default-off is untouched
+    assert calls.install_pack == []   # default=True installs nothing by itself
     assert calls.update_packs == []
+
+
+def test_install_explicitly_enabled_pack_installs(env):
+    # A pack the user explicitly enabled (and not yet on disk) installs on a bare
+    # install; a default=True pack alongside it (never enabled) stays untouched.
+    registry = {"core-extras": DEFAULT_ON, "marketing": MARKETING}
+    calls = _fake_packs(
+        env.monkeypatch, registry=registry,
+        enabled_before=["marketing"], installed_before=[],
+    )
+    r = CliRunner().invoke(main, ["install", "--no-codex"])
+    assert r.exit_code == 0, r.output + env.buf.getvalue()
+    installed_names = [c.pack.name for c in calls.install_pack]
+    assert "marketing" in installed_names       # explicitly enabled installs
+    assert "core-extras" not in installed_names  # default=True but never enabled
     out = env.buf.getvalue()
     # The trust line prints before pulling a fresh pack's instructions.
     assert "review the source at" in out
-    assert DEFAULT_ON.source in out
+    assert MARKETING.source in out
 
 
 def test_install_no_packs_flag_skips(env):
-    # --no-packs short-circuits the whole phase: a default-on pack that would
-    # otherwise install this run is skipped, and nothing is installed/updated.
+    # --no-packs short-circuits the whole phase: an explicitly-enabled pack that
+    # would otherwise install this run is skipped, and nothing is installed/updated.
     registry = {"core-extras": DEFAULT_ON}
-    calls = _fake_packs(env.monkeypatch, registry=registry)
+    calls = _fake_packs(env.monkeypatch, registry=registry, enabled_before=["core-extras"])
     r = CliRunner().invoke(main, ["install", "--no-codex", "--no-packs"])
     assert r.exit_code == 0, r.output + env.buf.getvalue()
     assert calls.install_pack == []
@@ -749,24 +760,24 @@ def test_install_no_packs_with_packs_is_error(env):
     assert "--no-packs and --packs are contradictory" in env.buf.getvalue()
 
 
-def test_disabled_default_pack_not_reinstalled_on_install(env):
-    # The whole point of the durable-disable state: a default-on pack the user
-    # opted out of must NOT silently reinstall on the next `jacked install`.
+def test_disabled_pack_not_reinstalled_on_install(env):
+    # Durable-disable state: an explicitly-disabled pack must NOT install on the
+    # next `jacked install` (and a default=True flag does not override it).
     registry = {"core-extras": DEFAULT_ON}
     calls = _fake_packs(
         env.monkeypatch, registry=registry, disabled_before=["core-extras"]
     )
     r = CliRunner().invoke(main, ["install", "--no-codex"])
     assert r.exit_code == 0, r.output + env.buf.getvalue()
-    assert calls.install_pack == []  # explicit disable beats default=True
+    assert calls.install_pack == []  # explicit disable, and default=True is inert
     assert calls.update_packs == []
 
 
-def test_uninstall_removes_default_on_pack(env):
-    # Uninstall operates on the EFFECTIVE set: a default-on pack that's on with
-    # no explicit state entry is still removed (not just explicit-enabled packs).
+def test_uninstall_removes_enabled_pack(env):
+    # Uninstall operates on the EFFECTIVE set: an explicitly-enabled pack is
+    # removed. (With the default flag now inert, "effective" == explicit-enabled.)
     registry = {"core-extras": DEFAULT_ON}
-    calls = _fake_packs(env.monkeypatch, registry=registry)
+    calls = _fake_packs(env.monkeypatch, registry=registry, enabled_before=["core-extras"])
     _stub_uninstall_side_effects(env)
     r = CliRunner().invoke(main, ["uninstall", "--yes"])
     assert r.exit_code == 0, r.output + env.buf.getvalue()
@@ -775,13 +786,14 @@ def test_uninstall_removes_default_on_pack(env):
 
 
 def test_install_foreign_shadowed_pack_routes_to_install_not_silent_update(env):
-    # A default-on pack whose skills are all present on disk but NOT ours (a
+    # An enabled pack whose skills are all present on disk but NOT ours (a
     # same-named dir from another source / the user's own) must route to
     # install, where the collision guard surfaces the shadow -- never to a
     # silent batched update that reports "up to date" while installing nothing.
     registry = {"core-extras": DEFAULT_ON}
     calls = _fake_packs(
         env.monkeypatch, registry=registry,
+        enabled_before=["core-extras"], installed_before=[],
         foreign_before=list(DEFAULT_ON.skills),
     )
     r = CliRunner().invoke(main, ["install", "--no-codex"])

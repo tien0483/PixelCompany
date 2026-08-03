@@ -438,7 +438,8 @@ def test_state_unrecognized_state_preserved_and_treated_as_no_decision(tmp_path)
     """A future third state (e.g. 'paused') this build can't interpret must be
     PRESERVED on disk across a write-back (not silently dropped -- the exact
     doctrine violation the forward-compat handling exists to prevent), and
-    treated as 'no decision' (registry default decides), never as disabled."""
+    treated as 'no decision', which is NOT enabled (only an explicit 'enabled'
+    installs a pack; the registry ``default`` flag no longer auto-enables)."""
     home = tmp_path
     p = home / ".claude" / "jacked-packs.json"
     p.parent.mkdir(parents=True)
@@ -447,12 +448,14 @@ def test_state_unrecognized_state_preserved_and_treated_as_no_decision(tmp_path)
         "packs": {"catalog": {"state": "paused", "at": "x"}},
     }), encoding="utf-8")
 
-    # Not enabled/disabled -> no explicit decision this build acts on.
+    # Not enabled/disabled -> no explicit decision -> not effectively enabled.
     assert packs.pack_state(home, "catalog") == "paused"
     assert packs.enabled_pack_names(home) == []  # not counted as enabled
     default_on = packs.Pack("catalog", "", "", "acme/skills", "", ("a",), True)
     default_off = packs.Pack("catalog", "", "", "acme/skills", "", ("a",), False)
-    assert packs.is_effectively_enabled(default_on, home) is True   # falls to default
+    # `default` no longer auto-enables — neither is effectively enabled without
+    # an explicit 'enabled' decision.
+    assert packs.is_effectively_enabled(default_on, home) is False
     assert packs.is_effectively_enabled(default_off, home) is False
 
     # Write-back on a different pack must NOT wipe the paused entry.
@@ -461,9 +464,10 @@ def test_state_unrecognized_state_preserved_and_treated_as_no_decision(tmp_path)
     assert raw["packs"]["catalog"] == {"state": "paused", "at": "x"}
 
 
-def test_effective_enablement_default_on_and_opt_out(tmp_path):
-    """effective enablement: default-on unless explicitly disabled; default-off
-    (opt-in) unless explicitly enabled."""
+def test_effective_enablement_requires_explicit_enable(tmp_path):
+    """effective enablement: NO pack auto-enables. The registry ``default`` flag
+    is a non-binding hint only — a pack installs solely on an explicit
+    'enabled' decision, regardless of its default."""
     home = tmp_path
     on = _pack(name="on", skills=("a",))
     on = packs.Pack(**{**on.__dict__, "default": True})
@@ -471,17 +475,22 @@ def test_effective_enablement_default_on_and_opt_out(tmp_path):
     off = packs.Pack(**{**off.__dict__, "default": False})
     registry = {"on": on, "off": off}
 
-    # Fresh: default-on installs, opt-in doesn't.
-    assert packs.is_effectively_enabled(on, home) is True
+    # Fresh: neither installs, even the default-true one.
+    assert packs.is_effectively_enabled(on, home) is False
     assert packs.is_effectively_enabled(off, home) is False
-    assert packs.effective_enabled_pack_names(home, registry) == ["on"]
+    assert packs.effective_enabled_pack_names(home, registry) == []
 
-    # Disable the default one, enable the opt-in one: effective set flips.
-    packs.set_enabled(home, "on", False)
+    # Explicit enable is the only thing that installs; the default flag is inert.
     packs.set_enabled(home, "off", True)
     assert packs.is_effectively_enabled(on, home) is False
     assert packs.is_effectively_enabled(off, home) is True
     assert packs.effective_enabled_pack_names(home, registry) == ["off"]
+
+    # Explicitly disabling the default-true pack keeps it off (unchanged), and
+    # explicitly enabling it is what turns it on.
+    packs.set_enabled(home, "on", True)
+    assert packs.is_effectively_enabled(on, home) is True
+    assert packs.effective_enabled_pack_names(home, registry) == ["off", "on"]
 
 
 # --------------------------------------------------------------------------- #
