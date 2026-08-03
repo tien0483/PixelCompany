@@ -54,6 +54,9 @@ function createRuntimeConfigResponse(selectedAgentId: RuntimeConfigResponse["sel
 		agentDisplayName: "",
 		seamCommentTagTemplate: "",
 		seamCommentTagTemplateDefault: "",
+		commitTrailerMode: "omit",
+		commitTrailerTemplate: "",
+		commitTrailerTemplateDefault: "",
 	};
 }
 

@@ -408,6 +408,10 @@ export function useGitActions({
 								seamCommentTagTemplate: runtimeProjectConfig.seamCommentTagTemplate,
 								seamCommentTagTemplateDefault:
 									runtimeProjectConfig.seamCommentTagTemplateDefault,
+								commitTrailerMode: runtimeProjectConfig.commitTrailerMode,
+								commitTrailerTemplate: runtimeProjectConfig.commitTrailerTemplate,
+								commitTrailerTemplateDefault:
+									runtimeProjectConfig.commitTrailerTemplateDefault,
 							}
 						: null,
 					agentDisplayName: runtimeProjectConfig?.agentDisplayName,

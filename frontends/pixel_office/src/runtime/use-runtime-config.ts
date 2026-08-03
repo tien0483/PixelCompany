@@ -19,6 +19,8 @@ export interface UseRuntimeConfigResult {
 		openPrPromptTemplate?: string;
 		agentDisplayName?: string;
 		seamCommentTagTemplate?: string;
+		commitTrailerMode?: "omit" | "include";
+		commitTrailerTemplate?: string;
 	}) => Promise<RuntimeConfigResponse | null>;
 }
 
@@ -88,6 +90,8 @@ export function useRuntimeConfig(
 			openPrPromptTemplate?: string;
 			agentDisplayName?: string;
 			seamCommentTagTemplate?: string;
+			commitTrailerMode?: "omit" | "include";
+			commitTrailerTemplate?: string;
 		}): Promise<RuntimeConfigResponse | null> => {
 			setIsSaving(true);
 			try {

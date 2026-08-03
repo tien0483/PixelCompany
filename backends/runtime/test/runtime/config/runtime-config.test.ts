@@ -303,6 +303,8 @@ describe.sequential("runtime-config auto agent selection", () => {
 					openPrPromptTemplate: current.openPrPromptTemplateDefault,
 					agentDisplayName: current.agentDisplayName,
 					seamCommentTagTemplate: current.seamCommentTagTemplateDefault,
+					commitTrailerMode: current.commitTrailerMode,
+					commitTrailerTemplate: current.commitTrailerTemplateDefault,
 				});
 
 				const globalPayload = JSON.parse(
@@ -313,12 +315,16 @@ describe.sequential("runtime-config auto agent selection", () => {
 					readyForReviewNotificationsEnabled?: boolean;
 					commitPromptTemplate?: string;
 					openPrPromptTemplate?: string;
+					commitTrailerMode?: string;
+					commitTrailerTemplate?: string;
 				};
 				expect(globalPayload.selectedAgentId).toBeUndefined();
 				expect(globalPayload.agentAutonomousModeEnabled).toBeUndefined();
 				expect(globalPayload.readyForReviewNotificationsEnabled).toBeUndefined();
 				expect(globalPayload.commitPromptTemplate).toBeUndefined();
 				expect(globalPayload.openPrPromptTemplate).toBeUndefined();
+				expect(globalPayload.commitTrailerMode).toBeUndefined();
+				expect(globalPayload.commitTrailerTemplate).toBeUndefined();
 				expect(existsSync(join(tempProject, RUNTIME_HOME_PARENT_DIR_NAME, "kanban", "config.json"))).toBe(false);
 			});
 		} finally {
@@ -350,6 +356,8 @@ describe.sequential("runtime-config auto agent selection", () => {
 					openPrPromptTemplate: current.openPrPromptTemplateDefault,
 					agentDisplayName: current.agentDisplayName,
 					seamCommentTagTemplate: current.seamCommentTagTemplateDefault,
+					commitTrailerMode: current.commitTrailerMode,
+					commitTrailerTemplate: current.commitTrailerTemplateDefault,
 				});
 
 				expect(existsSync(join(tempProject, RUNTIME_HOME_PARENT_DIR_NAME, "kanban", "config.json"))).toBe(false);
@@ -379,6 +387,8 @@ describe.sequential("runtime-config auto agent selection", () => {
 					openPrPromptTemplate: current.openPrPromptTemplateDefault,
 					agentDisplayName: current.agentDisplayName,
 					seamCommentTagTemplate: current.seamCommentTagTemplateDefault,
+					commitTrailerMode: current.commitTrailerMode,
+					commitTrailerTemplate: current.commitTrailerTemplateDefault,
 				});
 				expect(existsSync(join(tempProject, RUNTIME_HOME_PARENT_DIR_NAME, "kanban", "config.json"))).toBe(true);
 
@@ -482,6 +492,45 @@ describe.sequential("runtime-config auto agent selection", () => {
 				const reloaded = await loadRuntimeConfig(tempProject);
 				expect(reloaded.selectedShortcutLabel).toBe("Ship");
 				expect(reloaded.agentAutonomousModeEnabled).toBe(false);
+			});
+		} finally {
+			cleanupProject();
+			cleanupHome();
+		}
+	});
+
+	it("defaults commit trailer mode to omit and persists include mode plus custom text", async () => {
+		const { path: tempHome, cleanup: cleanupHome } = createTempDir("kanban-home-runtime-config-trailer-");
+		const { path: tempProject, cleanup: cleanupProject } = createTempDir(
+			"kanban-project-runtime-config-trailer-",
+		);
+
+		try {
+			await withTemporaryEnv({ home: tempHome }, async () => {
+				const current = await loadRuntimeConfig(tempProject);
+				expect(current.commitTrailerMode).toBe("omit");
+				expect(current.commitTrailerTemplate).toBe("Co-Authored-By: Claude <noreply@anthropic.com>");
+				expect(current.commitTrailerTemplateDefault).toBe(current.commitTrailerTemplate);
+
+				const updated = await updateRuntimeConfig(tempProject, {
+					commitTrailerMode: "include",
+					commitTrailerTemplate: "Signed-off-by: {{agent_name}}",
+				});
+				expect(updated.commitTrailerMode).toBe("include");
+				expect(updated.commitTrailerTemplate).toBe("Signed-off-by: {{agent_name}}");
+
+				const reloaded = await loadRuntimeConfig(tempProject);
+				expect(reloaded.commitTrailerMode).toBe("include");
+				expect(reloaded.commitTrailerTemplate).toBe("Signed-off-by: {{agent_name}}");
+
+				const globalPayload = JSON.parse(
+					readFileSync(join(tempHome, RUNTIME_HOME_PARENT_DIR_NAME, "kanban", "config.json"), "utf8"),
+				) as {
+					commitTrailerMode?: string;
+					commitTrailerTemplate?: string;
+				};
+				expect(globalPayload.commitTrailerMode).toBe("include");
+				expect(globalPayload.commitTrailerTemplate).toBe("Signed-off-by: {{agent_name}}");
 			});
 		} finally {
 			cleanupProject();

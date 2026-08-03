@@ -1639,6 +1639,9 @@ export const runtimeConfigResponseSchema = z.object({
 	agentDisplayName: z.string(),
 	seamCommentTagTemplate: z.string(),
 	seamCommentTagTemplateDefault: z.string(),
+	commitTrailerMode: z.enum(["omit", "include"]),
+	commitTrailerTemplate: z.string(),
+	commitTrailerTemplateDefault: z.string(),
 });
 export type RuntimeConfigResponse = z.infer<typeof runtimeConfigResponseSchema>;
 
@@ -1652,6 +1655,8 @@ export const runtimeConfigSaveRequestSchema = z.object({
 	openPrPromptTemplate: z.string().optional(),
 	agentDisplayName: z.string().optional(),
 	seamCommentTagTemplate: z.string().optional(),
+	commitTrailerMode: z.enum(["omit", "include"]).optional(),
+	commitTrailerTemplate: z.string().optional(),
 });
 export type RuntimeConfigSaveRequest = z.infer<typeof runtimeConfigSaveRequestSchema>;
 
