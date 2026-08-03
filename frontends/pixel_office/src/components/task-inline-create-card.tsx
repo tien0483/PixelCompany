@@ -1,7 +1,16 @@
 import * as RadixCheckbox from "@radix-ui/react-checkbox";
 import { deriveTaskTitleFromPrompt } from "@runtime-task-title";
 import { ArrowBigUp, Check, Command, CornerDownLeft } from "lucide-react";
-import { type Dispatch, type ReactElement, type SetStateAction, useCallback, useRef, useState } from "react";
+import {
+	type Dispatch,
+	type ReactElement,
+	type SetStateAction,
+	useCallback,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 import { useHotkeys } from "react-hotkeys-hook";
 
 import { BranchSelectDropdown, type BranchSelectOption } from "@/components/branch-select-dropdown";
@@ -10,9 +19,14 @@ import { TaskLaunchSettingsPicker } from "@/components/task-launch-settings";
 import { TaskPromptComposer } from "@/components/task-prompt-composer";
 import { Button } from "@/components/ui/button";
 import { NativeSelect } from "@/components/ui/native-select";
+import {
+	TaskAccountPicker,
+	filterManagerAccountsForAgent,
+} from "@/manager/task-account-picker";
 import type {
 	RuntimeAgentId,
 	RuntimeClineReasoningEffort,
+	RuntimeManagerAccount,
 	RuntimeTaskClineSettings,
 	RuntimeTaskLaunchSettings,
 } from "@/runtime/types";
@@ -83,6 +97,10 @@ export function TaskInlineCreateCard({
 	defaultProviderId,
 	defaultModelId,
 	defaultReasoningEffort,
+	managerAccounts = [],
+	managerActiveAccountId = null,
+	managerAccountId,
+	onManagerAccountIdChange,
 }: {
 	title?: string;
 	onTitleChange?: (value: string) => void;
@@ -113,7 +131,7 @@ export function TaskInlineCreateCard({
 	onClineSettingsChange?: (value: RuntimeTaskClineSettings | undefined) => void;
 	taskLaunchSettings?: RuntimeTaskLaunchSettings | undefined;
 	onTaskLaunchSettingsChange?: (value: RuntimeTaskLaunchSettings | undefined) => void;
-	/** Default agent ID from runtimeConfig.selectedAgentId, used to show "Default (AgentName)" in picker */
+	/** Default agent ID (active Manager seat / Settings), used for "Default (AgentName)" */
 	defaultAgentId?: RuntimeAgentId | null;
 	/** Default Cline provider ID from runtimeConfig.clineProviderSettings.providerId */
 	defaultProviderId?: string | null;
@@ -121,6 +139,10 @@ export function TaskInlineCreateCard({
 	defaultModelId?: string | null;
 	/** Default Cline reasoning effort from runtimeConfig.clineProviderSettings.reasoningEffort */
 	defaultReasoningEffort?: RuntimeClineReasoningEffort | null;
+	managerAccounts?: RuntimeManagerAccount[];
+	managerActiveAccountId?: number | null;
+	managerAccountId?: number | undefined;
+	onManagerAccountIdChange?: (value: number | undefined) => void;
 }): ReactElement {
 	const promptId = `${idPrefix}-prompt-input`;
 	const planModeId = `${idPrefix}-plan-mode-toggle`;
@@ -165,6 +187,24 @@ export function TaskInlineCreateCard({
 		defaultProviderId,
 		defaultModelId,
 	});
+
+	const effectiveAgentId = agentId ?? defaultAgentId ?? null;
+	const eligibleManagerAccounts = useMemo(
+		() =>
+			filterManagerAccountsForAgent(managerAccounts, effectiveAgentId, {
+				kanbanEligibleOnly: true,
+			}),
+		[effectiveAgentId, managerAccounts],
+	);
+
+	useEffect(() => {
+		if (managerAccountId === undefined || !onManagerAccountIdChange) {
+			return;
+		}
+		if (!eligibleManagerAccounts.some((account) => account.id === managerAccountId)) {
+			onManagerAccountIdChange(undefined);
+		}
+	}, [eligibleManagerAccounts, managerAccountId, onManagerAccountIdChange]);
 
 	useHotkeys(
 		"escape",
@@ -336,6 +376,19 @@ export function TaskInlineCreateCard({
 						defaultReasoningEffort={defaultReasoningEffort}
 						providerDefaultModels={providerDefaultModels}
 						onPopoverOpenChange={setIsModelPickerPopoverOpen}
+					/>
+				) : null}
+				{onManagerAccountIdChange && eligibleManagerAccounts.length > 0 ? (
+					<TaskAccountPicker
+						accounts={eligibleManagerAccounts}
+						value={managerAccountId}
+						activeAccountId={managerActiveAccountId}
+						agentId={effectiveAgentId}
+						onChange={(nextAccountId) => {
+							onManagerAccountIdChange(
+								typeof nextAccountId === "number" ? nextAccountId : undefined,
+							);
+						}}
 					/>
 				) : null}
 				{onTaskLaunchSettingsChange ? (
