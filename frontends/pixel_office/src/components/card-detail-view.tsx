@@ -405,6 +405,7 @@ export function CardDetailView({
 	onStartTask,
 	onPauseTask,
 	onResumeTask,
+	onCancelAutoRun,
 	onStartAllTasks,
 	onClearTrash,
 	editingTaskId,
@@ -473,6 +474,7 @@ export function CardDetailView({
 	onStartTask?: (taskId: string) => void;
 	onPauseTask?: (taskId: string) => void;
 	onResumeTask?: (taskId: string) => void;
+	onCancelAutoRun?: (taskId: string) => void;
 	onStartAllTasks?: () => void;
 	onClearTrash?: () => void;
 	editingTaskId?: string | null;
@@ -1012,6 +1014,7 @@ export function CardDetailView({
 							onStartTask={onStartTask}
 							onPauseTask={onPauseTask}
 							onResumeTask={onResumeTask}
+							onCancelAutoRun={onCancelAutoRun}
 							onStartAllTasks={onStartAllTasks}
 							onClearTrash={onClearTrash}
 							editingTaskId={editingTaskId}

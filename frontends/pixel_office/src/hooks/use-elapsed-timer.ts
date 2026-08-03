@@ -24,3 +24,23 @@ export function useElapsedMs(summary: RuntimeTaskSessionSummary | undefined): nu
 	}
 	return activeRunMs + Math.max(0, nowTs - runningSince);
 }
+
+/**
+ * Live remaining ms until `targetEpoch` (a backlog auto-run time), clamped at 0.
+ * Ticks once a second while the target is in the future; returns 0 once elapsed and
+ * `null` when there is no scheduled target (so callers can hide the countdown entirely).
+ */
+export function useCountdownMs(targetEpoch: number | null | undefined): number | null {
+	const [nowTs, setNowTs] = useState(() => Date.now());
+	const active = typeof targetEpoch === "number" && targetEpoch > nowTs;
+	useInterval(
+		() => {
+			setNowTs(Date.now());
+		},
+		active ? 1000 : null,
+	);
+	if (typeof targetEpoch !== "number") {
+		return null;
+	}
+	return Math.max(0, targetEpoch - nowTs);
+}

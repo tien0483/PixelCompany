@@ -23,6 +23,8 @@ export interface RuntimeCreateTaskInput {
 	agentId?: RuntimeAgentId;
 	clineSettings?: RuntimeTaskClineSettings;
 	taskLaunchSettings?: RuntimeTaskLaunchSettings;
+	/** Epoch ms for a scheduled backlog auto-run (countdown set at create time). */
+	autoRunAt?: number | null;
 	baseRef: string;
 }
 
@@ -481,6 +483,7 @@ export function addTaskToColumn(
 		...(input.taskLaunchSettings !== undefined
 			? { taskLaunchSettings: cloneTaskLaunchSettings(input.taskLaunchSettings) }
 			: {}),
+		...(input.autoRunAt != null ? { autoRunAt: input.autoRunAt } : {}),
 		baseRef,
 		createdAt: now,
 		updatedAt: now,

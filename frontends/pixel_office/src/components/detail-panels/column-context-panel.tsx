@@ -20,6 +20,7 @@ function ColumnSection({
 	onStartTask,
 	onPauseTask,
 	onResumeTask,
+	onCancelAutoRun,
 	onStartAllTasks,
 	onClearTrash,
 	editingTaskId,
@@ -46,6 +47,7 @@ function ColumnSection({
 	onStartTask?: (taskId: string) => void;
 	onPauseTask?: (taskId: string) => void;
 	onResumeTask?: (taskId: string) => void;
+	onCancelAutoRun?: (taskId: string) => void;
 	onStartAllTasks?: () => void;
 	onClearTrash?: () => void;
 	editingTaskId?: string | null;
@@ -197,6 +199,7 @@ function ColumnSection({
 												onStart={onStartTask}
 												onPause={onPauseTask}
 												onResume={onResumeTask}
+												onCancelAutoRun={onCancelAutoRun}
 												onMoveToTrash={onMoveToTrashTask}
 												onRestoreFromTrash={onRestoreFromTrashTask}
 												onCommit={onCommitTask}
@@ -244,6 +247,7 @@ export function ColumnContextPanel({
 	onStartTask,
 	onPauseTask,
 	onResumeTask,
+	onCancelAutoRun,
 	onStartAllTasks,
 	onClearTrash,
 	editingTaskId,
@@ -268,6 +272,7 @@ export function ColumnContextPanel({
 	onStartTask?: (taskId: string) => void;
 	onPauseTask?: (taskId: string) => void;
 	onResumeTask?: (taskId: string) => void;
+	onCancelAutoRun?: (taskId: string) => void;
 	onStartAllTasks?: () => void;
 	onClearTrash?: () => void;
 	editingTaskId?: string | null;
@@ -359,6 +364,7 @@ export function ColumnContextPanel({
 							onStartTask={column.id === "backlog" ? onStartTask : undefined}
 							onPauseTask={column.id === "in_progress" ? onPauseTask : undefined}
 							onResumeTask={column.id === "in_progress" ? onResumeTask : undefined}
+							onCancelAutoRun={column.id === "backlog" ? onCancelAutoRun : undefined}
 							onStartAllTasks={column.id === "backlog" ? onStartAllTasks : undefined}
 							onClearTrash={column.id === "trash" ? onClearTrash : undefined}
 							editingTaskId={column.id === "backlog" ? editingTaskId : null}

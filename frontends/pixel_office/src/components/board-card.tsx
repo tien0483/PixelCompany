@@ -9,11 +9,13 @@ import {
 	Clock,
 	GitBranch,
 	GitMerge,
+	Hourglass,
 	Pause,
 	Pencil,
 	Play,
 	RotateCcw,
 	Trash2,
+	X,
 } from "lucide-react";
 import type { KeyboardEvent, MouseEvent } from "react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -28,7 +30,7 @@ import { cn } from "@/components/ui/cn";
 import { Spinner } from "@/components/ui/spinner";
 import { Tooltip } from "@/components/ui/tooltip";
 import type { RuntimeTaskSessionSummary } from "@/runtime/types";
-import { useElapsedMs } from "@/hooks/use-elapsed-timer";
+import { useCountdownMs, useElapsedMs } from "@/hooks/use-elapsed-timer";
 import { useTaskWorkspaceSnapshotValue } from "@/stores/workspace-metadata-store";
 import type { BoardCard as BoardCardModel, BoardColumnId } from "@/types";
 import { getTaskAutoReviewCancelButtonLabel } from "@/types";
@@ -247,6 +249,7 @@ export function BoardCard({
 	onStart,
 	onPause,
 	onResume,
+	onCancelAutoRun,
 	onDelete,
 	onMoveToTrash,
 	onRestoreFromTrash,
@@ -276,6 +279,7 @@ export function BoardCard({
 	onStart?: (taskId: string) => void;
 	onPause?: (taskId: string) => void;
 	onResume?: (taskId: string) => void;
+	onCancelAutoRun?: (taskId: string) => void;
 	onDelete?: (taskId: string) => void;
 	onMoveToTrash?: (taskId: string) => void;
 	onRestoreFromTrash?: (taskId: string) => void;
@@ -332,6 +336,8 @@ export function BoardCard({
 		columnId === "in_progress" &&
 		sessionSummary != null &&
 		(sessionSummary.runningSince != null || sessionSummary.activeRunMs > 0 || isPaused);
+	const autoRunRemainingMs = useCountdownMs(columnId === "backlog" ? card.autoRunAt : null);
+	const showAutoRunCountdown = columnId === "backlog" && autoRunRemainingMs != null;
 	const displayTitle = useMemo(
 		() => normalizePromptForDisplay(card.title) || truncateTaskPromptLabel(card.prompt),
 		[card.prompt, card.title],
@@ -861,6 +867,34 @@ export function BoardCard({
 										<span className="text-status-orange">
 											· Paused{pausedByMaxRuntime ? " (max runtime)" : ""}
 										</span>
+									) : null}
+								</div>
+							) : null}
+							{showAutoRunCountdown ? (
+								<div
+									className="flex items-center gap-1.5 mt-[6px] font-mono"
+									style={{ fontSize: 12 }}
+								>
+									<Hourglass size={11} className="text-status-blue" />
+									<span className="text-status-blue">
+										{autoRunRemainingMs && autoRunRemainingMs > 0
+											? `Auto-run in ${formatElapsed(autoRunRemainingMs)}`
+											: "Ready — starting soon"}
+									</span>
+									{onCancelAutoRun ? (
+										<button
+											type="button"
+											aria-label="Cancel auto-run"
+											title="Cancel auto-run"
+											className="ml-0.5 text-text-tertiary hover:text-text-primary"
+											onMouseDown={stopEvent}
+											onClick={(event) => {
+												stopEvent(event);
+												onCancelAutoRun(card.id);
+											}}
+										>
+											<X size={11} />
+										</button>
 									) : null}
 								</div>
 							) : null}

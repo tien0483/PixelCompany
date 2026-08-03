@@ -35,6 +35,7 @@ export function KanbanBoard({
 	onStartTask,
 	onPauseTask,
 	onResumeTask,
+	onCancelAutoRun,
 	onDeleteTask,
 	onStartAllTasks,
 	onClearTrash,
@@ -69,6 +70,7 @@ export function KanbanBoard({
 	onStartTask?: (taskId: string) => void;
 	onPauseTask?: (taskId: string) => void;
 	onResumeTask?: (taskId: string) => void;
+	onCancelAutoRun?: (taskId: string) => void;
 	onDeleteTask?: (taskId: string) => void;
 	onStartAllTasks?: () => void;
 	onClearTrash?: () => void;
@@ -410,6 +412,7 @@ export function KanbanBoard({
 						onStartTask={column.id === "backlog" ? onStartTask : undefined}
 						onPauseTask={column.id === "in_progress" ? onPauseTask : undefined}
 						onResumeTask={column.id === "in_progress" ? onResumeTask : undefined}
+						onCancelAutoRun={column.id === "backlog" ? onCancelAutoRun : undefined}
 						onDeleteTask={column.id === "backlog" ? onDeleteTask : undefined}
 						onStartAllTasks={column.id === "backlog" ? onStartAllTasks : undefined}
 						onClearTrash={column.id === "trash" ? onClearTrash : undefined}

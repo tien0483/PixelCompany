@@ -83,6 +83,28 @@ export function useBooleanLocalStorageValue(key: string, initialValue: boolean):
 	return [value, setValue];
 }
 
+export function useNumberLocalStorageValue(key: string, initialValue: number): [number, StateSetter<number>] {
+	const [storedValue, setStoredValue] = useReactUseLocalStorage<number>(key, initialValue, {
+		raw: false,
+		serializer: (value) => String(value),
+		deserializer: (value) => {
+			const parsed = Number(value);
+			return Number.isFinite(parsed) ? parsed : initialValue;
+		},
+	});
+	const value = storedValue ?? initialValue;
+	const setValue: StateSetter<number> = useCallback(
+		(nextValue) => {
+			setStoredValue((currentValue) => {
+				const resolvedCurrent = currentValue ?? initialValue;
+				return resolveNextValue(nextValue, resolvedCurrent);
+			});
+		},
+		[initialValue, setStoredValue],
+	);
+	return [value, setValue];
+}
+
 export function useRawLocalStorageValue<T extends string>(
 	key: string,
 	initialValue: T,

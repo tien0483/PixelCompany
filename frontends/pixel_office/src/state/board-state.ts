@@ -34,6 +34,8 @@ export interface TaskDraft {
 	agentId?: RuntimeAgentId;
 	clineSettings?: RuntimeTaskClineSettings;
 	taskLaunchSettings?: RuntimeTaskLaunchSettings;
+	/** Epoch ms for a scheduled backlog auto-run (countdown set at create time). */
+	autoRunAt?: number | null;
 	baseRef: string;
 }
 
@@ -424,6 +426,7 @@ export function addTaskToColumnWithResult(
 			agentId: draft.agentId,
 			clineSettings: draft.clineSettings,
 			taskLaunchSettings: draft.taskLaunchSettings,
+			autoRunAt: draft.autoRunAt,
 			baseRef: draft.baseRef,
 		},
 		createBrowserUuid,
@@ -798,6 +801,34 @@ export function setTaskManagerAccount(
 				...(nextAccountId === undefined ? {} : { managerAccountId: nextAccountId }),
 				updatedAt: Date.now(),
 			};
+		});
+		return columnUpdated ? { ...column, cards } : column;
+	});
+
+	if (!updated) {
+		return { board, updated: false };
+	}
+	return { board: withUpdatedColumns(board, columns), updated: true };
+}
+
+/** Remove a backlog card's scheduled auto-run countdown (`autoRunAt`). */
+export function clearTaskAutoRun(board: BoardData, taskId: string): { board: BoardData; updated: boolean } {
+	const selection = findCardSelection(board, taskId);
+	if (!selection || selection.card.autoRunAt == null) {
+		return { board, updated: false };
+	}
+
+	let updated = false;
+	const columns = board.columns.map((column) => {
+		let columnUpdated = false;
+		const cards = column.cards.map((card) => {
+			if (card.id !== taskId || card.autoRunAt == null) {
+				return card;
+			}
+			columnUpdated = true;
+			updated = true;
+			const { autoRunAt: _previous, ...rest } = card;
+			return { ...rest, updatedAt: Date.now() };
 		});
 		return columnUpdated ? { ...column, cards } : column;
 	});

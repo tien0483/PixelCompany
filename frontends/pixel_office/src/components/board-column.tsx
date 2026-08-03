@@ -23,6 +23,7 @@ export function BoardColumn({
 	onStartTask,
 	onPauseTask,
 	onResumeTask,
+	onCancelAutoRun,
 	onDeleteTask,
 	onStartAllTasks,
 	onClearTrash,
@@ -62,6 +63,7 @@ export function BoardColumn({
 	onStartTask?: (taskId: string) => void;
 	onPauseTask?: (taskId: string) => void;
 	onResumeTask?: (taskId: string) => void;
+	onCancelAutoRun?: (taskId: string) => void;
 	onDeleteTask?: (taskId: string) => void;
 	onStartAllTasks?: () => void;
 	onClearTrash?: () => void;
@@ -216,6 +218,7 @@ export function BoardColumn({
 										onStart={onStartTask}
 										onPause={onPauseTask}
 										onResume={onResumeTask}
+										onCancelAutoRun={onCancelAutoRun}
 										onDelete={onDeleteTask}
 										onMoveToTrash={onMoveToTrashTask}
 										onRestoreFromTrash={onRestoreFromTrashTask}

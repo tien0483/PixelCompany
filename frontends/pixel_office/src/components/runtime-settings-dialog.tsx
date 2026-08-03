@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { showAppToast } from "@/components/app-toaster";
+import { DEFAULT_MAX_RUNNING_TASKS } from "@/storage/local-storage-store";
 import { AccountOrganizationSection } from "@/components/shared/account-organization-section";
 import { ClineSetupSection } from "@/components/shared/cline-setup-section";
 import {
@@ -364,6 +365,8 @@ export function RuntimeSettingsDialog({
 	onSaved,
 	onAccountSwitched,
 	initialSection,
+	maxRunningTasks = DEFAULT_MAX_RUNNING_TASKS,
+	onMaxRunningTasksChange,
 }: {
 	open: boolean;
 	workspaceId: string | null;
@@ -373,6 +376,9 @@ export function RuntimeSettingsDialog({
 	onSaved?: () => void;
 	onAccountSwitched?: () => void;
 	initialSection?: RuntimeSettingsSection | null;
+	/** Concurrent-running cap for the backlog auto-run scheduler (localStorage-backed, live). */
+	maxRunningTasks?: number;
+	onMaxRunningTasksChange?: (value: number) => void;
 }): React.ReactElement {
 	const { config, isLoading, isSaving, save, refresh } = useRuntimeConfig(open, workspaceId, initialConfig);
 	const { resetLayoutCustomizations } = useLayoutCustomizations();
@@ -1138,6 +1144,26 @@ export function RuntimeSettingsDialog({
 								/>
 							) : null}
 						</div>
+					</div>
+
+					<div className="rounded-lg border border-border bg-surface-0 px-4 py-3 mb-4">
+						<label className="flex items-center gap-2 text-[13px] text-text-primary select-none">
+							Max tasks running at once
+							<input
+								type="number"
+								min={1}
+								step={1}
+								value={maxRunningTasks}
+								onChange={(e) => {
+									const parsed = Number(e.currentTarget.value);
+									onMaxRunningTasksChange?.(Number.isFinite(parsed) && parsed >= 1 ? Math.floor(parsed) : 1);
+								}}
+								className="w-16 rounded-sm border border-border-bright bg-surface-3 px-2 py-1 text-[13px] text-text-primary"
+							/>
+						</label>
+						<p className="text-text-secondary text-[12px] m-0 mt-2">
+							Backlog cards with an auto-run countdown wait for a free slot when this many are already running.
+						</p>
 					</div>
 
 					{/* ---- Appearance ---- */}

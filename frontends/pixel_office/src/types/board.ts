@@ -56,6 +56,11 @@ export interface BoardCard {
 	 * auto-resumes it (--continue) once its window resets, instead of stopping in Review.
 	 */
 	autoResumeOnUsageLimit?: boolean;
+	/**
+	 * Epoch ms at which this backlog card should auto-start (a countdown set at create time).
+	 * The client-side auto-run scheduler starts it once the time passes and a running slot is free.
+	 */
+	autoRunAt?: number | null;
 	clineSettings?: RuntimeTaskClineSettings;
 	/** Per-task model/effort + skill/MCP allowlist tags (empty = inherit Manager/global). */
 	taskLaunchSettings?: RuntimeTaskLaunchSettings;

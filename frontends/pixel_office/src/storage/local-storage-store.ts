@@ -24,7 +24,12 @@ export enum LocalStorageKey {
 	NotificationBadgeClearEvent = "kanban.notification-badge-clear.v1",
 	TabVisibilityPresence = "kanban.tab-visibility-presence.v1",
 	Theme = "kanban.theme",
+	/** Max cards allowed to run concurrently; the backlog auto-run scheduler defers past this. */
+	MaxRunningTasks = "kanban.max-running-tasks",
 }
+
+/** Default concurrent-running cap used by the backlog auto-run scheduler. */
+export const DEFAULT_MAX_RUNNING_TASKS = 3;
 
 export const LAYOUT_CUSTOMIZATION_LOCAL_STORAGE_KEYS = [
 	LocalStorageKey.BottomTerminalPaneHeight,

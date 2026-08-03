@@ -67,6 +67,7 @@ import { useStartupOnboarding } from "@/hooks/use-startup-onboarding";
 import { useTaskBranchOptions } from "@/hooks/use-task-branch-options";
 import { useTaskEditor } from "@/hooks/use-task-editor";
 import { useTaskSessions } from "@/hooks/use-task-sessions";
+import { useBacklogAutorunScheduler } from "@/hooks/use-backlog-autorun-scheduler";
 import { useTaskStartActions } from "@/hooks/use-task-start-actions";
 import { useTerminalPanels } from "@/hooks/use-terminal-panels";
 import { useWorkspaceSync } from "@/hooks/use-workspace-sync";
@@ -94,6 +95,7 @@ import { useWorkspacePersistence } from "@/runtime/use-workspace-persistence";
 import { saveWorkspaceState } from "@/runtime/workspace-state-query";
 import {
 	applyTaskDetailClineSettingsChange,
+	clearTaskAutoRun,
 	findCardSelection,
 	setTaskLaunchSettings,
 	setTaskManagerAccount,
@@ -105,8 +107,10 @@ import {
 	resetWorkspaceMetadataStore,
 	useHomeGitSummaryValue,
 } from "@/stores/workspace-metadata-store";
+import { DEFAULT_MAX_RUNNING_TASKS, LocalStorageKey } from "@/storage/local-storage-store";
 import { useTerminalThemeColors } from "@/terminal/theme-colors";
 import type { BoardData } from "@/types";
+import { useNumberLocalStorageValue } from "@/utils/react-use";
 
 export default function App(): ReactElement {
 	const terminalThemeColors = useTerminalThemeColors();
@@ -357,6 +361,8 @@ export default function App(): ReactElement {
 		setNewTaskAutoReviewEnabled,
 		newTaskAutoReviewMode,
 		setNewTaskAutoReviewMode,
+		newTaskAutoRunDelayMinutes,
+		setNewTaskAutoRunDelayMinutes,
 		isNewTaskStartInPlanModeDisabled,
 		newTaskBranchRef,
 		setNewTaskBranchRef,
@@ -707,6 +713,25 @@ export default function App(): ReactElement {
 		handleStartAllBacklogTasks,
 		setSelectedTaskId,
 	});
+
+	const [maxRunningTasks, setMaxRunningTasks] = useNumberLocalStorageValue(
+		LocalStorageKey.MaxRunningTasks,
+		DEFAULT_MAX_RUNNING_TASKS,
+	);
+	useBacklogAutorunScheduler({
+		board,
+		maxRunningTasks,
+		onStartTask: handleStartTaskFromBoard,
+	});
+	const handleCancelAutoRun = useCallback(
+		(taskId: string) => {
+			setBoard((currentBoard) => {
+				const result = clearTaskAutoRun(currentBoard, taskId);
+				return result.updated ? result.board : currentBoard;
+			});
+		},
+		[setBoard],
+	);
 
 	useAppHotkeys({
 		selectedCard,
@@ -1254,6 +1279,7 @@ export default function App(): ReactElement {
 														onStartTask={handleStartTaskFromBoard}
 														onPauseTask={pauseTaskSession}
 														onResumeTask={resumeTaskSession}
+														onCancelAutoRun={handleCancelAutoRun}
 														onDeleteTask={handleDeleteBacklogTask}
 														onStartAllTasks={
 															handleStartAllBacklogTasksFromBoard
@@ -1377,6 +1403,7 @@ export default function App(): ReactElement {
 									onStartTask={handleStartTaskFromBoard}
 									onPauseTask={pauseTaskSession}
 									onResumeTask={resumeTaskSession}
+									onCancelAutoRun={handleCancelAutoRun}
 									onStartAllTasks={handleStartAllBacklogTasksFromBoard}
 									onClearTrash={handleOpenClearTrash}
 									editingTaskId={editingTaskId}
@@ -1486,6 +1513,8 @@ export default function App(): ReactElement {
 					initialConfig={settingsRuntimeProjectConfig}
 					liveMcpAuthStatuses={latestMcpAuthStatuses}
 					initialSection={settingsInitialSection}
+					maxRunningTasks={maxRunningTasks}
+					onMaxRunningTasksChange={setMaxRunningTasks}
 					onOpenChange={(nextOpen) => {
 						setIsSettingsOpen(nextOpen);
 						if (!nextOpen) {
@@ -1546,6 +1575,8 @@ export default function App(): ReactElement {
 					onAutoReviewEnabledChange={setNewTaskAutoReviewEnabled}
 					autoReviewMode={newTaskAutoReviewMode}
 					onAutoReviewModeChange={setNewTaskAutoReviewMode}
+					autoRunDelayMinutes={newTaskAutoRunDelayMinutes}
+					onAutoRunDelayMinutesChange={setNewTaskAutoRunDelayMinutes}
 					workspaceId={currentProjectId}
 					branchRef={newTaskBranchRef}
 					branchOptions={createTaskBranchOptions}

@@ -119,6 +119,8 @@ export function TaskCreateDialog({
 	onAutoReviewEnabledChange,
 	autoReviewMode,
 	onAutoReviewModeChange,
+	autoRunDelayMinutes,
+	onAutoRunDelayMinutesChange,
 	startInPlanModeDisabled = false,
 	workspaceId,
 	branchRef,
@@ -152,6 +154,9 @@ export function TaskCreateDialog({
 	onAutoReviewEnabledChange: (value: boolean) => void;
 	autoReviewMode: TaskAutoReviewMode;
 	onAutoReviewModeChange: (value: TaskAutoReviewMode) => void;
+	/** Minutes until the created backlog card auto-starts; 0 = off. */
+	autoRunDelayMinutes: number;
+	onAutoRunDelayMinutesChange: (value: number) => void;
 	startInPlanModeDisabled?: boolean;
 	workspaceId: string | null;
 	branchRef: string;
@@ -585,6 +590,22 @@ export function TaskCreateDialog({
 							))}
 						</NativeSelect>
 					</div>
+
+					<label className="flex items-center gap-2 text-[12px] text-text-primary select-none">
+						Auto-run after
+						<input
+							type="number"
+							min={0}
+							step={1}
+							value={autoRunDelayMinutes}
+							onChange={(e) => {
+								const parsed = Number(e.currentTarget.value);
+								onAutoRunDelayMinutesChange(Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 0);
+							}}
+							className="w-16 rounded-sm border border-border-bright bg-surface-3 px-2 py-1 text-[12px] text-text-primary"
+						/>
+						min <span className="text-text-tertiary">(0 = off)</span>
+					</label>
 
 					{onAgentIdChange && onClineSettingsChange ? (
 						<TaskAgentModelPicker

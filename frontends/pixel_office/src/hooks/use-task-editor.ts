@@ -46,6 +46,9 @@ export interface UseTaskEditorResult {
 	setNewTaskAutoReviewEnabled: Dispatch<SetStateAction<boolean>>;
 	newTaskAutoReviewMode: TaskAutoReviewMode;
 	setNewTaskAutoReviewMode: Dispatch<SetStateAction<TaskAutoReviewMode>>;
+	/** Minutes until the new backlog card auto-starts; 0 = off (start manually). */
+	newTaskAutoRunDelayMinutes: number;
+	setNewTaskAutoRunDelayMinutes: Dispatch<SetStateAction<number>>;
 	isNewTaskStartInPlanModeDisabled: boolean;
 	newTaskBranchRef: string;
 	setNewTaskBranchRef: Dispatch<SetStateAction<string>>;
@@ -113,6 +116,7 @@ export function useTaskEditor({
 		"commit",
 		normalizeStoredTaskAutoReviewMode,
 	);
+	const [newTaskAutoRunDelayMinutes, setNewTaskAutoRunDelayMinutes] = useState(0);
 	const isNewTaskStartInPlanModeDisabled = false;
 	const [newTaskBranchRef, setNewTaskBranchRef] = useState("");
 	const [lastCreatedTaskBranchByProjectId, setLastCreatedTaskBranchByProjectId] = useState<Record<string, string>>({});
@@ -369,6 +373,7 @@ export function useTaskEditor({
 				agentId: newTaskAgentId ?? selectedAgentId ?? undefined,
 				clineSettings: newTaskClineSettings,
 				taskLaunchSettings: newTaskLaunchSettings,
+				autoRunAt: newTaskAutoRunDelayMinutes > 0 ? Date.now() + newTaskAutoRunDelayMinutes * 60_000 : undefined,
 				baseRef,
 			});
 			setBoard(created.board);
@@ -391,6 +396,7 @@ export function useTaskEditor({
 			setNewTaskAgentId(undefined);
 			setNewTaskClineSettings(undefined);
 			setNewTaskLaunchSettings(undefined);
+			setNewTaskAutoRunDelayMinutes(0);
 			if (!options?.keepDialogOpen) {
 				setIsInlineTaskCreateOpen(false);
 			}
@@ -402,6 +408,8 @@ export function useTaskEditor({
 			newTaskAgentId,
 			newTaskAutoReviewEnabled,
 			newTaskAutoReviewMode,
+			newTaskAutoRunDelayMinutes,
+			setNewTaskAutoRunDelayMinutes,
 			newTaskBranchRef,
 			newTaskClineSettings,
 			newTaskLaunchSettings,
@@ -426,6 +434,7 @@ export function useTaskEditor({
 				return [];
 			}
 			const baseRef = newTaskBranchRef || resolvedDefaultTaskBranchRef;
+			const autoRunAt = newTaskAutoRunDelayMinutes > 0 ? Date.now() + newTaskAutoRunDelayMinutes * 60_000 : undefined;
 			const createdTaskIds: string[] = [];
 			let updatedBoard = board;
 			for (const prompt of validPrompts) {
@@ -438,6 +447,7 @@ export function useTaskEditor({
 					agentId: newTaskAgentId ?? selectedAgentId ?? undefined,
 					clineSettings: newTaskClineSettings,
 					taskLaunchSettings: newTaskLaunchSettings,
+					autoRunAt,
 					baseRef,
 				});
 				updatedBoard = created.board;
@@ -465,6 +475,7 @@ export function useTaskEditor({
 			setNewTaskAgentId(undefined);
 			setNewTaskClineSettings(undefined);
 			setNewTaskLaunchSettings(undefined);
+			setNewTaskAutoRunDelayMinutes(0);
 			if (!options?.keepDialogOpen) {
 				setIsInlineTaskCreateOpen(false);
 			}
@@ -476,6 +487,8 @@ export function useTaskEditor({
 			newTaskAgentId,
 			newTaskAutoReviewEnabled,
 			newTaskAutoReviewMode,
+			newTaskAutoRunDelayMinutes,
+			setNewTaskAutoRunDelayMinutes,
 			newTaskBranchRef,
 			newTaskClineSettings,
 			newTaskLaunchSettings,
@@ -522,6 +535,8 @@ export function useTaskEditor({
 		setNewTaskAutoReviewEnabled,
 		newTaskAutoReviewMode,
 		setNewTaskAutoReviewMode,
+		newTaskAutoRunDelayMinutes,
+		setNewTaskAutoRunDelayMinutes,
 		isNewTaskStartInPlanModeDisabled,
 		newTaskBranchRef,
 		setNewTaskBranchRef,
