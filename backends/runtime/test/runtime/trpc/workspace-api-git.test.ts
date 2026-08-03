@@ -11,6 +11,8 @@ const gitSyncMocks = vi.hoisted(() => ({
 	revertGitFile: vi.fn(),
 	revertGitHunk: vi.fn(),
 	runGitCheckoutAction: vi.fn(),
+	runGitCherryPickAction: vi.fn(),
+	runGitPushBranchAction: vi.fn(),
 	runGitSyncAction: vi.fn(),
 }));
 
@@ -261,5 +263,67 @@ describe("workspaceApi.createPullRequest", () => {
 		const res = await api.createPullRequest(SCOPE, { title: "T", body: "B" });
 
 		expect(res).toEqual({ ok: false, url: null, output: "", error: "gh boom" });
+	});
+});
+
+describe("workspaceApi.cherryPickCommit", () => {
+	it("cherry-picks into the worktree that has the target branch checked out", async () => {
+		worktreeInventoryMocks.listGitWorktrees.mockResolvedValue({
+			ok: true,
+			worktrees: [{ path: "/repo", branch: "main" }],
+		});
+		gitSyncMocks.runGitCherryPickAction.mockResolvedValue({
+			ok: true,
+			commitHash: "abcdef1234567",
+			targetBranch: "main",
+			summary: SUMMARY,
+			output: "",
+		});
+		const { api, broadcast } = makeApi();
+
+		const res = await api.cherryPickCommit(SCOPE, {
+			taskId: "task-1",
+			baseRef: "main",
+			commitHash: "abcdef1234567",
+			targetBranch: "main",
+		});
+
+		expect(gitSyncMocks.runGitCherryPickAction).toHaveBeenCalledWith({
+			cwd: "/repo",
+			commitHash: "abcdef1234567",
+			targetBranch: "main",
+		});
+		expect(broadcast).toHaveBeenCalledWith("ws-1", "/repo");
+		expect(res.ok).toBe(true);
+	});
+});
+
+describe("workspaceApi.pushGitBranch", () => {
+	it("pushes from the task worktree when it is on the branch", async () => {
+		gitSyncMocks.getGitSyncSummary.mockResolvedValue({
+			...SUMMARY,
+			currentBranch: "kanban/task-1",
+		});
+		gitSyncMocks.runGitPushBranchAction.mockResolvedValue({
+			ok: true,
+			branch: "kanban/task-1",
+			summary: SUMMARY,
+			output: "",
+		});
+		const { api, broadcast } = makeApi();
+
+		const res = await api.pushGitBranch(SCOPE, {
+			taskId: "task-1",
+			baseRef: "main",
+			branch: "kanban/task-1",
+		});
+
+		expect(taskWorktreeMocks.resolveTaskCwd).toHaveBeenCalled();
+		expect(gitSyncMocks.runGitPushBranchAction).toHaveBeenCalledWith({
+			cwd: "/repo/.worktrees/task-1",
+			branch: "kanban/task-1",
+		});
+		expect(broadcast).toHaveBeenCalled();
+		expect(res.ok).toBe(true);
 	});
 });

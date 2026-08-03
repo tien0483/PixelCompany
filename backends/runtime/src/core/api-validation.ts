@@ -17,6 +17,8 @@ import {
 	type RuntimeGitCreateBranchRequest,
 	type RuntimeGitDeleteBranchRequest,
 	type RuntimeGitMergeBranchRequest,
+	type RuntimeGitCherryPickRequest,
+	type RuntimeGitPushBranchRequest,
 	type RuntimeHookIngestRequest,
 	type RuntimeProjectAddRequest,
 	type RuntimeProjectRemoveRequest,
@@ -53,6 +55,8 @@ import {
 	runtimeGitCreateBranchRequestSchema,
 	runtimeGitDeleteBranchRequestSchema,
 	runtimeGitMergeBranchRequestSchema,
+	runtimeGitCherryPickRequestSchema,
+	runtimeGitPushBranchRequestSchema,
 	runtimeHookIngestRequestSchema,
 	runtimeProjectAddRequestSchema,
 	runtimeProjectRemoveRequestSchema,
@@ -196,6 +200,47 @@ export function parseGitMergeBranchRequest(value: unknown): RuntimeGitMergeBranc
 	return {
 		taskId,
 		baseRef,
+	};
+}
+
+export function parseGitCherryPickRequest(value: unknown): RuntimeGitCherryPickRequest {
+	const parsed = parseWithSchema(runtimeGitCherryPickRequestSchema, value);
+	const taskId = parsed.taskId.trim();
+	const baseRef = parsed.baseRef.trim();
+	const commitHash = parsed.commitHash.trim();
+	const targetBranch = parsed.targetBranch.trim();
+	if (!taskId) {
+		throw new Error("Task id cannot be empty.");
+	}
+	if (!baseRef) {
+		throw new Error("Base ref cannot be empty.");
+	}
+	if (!commitHash) {
+		throw new Error("Commit hash cannot be empty.");
+	}
+	if (!targetBranch) {
+		throw new Error("Target branch cannot be empty.");
+	}
+	return {
+		taskId,
+		baseRef,
+		commitHash,
+		targetBranch,
+	};
+}
+
+export function parseGitPushBranchRequest(value: unknown): RuntimeGitPushBranchRequest {
+	const parsed = parseWithSchema(runtimeGitPushBranchRequestSchema, value);
+	const branch = parsed.branch.trim();
+	if (!branch) {
+		throw new Error("Branch name cannot be empty.");
+	}
+	const taskId = parsed.taskId?.trim();
+	const baseRef = parsed.baseRef?.trim();
+	return {
+		branch,
+		taskId: taskId && taskId.length > 0 ? taskId : undefined,
+		baseRef: baseRef && baseRef.length > 0 ? baseRef : undefined,
 	};
 }
 

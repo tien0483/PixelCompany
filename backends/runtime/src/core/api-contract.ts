@@ -352,6 +352,40 @@ export const runtimeGitMergeBranchResponseSchema = z.object({
 });
 export type RuntimeGitMergeBranchResponse = z.infer<typeof runtimeGitMergeBranchResponseSchema>;
 
+export const runtimeGitCherryPickRequestSchema = z.object({
+	taskId: z.string(),
+	baseRef: z.string(),
+	commitHash: z.string().min(7),
+	targetBranch: z.string().min(1),
+});
+export type RuntimeGitCherryPickRequest = z.infer<typeof runtimeGitCherryPickRequestSchema>;
+
+export const runtimeGitCherryPickResponseSchema = z.object({
+	ok: z.boolean(),
+	commitHash: z.string(),
+	targetBranch: z.string(),
+	summary: runtimeGitSyncSummarySchema,
+	output: z.string(),
+	error: z.string().optional(),
+});
+export type RuntimeGitCherryPickResponse = z.infer<typeof runtimeGitCherryPickResponseSchema>;
+
+export const runtimeGitPushBranchRequestSchema = z.object({
+	taskId: z.string().optional(),
+	baseRef: z.string().optional(),
+	branch: z.string().min(1),
+});
+export type RuntimeGitPushBranchRequest = z.infer<typeof runtimeGitPushBranchRequestSchema>;
+
+export const runtimeGitPushBranchResponseSchema = z.object({
+	ok: z.boolean(),
+	branch: z.string(),
+	summary: runtimeGitSyncSummarySchema,
+	output: z.string(),
+	error: z.string().optional(),
+});
+export type RuntimeGitPushBranchResponse = z.infer<typeof runtimeGitPushBranchResponseSchema>;
+
 export const runtimeGitDiscardResponseSchema = z.object({
 	ok: z.boolean(),
 	summary: runtimeGitSyncSummarySchema,

@@ -54,6 +54,10 @@ import type {
 	RuntimeGitDeleteBranchResponse,
 	RuntimeGitMergeBranchRequest,
 	RuntimeGitMergeBranchResponse,
+	RuntimeGitCherryPickRequest,
+	RuntimeGitCherryPickResponse,
+	RuntimeGitPushBranchRequest,
+	RuntimeGitPushBranchResponse,
 	RuntimeGitCheckoutResponse,
 	RuntimeGitCommitDiffRequest,
 	RuntimeGitCommitDiffResponse,
@@ -229,6 +233,10 @@ import {
 	runtimeGitDeleteBranchResponseSchema,
 	runtimeGitMergeBranchRequestSchema,
 	runtimeGitMergeBranchResponseSchema,
+	runtimeGitCherryPickRequestSchema,
+	runtimeGitCherryPickResponseSchema,
+	runtimeGitPushBranchRequestSchema,
+	runtimeGitPushBranchResponseSchema,
 	runtimeGitCommitDiffRequestSchema,
 	runtimeGitCommitDiffResponseSchema,
 	runtimeGitCommitRequestSchema,
@@ -453,6 +461,14 @@ export interface RuntimeTrpcContext {
 			scope: RuntimeTrpcWorkspaceScope,
 			input: RuntimeGitMergeBranchRequest,
 		) => Promise<RuntimeGitMergeBranchResponse>;
+		cherryPickCommit: (
+			scope: RuntimeTrpcWorkspaceScope,
+			input: RuntimeGitCherryPickRequest,
+		) => Promise<RuntimeGitCherryPickResponse>;
+		pushGitBranch: (
+			scope: RuntimeTrpcWorkspaceScope,
+			input: RuntimeGitPushBranchRequest,
+		) => Promise<RuntimeGitPushBranchResponse>;
 		discardGitChanges: (
 			scope: RuntimeTrpcWorkspaceScope,
 			input: RuntimeTaskWorkspaceInfoRequest | null,
@@ -895,6 +911,18 @@ export const runtimeAppRouter = t.router({
 			.output(runtimeGitMergeBranchResponseSchema)
 			.mutation(async ({ ctx, input }) => {
 				return await ctx.workspaceApi.mergeTaskBranch(ctx.workspaceScope, input);
+			}),
+		cherryPickCommit: workspaceProcedure
+			.input(runtimeGitCherryPickRequestSchema)
+			.output(runtimeGitCherryPickResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.workspaceApi.cherryPickCommit(ctx.workspaceScope, input);
+			}),
+		pushGitBranch: workspaceProcedure
+			.input(runtimeGitPushBranchRequestSchema)
+			.output(runtimeGitPushBranchResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.workspaceApi.pushGitBranch(ctx.workspaceScope, input);
 			}),
 		discardGitChanges: workspaceProcedure
 			.input(optionalTaskWorkspaceInfoRequestSchema)

@@ -7,6 +7,8 @@ import type {
 	RuntimeGitCreateBranchResponse,
 	RuntimeGitDeleteBranchResponse,
 	RuntimeGitMergeBranchResponse,
+	RuntimeGitCherryPickResponse,
+	RuntimeGitPushBranchResponse,
 	RuntimeGitCommitResponse,
 	RuntimeGitConflictSide,
 	RuntimeGitConflictsResponse,
@@ -607,6 +609,123 @@ export async function runGitMergeBranchAction(options: {
 		baseRef,
 		summary: nextSummary,
 		output: mergeResult.output,
+	};
+}
+
+/**
+ * Cherry-picks {@link options.commitHash} onto {@link options.targetBranch}.
+ * {@link options.cwd} must be the worktree that currently has `targetBranch` checked out.
+ * Aborts the cherry-pick on failure so the worktree is not left mid-conflict.
+ */
+export async function runGitCherryPickAction(options: {
+	cwd: string;
+	commitHash: string;
+	targetBranch: string;
+}): Promise<RuntimeGitCherryPickResponse> {
+	const commitHash = options.commitHash.trim();
+	const targetBranch = options.targetBranch.trim();
+	const initialSummary = await getGitSyncSummary(options.cwd);
+
+	if (!commitHash) {
+		return {
+			ok: false,
+			commitHash,
+			targetBranch,
+			summary: initialSummary,
+			output: "",
+			error: "Commit hash cannot be empty.",
+		};
+	}
+	if (!targetBranch) {
+		return {
+			ok: false,
+			commitHash,
+			targetBranch,
+			summary: initialSummary,
+			output: "",
+			error: "Target branch cannot be empty.",
+		};
+	}
+	if (initialSummary.currentBranch !== targetBranch) {
+		return {
+			ok: false,
+			commitHash,
+			targetBranch,
+			summary: initialSummary,
+			output: "",
+			error: `Expected '${targetBranch}' to be checked out for the cherry-pick but found '${initialSummary.currentBranch ?? "a detached HEAD"}'.`,
+		};
+	}
+
+	const cherryPickResult = await runGit(options.cwd, ["cherry-pick", commitHash]);
+	const nextSummary = await getGitSyncSummary(options.cwd);
+
+	if (!cherryPickResult.ok) {
+		await runGit(options.cwd, ["cherry-pick", "--abort"]);
+		return {
+			ok: false,
+			commitHash,
+			targetBranch,
+			summary: nextSummary,
+			output: cherryPickResult.output,
+			error:
+				cherryPickResult.error ??
+				`Could not cherry-pick '${commitHash}' onto ${targetBranch} (likely conflicts). The cherry-pick was aborted; resolve it manually.`,
+		};
+	}
+
+	return {
+		ok: true,
+		commitHash,
+		targetBranch,
+		summary: nextSummary,
+		output: cherryPickResult.output,
+	};
+}
+
+/**
+ * Pushes {@link options.branch} to origin from {@link options.cwd}.
+ * Uses `-u` when the current branch has no upstream configured.
+ */
+export async function runGitPushBranchAction(options: {
+	cwd: string;
+	branch: string;
+}): Promise<RuntimeGitPushBranchResponse> {
+	const branch = options.branch.trim();
+	const initialSummary = await getGitSyncSummary(options.cwd);
+
+	if (!branch) {
+		return {
+			ok: false,
+			branch,
+			summary: initialSummary,
+			output: "",
+			error: "Branch name cannot be empty.",
+		};
+	}
+
+	const args =
+		initialSummary.currentBranch === branch && !initialSummary.upstreamBranch
+			? ["push", "-u", "origin", branch]
+			: ["push", "origin", branch];
+	const pushResult = await runGit(options.cwd, args);
+	const nextSummary = await getGitSyncSummary(options.cwd);
+
+	if (!pushResult.ok) {
+		return {
+			ok: false,
+			branch,
+			summary: nextSummary,
+			output: pushResult.output,
+			error: pushResult.error ?? `Could not push '${branch}'.`,
+		};
+	}
+
+	return {
+		ok: true,
+		branch,
+		summary: nextSummary,
+		output: pushResult.output,
 	};
 }
 

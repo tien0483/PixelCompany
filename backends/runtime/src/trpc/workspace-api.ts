@@ -5,6 +5,8 @@ import type {
 	RuntimeGitCreateBranchResponse,
 	RuntimeGitDeleteBranchResponse,
 	RuntimeGitMergeBranchResponse,
+	RuntimeGitCherryPickResponse,
+	RuntimeGitPushBranchResponse,
 	RuntimeGitDiscardResponse,
 	RuntimeGitRevertResponse,
 	RuntimeGitSummaryResponse,
@@ -20,6 +22,8 @@ import {
 	parseGitCreateBranchRequest,
 	parseGitDeleteBranchRequest,
 	parseGitMergeBranchRequest,
+	parseGitCherryPickRequest,
+	parseGitPushBranchRequest,
 	parseWorktreeDeleteRequest,
 	parseWorktreeEnsureRequest,
 } from "../core/api-validation";
@@ -45,6 +49,8 @@ import {
 	runGitCreateBranchAction,
 	runGitDeleteBranchAction,
 	runGitMergeBranchAction,
+	runGitCherryPickAction,
+	runGitPushBranchAction,
 	runGitSyncAction,
 } from "../workspace/git-sync";
 import { listGitWorktrees } from "../workspace/git-worktree-inventory";
@@ -208,6 +214,29 @@ function createEmptyGitMergeBranchErrorResponse(error: unknown): RuntimeGitMerge
 		ok: false,
 		branch: "",
 		baseRef: "",
+		summary: EMPTY_GIT_SYNC_SUMMARY,
+		output: "",
+		error: message,
+	};
+}
+
+function createEmptyGitCherryPickErrorResponse(error: unknown): RuntimeGitCherryPickResponse {
+	const message = error instanceof Error ? error.message : String(error);
+	return {
+		ok: false,
+		commitHash: "",
+		targetBranch: "",
+		summary: EMPTY_GIT_SYNC_SUMMARY,
+		output: "",
+		error: message,
+	};
+}
+
+function createEmptyGitPushBranchErrorResponse(error: unknown): RuntimeGitPushBranchResponse {
+	const message = error instanceof Error ? error.message : String(error);
+	return {
+		ok: false,
+		branch: "",
 		summary: EMPTY_GIT_SYNC_SUMMARY,
 		output: "",
 		error: message,
@@ -382,6 +411,90 @@ export function createWorkspaceApi(deps: CreateWorkspaceApiDependencies): Runtim
 				return response;
 			} catch (error) {
 				return createEmptyGitMergeBranchErrorResponse(error);
+			}
+		},
+		cherryPickCommit: async (workspaceScope, input) => {
+			try {
+				const body = parseGitCherryPickRequest(input);
+				const inventory = await listGitWorktrees(workspaceScope.workspacePath);
+				if (!inventory.ok) {
+					throw new Error(inventory.error ?? "Could not list git worktrees.");
+				}
+				const targetWorktree = inventory.worktrees.find((entry) => entry.branch === body.targetBranch);
+				if (!targetWorktree) {
+					throw new Error(`Check out '${body.targetBranch}' in a worktree before cherry-picking.`);
+				}
+				const response = await runGitCherryPickAction({
+					cwd: targetWorktree.path,
+					commitHash: body.commitHash,
+					targetBranch: body.targetBranch,
+				});
+				if (response.ok) {
+					void deps.broadcastRuntimeWorkspaceStateUpdated(
+						workspaceScope.workspaceId,
+						workspaceScope.workspacePath,
+					);
+				}
+				return response;
+			} catch (error) {
+				return createEmptyGitCherryPickErrorResponse(error);
+			}
+		},
+		pushGitBranch: async (workspaceScope, input) => {
+			try {
+				const body = parseGitPushBranchRequest(input);
+				let pushCwd = workspaceScope.workspacePath;
+
+				if (body.taskId && body.baseRef) {
+					const taskCwd = await resolveTaskCwd({
+						cwd: workspaceScope.workspacePath,
+						taskId: body.taskId,
+						baseRef: body.baseRef,
+						ensure: false,
+					});
+					const taskSummary = await getGitSyncSummary(taskCwd);
+					if (taskSummary.currentBranch === body.branch) {
+						pushCwd = taskCwd;
+					} else {
+						const inventory = await listGitWorktrees(workspaceScope.workspacePath);
+						if (!inventory.ok) {
+							throw new Error(inventory.error ?? "Could not list git worktrees.");
+						}
+						const branchWorktree = inventory.worktrees.find((entry) => entry.branch === body.branch);
+						if (!branchWorktree) {
+							throw new Error(`Check out '${body.branch}' in a worktree before pushing.`);
+						}
+						pushCwd = branchWorktree.path;
+					}
+				} else {
+					const inventory = await listGitWorktrees(workspaceScope.workspacePath);
+					if (!inventory.ok) {
+						throw new Error(inventory.error ?? "Could not list git worktrees.");
+					}
+					const branchWorktree = inventory.worktrees.find((entry) => entry.branch === body.branch);
+					if (branchWorktree) {
+						pushCwd = branchWorktree.path;
+					} else {
+						const homeSummary = await getGitSyncSummary(workspaceScope.workspacePath);
+						if (homeSummary.currentBranch !== body.branch) {
+							throw new Error(`Check out '${body.branch}' in a worktree before pushing.`);
+						}
+					}
+				}
+
+				const response = await runGitPushBranchAction({
+					cwd: pushCwd,
+					branch: body.branch,
+				});
+				if (response.ok) {
+					void deps.broadcastRuntimeWorkspaceStateUpdated(
+						workspaceScope.workspaceId,
+						workspaceScope.workspacePath,
+					);
+				}
+				return response;
+			} catch (error) {
+				return createEmptyGitPushBranchErrorResponse(error);
 			}
 		},
 		discardGitChanges: async (workspaceScope, input) => {
