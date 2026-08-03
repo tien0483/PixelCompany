@@ -150,42 +150,60 @@ export function useLinkedBacklogTaskActions({
 					: currentSelectedTaskId,
 			);
 
-			const readyTasks = trashed.readyTaskIds
-				.map((readyTaskId) => findCardSelection(trashed.board, readyTaskId)?.card ?? null)
-				.filter((readyTask): readyTask is BoardCard => readyTask !== null);
+			const readySelections = trashed.readyTaskIds
+				.map((readyTaskId) => findCardSelection(trashed.board, readyTaskId))
+				.filter((selection): selection is NonNullable<typeof selection> => selection !== null);
 
-			if (readyTasks.length > 0) {
+			if (readySelections.length > 0) {
 				maybeRequestNotificationPermissionForTaskStart();
 				let startedTaskCount = 0;
-				if (startBacklogTaskWithAnimation) {
-					const startedTaskPromises: Promise<boolean>[] = [];
-					for (const [index, readyTask] of readyTasks.entries()) {
-						startedTaskPromises.push(startBacklogTaskWithAnimation(readyTask));
-						if (index < readyTasks.length - 1) {
-							await waitForBacklogStartAnimationAvailability?.();
-						}
+
+				// Queue-stack followers are already in In Progress; start a fresh agent in the
+				// shared worktree without moving columns again.
+				const queuedInProgress = readySelections.filter((selection) => selection.column.id === "in_progress");
+				for (const selection of queuedInProgress) {
+					const started = await kickoffTaskInProgress(selection.card, selection.card.id, "in_progress", {
+						optimisticMove: false,
+					});
+					if (started) {
+						startedTaskCount += 1;
 					}
-					const startedTasks = await Promise.all(startedTaskPromises);
-					startedTaskCount = startedTasks.filter(Boolean).length;
-				} else {
-					setBoard((currentBoardState) => {
-						let nextBoardState = currentBoardState;
-						for (const readyTask of readyTasks) {
-							const moved = moveTaskToColumn(nextBoardState, readyTask.id, "in_progress", {
-								insertAtTop: true,
-							});
-							if (moved.moved) {
-								nextBoardState = moved.board;
+				}
+
+				const backlogReady = readySelections
+					.filter((selection) => selection.column.id === "backlog")
+					.map((selection) => selection.card);
+				if (backlogReady.length > 0) {
+					if (startBacklogTaskWithAnimation) {
+						const startedTaskPromises: Promise<boolean>[] = [];
+						for (const [index, readyTask] of backlogReady.entries()) {
+							startedTaskPromises.push(startBacklogTaskWithAnimation(readyTask));
+							if (index < backlogReady.length - 1) {
+								await waitForBacklogStartAnimationAvailability?.();
 							}
 						}
-						return nextBoardState;
-					});
-					for (const readyTask of readyTasks) {
-						const started = await kickoffTaskInProgress(readyTask, readyTask.id, "backlog", {
-							optimisticMove: true,
+						const startedTasks = await Promise.all(startedTaskPromises);
+						startedTaskCount += startedTasks.filter(Boolean).length;
+					} else {
+						setBoard((currentBoardState) => {
+							let nextBoardState = currentBoardState;
+							for (const readyTask of backlogReady) {
+								const moved = moveTaskToColumn(nextBoardState, readyTask.id, "in_progress", {
+									insertAtTop: true,
+								});
+								if (moved.moved) {
+									nextBoardState = moved.board;
+								}
+							}
+							return nextBoardState;
 						});
-						if (started) {
-							startedTaskCount += 1;
+						for (const readyTask of backlogReady) {
+							const started = await kickoffTaskInProgress(readyTask, readyTask.id, "backlog", {
+								optimisticMove: true,
+							});
+							if (started) {
+								startedTaskCount += 1;
+							}
 						}
 					}
 				}

@@ -129,6 +129,21 @@ describe("board dependency state", () => {
 		]);
 	});
 
+	it("unlocks a chain follower queued in in_progress when the root is Done", () => {
+		const fixture = createBacklogBoard(["Task A", "Task B"]);
+		const taskA = requireTaskId(fixture.taskIdByPrompt["Task A"], "Task A");
+		const taskB = requireTaskId(fixture.taskIdByPrompt["Task B"], "Task B");
+		const linked = addTaskDependency(fixture.board, taskA, taskB);
+		expect(linked.added).toBe(true);
+
+		let board = moveTaskToColumn(linked.board, taskA, "in_progress").board;
+		board = moveTaskToColumn(board, taskB, "in_progress").board;
+		board = moveTaskToColumn(board, taskA, "review").board;
+		const trashed = trashTaskAndGetReadyLinkedTaskIds(board, taskA);
+		expect(trashed.moved).toBe(true);
+		expect(trashed.readyTaskIds).toEqual([taskB]);
+	});
+
 	it("rejects a chain link that would close a cycle", () => {
 		const fixture = createBacklogBoard(["Task A", "Task B", "Task C"]);
 		const taskA = requireTaskId(fixture.taskIdByPrompt["Task A"], "Task A");

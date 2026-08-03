@@ -20,6 +20,7 @@ import {
 	resolveChainWorktreeOwnerTaskId,
 	updateTask,
 } from "@/state/board-state";
+import { computeChainGroups } from "@/state/chain-groups";
 import { clearTaskWorkspaceInfo, setTaskWorkspaceInfo } from "@/stores/workspace-metadata-store";
 import type { SendTerminalInputOptions } from "@/terminal/terminal-input";
 import type { BoardCard, BoardColumnId, BoardData } from "@/types";
@@ -88,6 +89,7 @@ export interface UseBoardInteractionsResult {
 	handleDeleteDependency: (dependencyId: string) => void;
 	handleReorderChain: (orderedMemberIds: string[]) => void;
 	handleBreakChain: (memberIds: string[]) => void;
+	handleRunChain: (memberIds: string[]) => void;
 	handleDragEnd: (result: DropResult, options?: { selectDroppedTask?: boolean }) => void;
 	handleStartTask: (taskId: string) => void;
 	handleDeleteBacklogTask: (taskId: string) => void;
@@ -662,7 +664,42 @@ export function useBoardInteractions({
 				!programmaticMoveBehavior?.skipKickoff
 			) {
 				maybeRequestNotificationPermissionForTaskStart();
-				const movedSelection = findCardSelection(applied.board, moveEvent.taskId);
+				let boardAfterQueue = applied.board;
+				// If the dragged card is a chain root, queue remaining backlog members into the stack.
+				if (resolveChainWorktreeOwnerTaskId(applied.board, moveEvent.taskId) === moveEvent.taskId) {
+					const backlogCards =
+						applied.board.columns.find((column) => column.id === "backlog")?.cards ?? [];
+					const remainingBacklogIds = new Set(backlogCards.map((card) => card.id));
+					const chainDeps = applied.board.dependencies.filter((dependency) => dependency.chain === true);
+					const followerIds: string[] = [];
+					const visited = new Set<string>([moveEvent.taskId]);
+					const walkQueue = [moveEvent.taskId];
+					while (walkQueue.length > 0) {
+						const current = walkQueue.shift() as string;
+						for (const dependency of chainDeps) {
+							if (dependency.toTaskId !== current || visited.has(dependency.fromTaskId)) {
+								continue;
+							}
+							visited.add(dependency.fromTaskId);
+							if (remainingBacklogIds.has(dependency.fromTaskId)) {
+								followerIds.push(dependency.fromTaskId);
+							}
+							walkQueue.push(dependency.fromTaskId);
+						}
+					}
+					if (followerIds.length > 0) {
+						for (const followerId of followerIds) {
+							const moved = moveTaskToColumn(boardAfterQueue, followerId, "in_progress", {
+								insertAtTop: true,
+							});
+							if (moved.moved) {
+								boardAfterQueue = moved.board;
+							}
+						}
+						setBoard(boardAfterQueue);
+					}
+				}
+				const movedSelection = findCardSelection(boardAfterQueue, moveEvent.taskId);
 				if (movedSelection) {
 					void kickoffTaskInProgress(movedSelection.card, moveEvent.taskId, moveEvent.fromColumnId)
 						.then((started) => {
@@ -692,6 +729,47 @@ export function useBoardInteractions({
 		],
 	);
 
+	/**
+	 * Batch-moves every chain member into In Progress (queue stack), then starts only the
+	 * head with a new agent. Followers stay queued until the prior member is Done.
+	 */
+	const handleRunChain = useCallback(
+		(memberIds: string[]) => {
+			const orderedMemberIds = memberIds.filter((taskId) => taskId.trim().length > 0);
+			if (orderedMemberIds.length === 0) {
+				return;
+			}
+
+			let nextBoard = board;
+			const backlogMemberIds = orderedMemberIds.filter(
+				(taskId) => getTaskColumnId(nextBoard, taskId) === "backlog",
+			);
+			// Reverse + insertAtTop keeps run order (root first) at the top of In Progress.
+			for (const taskId of [...backlogMemberIds].reverse()) {
+				const moved = moveTaskToColumn(nextBoard, taskId, "in_progress", { insertAtTop: true });
+				if (moved.moved) {
+					nextBoard = moved.board;
+				}
+			}
+
+			const headId = orderedMemberIds[0];
+			if (!headId) {
+				return;
+			}
+			const headSelection = findCardSelection(nextBoard, headId);
+			if (!headSelection || headSelection.column.id !== "in_progress") {
+				return;
+			}
+
+			if (nextBoard !== board) {
+				setBoard(nextBoard);
+			}
+			maybeRequestNotificationPermissionForTaskStart();
+			void kickoffTaskInProgress(headSelection.card, headId, "backlog", { optimisticMove: true });
+		},
+		[board, kickoffTaskInProgress, maybeRequestNotificationPermissionForTaskStart, setBoard],
+	);
+
 	const handleStartTask = useCallback(
 		(taskId: string) => {
 			const selection = findCardSelection(board, taskId);
@@ -702,10 +780,22 @@ export function useBoardInteractions({
 			if (resolveChainWorktreeOwnerTaskId(board, taskId) !== taskId) {
 				return;
 			}
+			// Starting a chain root also queues the rest of the chain so the stack UI stays intact.
+			const backlogCards = board.columns.find((column) => column.id === "backlog")?.cards ?? [];
+			const chainGroup = computeChainGroups(backlogCards, board.dependencies).groupByRootId.get(taskId);
+			if (chainGroup && chainGroup.memberIdsInOrder.length > 1) {
+				handleRunChain(chainGroup.memberIdsInOrder);
+				return;
+			}
 			maybeRequestNotificationPermissionForTaskStart();
 			void startBacklogTaskWithAnimation(selection.card);
 		},
-		[board, maybeRequestNotificationPermissionForTaskStart, startBacklogTaskWithAnimation],
+		[
+			board,
+			handleRunChain,
+			maybeRequestNotificationPermissionForTaskStart,
+			startBacklogTaskWithAnimation,
+		],
 	);
 
 	const handleDeleteBacklogTask = useCallback(
@@ -749,6 +839,7 @@ export function useBoardInteractions({
 			let nextBoard = board;
 			const pendingStarts: BoardCard[] = [];
 			const startedTaskIds = new Set<string>();
+			const backlogCards = () => nextBoard.columns.find((column) => column.id === "backlog")?.cards ?? [];
 
 			for (const taskId of requestedTaskIds) {
 				if (!taskId || startedTaskIds.has(taskId)) {
@@ -763,13 +854,22 @@ export function useBoardInteractions({
 				if (resolveChainWorktreeOwnerTaskId(nextBoard, taskId) !== taskId) {
 					continue;
 				}
-				const moved = moveTaskToColumn(nextBoard, taskId, "in_progress", { insertAtTop: true });
-				if (!moved.moved) {
-					continue;
+
+				// Queue the whole chain into In Progress with the root; only the root is started.
+				const chainGroup = computeChainGroups(backlogCards(), nextBoard.dependencies).groupByRootId.get(taskId);
+				const membersToQueue =
+					chainGroup && chainGroup.memberIdsInOrder.length > 1
+						? chainGroup.memberIdsInOrder.filter((memberId) => getTaskColumnId(nextBoard, memberId) === "backlog")
+						: [taskId];
+				for (const memberId of [...membersToQueue].reverse()) {
+					const moved = moveTaskToColumn(nextBoard, memberId, "in_progress", { insertAtTop: true });
+					if (moved.moved) {
+						nextBoard = moved.board;
+					}
 				}
-				nextBoard = moved.board;
+
 				const movedSelection = findCardSelection(nextBoard, taskId);
-				if (!movedSelection) {
+				if (!movedSelection || movedSelection.column.id !== "in_progress") {
 					continue;
 				}
 				pendingStarts.push(movedSelection.card);
@@ -954,6 +1054,7 @@ export function useBoardInteractions({
 		handleDeleteDependency,
 		handleReorderChain,
 		handleBreakChain,
+		handleRunChain,
 		handleDragEnd,
 		handleStartTask,
 		handleDeleteBacklogTask,

@@ -539,6 +539,32 @@ body,
 	color: var(--color-text-tertiary);
 }
 
+.kb-chain-group-stack .kb-chain-group-header {
+	cursor: default;
+}
+
+.kb-chain-group-stack .kb-chain-group-header:hover {
+	background: transparent;
+	color: var(--color-text-secondary);
+}
+
+.kb-chain-queued-row {
+	cursor: default;
+}
+
+.kb-chain-queued-badge {
+	flex-shrink: 0;
+	margin-left: auto;
+	padding: 1px 6px;
+	border-radius: var(--radius-sm);
+	background: var(--color-surface-4);
+	color: var(--color-text-tertiary);
+	font-size: 10px;
+	font-weight: 600;
+	letter-spacing: 0.02em;
+	text-transform: uppercase;
+}
+
 .kb-chain-member-title-button {
 	border: none;
 	background: transparent;

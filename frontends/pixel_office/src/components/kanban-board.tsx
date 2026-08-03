@@ -64,6 +64,7 @@ export function KanbanBoard({
 	onDeleteDependency,
 	onReorderChain,
 	onBreakChain,
+	onRunChain,
 	onDragEnd,
 	onRequestProgrammaticCardMoveReady,
 	workspacePath,
@@ -108,6 +109,7 @@ export function KanbanBoard({
 	onDeleteDependency?: (dependencyId: string) => void;
 	onReorderChain?: (orderedMemberIds: string[]) => void;
 	onBreakChain?: (memberIds: string[]) => void;
+	onRunChain?: (memberIds: string[]) => void;
 	onDragEnd: (result: DropResult) => void;
 	onRequestProgrammaticCardMoveReady?: (requestMove: RequestProgrammaticCardMove | null) => void;
 	workspacePath?: string | null;
@@ -465,6 +467,7 @@ export function KanbanBoard({
 						onDeleteDependency={column.id === "backlog" ? onDeleteDependency : undefined}
 						onReorderChain={column.id === "backlog" ? onReorderChain : undefined}
 						onBreakChain={column.id === "backlog" ? onBreakChain : undefined}
+						onRunChain={column.id === "backlog" ? onRunChain : undefined}
 						workspacePath={workspacePath}
 						defaultClineModelId={defaultClineModelId}
 						onCardClick={(card) => {

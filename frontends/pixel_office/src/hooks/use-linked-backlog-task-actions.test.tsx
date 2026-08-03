@@ -405,4 +405,69 @@ describe("useLinkedBacklogTaskActions", () => {
 
 		expect(trackTasksAutoStartedFromDependencyMock).toHaveBeenCalledWith(2);
 	});
+
+	it("starts a new agent for a chain follower already queued in in_progress", async () => {
+		let latestSnapshot: HookSnapshot | null = null;
+		const kickoffTaskInProgress = vi.fn(async () => true);
+		const startBacklogTaskWithAnimation = vi.fn(async () => true);
+		const boardFactory = (): BoardData => ({
+			columns: [
+				{ id: "backlog", title: "Backlog", cards: [] },
+				{
+					id: "in_progress",
+					title: "In Progress",
+					cards: [createTask("task-follower", "Queued follower", 2)],
+				},
+				{
+					id: "review",
+					title: "Review",
+					cards: [createTask("task-root", "Chain root", 1)],
+				},
+				{ id: "trash", title: "Done", cards: [] },
+			],
+			dependencies: [
+				{
+					id: "dep-chain",
+					fromTaskId: "task-follower",
+					toTaskId: "task-root",
+					createdAt: 10,
+					chain: true,
+				},
+			],
+		});
+
+		await act(async () => {
+			root.render(
+				<HookHarness
+					boardFactory={boardFactory}
+					kickoffTaskInProgress={kickoffTaskInProgress}
+					startBacklogTaskWithAnimation={startBacklogTaskWithAnimation}
+					onSnapshot={(snapshot) => {
+						latestSnapshot = snapshot;
+					}}
+				/>,
+			);
+		});
+
+		if (latestSnapshot === null) {
+			throw new Error("Expected a hook snapshot.");
+		}
+		const initialSnapshot = latestSnapshot as HookSnapshot;
+		const reviewTask = initialSnapshot.board.columns.find((column) => column.id === "review")?.cards[0];
+		if (!reviewTask) {
+			throw new Error("Expected a review task.");
+		}
+
+		await act(async () => {
+			await initialSnapshot.confirmMoveTaskToTrash(reviewTask, initialSnapshot.board);
+		});
+
+		expect(startBacklogTaskWithAnimation).not.toHaveBeenCalled();
+		expect(kickoffTaskInProgress).toHaveBeenCalledTimes(1);
+		const kickoffCall = kickoffTaskInProgress.mock.calls[0];
+		expect(kickoffCall?.[0]).toMatchObject({ id: "task-follower" });
+		expect(kickoffCall?.[2]).toBe("in_progress");
+		expect(kickoffCall?.[3]).toMatchObject({ optimisticMove: false });
+		expect(trackTasksAutoStartedFromDependencyMock).toHaveBeenCalledWith(1);
+	});
 });

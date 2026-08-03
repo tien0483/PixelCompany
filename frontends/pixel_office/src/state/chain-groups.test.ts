@@ -2,7 +2,12 @@ import { describe, expect, it } from "vitest";
 
 import { createInitialBoardData } from "@/data/board-data";
 import { addTaskDependency, addTaskToColumn, moveTaskToColumn } from "@/state/board-state";
-import { computeBacklogChainGroups, isTaskInChain, resolveChainRootId } from "@/state/chain-groups";
+import {
+	computeBacklogChainGroups,
+	computeChainGroups,
+	isTaskInChain,
+	resolveChainRootId,
+} from "@/state/chain-groups";
 import type { BoardData } from "@/types";
 
 // Builds N backlog tasks and returns the board plus each task id by its 1-based order.
@@ -29,6 +34,10 @@ function backlogCards(board: BoardData) {
 	return board.columns.find((column) => column.id === "backlog")?.cards ?? [];
 }
 
+function inProgressCards(board: BoardData) {
+	return board.columns.find((column) => column.id === "in_progress")?.cards ?? [];
+}
+
 describe("computeBacklogChainGroups", () => {
 	it("returns no groups when there are no chain dependencies", () => {
 		const { board } = backlogBoard(2);
@@ -44,6 +53,7 @@ describe("computeBacklogChainGroups", () => {
 
 		expect(grouping.groups).toHaveLength(1);
 		expect(grouping.groups[0]?.rootId).toBe(root);
+		expect(grouping.groups[0]?.stackHeadId).toBe(root);
 		expect(grouping.groups[0]?.memberIdsInOrder).toEqual([root, follower]);
 		expect(grouping.rootIdByMemberId.get(follower)).toBe(root);
 		expect(grouping.groupByRootId.has(root)).toBe(true);
@@ -71,6 +81,44 @@ describe("computeBacklogChainGroups", () => {
 
 		const grouping = computeBacklogChainGroups(backlogCards(linked.board), linked.board.dependencies);
 		expect(grouping.groups).toHaveLength(0);
+	});
+});
+
+describe("computeChainGroups", () => {
+	it("keeps an in-progress queue stack after the root leaves Backlog", () => {
+		const { board, ids } = backlogBoard(3);
+		const [a, b, c] = ids as [string, string, string];
+		let linked = chain(board, b, a);
+		linked = chain(linked, c, b);
+		linked = moveTaskToColumn(linked, a, "in_progress").board;
+		linked = moveTaskToColumn(linked, b, "in_progress").board;
+		linked = moveTaskToColumn(linked, c, "in_progress").board;
+
+		const grouping = computeChainGroups(inProgressCards(linked), linked.dependencies);
+		expect(grouping.groups).toHaveLength(1);
+		expect(grouping.groups[0]?.rootId).toBe(a);
+		expect(grouping.groups[0]?.stackHeadId).toBe(a);
+		expect(grouping.groups[0]?.memberIdsInOrder).toEqual([a, b, c]);
+	});
+
+	it("re-anchors the stack head when the ultimate root has left the column", () => {
+		const { board, ids } = backlogBoard(3);
+		const [a, b, c] = ids as [string, string, string];
+		let linked = chain(board, b, a);
+		linked = chain(linked, c, b);
+		linked = moveTaskToColumn(linked, a, "in_progress").board;
+		linked = moveTaskToColumn(linked, b, "in_progress").board;
+		linked = moveTaskToColumn(linked, c, "in_progress").board;
+		linked = moveTaskToColumn(linked, a, "review").board;
+		linked = moveTaskToColumn(linked, a, "trash").board;
+
+		const grouping = computeChainGroups(inProgressCards(linked), linked.dependencies);
+		expect(grouping.groups).toHaveLength(1);
+		expect(grouping.groups[0]?.rootId).toBe(a);
+		expect(grouping.groups[0]?.stackHeadId).toBe(b);
+		expect(grouping.groups[0]?.memberIdsInOrder).toEqual([b, c]);
+		expect(grouping.rootIdByMemberId.get(c)).toBe(b);
+		expect(grouping.groupByRootId.has(b)).toBe(true);
 	});
 });
 
