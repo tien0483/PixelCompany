@@ -178,14 +178,14 @@ describe("ManagerAccountActions", () => {
 		expect((container.querySelector('[aria-label="Validate claude@example.com"]') as HTMLButtonElement).disabled).toBe(
 			true,
 		);
-		expect((container.querySelector('[aria-label="Enable claude@example.com"]') as HTMLButtonElement).disabled).toBe(
+		expect((container.querySelector('[aria-label="Activate claude@example.com"]') as HTMLButtonElement).disabled).toBe(
 			false,
 		);
 		expect((container.querySelector('[aria-label="Delete claude@example.com"]') as HTMLButtonElement).disabled).toBe(
 			false,
 		);
 		act(() => {
-			(container.querySelector('[aria-label="Enable claude@example.com"]') as HTMLButtonElement).click();
+			(container.querySelector('[aria-label="Activate claude@example.com"]') as HTMLButtonElement).click();
 		});
 		expect(onToggleEnabled).toHaveBeenCalledTimes(1);
 		expect(onValidate).not.toHaveBeenCalled();

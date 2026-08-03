@@ -185,7 +185,7 @@ export function ManagerAccountActions({
 	const disabled = !online || busy;
 	const actionDisabled = disabled || seatLocked;
 	const offlineReason = !online ? "Manager is offline — reconnect to use seat actions" : busy ? "Working…" : null;
-	const seatLockedReason = seatLocked ? "Seat is disabled — turn On to unlock other actions" : null;
+	const seatLockedReason = seatLocked ? "Seat is deactivated — turn On to unlock other actions" : null;
 	const label = account.displayName ?? account.email;
 	const isCursor = account.provider === "cursor";
 	const isClaude = account.provider === "claude";
@@ -290,11 +290,11 @@ export function ManagerAccountActions({
 					offlineReason ??
 					(isCursor
 						? account.isActive
-							? "Disable (excluded from Kanban Auto account pick)"
-							: "Enable for Kanban Auto account pick"
+							? "Deactivate (excluded from Kanban Auto account pick)"
+							: "Activate for Kanban Auto account pick"
 						: account.isActive
-							? "Disable (excluded from auto-swap)"
-							: "Enable for auto-swap")
+							? "Deactivate (excluded from auto-swap)"
+							: "Activate for auto-swap")
 				}
 			>
 				<Button
@@ -308,7 +308,7 @@ export function ManagerAccountActions({
 							? "h-6 px-1.5 text-[10px]"
 							: "h-6 rounded border border-status-green/30 bg-status-green/10 px-1.5 text-[10px] text-status-green"
 					}
-					aria-label={account.isActive ? `Disable ${label}` : `Enable ${label}`}
+					aria-label={account.isActive ? `Deactivate ${label}` : `Activate ${label}`}
 				>
 					{account.isActive ? "On" : "Off"}
 				</Button>

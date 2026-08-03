@@ -100,6 +100,7 @@ import {
 	setTaskLaunchSettings,
 	setTaskManagerAccount,
 } from "@/state/board-state";
+import { isTaskInChain } from "@/state/chain-groups";
 import {
 	getTaskWorkspaceInfo,
 	getTaskWorkspaceSnapshot,
@@ -357,10 +358,6 @@ export default function App(): ReactElement {
 		setNewTaskImages,
 		newTaskStartInPlanMode,
 		setNewTaskStartInPlanMode,
-		newTaskAutoReviewEnabled,
-		setNewTaskAutoReviewEnabled,
-		newTaskAutoReviewMode,
-		setNewTaskAutoReviewMode,
 		newTaskAutoRunDelayMinutes,
 		setNewTaskAutoRunDelayMinutes,
 		isNewTaskStartInPlanModeDisabled,
@@ -1022,10 +1019,14 @@ export default function App(): ReactElement {
 			startInPlanMode={editTaskStartInPlanMode}
 			onStartInPlanModeChange={setEditTaskStartInPlanMode}
 			startInPlanModeDisabled={isEditTaskStartInPlanModeDisabled}
+			showAutoCommitOptIn={isTaskInChain(board.dependencies, editingTaskId)}
 			autoReviewEnabled={editTaskAutoReviewEnabled}
-			onAutoReviewEnabledChange={setEditTaskAutoReviewEnabled}
-			autoReviewMode={editTaskAutoReviewMode}
-			onAutoReviewModeChange={setEditTaskAutoReviewMode}
+			onAutoReviewEnabledChange={(enabled) => {
+				setEditTaskAutoReviewEnabled(enabled);
+				if (enabled) {
+					setEditTaskAutoReviewMode("commit");
+				}
+			}}
 			workspaceId={currentProjectId}
 			branchRef={editTaskBranchRef}
 			branchOptions={createTaskBranchOptions}
@@ -1583,10 +1584,6 @@ export default function App(): ReactElement {
 					startInPlanMode={newTaskStartInPlanMode}
 					onStartInPlanModeChange={setNewTaskStartInPlanMode}
 					startInPlanModeDisabled={isNewTaskStartInPlanModeDisabled}
-					autoReviewEnabled={newTaskAutoReviewEnabled}
-					onAutoReviewEnabledChange={setNewTaskAutoReviewEnabled}
-					autoReviewMode={newTaskAutoReviewMode}
-					onAutoReviewModeChange={setNewTaskAutoReviewMode}
 					autoRunDelayMinutes={newTaskAutoRunDelayMinutes}
 					onAutoRunDelayMinutesChange={setNewTaskAutoRunDelayMinutes}
 					workspaceId={currentProjectId}

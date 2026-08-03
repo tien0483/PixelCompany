@@ -19,9 +19,9 @@ export interface TaskAccountPickerProps {
 function accountLabel(account: RuntimeManagerAccount): string {
 	const name = account.displayName ?? account.email;
 	const usage = account.canTrackUsage ? ` · 5h ${formatPercent(account.fiveHourPercent)}` : "";
-	const disabled = account.isActive ? "" : " · disabled";
+	const deactivated = account.isActive ? "" : " · deactivated";
 	const donate = isDonateExhausted(account) ? (account.donateLimitLocked ? " · over cap (locked)" : " · over cap") : "";
-	return `${name}${usage}${disabled}${donate}`;
+	return `${name}${usage}${deactivated}${donate}`;
 }
 
 function agentAccountLabel(agentId: RuntimeAgentId | null): string {
