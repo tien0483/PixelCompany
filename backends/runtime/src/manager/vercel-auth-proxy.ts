@@ -1,10 +1,15 @@
 /**
  * Server-side proxy to the Pixel Office usage Vercel app.
  * Browser calls hit CORS/preflight redirects; the runtime fetches instead.
+ *
+ * Preview deployments often enable Vercel Deployment Protection (401 login wall).
+ * Set PIXEL_OFFICE_USAGE_BYPASS_SECRET to the project's Protection Bypass for
+ * Automation secret so the runtime can call the APIs. Colleague form links still
+ * need a public production URL (or protection disabled) — do not put the bypass
+ * secret in emailed formUrl.
  */
 
-const DEFAULT_BASE_URL =
-	"https://pixel-office-usage-j4jls5hjl-pixel-company.vercel.app";
+const DEFAULT_BASE_URL = "https://pixel-office-usage.vercel.app";
 
 export function resolveUsageAuthBaseUrl(
 	envValue: string | undefined = process.env.PIXEL_OFFICE_USAGE_URL,
@@ -14,6 +19,26 @@ export function resolveUsageAuthBaseUrl(
 		return trimmed.replace(/\/+$/, "");
 	}
 	return DEFAULT_BASE_URL;
+}
+
+export function resolveUsageAuthBypassSecret(
+	envValue: string | undefined = process.env.PIXEL_OFFICE_USAGE_BYPASS_SECRET,
+): string | null {
+	const trimmed = typeof envValue === "string" ? envValue.trim() : "";
+	return trimmed.length > 0 ? trimmed : null;
+}
+
+function usageAuthHeaders(
+	extra: Record<string, string>,
+	bypassSecret: string | null = resolveUsageAuthBypassSecret(),
+): Record<string, string> {
+	if (bypassSecret === null) {
+		return extra;
+	}
+	return {
+		...extra,
+		"x-vercel-protection-bypass": bypassSecret,
+	};
 }
 
 export interface UsageAuthSessionCreated {
@@ -64,25 +89,44 @@ function parsePercentage(raw: unknown): number | null {
 	return null;
 }
 
+function describeHttpFailure(status: number, action: string): string {
+	if (status === 401 || status === 403) {
+		return (
+			`${action} returned ${String(status)} — the Vercel deployment is protected. ` +
+			`Disable Deployment Protection for a public production URL, or set ` +
+			`PIXEL_OFFICE_USAGE_BYPASS_SECRET to the project's Protection Bypass for Automation secret.`
+		);
+	}
+	return `${action} (${String(status)})`;
+}
+
 export async function createUsageAuthSession(
 	authLink: string,
 	options?: {
 		baseUrl?: string;
 		sessionId?: string;
+		bypassSecret?: string | null;
 		fetchImpl?: typeof fetch;
 	},
 ): Promise<UsageAuthSessionCreated> {
 	const baseUrl = options?.baseUrl ?? resolveUsageAuthBaseUrl();
 	const sessionId = options?.sessionId ?? crypto.randomUUID();
 	const fetchImpl = options?.fetchImpl ?? fetch;
+	const bypassSecret =
+		options?.bypassSecret === undefined
+			? resolveUsageAuthBypassSecret()
+			: options.bypassSecret;
 	const response = await fetchImpl(`${baseUrl}/api/session/create`, {
 		method: "POST",
-		headers: { "Content-Type": "application/json", Accept: "application/json" },
+		headers: usageAuthHeaders(
+			{ "Content-Type": "application/json", Accept: "application/json" },
+			bypassSecret,
+		),
 		body: JSON.stringify({ sessionId, authLink }),
 		redirect: "follow",
 	});
 	if (!response.ok) {
-		throw new Error(`Could not create authorization session (${String(response.status)})`);
+		throw new Error(describeHttpFailure(response.status, "Could not create authorization session"));
 	}
 	const data = (await response.json()) as {
 		formUrl?: string;
@@ -93,25 +137,56 @@ export async function createUsageAuthSession(
 	}
 	return {
 		sessionId: typeof data.sessionId === "string" ? data.sessionId : sessionId,
-		formUrl: data.formUrl.trim(),
+		formUrl: normalizeFormUrl(data.formUrl.trim(), baseUrl, sessionId),
 	};
+}
+
+/**
+ * Some Vercel envs still mint formUrl against localhost. Rewrite to the public base
+ * while preserving the sessionId query so emailed links are usable.
+ */
+export function normalizeFormUrl(
+	formUrl: string,
+	baseUrl: string,
+	sessionId: string,
+): string {
+	try {
+		const parsed = new URL(formUrl);
+		const host = parsed.hostname.toLowerCase();
+		if (host === "localhost" || host === "127.0.0.1") {
+			const publicUrl = new URL(baseUrl);
+			publicUrl.searchParams.set(
+				"sessionId",
+				parsed.searchParams.get("sessionId") ?? sessionId,
+			);
+			return publicUrl.toString();
+		}
+	} catch {
+		// Fall through and return the original string.
+	}
+	return formUrl;
 }
 
 export async function lookupUsageAuthCode(
 	sessionId: string,
 	options?: {
 		baseUrl?: string;
+		bypassSecret?: string | null;
 		fetchImpl?: typeof fetch;
 	},
 ): Promise<UsageAuthCodeLookup> {
 	const baseUrl = options?.baseUrl ?? resolveUsageAuthBaseUrl();
 	const fetchImpl = options?.fetchImpl ?? fetch;
+	const bypassSecret =
+		options?.bypassSecret === undefined
+			? resolveUsageAuthBypassSecret()
+			: options.bypassSecret;
 	const url = `${baseUrl}/api/auth-code?sessionId=${encodeURIComponent(sessionId)}`;
 	let response: Response;
 	try {
 		response = await fetchImpl(url, {
 			method: "GET",
-			headers: { Accept: "application/json" },
+			headers: usageAuthHeaders({ Accept: "application/json" }, bypassSecret),
 			redirect: "follow",
 		});
 	} catch (err) {
@@ -147,7 +222,7 @@ export async function lookupUsageAuthCode(
 			authCode: null,
 			percentage: null,
 			submittedAt: null,
-			error: `Authorization form poll failed (${String(response.status)})`,
+			error: describeHttpFailure(response.status, "Authorization form poll failed"),
 		};
 	}
 	const data = (await response.json()) as {

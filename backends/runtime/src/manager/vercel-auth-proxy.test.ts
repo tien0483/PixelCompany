@@ -45,6 +45,56 @@ describe("createUsageAuthSession", () => {
 			}),
 		);
 	});
+
+	it("rewrites localhost formUrl to the public base URL", async () => {
+		const fetchImpl = vi.fn(async () =>
+			Response.json({
+				sessionId: "sess-1",
+				formUrl: "http://localhost:3000?sessionId=sess-1",
+			}),
+		);
+		const result = await createUsageAuthSession("https://claude.ai/oauth", {
+			baseUrl: "https://pixel-office-usage.vercel.app",
+			sessionId: "sess-1",
+			fetchImpl: fetchImpl as unknown as typeof fetch,
+		});
+		expect(result.formUrl).toBe(
+			"https://pixel-office-usage.vercel.app/?sessionId=sess-1",
+		);
+	});
+
+	it("sends the Vercel protection bypass header when configured", async () => {
+		const fetchImpl = vi.fn(async () =>
+			Response.json({
+				sessionId: "sess-1",
+				formUrl: "https://example.vercel.app/?sessionId=sess-1",
+			}),
+		);
+		await createUsageAuthSession("https://claude.ai/oauth", {
+			baseUrl: "https://example.vercel.app",
+			sessionId: "sess-1",
+			bypassSecret: "bypass-secret",
+			fetchImpl: fetchImpl as unknown as typeof fetch,
+		});
+		expect(fetchImpl).toHaveBeenCalledWith(
+			"https://example.vercel.app/api/session/create",
+			expect.objectContaining({
+				headers: expect.objectContaining({
+					"x-vercel-protection-bypass": "bypass-secret",
+				}),
+			}),
+		);
+	});
+
+	it("explains 401 deployment protection failures", async () => {
+		const fetchImpl = vi.fn(async () => new Response("nope", { status: 401 }));
+		await expect(
+			createUsageAuthSession("https://claude.ai/oauth", {
+				baseUrl: "https://example.vercel.app",
+				fetchImpl: fetchImpl as unknown as typeof fetch,
+			}),
+		).rejects.toThrow(/Deployment Protection|PIXEL_OFFICE_USAGE_BYPASS_SECRET/);
+	});
 });
 
 describe("lookupUsageAuthCode", () => {
