@@ -79,12 +79,16 @@ Steps:
 2. Create the task branch at the current HEAD and switch to it: git switch -c {{task_branch}}
    - If {{task_branch}} already exists, switch to it instead: git switch {{task_branch}}
 3. Commit the staged changes on {{task_branch}} with a clear Conventional Commits message.
-4. Do not push and do not merge into {{base_ref}}; the human does that from the board.
-5. Report:
+4. Integrate the latest {{base_ref}} into {{task_branch}} in this worktree only: git merge {{base_ref}}
+   - If the merge reports conflicts, resolve them here (keep both intents when possible), leave no conflict markers, and commit the merge.
+   - Do not check out, reset, or otherwise modify the {{base_ref}} worktree.
+   - If you cannot resolve a conflict safely, abort the merge (git merge --abort), leave {{task_branch}} as-is, and report the conflicted paths.
+5. Do not push and do not merge into {{base_ref}}; the human does that from the board (Merge → {{base_ref}}).
+6. Report:
    - Task branch name: {{task_branch}}
    - Final commit hash
    - Final commit message
-   - Any remaining manual follow-up needed`;
+   - Whether {{base_ref}} was integrated (and any conflict follow-up needed)`;
 const DEFAULT_OPEN_PR_PROMPT_TEMPLATE = `You are in a worktree on a detached HEAD. When you are finished with the task, open a pull request against {{base_ref}}.
 
 - Do not run destructive commands: git reset --hard, git clean -fdx, git worktree remove, rm/mv on repository paths.
