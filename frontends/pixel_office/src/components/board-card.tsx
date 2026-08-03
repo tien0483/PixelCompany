@@ -25,6 +25,10 @@ import {
 	formatClineSelectedModelButtonText,
 	resolveClineModelDisplayName,
 } from "@/components/detail-panels/cline-model-picker-options";
+import {
+	BoardCardReviewGitActions,
+	type ReviewGitBranchedSubmit,
+} from "@/components/board-card-review-git-actions";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
 import { Spinner } from "@/components/ui/spinner";
@@ -255,11 +259,17 @@ export function BoardCard({
 	onRestoreFromTrash,
 	onSaveTitle,
 	onCommit,
-	onOpenPr,
+	onOpenPr: _onOpenPr,
+	onSubmitReviewGit,
+	onCancelReviewGitForm,
+	onRetryReviewGitFollowOn,
+	reviewGitStatusMessage = null,
+	canRetryReviewGitFollowOn = false,
+	branchSuggestions,
 	onMerge,
 	onCancelAutomaticAction,
 	isCommitLoading = false,
-	isOpenPrLoading = false,
+	isOpenPrLoading: _isOpenPrLoading = false,
 	isMergeLoading = false,
 	isMoveToTrashLoading = false,
 	onDependencyPointerDown,
@@ -285,7 +295,14 @@ export function BoardCard({
 	onRestoreFromTrash?: (taskId: string) => void;
 	onSaveTitle?: (taskId: string, title: string) => void;
 	onCommit?: (taskId: string) => void;
+	/** @deprecated Prefer onSubmitReviewGit; kept for call-site compatibility during migration. */
 	onOpenPr?: (taskId: string) => void;
+	onSubmitReviewGit?: (taskId: string, input: ReviewGitBranchedSubmit) => void;
+	onCancelReviewGitForm?: (taskId: string) => void;
+	onRetryReviewGitFollowOn?: (taskId: string) => void;
+	reviewGitStatusMessage?: string | null;
+	canRetryReviewGitFollowOn?: boolean;
+	branchSuggestions?: readonly string[];
 	onMerge?: (taskId: string) => void;
 	onCancelAutomaticAction?: (taskId: string) => void;
 	isCommitLoading?: boolean;
@@ -481,7 +498,7 @@ export function BoardCard({
 				}
 		: null;
 	const showReviewGitActions = columnId === "review" && (reviewWorkspaceSnapshot?.changedFiles ?? 0) > 0;
-	const isAnyGitActionLoading = isCommitLoading || isOpenPrLoading || isMergeLoading;
+	const isAnyGitActionLoading = isCommitLoading || isMergeLoading;
 	const cancelAutomaticActionLabel =
 		!isTrashCard && card.autoReviewEnabled ? getTaskAutoReviewCancelButtonLabel(card.autoReviewMode) : null;
 	const agentOverrideLabel = useMemo(
@@ -948,36 +965,22 @@ export function BoardCard({
 								</p>
 							) : null}
 							{showReviewGitActions ? (
-								<div className="flex gap-1.5 mt-1.5">
-									<Button
-										variant="primary"
-										size="sm"
-										icon={isCommitLoading ? <Spinner size={12} /> : undefined}
-										disabled={isAnyGitActionLoading}
-										style={{ flex: "1 1 0" }}
-										onMouseDown={stopEvent}
-										onClick={(event) => {
-											stopEvent(event);
-											onCommit?.(card.id);
-										}}
-									>
-										Commit
-									</Button>
-									<Button
-										variant="primary"
-										size="sm"
-										icon={isOpenPrLoading ? <Spinner size={12} /> : undefined}
-										disabled={isAnyGitActionLoading}
-										style={{ flex: "1 1 0" }}
-										onMouseDown={stopEvent}
-										onClick={(event) => {
-											stopEvent(event);
-											onOpenPr?.(card.id);
-										}}
-									>
-										Open PR
-									</Button>
-								</div>
+								<BoardCardReviewGitActions
+									disabled={isAnyGitActionLoading}
+									isCommitLoading={isCommitLoading}
+									statusMessage={reviewGitStatusMessage}
+									canRetryFollowOn={canRetryReviewGitFollowOn}
+									baseRefHint={card.baseRef}
+									branchSuggestions={branchSuggestions ?? []}
+									onCommit={() => onCommit?.(card.id)}
+									onSubmitBranched={(input) => onSubmitReviewGit?.(card.id, input)}
+									onCancelForm={() => onCancelReviewGitForm?.(card.id)}
+									onRetryFollowOn={
+										onRetryReviewGitFollowOn
+											? () => onRetryReviewGitFollowOn(card.id)
+											: undefined
+									}
+								/>
 							) : null}
 							{showReviewGitActions && onMerge ? (
 								<div className="flex mt-1.5">
