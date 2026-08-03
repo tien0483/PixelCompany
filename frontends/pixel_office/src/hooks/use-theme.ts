@@ -290,6 +290,15 @@ export function isThemeId(value: string | null): value is ThemeId {
 	return value !== null && THEME_IDS.has(value);
 }
 
+/** UI chrome light-background check (navbar icons, etc.). Do not use terminal `isLightBackground`. */
+export function isLightUiTheme(themeId: ThemeId): boolean {
+	if (themeId === "high-contrast-light") {
+		return true;
+	}
+	const theme = THEMES.find((entry) => entry.id === themeId);
+	return theme?.group === "light";
+}
+
 function notifyThemeStoreListeners(): void {
 	for (const listener of themeStoreListeners) {
 		listener();

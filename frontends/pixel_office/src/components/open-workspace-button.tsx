@@ -5,6 +5,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
 import { Spinner } from "@/components/ui/spinner";
+import { isLightUiTheme, useTheme } from "@/hooks/use-theme";
 import {
 	OPEN_PLATFORM_OVERRIDE_IDS,
 	OPEN_PLATFORM_OVERRIDE_LABELS,
@@ -23,6 +24,8 @@ const PLATFORM_DISPLAY_LABELS: Record<OpenTargetPlatform, string> = {
 };
 
 function OpenTargetIcon({ option }: { option: OpenTargetOption }): React.ReactElement {
+	const { themeId } = useTheme();
+	const light = isLightUiTheme(themeId);
 	return (
 		<img
 			src={option.iconSrc}
@@ -33,7 +36,7 @@ function OpenTargetIcon({ option }: { option: OpenTargetOption }): React.ReactEl
 				height: 14,
 				display: "block",
 				objectFit: "contain",
-				filter: "brightness(0) invert(1)",
+				filter: light ? "none" : "brightness(0) invert(1)",
 				opacity: 0.9,
 			}}
 		/>
