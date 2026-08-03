@@ -72,6 +72,7 @@ import { useTaskStartActions } from "@/hooks/use-task-start-actions";
 import { useTerminalPanels } from "@/hooks/use-terminal-panels";
 import { useWorkspaceSync } from "@/hooks/use-workspace-sync";
 import { ManagerAccountsView } from "@/manager/manager-accounts-view";
+import { resolveCreateTaskDefaultAgentId } from "@/manager/task-account-picker";
 import { OfficeView } from "@/office/office-view";
 import { useOfficeViewState } from "@/office/use-office-view-state";
 import { LayoutCustomizationsProvider } from "@/resize/layout-customizations";
@@ -349,6 +350,32 @@ export default function App(): ReactElement {
 		setPendingTaskStartAfterEditId(taskId);
 	}, []);
 
+	const managedManagerAccounts = useMemo(
+		() =>
+			(manager?.accounts ?? []).filter(
+				(account) =>
+					account.provider === "claude" || account.provider === "cursor",
+			),
+		[manager?.accounts],
+	);
+	const createTaskDefaultAgentId = useMemo(
+		() =>
+			resolveCreateTaskDefaultAgentId({
+				accounts: managedManagerAccounts,
+				activeAccountId: manager?.activeAccountId ?? null,
+				selectedAgentId: runtimeProjectConfig?.selectedAgentId ?? null,
+				installedAgentIds: (runtimeProjectConfig?.agents ?? [])
+					.filter((agent) => agent.installed)
+					.map((agent) => agent.id),
+			}),
+		[
+			managedManagerAccounts,
+			manager?.activeAccountId,
+			runtimeProjectConfig?.agents,
+			runtimeProjectConfig?.selectedAgentId,
+		],
+	);
+
 	const {
 		isInlineTaskCreateOpen,
 		newTaskPrompt,
@@ -372,6 +399,8 @@ export default function App(): ReactElement {
 		setNewTaskClineSettings,
 		newTaskLaunchSettings,
 		setNewTaskLaunchSettings,
+		newTaskManagerAccountId,
+		setNewTaskManagerAccountId,
 		editingTaskId,
 		editTaskPrompt,
 		setEditTaskPrompt,
@@ -408,7 +437,7 @@ export default function App(): ReactElement {
 		currentProjectId,
 		createTaskBranchOptions,
 		defaultTaskBranchRef,
-		selectedAgentId: runtimeProjectConfig?.selectedAgentId ?? null,
+		selectedAgentId: createTaskDefaultAgentId,
 		setSelectedTaskId,
 		queueTaskStartAfterEdit,
 	});
@@ -898,16 +927,6 @@ export default function App(): ReactElement {
 		[defaultTaskClineProviderId, runtimeProjectConfig, selectedCard, setBoard],
 	);
 
-	// Claude + Cursor accounts can be pinned to tasks; jacked's snapshot includes both.
-	const managedManagerAccounts = useMemo(
-		() =>
-			(manager?.accounts ?? []).filter(
-				(account) =>
-					account.provider === "claude" || account.provider === "cursor",
-			),
-		[manager?.accounts],
-	);
-
 	const handleTaskManagerAccountChanged = useCallback(
 		(taskId: string, managerAccountId: number | null) => {
 			// Pins the card, not the running session: a live session keeps the account
@@ -1036,7 +1055,7 @@ export default function App(): ReactElement {
 			onClineSettingsChange={setEditTaskClineSettings}
 			taskLaunchSettings={editTaskLaunchSettings}
 			onTaskLaunchSettingsChange={setEditTaskLaunchSettings}
-			defaultAgentId={runtimeProjectConfig?.selectedAgentId ?? null}
+			defaultAgentId={createTaskDefaultAgentId}
 			defaultProviderId={defaultTaskClineProviderId}
 			defaultModelId={
 				runtimeProjectConfig?.clineProviderSettings?.modelId ?? null
@@ -1044,6 +1063,8 @@ export default function App(): ReactElement {
 			defaultReasoningEffort={
 				runtimeProjectConfig?.clineProviderSettings?.reasoningEffort ?? null
 			}
+			managerAccounts={managedManagerAccounts}
+			managerActiveAccountId={manager?.activeAccountId ?? null}
 			mode="edit"
 			idPrefix={`inline-edit-task-${editingTaskId}`}
 		/>
@@ -1599,7 +1620,7 @@ export default function App(): ReactElement {
 					onClineSettingsChange={setNewTaskClineSettings}
 					taskLaunchSettings={newTaskLaunchSettings}
 					onTaskLaunchSettingsChange={setNewTaskLaunchSettings}
-					defaultAgentId={runtimeProjectConfig?.selectedAgentId ?? null}
+					defaultAgentId={createTaskDefaultAgentId}
 					defaultProviderId={defaultTaskClineProviderId}
 					defaultModelId={
 						runtimeProjectConfig?.clineProviderSettings?.modelId ?? null
@@ -1607,6 +1628,10 @@ export default function App(): ReactElement {
 					defaultReasoningEffort={
 						runtimeProjectConfig?.clineProviderSettings?.reasoningEffort ?? null
 					}
+					managerAccounts={managedManagerAccounts}
+					managerActiveAccountId={manager?.activeAccountId ?? null}
+					managerAccountId={newTaskManagerAccountId}
+					onManagerAccountIdChange={setNewTaskManagerAccountId}
 				/>
 				<ClearTrashDialog
 					open={isClearTrashDialogOpen}

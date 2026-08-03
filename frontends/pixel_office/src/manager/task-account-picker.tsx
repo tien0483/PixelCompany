@@ -1,3 +1,4 @@
+import { isRuntimeAgentLaunchSupported } from "@runtime-agent-catalog";
 import type { ReactElement } from "react";
 
 import type { RuntimeAgentId, RuntimeManagerAccount } from "@/runtime/types";
@@ -104,6 +105,82 @@ export function managerProviderForAgent(agentId: RuntimeAgentId | null | undefin
 	}
 	if (agentId === "cursor") {
 		return "cursor";
+	}
+	return null;
+}
+
+/** Maps a Manager seat provider to the launchable coding agent id. */
+export function agentIdForManagerProvider(
+	provider: RuntimeManagerAccount["provider"] | null | undefined,
+): RuntimeAgentId | null {
+	if (provider === "claude") {
+		return "claude";
+	}
+	if (provider === "cursor") {
+		return "cursor";
+	}
+	return null;
+}
+
+/**
+ * Current active, non-disabled Manager seat used to drive Create-task defaults.
+ *
+ * Prefer Claude's `activeAccountId`, then Cursor's IDE-active seat, then the first
+ * remaining enabled seat. Disabled seats are never returned.
+ */
+export function resolveActiveManagerSeat(
+	accounts: RuntimeManagerAccount[],
+	activeAccountId: number | null,
+): RuntimeManagerAccount | null {
+	const enabled = accounts.filter((account) => account.isActive);
+	if (enabled.length === 0) {
+		return null;
+	}
+	const byActiveId =
+		typeof activeAccountId === "number"
+			? enabled.find((account) => account.id === activeAccountId)
+			: undefined;
+	if (byActiveId) {
+		return byActiveId;
+	}
+	const cursorActive = enabled.find(
+		(account) => account.provider === "cursor" && account.isActiveForProvider,
+	);
+	if (cursorActive) {
+		return cursorActive;
+	}
+	return enabled[0] ?? null;
+}
+
+export interface ResolveCreateTaskDefaultAgentIdInput {
+	accounts: RuntimeManagerAccount[];
+	activeAccountId: number | null;
+	selectedAgentId?: RuntimeAgentId | null;
+	/** Installed agent ids from runtime config; used only as a last-resort fallback. */
+	installedAgentIds?: readonly RuntimeAgentId[];
+}
+
+/**
+ * Create-task Agent default: active non-disabled Manager seat's provider, then
+ * Settings `selectedAgentId`, then first installed launchable agent.
+ */
+export function resolveCreateTaskDefaultAgentId(
+	input: ResolveCreateTaskDefaultAgentIdInput,
+): RuntimeAgentId | null {
+	const seat = resolveActiveManagerSeat(input.accounts, input.activeAccountId);
+	const seatAgentId = agentIdForManagerProvider(seat?.provider);
+	if (seatAgentId !== null && isRuntimeAgentLaunchSupported(seatAgentId)) {
+		return seatAgentId;
+	}
+	const selected = input.selectedAgentId ?? null;
+	if (selected !== null && isRuntimeAgentLaunchSupported(selected)) {
+		return selected;
+	}
+	const installed = input.installedAgentIds ?? [];
+	for (const agentId of installed) {
+		if (isRuntimeAgentLaunchSupported(agentId)) {
+			return agentId;
+		}
 	}
 	return null;
 }

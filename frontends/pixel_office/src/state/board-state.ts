@@ -32,6 +32,7 @@ export interface TaskDraft {
 	autoReviewMode?: TaskAutoReviewMode;
 	images?: TaskImage[];
 	agentId?: RuntimeAgentId;
+	managerAccountId?: number;
 	clineSettings?: RuntimeTaskClineSettings;
 	taskLaunchSettings?: RuntimeTaskLaunchSettings;
 	/** Epoch ms for a scheduled backlog auto-run (countdown set at create time). */
@@ -424,6 +425,11 @@ export function addTaskToColumnWithResult(
 			autoReviewMode: draft.autoReviewMode,
 			images: draft.images,
 			agentId: draft.agentId,
+			...(typeof draft.managerAccountId === "number" &&
+			Number.isInteger(draft.managerAccountId) &&
+			draft.managerAccountId > 0
+				? { managerAccountId: draft.managerAccountId }
+				: {}),
 			clineSettings: draft.clineSettings,
 			taskLaunchSettings: draft.taskLaunchSettings,
 			autoRunAt: draft.autoRunAt,

@@ -58,6 +58,9 @@ export interface UseTaskEditorResult {
 	setNewTaskClineSettings: Dispatch<SetStateAction<RuntimeTaskClineSettings | undefined>>;
 	newTaskLaunchSettings: RuntimeTaskLaunchSettings | undefined;
 	setNewTaskLaunchSettings: Dispatch<SetStateAction<RuntimeTaskLaunchSettings | undefined>>;
+	/** Explicit Manager seat pin for the new task; undefined means Auto. */
+	newTaskManagerAccountId: number | undefined;
+	setNewTaskManagerAccountId: Dispatch<SetStateAction<number | undefined>>;
 	editingTaskId: string | null;
 	editTaskPrompt: string;
 	setEditTaskPrompt: Dispatch<SetStateAction<string>>;
@@ -132,6 +135,7 @@ export function useTaskEditor({
 	const [newTaskAgentId, setNewTaskAgentId] = useState<RuntimeAgentId | undefined>(undefined);
 	const [newTaskClineSettings, setNewTaskClineSettings] = useState<RuntimeTaskClineSettings | undefined>(undefined);
 	const [newTaskLaunchSettings, setNewTaskLaunchSettings] = useState<RuntimeTaskLaunchSettings | undefined>(undefined);
+	const [newTaskManagerAccountId, setNewTaskManagerAccountId] = useState<number | undefined>(undefined);
 	const [editTaskAgentId, setEditTaskAgentId] = useState<RuntimeAgentId | undefined>(undefined);
 	const [editTaskClineSettings, setEditTaskClineSettings] = useState<RuntimeTaskClineSettings | undefined>(undefined);
 	const [editTaskLaunchSettings, setEditTaskLaunchSettings] = useState<RuntimeTaskLaunchSettings | undefined>(
@@ -222,6 +226,7 @@ export function useTaskEditor({
 		setNewTaskAgentId(undefined);
 		setNewTaskClineSettings(undefined);
 		setNewTaskLaunchSettings(undefined);
+		setNewTaskManagerAccountId(undefined);
 		setIsInlineTaskCreateOpen(true);
 	}, []);
 
@@ -234,6 +239,7 @@ export function useTaskEditor({
 		setNewTaskAgentId(undefined);
 		setNewTaskClineSettings(undefined);
 		setNewTaskLaunchSettings(undefined);
+		setNewTaskManagerAccountId(undefined);
 	}, [resolvedDefaultTaskBranchRef]);
 
 	const handleOpenEditTask = useCallback(
@@ -371,6 +377,9 @@ export function useTaskEditor({
 				// Stamp the effective agent onto the card so launches do not silently
 				// fall back to Claude when Settings still points at the old default.
 				agentId: newTaskAgentId ?? selectedAgentId ?? undefined,
+				...(typeof newTaskManagerAccountId === "number"
+					? { managerAccountId: newTaskManagerAccountId }
+					: {}),
 				clineSettings: newTaskClineSettings,
 				taskLaunchSettings: newTaskLaunchSettings,
 				autoRunAt: newTaskAutoRunDelayMinutes > 0 ? Date.now() + newTaskAutoRunDelayMinutes * 60_000 : undefined,
@@ -396,6 +405,7 @@ export function useTaskEditor({
 			setNewTaskAgentId(undefined);
 			setNewTaskClineSettings(undefined);
 			setNewTaskLaunchSettings(undefined);
+			setNewTaskManagerAccountId(undefined);
 			setNewTaskAutoRunDelayMinutes(0);
 			if (!options?.keepDialogOpen) {
 				setIsInlineTaskCreateOpen(false);
@@ -413,6 +423,7 @@ export function useTaskEditor({
 			newTaskBranchRef,
 			newTaskClineSettings,
 			newTaskLaunchSettings,
+			newTaskManagerAccountId,
 			newTaskImages,
 			newTaskPrompt,
 			newTaskStartInPlanMode,
@@ -445,6 +456,9 @@ export function useTaskEditor({
 					autoReviewMode: newTaskAutoReviewMode,
 					images: newTaskImages,
 					agentId: newTaskAgentId ?? selectedAgentId ?? undefined,
+					...(typeof newTaskManagerAccountId === "number"
+						? { managerAccountId: newTaskManagerAccountId }
+						: {}),
 					clineSettings: newTaskClineSettings,
 					taskLaunchSettings: newTaskLaunchSettings,
 					autoRunAt,
@@ -475,6 +489,7 @@ export function useTaskEditor({
 			setNewTaskAgentId(undefined);
 			setNewTaskClineSettings(undefined);
 			setNewTaskLaunchSettings(undefined);
+			setNewTaskManagerAccountId(undefined);
 			setNewTaskAutoRunDelayMinutes(0);
 			if (!options?.keepDialogOpen) {
 				setIsInlineTaskCreateOpen(false);
@@ -492,6 +507,7 @@ export function useTaskEditor({
 			newTaskBranchRef,
 			newTaskClineSettings,
 			newTaskLaunchSettings,
+			newTaskManagerAccountId,
 			newTaskImages,
 			newTaskStartInPlanMode,
 			resolvedDefaultTaskBranchRef,
@@ -521,6 +537,7 @@ export function useTaskEditor({
 		setNewTaskAgentId(undefined);
 		setNewTaskClineSettings(undefined);
 		setNewTaskLaunchSettings(undefined);
+		setNewTaskManagerAccountId(undefined);
 	}, []);
 
 	return {
@@ -546,6 +563,8 @@ export function useTaskEditor({
 		setNewTaskClineSettings,
 		newTaskLaunchSettings,
 		setNewTaskLaunchSettings,
+		newTaskManagerAccountId,
+		setNewTaskManagerAccountId,
 		editingTaskId,
 		editTaskPrompt,
 		setEditTaskPrompt,
