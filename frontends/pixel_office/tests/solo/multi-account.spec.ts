@@ -104,7 +104,7 @@ test("per-account management actions reach the right jacked procedures", async (
 	await secondActions.getByRole("button", { name: /^Validate/ }).click();
 	expect((await stub.waitForCall("manager.validateAccount")).input).toEqual({ accountId: 2 });
 
-	await secondActions.getByRole("button", { name: /^Disable/ }).click();
+	await secondActions.getByRole("button", { name: /^Deactivate/ }).click();
 	expect((await stub.waitForCall("manager.updateAccount")).input).toEqual({
 		accountId: 2,
 		isActive: false,

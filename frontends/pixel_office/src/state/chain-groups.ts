@@ -45,6 +45,14 @@ export function resolveChainRootId(dependencies: BoardDependency[], taskId: stri
 	return current;
 }
 
+/** True when the task is a root or follower in any `chain: true` dependency. */
+export function isTaskInChain(dependencies: BoardDependency[], taskId: string): boolean {
+	return dependencies.some(
+		(dependency) =>
+			dependency.chain === true && (dependency.fromTaskId === taskId || dependency.toTaskId === taskId),
+	);
+}
+
 /**
  * Groups Backlog cards into chains. Only members present in `cards` (i.e. still in
  * Backlog) are grouped; a chain whose root has left Backlog is not grouped. A chain
