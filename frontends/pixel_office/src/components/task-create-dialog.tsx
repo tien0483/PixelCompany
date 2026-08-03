@@ -19,16 +19,21 @@ import type { Dispatch, ReactElement, SetStateAction } from "react";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
 
-import type { BranchSelectOption } from "@/components/branch-select-dropdown";
 import { BranchSelectDropdown } from "@/components/branch-select-dropdown";
+import type { BranchSelectOption } from "@/components/branch-select-dropdown";
 import { TaskAgentModelPicker, useTaskAgentModelPicker } from "@/components/task-agent-model-picker";
 import { TaskLaunchSettingsPicker } from "@/components/task-launch-settings";
 import { TaskPromptComposer } from "@/components/task-prompt-composer";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogBody, DialogFooter, DialogHeader } from "@/components/ui/dialog";
+import {
+	TaskAccountPicker,
+	filterManagerAccountsForAgent,
+} from "@/manager/task-account-picker";
 import type {
 	RuntimeAgentId,
 	RuntimeClineReasoningEffort,
+	RuntimeManagerAccount,
 	RuntimeTaskClineSettings,
 	RuntimeTaskLaunchSettings,
 } from "@/runtime/types";
@@ -126,6 +131,10 @@ export function TaskCreateDialog({
 	defaultProviderId,
 	defaultModelId,
 	defaultReasoningEffort,
+	managerAccounts = [],
+	managerActiveAccountId = null,
+	managerAccountId,
+	onManagerAccountIdChange,
 }: {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
@@ -154,7 +163,7 @@ export function TaskCreateDialog({
 	onClineSettingsChange?: (value: RuntimeTaskClineSettings | undefined) => void;
 	taskLaunchSettings?: RuntimeTaskLaunchSettings | undefined;
 	onTaskLaunchSettingsChange?: (value: RuntimeTaskLaunchSettings | undefined) => void;
-	/** Default agent ID from runtimeConfig.selectedAgentId, used to show "Default (AgentName)" in picker */
+	/** Default agent ID (active Manager seat / Settings), used for "Default (AgentName)" */
 	defaultAgentId?: RuntimeAgentId | null;
 	/** Default Cline provider ID from runtimeConfig.clineProviderSettings.providerId */
 	defaultProviderId?: string | null;
@@ -162,6 +171,10 @@ export function TaskCreateDialog({
 	defaultModelId?: string | null;
 	/** Default Cline reasoning effort from runtimeConfig.clineProviderSettings.reasoningEffort */
 	defaultReasoningEffort?: RuntimeClineReasoningEffort | null;
+	managerAccounts?: RuntimeManagerAccount[];
+	managerActiveAccountId?: number | null;
+	managerAccountId?: number | undefined;
+	onManagerAccountIdChange?: (value: number | undefined) => void;
 }): ReactElement {
 	const [mode, setMode] = useState<"single" | "multi">("single");
 	const [createMore, setCreateMore] = useState(false);
@@ -195,6 +208,24 @@ export function TaskCreateDialog({
 		defaultProviderId,
 		defaultModelId,
 	});
+
+	const effectiveAgentId = agentId ?? defaultAgentId ?? null;
+	const eligibleManagerAccounts = useMemo(
+		() =>
+			filterManagerAccountsForAgent(managerAccounts, effectiveAgentId, {
+				kanbanEligibleOnly: true,
+			}),
+		[effectiveAgentId, managerAccounts],
+	);
+
+	useEffect(() => {
+		if (managerAccountId === undefined || !onManagerAccountIdChange) {
+			return;
+		}
+		if (!eligibleManagerAccounts.some((account) => account.id === managerAccountId)) {
+			onManagerAccountIdChange(undefined);
+		}
+	}, [eligibleManagerAccounts, managerAccountId, onManagerAccountIdChange]);
 
 	const detectedItems = useMemo(() => parseListItems(prompt), [prompt]);
 	const validTaskCount = useMemo(() => taskPrompts.filter((p) => p.trim()).length, [taskPrompts]);
@@ -578,6 +609,19 @@ export function TaskCreateDialog({
 							defaultProviderId={defaultProviderId}
 							defaultReasoningEffort={defaultReasoningEffort}
 							providerDefaultModels={providerDefaultModels}
+						/>
+					) : null}
+					{onManagerAccountIdChange && eligibleManagerAccounts.length > 0 ? (
+						<TaskAccountPicker
+							accounts={eligibleManagerAccounts}
+							value={managerAccountId}
+							activeAccountId={managerActiveAccountId}
+							agentId={effectiveAgentId}
+							onChange={(nextAccountId) => {
+								onManagerAccountIdChange(
+									typeof nextAccountId === "number" ? nextAccountId : undefined,
+								);
+							}}
 						/>
 					) : null}
 					{onTaskLaunchSettingsChange ? (
