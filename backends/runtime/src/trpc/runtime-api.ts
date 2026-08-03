@@ -45,7 +45,7 @@ import {
 } from "../core/api-validation";
 import { isHomeAgentSessionId } from "../core/home-agent-session";
 import { resolveTaskTitle } from "../core/task-title.js";
-import { resolveManagerAccountPin } from "../manager/manager-account-pin";
+import { type ManagerDonateAccountLike, resolveManagerAccountPin } from "../manager/manager-account-pin";
 import {
 	LEGACY_RUNTIME_HOME_PARENT_DIR_NAME,
 	RUNTIME_HOME_PARENT_DIR_NAME,
@@ -86,6 +86,8 @@ export interface CreateRuntimeApiDependencies {
 	resolveDefaultCursormanagerAccountId?: () => Promise<number | null>;
 	/** Active Claude Jacked seat — used to prep CC creds for skill/MCP-tagged launches. */
 	resolveActiveClaudemanagerAccountId?: () => Promise<number | null>;
+	/** Donate state of a pinned account — lets a locked over-cap seat hard-block the launch. */
+	getPinnedManagerAccount?: (accountId: number) => Promise<ManagerDonateAccountLike | null>;
 	resolveInteractiveShellCommand: () => { binary: string; args: string[] };
 	runCommand: (command: string, cwd: string) => Promise<RuntimeCommandRunResponse>;
 	broadcastClineMcpAuthStatusesUpdated?: (
@@ -333,9 +335,19 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 						(await deps.getManagerAccountProvider?.(accountId)) ?? null,
 					resolveDefaultCursorAccountId: deps.resolveDefaultCursormanagerAccountId,
 					resolveActiveClaudeAccountId: deps.resolveActiveClaudemanagerAccountId,
+					getPinnedAccount: deps.getPinnedManagerAccount,
 					needsClaudeConfigDirForLaunchTags:
 						resolved.agentId === "claude" && hasClaudeScopedConfigAllowlist(body.taskLaunchSettings),
 				});
+				// Locked donate cap over limit: abort before starting the session.
+				if (accountPin.blocked) {
+					return {
+						ok: false,
+						summary: null,
+						error:
+							accountPin.warning ?? "This seat is over its locked donate cap; the task was not launched.",
+					};
+				}
 				// Cursor Auto: no CURSOR_API_KEY injection — same auth as interactive
 				// `agent` (`agent login`). Explicit seat pins still inject a key.
 				const summary = await terminalManager.startTaskSession({

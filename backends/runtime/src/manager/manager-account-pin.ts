@@ -36,12 +36,19 @@ export interface ResolveManagerAccountPinInput {
 	resolveActiveClaudeAccountId?: () => Promise<number | null>;
 	/** True when this launch will rewrite CLAUDE_CONFIG_DIR for skill/MCP tags. */
 	needsClaudeConfigDirForLaunchTags?: boolean;
+	/**
+	 * Resolves the pinned account's donate state so a LOCKED + over-cap seat can
+	 * hard-block the launch. Unlocked over-cap seats stay soft (pin allowed).
+	 */
+	getPinnedAccount?: (accountId: number) => Promise<ManagerDonateAccountLike | null>;
 }
 
 export interface ManagerAccountPin {
 	env: Record<string, string>;
 	accountId: number | null;
 	warning: string | null;
+	/** True when the pin is refused (locked donate cap over limit). Launch must abort. */
+	blocked?: boolean;
 }
 
 const UNPINNED: ManagerAccountPin = { env: {}, accountId: null, warning: null };
@@ -55,6 +62,7 @@ export interface ManagerDonateAccountLike {
 	sevenDayPercent?: number | null;
 	pressure?: number;
 	donateLimitPercent?: number;
+	donateLimitLocked?: boolean;
 }
 
 /**
@@ -67,6 +75,16 @@ export function isManagerAccountDonateExhausted(account: ManagerDonateAccountLik
 		return (account.pressure ?? 0) * 100 >= limit;
 	}
 	return Math.max(account.fiveHourPercent ?? 0, account.sevenDayPercent ?? 0) >= limit;
+}
+
+/**
+ * True when the seat's donate cap is LOCKED (agreed in the invite) AND usage is
+ * at/over that cap. Unlike the soft exhausted flag, this refuses explicit pins —
+ * the owner committed to that ceiling, so we do not launch on the seat until
+ * usage resets. Unlocked over-cap seats return false (soft Auto-skip only).
+ */
+export function isManagerAccountDonatePinBlocked(account: ManagerDonateAccountLike): boolean {
+	return account.donateLimitLocked === true && isManagerAccountDonateExhausted(account);
 }
 
 function expectedProviderForAgent(agentId: RuntimeAgentId): RuntimeManagerProvider | null {
@@ -191,6 +209,18 @@ export async function resolveManagerAccountPin(
 	// that with a stale key and breaks an otherwise working CLI.
 	if (managerAccountId === undefined) {
 		return mismatchWarning ? { ...UNPINNED, warning: mismatchWarning } : UNPINNED;
+	}
+
+	// Locked donate cap over limit: refuse the pin outright. The launch path aborts
+	// on `blocked`. Unlocked over-cap seats fall through and pin normally (soft).
+	const pinnedAccount = (await input.getPinnedAccount?.(managerAccountId)) ?? null;
+	if (pinnedAccount && isManagerAccountDonatePinBlocked(pinnedAccount)) {
+		return {
+			env: {},
+			accountId: null,
+			blocked: true,
+			warning: `Account ${String(managerAccountId)} is over its locked donate cap; refusing to launch on this seat until usage resets.`,
+		};
 	}
 
 	if (input.agentId === "claude") {

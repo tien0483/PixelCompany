@@ -4,6 +4,7 @@ import {
 	CLAUDE_CONFIG_DIR_ENV,
 	CURSOR_API_KEY_ENV,
 	isManagerAccountDonateExhausted,
+	isManagerAccountDonatePinBlocked,
 	pickDefaultCursorAccountId,
 	resolveManagerAccountPin,
 } from "./manager-account-pin";
@@ -26,6 +27,47 @@ describe("isManagerAccountDonateExhausted", () => {
 				fiveHourPercent: 60,
 				sevenDayPercent: 40,
 				donateLimitPercent: 70,
+			}),
+		).toBe(false);
+	});
+});
+
+describe("isManagerAccountDonatePinBlocked", () => {
+	it("blocks a locked seat that is over its donate cap", () => {
+		expect(
+			isManagerAccountDonatePinBlocked({
+				id: 1,
+				provider: "cursor",
+				fiveHourPercent: 80,
+				sevenDayPercent: 40,
+				donateLimitPercent: 70,
+				donateLimitLocked: true,
+			}),
+		).toBe(true);
+	});
+
+	it("does not block an unlocked seat that is over its donate cap (soft)", () => {
+		expect(
+			isManagerAccountDonatePinBlocked({
+				id: 1,
+				provider: "cursor",
+				fiveHourPercent: 80,
+				sevenDayPercent: 40,
+				donateLimitPercent: 70,
+				donateLimitLocked: false,
+			}),
+		).toBe(false);
+	});
+
+	it("does not block a locked seat that is under its donate cap", () => {
+		expect(
+			isManagerAccountDonatePinBlocked({
+				id: 1,
+				provider: "cursor",
+				fiveHourPercent: 50,
+				sevenDayPercent: 40,
+				donateLimitPercent: 70,
+				donateLimitLocked: true,
 			}),
 		).toBe(false);
 	});
@@ -234,6 +276,54 @@ describe("resolveManagerAccountPin", () => {
 		expect(getAccountLaunchCredential).not.toHaveBeenCalled();
 		expect(pin.env).toEqual({});
 		expect(pin.accountId).toBeNull();
+	});
+
+	it("hard-blocks a pin on a locked seat that is over its donate cap", async () => {
+		const getAccountLaunchDir = vi.fn().mockResolvedValue({ configDir: "/home/u/.claude/accounts/5" });
+		const getPinnedAccount = vi.fn().mockResolvedValue({
+			id: 5,
+			provider: "claude",
+			fiveHourPercent: 95,
+			sevenDayPercent: 10,
+			donateLimitPercent: 80,
+			donateLimitLocked: true,
+		});
+
+		const pin = await resolveManagerAccountPin({
+			agentId: "claude",
+			managerAccountId: 5,
+			getAccountLaunchDir,
+			getPinnedAccount,
+		});
+
+		expect(pin.blocked).toBe(true);
+		expect(pin.accountId).toBeNull();
+		expect(pin.env).toEqual({});
+		expect(pin.warning).toContain("locked donate cap");
+		expect(getAccountLaunchDir).not.toHaveBeenCalled();
+	});
+
+	it("allows a pin on an unlocked seat that is over its donate cap (soft)", async () => {
+		const getAccountLaunchDir = vi.fn().mockResolvedValue({ configDir: "/home/u/.claude/accounts/6" });
+		const getPinnedAccount = vi.fn().mockResolvedValue({
+			id: 6,
+			provider: "claude",
+			fiveHourPercent: 95,
+			sevenDayPercent: 10,
+			donateLimitPercent: 80,
+			donateLimitLocked: false,
+		});
+
+		const pin = await resolveManagerAccountPin({
+			agentId: "claude",
+			managerAccountId: 6,
+			getAccountLaunchDir,
+			getPinnedAccount,
+		});
+
+		expect(pin.blocked).toBeUndefined();
+		expect(pin.env).toEqual({ [CLAUDE_CONFIG_DIR_ENV]: "/home/u/.claude/accounts/6" });
+		expect(pin.accountId).toBe(6);
 	});
 
 	it("ignores a Claude pin on a Cursor task and does not force a Seats key", async () => {

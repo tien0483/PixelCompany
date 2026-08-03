@@ -255,6 +255,21 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 			}
 			return snapshot.accounts.find((account) => account.provider === "claude" && account.isActive)?.id ?? null;
 		},
+		getPinnedManagerAccount: async (accountId) => {
+			const snapshot = deps.manager.monitor.getState();
+			const account = snapshot?.accounts.find((candidate) => candidate.id === accountId);
+			if (!account) {
+				return null;
+			}
+			return {
+				id: account.id,
+				provider: account.provider,
+				fiveHourPercent: account.fiveHourPercent,
+				sevenDayPercent: account.sevenDayPercent,
+				donateLimitPercent: account.donateLimitPercent,
+				donateLimitLocked: account.donateLimitLocked,
+			};
+		},
 		resolveInteractiveShellCommand: deps.resolveInteractiveShellCommand,
 		runCommand: deps.runCommand,
 		broadcastClineMcpAuthStatusesUpdated: deps.runtimeStateHub.broadcastClineMcpAuthStatusesUpdated,
