@@ -42,4 +42,25 @@ describe("buildTaskGitActionPrompt", () => {
 			}),
 		).toBe("Handle this pull request action using the provided git context.");
 	});
+
+	it("uses taskBranchOverride for {{task_branch}} when provided", () => {
+		expect(
+			buildTaskGitActionPrompt({
+				action: "commit",
+				workspaceInfo: {
+					taskId: "task-123",
+					path: "/tmp/task-123",
+					exists: true,
+					baseRef: "main",
+					branch: null,
+					isDetached: true,
+					headCommit: "abc123",
+				},
+				taskBranchOverride: "feature/official",
+				templates: {
+					commitPromptTemplate: "Branch={{task_branch}}",
+				},
+			}),
+		).toBe("Branch=feature/official");
+	});
 });

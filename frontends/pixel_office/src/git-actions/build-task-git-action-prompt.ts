@@ -63,6 +63,8 @@ interface BuildTaskGitActionPromptInput {
 	workspaceInfo: RuntimeTaskWorkspaceInfoResponse;
 	templates?: TaskGitPromptTemplates | null;
 	agentDisplayName?: string;
+	/** When set, replaces deriveTaskBranchName for {{task_branch}}. */
+	taskBranchOverride?: string;
 }
 
 function resolveTemplate(action: TaskGitAction, templates?: TaskGitPromptTemplates | null): string {
@@ -115,9 +117,12 @@ export function resolveSeamCommentTag(
 }
 
 export function buildTaskGitActionPrompt(input: BuildTaskGitActionPromptInput): string {
+	const override = input.taskBranchOverride?.trim();
+	const taskBranch =
+		override && override.length > 0 ? override : deriveTaskBranchName(input.workspaceInfo.taskId);
 	const variables: Record<string, string> = {
 		[TASK_GIT_BASE_REF_PROMPT_VARIABLE.key]: input.workspaceInfo.baseRef,
-		[TASK_GIT_TASK_BRANCH_PROMPT_VARIABLE.key]: deriveTaskBranchName(input.workspaceInfo.taskId),
+		[TASK_GIT_TASK_BRANCH_PROMPT_VARIABLE.key]: taskBranch,
 		[TASK_GIT_SEAM_TICKET_ID_PROMPT_VARIABLE.key]: input.workspaceInfo.taskId,
 		[TASK_GIT_SEAM_AGENT_NAME_PROMPT_VARIABLE.key]: input.agentDisplayName ?? "",
 	};
