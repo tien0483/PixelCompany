@@ -101,8 +101,11 @@ export function TrainingPacksPanel({ online }: { online: boolean }): ReactElemen
 											{pack.installedCount}/{pack.skillCount}
 										</span>
 										{pack.isDefault && !pack.explicit ? (
-											<span className="shrink-0 text-[9px] uppercase tracking-wide text-text-tertiary">
-												default
+											<span
+												className="shrink-0 text-[9px] uppercase tracking-wide text-text-tertiary"
+												title="Recommended pack. It does not install automatically — toggle it on to enable."
+											>
+												recommended
 											</span>
 										) : null}
 									</div>

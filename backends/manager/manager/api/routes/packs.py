@@ -111,9 +111,9 @@ async def list_packs():
     for name in sorted(registry):
         pack = registry[name]
         st = packs.pack_status(pack, home)
-        # "enabled" reflects EFFECTIVE state (an explicit decision, or the
-        # registry default when the user never toggled it) so the dashboard
-        # toggle matches what a plain `jacked install` would install.
+        # "enabled" reflects EFFECTIVE state (an explicit `enabled` decision; the
+        # registry `default` flag no longer auto-enables) so the dashboard toggle
+        # matches what a plain `jacked install` would install.
         st["enabled"] = packs.is_effectively_enabled(pack, home)
         st["default"] = pack.default
         # "explicit" = the user made a decision THIS build recognizes. A future
