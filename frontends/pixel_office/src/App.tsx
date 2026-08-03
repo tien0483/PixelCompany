@@ -457,6 +457,12 @@ export default function App(): ReactElement {
 		createHomePullRequest,
 		handleCommitTask,
 		handleOpenPrTask,
+		handleReviewCommitWithBranch,
+		handleCancelReviewGitForm,
+		handleRetryReviewGitFollowOn,
+		reviewGitStatusById,
+		canRetryReviewGitFollowOnById,
+		reviewBranchSuggestions,
 		handleMergeTaskBranch,
 		handleAgentCommitTask,
 		handleAgentOpenPrTask,
@@ -1291,6 +1297,12 @@ export default function App(): ReactElement {
 														onSaveTaskTitle={handleSaveTaskTitle}
 														onCommitTask={handleCommitTask}
 														onOpenPrTask={handleOpenPrTask}
+														onSubmitReviewGit={handleReviewCommitWithBranch}
+														onCancelReviewGitForm={handleCancelReviewGitForm}
+														onRetryReviewGitFollowOn={handleRetryReviewGitFollowOn}
+														reviewGitStatusById={reviewGitStatusById}
+														canRetryReviewGitFollowOnById={canRetryReviewGitFollowOnById}
+														reviewBranchSuggestions={reviewBranchSuggestions}
 														onMergeTask={handleMergeTaskBranch}
 														onCancelAutomaticTaskAction={
 															handleCancelAutomaticTaskAction

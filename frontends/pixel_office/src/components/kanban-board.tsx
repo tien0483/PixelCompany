@@ -45,6 +45,12 @@ export function KanbanBoard({
 	onSaveTaskTitle,
 	onCommitTask,
 	onOpenPrTask,
+	onSubmitReviewGit,
+	onCancelReviewGitForm,
+	onRetryReviewGitFollowOn,
+	reviewGitStatusById,
+	canRetryReviewGitFollowOnById,
+	reviewBranchSuggestions,
 	onMergeTask,
 	onCancelAutomaticTaskAction,
 	onMoveToTrashTask,
@@ -80,6 +86,15 @@ export function KanbanBoard({
 	onSaveTaskTitle?: (taskId: string, title: string) => void;
 	onCommitTask?: (taskId: string) => void;
 	onOpenPrTask?: (taskId: string) => void;
+	onSubmitReviewGit?: (
+		taskId: string,
+		input: import("@/components/board-card-review-git-actions").ReviewGitBranchedSubmit,
+	) => void;
+	onCancelReviewGitForm?: (taskId: string) => void;
+	onRetryReviewGitFollowOn?: (taskId: string) => void;
+	reviewGitStatusById?: Record<string, string>;
+	canRetryReviewGitFollowOnById?: Record<string, boolean>;
+	reviewBranchSuggestions?: readonly string[];
 	onMergeTask?: (taskId: string) => void;
 	onCancelAutomaticTaskAction?: (taskId: string) => void;
 	onMoveToTrashTask?: (taskId: string) => void;
@@ -422,6 +437,14 @@ export function KanbanBoard({
 						onSaveTitle={column.id !== "trash" ? onSaveTaskTitle : undefined}
 						onCommitTask={column.id === "review" ? onCommitTask : undefined}
 						onOpenPrTask={column.id === "review" ? onOpenPrTask : undefined}
+						onSubmitReviewGit={column.id === "review" ? onSubmitReviewGit : undefined}
+						onCancelReviewGitForm={column.id === "review" ? onCancelReviewGitForm : undefined}
+						onRetryReviewGitFollowOn={column.id === "review" ? onRetryReviewGitFollowOn : undefined}
+						reviewGitStatusById={column.id === "review" ? reviewGitStatusById : undefined}
+						canRetryReviewGitFollowOnById={
+							column.id === "review" ? canRetryReviewGitFollowOnById : undefined
+						}
+						reviewBranchSuggestions={column.id === "review" ? reviewBranchSuggestions : undefined}
 						onMergeTask={column.id === "review" ? onMergeTask : undefined}
 						onCancelAutomaticTaskAction={onCancelAutomaticTaskAction}
 						onMoveToTrashTask={column.id === "review" ? onMoveToTrashTask : undefined}

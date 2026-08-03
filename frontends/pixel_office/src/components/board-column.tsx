@@ -3,6 +3,7 @@ import { ChevronDown, ChevronRight, Link2, Link2Off, Play, Plus, Trash2 } from "
 import { type MouseEvent as ReactMouseEvent, type ReactNode, useMemo, useState } from "react";
 
 import { BoardCard } from "@/components/board-card";
+import type { ReviewGitBranchedSubmit } from "@/components/board-card-review-git-actions";
 import { ChainMemberList } from "@/components/chain-member-list";
 import { Button } from "@/components/ui/button";
 import { ColumnIndicator } from "@/components/ui/column-indicator";
@@ -33,6 +34,12 @@ export function BoardColumn({
 	onSaveTitle,
 	onCommitTask,
 	onOpenPrTask,
+	onSubmitReviewGit,
+	onCancelReviewGitForm,
+	onRetryReviewGitFollowOn,
+	reviewGitStatusById,
+	canRetryReviewGitFollowOnById,
+	reviewBranchSuggestions,
 	onMergeTask,
 	onCancelAutomaticTaskAction,
 	onMoveToTrashTask,
@@ -73,6 +80,12 @@ export function BoardColumn({
 	onSaveTitle?: (taskId: string, title: string) => void;
 	onCommitTask?: (taskId: string) => void;
 	onOpenPrTask?: (taskId: string) => void;
+	onSubmitReviewGit?: (taskId: string, input: ReviewGitBranchedSubmit) => void;
+	onCancelReviewGitForm?: (taskId: string) => void;
+	onRetryReviewGitFollowOn?: (taskId: string) => void;
+	reviewGitStatusById?: Record<string, string>;
+	canRetryReviewGitFollowOnById?: Record<string, boolean>;
+	reviewBranchSuggestions?: readonly string[];
 	onMergeTask?: (taskId: string) => void;
 	onCancelAutomaticTaskAction?: (taskId: string) => void;
 	onMoveToTrashTask?: (taskId: string) => void;
@@ -224,6 +237,12 @@ export function BoardColumn({
 										onRestoreFromTrash={onRestoreFromTrashTask}
 										onCommit={onCommitTask}
 										onOpenPr={onOpenPrTask}
+										onSubmitReviewGit={onSubmitReviewGit}
+										onCancelReviewGitForm={onCancelReviewGitForm}
+										onRetryReviewGitFollowOn={onRetryReviewGitFollowOn}
+										reviewGitStatusMessage={reviewGitStatusById?.[card.id] ?? null}
+										canRetryReviewGitFollowOn={canRetryReviewGitFollowOnById?.[card.id] ?? false}
+										branchSuggestions={reviewBranchSuggestions}
 										onMerge={onMergeTask}
 										onCancelAutomaticAction={onCancelAutomaticTaskAction}
 										isCommitLoading={commitTaskLoadingById?.[card.id] ?? false}

@@ -6,8 +6,13 @@ import {
 } from "@/components/git-history/use-git-history-data";
 import {
 	buildTaskGitActionPrompt,
+	deriveTaskBranchName,
 	type TaskGitAction,
 } from "@/git-actions/build-task-git-action-prompt";
+import {
+	resolveReviewCommitPath,
+} from "@/git-actions/review-commit-branch";
+import type { ReviewGitBranchedSubmit } from "@/components/board-card-review-git-actions";
 import { isNativeClineAgentSelected } from "@/runtime/native-agent";
 import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
 import type {
@@ -35,6 +40,21 @@ interface TaskGitActionLoadingState {
 	commitSource: TaskGitActionSource | null;
 	prSource: TaskGitActionSource | null;
 }
+
+interface ReviewFollowOnState {
+	baselineHead: string | null;
+	commitHash: string | null;
+	officialBranch: string;
+	promptTaskBranch: string;
+	needsCherryPick: boolean;
+	pushAfter: boolean;
+	phase: "waiting-commit" | "ready" | "failed";
+	baseRef: string;
+	statusMessage: string;
+}
+
+const REVIEW_COMMIT_WAIT_MS = 120_000;
+const REVIEW_COMMIT_POLL_MS = 2_000;
 
 interface UseGitActionsInput {
 	currentProjectId: string | null;
@@ -105,6 +125,12 @@ export interface UseGitActionsResult {
 	) => Promise<{ ok: boolean; url: string | null }>;
 	handleCommitTask: (taskId: string) => void;
 	handleOpenPrTask: (taskId: string) => void;
+	handleReviewCommitWithBranch: (taskId: string, input: ReviewGitBranchedSubmit) => void;
+	handleCancelReviewGitForm: (taskId: string) => void;
+	handleRetryReviewGitFollowOn: (taskId: string) => void;
+	reviewGitStatusById: Record<string, string>;
+	canRetryReviewGitFollowOnById: Record<string, boolean>;
+	reviewBranchSuggestions: readonly string[];
 	handleMergeTaskBranch: (taskId: string) => void;
 	handleAgentCommitTask: (taskId: string) => void;
 	handleAgentOpenPrTask: (taskId: string) => void;
@@ -146,6 +172,9 @@ export function useGitActions({
 	const [isDeletingHomeBranch, setIsDeletingHomeBranch] = useState(false);
 	const [isCreatingHomeBranch, setIsCreatingHomeBranch] = useState(false);
 	const [mergeTaskLoadingById, setMergeTaskLoadingById] = useState<Record<string, boolean>>({});
+	const [reviewFollowOnById, setReviewFollowOnById] = useState<Record<string, ReviewFollowOnState>>(
+		{},
+	);
 	const [isDiscardingHomeWorkingChanges, setIsDiscardingHomeWorkingChanges] =
 		useState(false);
 	const [gitActionError, setGitActionError] = useState<{
@@ -291,6 +320,7 @@ export function useGitActions({
 			taskId: string,
 			action: TaskGitAction,
 			source: TaskGitActionSource,
+			options?: { taskBranchOverride?: string },
 		) => {
 			const taskLoadingState = taskGitActionLoadingByTaskId[taskId];
 			const actionInFlightSource =
@@ -360,6 +390,7 @@ export function useGitActions({
 				const prompt = buildTaskGitActionPrompt({
 					action,
 					workspaceInfo,
+					taskBranchOverride: options?.taskBranchOverride,
 					templates: runtimeProjectConfig
 						? {
 								commitPromptTemplate: runtimeProjectConfig.commitPromptTemplate,
@@ -454,6 +485,294 @@ export function useGitActions({
 		},
 		[runTaskGitAction],
 	);
+
+	const runReviewFollowOn = useCallback(
+		async (taskId: string, followOn: ReviewFollowOnState) => {
+			if (!currentProjectId) {
+				return;
+			}
+			const trpcClient = getRuntimeTrpcClient(currentProjectId);
+			let commitHash = followOn.commitHash;
+
+			if (!commitHash) {
+				setReviewFollowOnById((current) => ({
+					...current,
+					[taskId]: {
+						...followOn,
+						phase: "waiting-commit",
+						statusMessage: "Waiting for commit…",
+					},
+				}));
+				const deadline = Date.now() + REVIEW_COMMIT_WAIT_MS;
+				while (Date.now() < deadline) {
+					const selection = findCardSelection(board, taskId);
+					if (selection) {
+						await fetchTaskWorkspaceInfo(selection.card).catch(() => null);
+					}
+					const snapshot = getTaskWorkspaceSnapshot(taskId);
+					const head = snapshot?.headCommit ?? null;
+					if (head && head !== followOn.baselineHead) {
+						commitHash = head;
+						break;
+					}
+					await new Promise<void>((resolve) => {
+						window.setTimeout(resolve, REVIEW_COMMIT_POLL_MS);
+					});
+				}
+				if (!commitHash) {
+					setReviewFollowOnById((current) => ({
+						...current,
+						[taskId]: {
+							...followOn,
+							phase: "failed",
+							statusMessage: "Timed out waiting for commit. Retry when ready.",
+						},
+					}));
+					showAppToast({
+						intent: "warning",
+						icon: "warning-sign",
+						message: "Timed out waiting for the agent commit.",
+						timeout: 7000,
+					});
+					return;
+				}
+			}
+
+			try {
+				if (followOn.needsCherryPick) {
+					setReviewFollowOnById((current) => ({
+						...current,
+						[taskId]: {
+							...followOn,
+							commitHash,
+							phase: "ready",
+							statusMessage: "Cherry-picking…",
+						},
+					}));
+					const cherryPick = await trpcClient.workspace.cherryPickCommit.mutate({
+						taskId,
+						baseRef: followOn.baseRef,
+						commitHash,
+						targetBranch: followOn.officialBranch,
+					});
+					if (!cherryPick.ok) {
+						setReviewFollowOnById((current) => ({
+							...current,
+							[taskId]: {
+								...followOn,
+								commitHash,
+								phase: "failed",
+								statusMessage: cherryPick.error ?? "Cherry-pick failed.",
+							},
+						}));
+						showAppToast({
+							intent: "danger",
+							icon: "warning-sign",
+							message: cherryPick.error ?? "Cherry-pick failed.",
+							timeout: 8000,
+						});
+						return;
+					}
+				}
+
+				if (followOn.pushAfter) {
+					setReviewFollowOnById((current) => ({
+						...current,
+						[taskId]: {
+							...followOn,
+							commitHash,
+							phase: "ready",
+							statusMessage: "Pushing…",
+						},
+					}));
+					const pushResult = await trpcClient.workspace.pushGitBranch.mutate({
+						taskId,
+						baseRef: followOn.baseRef,
+						branch: followOn.officialBranch,
+					});
+					if (!pushResult.ok) {
+						setReviewFollowOnById((current) => ({
+							...current,
+							[taskId]: {
+								...followOn,
+								commitHash,
+								phase: "failed",
+								statusMessage: pushResult.error ?? "Push failed.",
+							},
+						}));
+						showAppToast({
+							intent: "danger",
+							icon: "warning-sign",
+							message: pushResult.error ?? "Push failed.",
+							timeout: 8000,
+						});
+						return;
+					}
+				}
+
+				setReviewFollowOnById((current) => {
+					const { [taskId]: _removed, ...rest } = current;
+					return rest;
+				});
+				showAppToast({
+					intent: "success",
+					icon: "tick",
+					message: followOn.pushAfter
+						? `Committed and pushed ${followOn.officialBranch}.`
+						: `Committed onto ${followOn.officialBranch}.`,
+					timeout: 5000,
+				});
+				await refreshWorkspaceState();
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error);
+				setReviewFollowOnById((current) => ({
+					...current,
+					[taskId]: {
+						...followOn,
+						commitHash,
+						phase: "failed",
+						statusMessage: message,
+					},
+				}));
+				showAppToast({
+					intent: "danger",
+					icon: "warning-sign",
+					message,
+					timeout: 8000,
+				});
+			}
+		},
+		[board, currentProjectId, fetchTaskWorkspaceInfo, refreshWorkspaceState],
+	);
+
+	const handleReviewCommitWithBranch = useCallback(
+		(taskId: string, input: ReviewGitBranchedSubmit) => {
+			void (async () => {
+				const selection = findCardSelection(board, taskId);
+				if (!selection || !currentProjectId) {
+					return;
+				}
+
+				let refNames: string[] = [];
+				try {
+					const trpcClient = getRuntimeTrpcClient(currentProjectId);
+					const refs = await trpcClient.workspace.getGitRefs.query({
+						taskId: selection.card.id,
+						baseRef: selection.card.baseRef,
+					});
+					refNames = (refs.refs ?? [])
+						.filter((ref) => ref.type === "branch")
+						.map((ref) => ref.name.replace(/^refs\/heads\//, ""))
+						.filter((name) => name.length > 0);
+				} catch {
+					refNames = [selection.card.baseRef].filter(Boolean);
+				}
+
+				const derivedTaskBranch = deriveTaskBranchName(taskId);
+				const resolved = resolveReviewCommitPath({
+					officialBranch: input.officialBranch,
+					derivedTaskBranch,
+					refNames,
+					existingMode: input.existingMode,
+				});
+				if ("error" in resolved) {
+					showAppToast({
+						intent: "warning",
+						icon: "warning-sign",
+						message: resolved.error,
+						timeout: 5000,
+					});
+					return;
+				}
+
+				const baselineHead = getTaskWorkspaceSnapshot(taskId)?.headCommit ?? null;
+				const kicked = await runTaskGitAction(taskId, "commit", "card", {
+					taskBranchOverride: resolved.promptTaskBranch,
+				});
+				if (!kicked) {
+					return;
+				}
+
+				const needsFollowOn = resolved.needsCherryPick || input.mode === "commit-and-push";
+				if (!needsFollowOn) {
+					showAppToast({
+						intent: "success",
+						icon: "tick",
+						message: "Commit instructions sent to the task session.",
+						timeout: 4000,
+					});
+					return;
+				}
+
+				const followOn: ReviewFollowOnState = {
+					baselineHead,
+					commitHash: null,
+					officialBranch: resolved.pushBranch,
+					promptTaskBranch: resolved.promptTaskBranch,
+					needsCherryPick: resolved.needsCherryPick,
+					pushAfter: input.mode === "commit-and-push",
+					phase: "waiting-commit",
+					baseRef: selection.card.baseRef,
+					statusMessage: "Waiting for commit…",
+				};
+				setReviewFollowOnById((current) => ({ ...current, [taskId]: followOn }));
+				await runReviewFollowOn(taskId, followOn);
+			})();
+		},
+		[board, currentProjectId, runReviewFollowOn, runTaskGitAction],
+	);
+
+	const handleCancelReviewGitForm = useCallback((taskId: string) => {
+		setReviewFollowOnById((current) => {
+			if (!(taskId in current)) {
+				return current;
+			}
+			const { [taskId]: _removed, ...rest } = current;
+			return rest;
+		});
+	}, []);
+
+	const handleRetryReviewGitFollowOn = useCallback(
+		(taskId: string) => {
+			const followOn = reviewFollowOnById[taskId];
+			if (!followOn) {
+				return;
+			}
+			void runReviewFollowOn(taskId, {
+				...followOn,
+				phase: followOn.commitHash ? "ready" : "waiting-commit",
+				statusMessage: followOn.commitHash ? "Retrying…" : "Waiting for commit…",
+			});
+		},
+		[reviewFollowOnById, runReviewFollowOn],
+	);
+
+	const reviewGitStatusById = useMemo(() => {
+		const next: Record<string, string> = {};
+		for (const [taskId, followOn] of Object.entries(reviewFollowOnById)) {
+			next[taskId] = followOn.statusMessage;
+		}
+		return next;
+	}, [reviewFollowOnById]);
+
+	const canRetryReviewGitFollowOnById = useMemo(() => {
+		const next: Record<string, boolean> = {};
+		for (const [taskId, followOn] of Object.entries(reviewFollowOnById)) {
+			next[taskId] = followOn.phase === "failed";
+		}
+		return next;
+	}, [reviewFollowOnById]);
+
+	const reviewBranchSuggestions = useMemo(() => {
+		const fromHistory = gitHistory.refs
+			.filter((ref) => ref.type === "branch")
+			.map((ref) => ref.name.replace(/^refs\/heads\//, ""))
+			.filter((name) => name.length > 0);
+		if (fromHistory.length > 0) {
+			return fromHistory;
+		}
+		return homeGitSummary?.currentBranch ? [homeGitSummary.currentBranch] : [];
+	}, [gitHistory.refs, homeGitSummary?.currentBranch]);
 
 	const mergeTaskBranch = useCallback(
 		async (taskId: string) => {
@@ -1062,6 +1381,12 @@ export function useGitActions({
 		createHomePullRequest,
 		handleCommitTask,
 		handleOpenPrTask,
+		handleReviewCommitWithBranch,
+		handleCancelReviewGitForm,
+		handleRetryReviewGitFollowOn,
+		reviewGitStatusById,
+		canRetryReviewGitFollowOnById,
+		reviewBranchSuggestions,
 		handleMergeTaskBranch,
 		handleAgentCommitTask,
 		handleAgentOpenPrTask,
