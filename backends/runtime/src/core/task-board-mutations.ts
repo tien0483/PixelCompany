@@ -367,10 +367,17 @@ function getLinkedBacklogTaskIdsReadyAfterTaskTrashed(
 		if (dependency.toTaskId !== taskId) {
 			continue;
 		}
-		if (getTaskColumnId(board, dependency.fromTaskId) !== "backlog") {
+		const waiterColumnId = getTaskColumnId(board, dependency.fromTaskId);
+		// Classic wait-link: unlock a Backlog follower once its review prerequisite is Done.
+		if (waiterColumnId === "backlog") {
+			readyTaskIds.add(dependency.fromTaskId);
 			continue;
 		}
-		readyTaskIds.add(dependency.fromTaskId);
+		// Chain queue stack: followers may already sit in In Progress as queued cards; unlock
+		// them so a new agent can start in the shared worktree (not resume the finished session).
+		if (waiterColumnId === "in_progress" && dependency.chain === true) {
+			readyTaskIds.add(dependency.fromTaskId);
+		}
 	}
 	return [...readyTaskIds];
 }

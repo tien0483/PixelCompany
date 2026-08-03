@@ -6,9 +6,10 @@ import { BoardCard } from "@/components/board-card";
 import type { ReviewGitBranchedSubmit } from "@/components/board-card-review-git-actions";
 import { ChainMemberList } from "@/components/chain-member-list";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/components/ui/cn";
 import { ColumnIndicator } from "@/components/ui/column-indicator";
 import type { RuntimeTaskSessionSummary } from "@/runtime/types";
-import { computeBacklogChainGroups } from "@/state/chain-groups";
+import { computeChainGroups } from "@/state/chain-groups";
 import { isCardDropDisabled, type ProgrammaticCardMoveInFlight } from "@/state/drag-rules";
 import type {
 	BoardCard as BoardCardModel,
@@ -61,6 +62,7 @@ export function BoardColumn({
 	onDeleteDependency,
 	onReorderChain,
 	onBreakChain,
+	onRunChain,
 	workspacePath,
 	defaultClineModelId,
 }: {
@@ -111,6 +113,7 @@ export function BoardColumn({
 	onDeleteDependency?: (dependencyId: string) => void;
 	onReorderChain?: (orderedMemberIds: string[]) => void;
 	onBreakChain?: (memberIds: string[]) => void;
+	onRunChain?: (memberIds: string[]) => void;
 	workspacePath?: string | null;
 	defaultClineModelId?: string | null;
 }): React.ReactElement {
@@ -118,10 +121,11 @@ export function BoardColumn({
 	const canStartAllTasks = column.id === "backlog" && onStartAllTasks;
 	const canClearTrash = column.id === "trash" && onClearTrash;
 	const cardDropType = "CARD";
-	// Backlog groups chained tasks (shared-worktree chains) into one collapsible guardrail.
+	const supportsChainGroups = column.id === "backlog" || column.id === "in_progress";
+	// Backlog: collapsible guardrail. In Progress: queue stack (live head + queued followers).
 	const chainGrouping = useMemo(
-		() => (column.id === "backlog" ? computeBacklogChainGroups(column.cards, dependencies ?? []) : null),
-		[column.id, column.cards, dependencies],
+		() => (supportsChainGroups ? computeChainGroups(column.cards, dependencies ?? []) : null),
+		[supportsChainGroups, column.cards, dependencies],
 	);
 	const cardById = useMemo(() => {
 		const map = new Map<string, BoardCardModel>();
@@ -221,14 +225,18 @@ export function BoardColumn({
 										{inlineTaskEditor}
 									</div>
 								);
-								const renderCard = (card: BoardCardModel, index: number) => (
+								const renderCard = (
+									card: BoardCardModel,
+									index: number,
+									options?: { suppressStart?: boolean },
+								) => (
 									<BoardCard
 										key={card.id}
 										card={card}
 										index={index}
 										columnId={column.id}
 										sessionSummary={taskSessions[card.id]}
-										onStart={onStartTask}
+										onStart={options?.suppressStart ? undefined : onStartTask}
 										onPause={onPauseTask}
 										onResume={onResumeTask}
 										onCancelAutoRun={onCancelAutoRun}
@@ -266,53 +274,118 @@ export function BoardColumn({
 										}}
 									/>
 								);
+								const renderQueuedChainRows = (memberIds: string[], startIndex: number) => (
+									<ul className="kb-chain-member-list kb-chain-queue-list">
+										{memberIds.map((memberId, index) => {
+											const queuedCard = cardById.get(memberId);
+											if (!queuedCard) {
+												return null;
+											}
+											return (
+												<li
+													key={memberId}
+													data-task-id={memberId}
+													data-column-id={column.id}
+													className={cn(
+														"kb-chain-member-row kb-chain-queued-row",
+														dependencyTargetTaskId === memberId && "kb-chain-follower-row-target",
+													)}
+													onMouseEnter={() => onDependencyPointerEnter?.(memberId)}
+												>
+													<span className="kb-chain-follower-order">{startIndex + index}</span>
+													<button
+														type="button"
+														className="kb-chain-follower-title kb-chain-member-title-button"
+														onClick={() => onCardClick?.(queuedCard)}
+														title={queuedCard.title}
+													>
+														{queuedCard.title}
+													</button>
+													<span className="kb-chain-queued-badge">Queued</span>
+												</li>
+											);
+										})}
+									</ul>
+								);
 								for (const card of column.cards) {
-									// Chain followers render inside their root's guardrail group, not here.
+									// Chain followers render inside their stack head's group, not here.
 									if (chainGrouping?.rootIdByMemberId.has(card.id)) {
 										continue;
 									}
 									const chainGroup = chainGrouping?.groupByRootId.get(card.id);
 									if (chainGroup) {
-										const isExpanded = expandedChainRootIds[card.id] ?? false;
+										const isInProgressStack = column.id === "in_progress";
+										const isExpanded = isInProgressStack
+											? true
+											: (expandedChainRootIds[card.id] ?? false);
 										const followerCount = chainGroup.memberIdsInOrder.length - 1;
 										const rootIsEditing = editingTaskId === card.id;
-										// Collapsed shows the root as its full card (an rbd Draggable, so it can be
-										// started or moved across columns). Expanded swaps to uniform reorderable
-										// member rows — including the root — so any member can be dragged to any
-										// position; only then does the root stop being a column Draggable.
-										const rootRenderedAsCard = !isExpanded && !rootIsEditing;
+										const headHasSession = Boolean(taskSessions[card.id]);
+										// Collapsed backlog shows the root as its full card. Expanded backlog
+										// swaps to reorderable rows. In Progress always shows head card + queued rows.
+										const rootRenderedAsCard =
+											isInProgressStack || (!isExpanded && !rootIsEditing);
+										const queuedMemberIds = chainGroup.memberIdsInOrder.slice(1);
 										items.push(
 											<div
-												key={`chain-${card.id}`}
-												className="kb-chain-group"
-												data-chain-root-id={card.id}
+												key={`chain-${chainGroup.rootId}-${card.id}`}
+												className={cn("kb-chain-group", isInProgressStack && "kb-chain-group-stack")}
+												data-chain-root-id={chainGroup.rootId}
+												data-chain-stack-head-id={card.id}
 												style={{ marginBottom: 6 }}
 											>
 												<div className="kb-chain-group-header-row">
-													<button
-														type="button"
-														className="kb-chain-group-header"
-														onClick={() => toggleChainExpanded(card.id)}
-														aria-expanded={isExpanded}
-														title={
-															isExpanded
-																? "Collapse chain — collapse to move the root across columns"
-																: `Chain of ${chainGroup.memberIdsInOrder.length} tasks — runs in one shared worktree. Expand to reorder or unlink.`
-														}
-													>
-														{isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-														<Link2 size={12} />
-														<span className="font-medium">Chain</span>
-														<span className="kb-chain-group-count">
-															{chainGroup.memberIdsInOrder.length}
-														</span>
-														{!isExpanded ? (
-															<span className="text-text-tertiary text-xs">
-																+{followerCount} after root
+													{isInProgressStack ? (
+														<div
+															className="kb-chain-group-header"
+															title={`Chain stack — ${chainGroup.memberIdsInOrder.length} tasks in one shared worktree. Queued members start a new agent when the prior task is Done.`}
+														>
+															<Link2 size={12} />
+															<span className="font-medium">Chain</span>
+															<span className="kb-chain-group-count">
+																{chainGroup.memberIdsInOrder.length}
 															</span>
-														) : null}
-													</button>
-													{onBreakChain ? (
+															<span className="text-text-tertiary text-xs">
+																{followerCount} queued
+															</span>
+														</div>
+													) : (
+														<button
+															type="button"
+															className="kb-chain-group-header"
+															onClick={() => toggleChainExpanded(card.id)}
+															aria-expanded={isExpanded}
+															title={
+																isExpanded
+																	? "Collapse chain — collapse to move the root across columns"
+																	: `Chain of ${chainGroup.memberIdsInOrder.length} tasks — runs in one shared worktree. Expand to reorder or unlink.`
+															}
+														>
+															{isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+															<Link2 size={12} />
+															<span className="font-medium">Chain</span>
+															<span className="kb-chain-group-count">
+																{chainGroup.memberIdsInOrder.length}
+															</span>
+															{!isExpanded ? (
+																<span className="text-text-tertiary text-xs">
+																	+{followerCount} after root
+																</span>
+															) : null}
+														</button>
+													)}
+													{column.id === "backlog" && onRunChain ? (
+														<button
+															type="button"
+															className="kb-chain-icon-button"
+															title="Run chain — move all members to In Progress and start the first with a new agent"
+															aria-label="Run chain"
+															onClick={() => onRunChain(chainGroup.memberIdsInOrder)}
+														>
+															<Play size={13} />
+														</button>
+													) : null}
+													{column.id === "backlog" && onBreakChain ? (
 														<button
 															type="button"
 															className="kb-chain-icon-button kb-chain-break-button"
@@ -325,7 +398,16 @@ export function BoardColumn({
 													) : null}
 												</div>
 												<div className="kb-chain-group-body">
-													{isExpanded ? (
+													{isInProgressStack ? (
+														<>
+															{renderCard(card, draggableIndex, {
+																suppressStart: !headHasSession,
+															})}
+															{queuedMemberIds.length > 0
+																? renderQueuedChainRows(queuedMemberIds, 2)
+																: null}
+														</>
+													) : isExpanded ? (
 														<ChainMemberList
 															memberIds={chainGroup.memberIdsInOrder}
 															cardById={cardById}

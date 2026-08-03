@@ -6,6 +6,7 @@ import {
 	addTaskToColumn,
 	breakChain,
 	deleteTasksFromBoard,
+	getTaskColumnId,
 	hasLiveChainMemberSharingWorktree,
 	moveTaskToColumn,
 	reorderChainMembers,
@@ -408,6 +409,17 @@ describe("task chains", () => {
 		const review = moveTaskToColumn(inProgress.board, "aaaaa", "review");
 		const trashed = trashTaskAndGetReadyLinkedTaskIds(review.board, "aaaaa");
 		expect(hasLiveChainMemberSharingWorktree(trashed.board, "aaaaa", "aaaaa")).toBe(true);
+	});
+
+	it("unlocks a chain follower already queued in in_progress when the root is Done", () => {
+		const linkAB = addTaskDependency(boardWithThreeBacklogTasks(), "aaaaa", "bbbbb");
+		let board = moveTaskToColumn(linkAB.board, "aaaaa", "in_progress").board;
+		board = moveTaskToColumn(board, "bbbbb", "in_progress").board;
+		board = moveTaskToColumn(board, "aaaaa", "review").board;
+		const trashed = trashTaskAndGetReadyLinkedTaskIds(board, "aaaaa");
+		expect(trashed.moved).toBe(true);
+		expect(trashed.readyTaskIds).toEqual(["bbbbb"]);
+		expect(getTaskColumnId(trashed.board, "bbbbb")).toBe("in_progress");
 	});
 
 	it("releases the shared worktree once no live chain member remains", () => {
