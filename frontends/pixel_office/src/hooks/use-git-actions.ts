@@ -89,6 +89,8 @@ export interface UseGitActionsResult {
 	isSwitchingHomeBranch: boolean;
 	isDeletingHomeBranch: boolean;
 	isCreatingHomeBranch: boolean;
+	isMergingHomeBranch: boolean;
+	isRebasingHomeBranch: boolean;
 	isDiscardingHomeWorkingChanges: boolean;
 	gitActionError: {
 		action: RuntimeGitSyncAction;
@@ -105,6 +107,8 @@ export interface UseGitActionsResult {
 		newBranch: string;
 		startPoint: string;
 	}) => Promise<void>;
+	mergeHomeBranchIntoCurrent: (branch: string) => Promise<void>;
+	rebaseHomeCurrentOnto: (branch: string) => Promise<void>;
 	discardHomeWorkingChanges: () => Promise<void>;
 	revertTaskFile: (
 		taskId: string,
@@ -171,6 +175,8 @@ export function useGitActions({
 	const [isSwitchingHomeBranch, setIsSwitchingHomeBranch] = useState(false);
 	const [isDeletingHomeBranch, setIsDeletingHomeBranch] = useState(false);
 	const [isCreatingHomeBranch, setIsCreatingHomeBranch] = useState(false);
+	const [isMergingHomeBranch, setIsMergingHomeBranch] = useState(false);
+	const [isRebasingHomeBranch, setIsRebasingHomeBranch] = useState(false);
 	const [mergeTaskLoadingById, setMergeTaskLoadingById] = useState<Record<string, boolean>>({});
 	const [reviewFollowOnById, setReviewFollowOnById] = useState<Record<string, ReviewFollowOnState>>(
 		{},
@@ -1097,6 +1103,128 @@ export function useGitActions({
 		],
 	);
 
+	const mergeHomeBranchIntoCurrent = useCallback(
+		async (branch: string) => {
+			const normalizedBranch = branch.trim();
+			const currentBranch = homeGitSummary?.currentBranch ?? null;
+			if (
+				!currentProjectId ||
+				isMergingHomeBranch ||
+				!normalizedBranch ||
+				normalizedBranch === currentBranch
+			) {
+				return;
+			}
+			setIsMergingHomeBranch(true);
+			try {
+				const trpcClient = getRuntimeTrpcClient(currentProjectId);
+				const payload = await trpcClient.workspace.mergeBranchIntoCurrent.mutate({
+					branch: normalizedBranch,
+				});
+				if (!payload.ok) {
+					if (payload.summary) {
+						setHomeGitSummary(payload.summary);
+					}
+					const errorMessage = payload.error ?? "Merge failed.";
+					showAppToast({
+						intent: "danger",
+						icon: "warning-sign",
+						message: `Could not merge ${normalizedBranch} into current. ${errorMessage}`,
+						timeout: 7000,
+					});
+					return;
+				}
+				setHomeGitSummary(payload.summary);
+				refreshGitHistory();
+				await refreshWorkspaceState();
+				showAppToast({
+					intent: "success",
+					icon: "tick",
+					message: `Merged ${normalizedBranch} into ${payload.summary.currentBranch ?? "current branch"}.`,
+					timeout: 4000,
+				});
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error);
+				showAppToast({
+					intent: "danger",
+					icon: "warning-sign",
+					message: `Could not merge ${normalizedBranch} into current. ${message}`,
+					timeout: 7000,
+				});
+			} finally {
+				setIsMergingHomeBranch(false);
+			}
+		},
+		[
+			currentProjectId,
+			homeGitSummary?.currentBranch,
+			isMergingHomeBranch,
+			refreshGitHistory,
+			refreshWorkspaceState,
+		],
+	);
+
+	const rebaseHomeCurrentOnto = useCallback(
+		async (branch: string) => {
+			const normalizedBranch = branch.trim();
+			const currentBranch = homeGitSummary?.currentBranch ?? null;
+			if (
+				!currentProjectId ||
+				isRebasingHomeBranch ||
+				!normalizedBranch ||
+				normalizedBranch === currentBranch
+			) {
+				return;
+			}
+			setIsRebasingHomeBranch(true);
+			try {
+				const trpcClient = getRuntimeTrpcClient(currentProjectId);
+				const payload = await trpcClient.workspace.rebaseCurrentOnto.mutate({
+					branch: normalizedBranch,
+				});
+				if (!payload.ok) {
+					if (payload.summary) {
+						setHomeGitSummary(payload.summary);
+					}
+					const errorMessage = payload.error ?? "Rebase failed.";
+					showAppToast({
+						intent: "danger",
+						icon: "warning-sign",
+						message: `Could not rebase current onto ${normalizedBranch}. ${errorMessage}`,
+						timeout: 7000,
+					});
+					return;
+				}
+				setHomeGitSummary(payload.summary);
+				refreshGitHistory();
+				await refreshWorkspaceState();
+				showAppToast({
+					intent: "success",
+					icon: "tick",
+					message: `Rebased ${payload.summary.currentBranch ?? "current branch"} onto ${normalizedBranch}.`,
+					timeout: 4000,
+				});
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error);
+				showAppToast({
+					intent: "danger",
+					icon: "warning-sign",
+					message: `Could not rebase current onto ${normalizedBranch}. ${message}`,
+					timeout: 7000,
+				});
+			} finally {
+				setIsRebasingHomeBranch(false);
+			}
+		},
+		[
+			currentProjectId,
+			homeGitSummary?.currentBranch,
+			isRebasingHomeBranch,
+			refreshGitHistory,
+			refreshWorkspaceState,
+		],
+	);
+
 	const discardHomeWorkingChanges = useCallback(async () => {
 		if (!currentProjectId || isDiscardingHomeWorkingChanges) {
 			return;
@@ -1364,6 +1492,8 @@ export function useGitActions({
 		isSwitchingHomeBranch,
 		isDeletingHomeBranch,
 		isCreatingHomeBranch,
+		isMergingHomeBranch,
+		isRebasingHomeBranch,
 		isDiscardingHomeWorkingChanges,
 		gitActionError,
 		gitActionErrorTitle,
@@ -1375,6 +1505,8 @@ export function useGitActions({
 		switchHomeBranch,
 		deleteHomeBranch,
 		createHomeBranch,
+		mergeHomeBranchIntoCurrent,
+		rebaseHomeCurrentOnto,
 		discardHomeWorkingChanges,
 		revertTaskFile,
 		revertTaskHunk,

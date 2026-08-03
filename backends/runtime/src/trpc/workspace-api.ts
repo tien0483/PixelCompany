@@ -5,6 +5,8 @@ import type {
 	RuntimeGitCreateBranchResponse,
 	RuntimeGitDeleteBranchResponse,
 	RuntimeGitMergeBranchResponse,
+	RuntimeGitMergeIntoCurrentResponse,
+	RuntimeGitRebaseCurrentOntoResponse,
 	RuntimeGitCherryPickResponse,
 	RuntimeGitPushBranchResponse,
 	RuntimeGitDiscardResponse,
@@ -22,6 +24,8 @@ import {
 	parseGitCreateBranchRequest,
 	parseGitDeleteBranchRequest,
 	parseGitMergeBranchRequest,
+	parseGitMergeIntoCurrentRequest,
+	parseGitRebaseCurrentOntoRequest,
 	parseGitCherryPickRequest,
 	parseGitPushBranchRequest,
 	parseWorktreeDeleteRequest,
@@ -49,6 +53,8 @@ import {
 	runGitCreateBranchAction,
 	runGitDeleteBranchAction,
 	runGitMergeBranchAction,
+	runGitMergeIntoCurrentAction,
+	runGitRebaseCurrentOntoAction,
 	runGitCherryPickAction,
 	runGitPushBranchAction,
 	runGitSyncAction,
@@ -214,6 +220,28 @@ function createEmptyGitMergeBranchErrorResponse(error: unknown): RuntimeGitMerge
 		ok: false,
 		branch: "",
 		baseRef: "",
+		summary: EMPTY_GIT_SYNC_SUMMARY,
+		output: "",
+		error: message,
+	};
+}
+
+function createEmptyGitMergeIntoCurrentErrorResponse(error: unknown): RuntimeGitMergeIntoCurrentResponse {
+	const message = error instanceof Error ? error.message : String(error);
+	return {
+		ok: false,
+		branch: "",
+		summary: EMPTY_GIT_SYNC_SUMMARY,
+		output: "",
+		error: message,
+	};
+}
+
+function createEmptyGitRebaseCurrentOntoErrorResponse(error: unknown): RuntimeGitRebaseCurrentOntoResponse {
+	const message = error instanceof Error ? error.message : String(error);
+	return {
+		ok: false,
+		branch: "",
 		summary: EMPTY_GIT_SYNC_SUMMARY,
 		output: "",
 		error: message,
@@ -411,6 +439,42 @@ export function createWorkspaceApi(deps: CreateWorkspaceApiDependencies): Runtim
 				return response;
 			} catch (error) {
 				return createEmptyGitMergeBranchErrorResponse(error);
+			}
+		},
+		mergeBranchIntoCurrent: async (workspaceScope, input) => {
+			try {
+				const body = parseGitMergeIntoCurrentRequest(input);
+				const response = await runGitMergeIntoCurrentAction({
+					cwd: workspaceScope.workspacePath,
+					branch: body.branch,
+				});
+				if (response.ok) {
+					void deps.broadcastRuntimeWorkspaceStateUpdated(
+						workspaceScope.workspaceId,
+						workspaceScope.workspacePath,
+					);
+				}
+				return response;
+			} catch (error) {
+				return createEmptyGitMergeIntoCurrentErrorResponse(error);
+			}
+		},
+		rebaseCurrentOnto: async (workspaceScope, input) => {
+			try {
+				const body = parseGitRebaseCurrentOntoRequest(input);
+				const response = await runGitRebaseCurrentOntoAction({
+					cwd: workspaceScope.workspacePath,
+					branch: body.branch,
+				});
+				if (response.ok) {
+					void deps.broadcastRuntimeWorkspaceStateUpdated(
+						workspaceScope.workspaceId,
+						workspaceScope.workspacePath,
+					);
+				}
+				return response;
+			} catch (error) {
+				return createEmptyGitRebaseCurrentOntoErrorResponse(error);
 			}
 		},
 		cherryPickCommit: async (workspaceScope, input) => {

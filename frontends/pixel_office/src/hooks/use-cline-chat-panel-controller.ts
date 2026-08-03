@@ -57,7 +57,7 @@ export function useClineChatPanelController({
 	incomingMessages = null,
 	incomingMessage = null,
 	onCommit,
-	onOpenPr,
+	onOpenPr: _onOpenPr,
 	onMoveToTrash,
 	onCancelAutomaticAction,
 	cancelAutomaticActionLabel,
@@ -78,8 +78,7 @@ export function useClineChatPanelController({
 	const showReviewActions =
 		taskColumnId === "review" &&
 		(reviewWorkspaceSnapshot?.changedFiles ?? 0) > 0 &&
-		Boolean(onCommit) &&
-		Boolean(onOpenPr);
+		Boolean(onCommit);
 	const showAgentProgressIndicator = summary?.state === "running";
 	const showActionFooter = showMoveToTrash && Boolean(onMoveToTrash);
 	const showCancelAutomaticAction = Boolean(cancelAutomaticActionLabel && onCancelAutomaticAction);

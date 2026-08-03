@@ -12,7 +12,9 @@ const gitSyncMocks = vi.hoisted(() => ({
 	revertGitHunk: vi.fn(),
 	runGitCheckoutAction: vi.fn(),
 	runGitCherryPickAction: vi.fn(),
+	runGitMergeIntoCurrentAction: vi.fn(),
 	runGitPushBranchAction: vi.fn(),
+	runGitRebaseCurrentOntoAction: vi.fn(),
 	runGitSyncAction: vi.fn(),
 }));
 
@@ -324,6 +326,64 @@ describe("workspaceApi.pushGitBranch", () => {
 			branch: "kanban/task-1",
 		});
 		expect(broadcast).toHaveBeenCalled();
+		expect(res.ok).toBe(true);
+	});
+});
+
+describe("workspaceApi.mergeBranchIntoCurrent", () => {
+	it("merges into the workspace cwd and broadcasts on success", async () => {
+		gitSyncMocks.runGitMergeIntoCurrentAction.mockResolvedValue({
+			ok: true,
+			branch: "feature",
+			summary: SUMMARY,
+			output: "",
+		});
+		const { api, broadcast } = makeApi();
+
+		const res = await api.mergeBranchIntoCurrent(SCOPE, { branch: "feature" });
+
+		expect(gitSyncMocks.runGitMergeIntoCurrentAction).toHaveBeenCalledWith({
+			cwd: "/repo",
+			branch: "feature",
+		});
+		expect(broadcast).toHaveBeenCalledWith("ws-1", "/repo");
+		expect(res.ok).toBe(true);
+	});
+
+	it("does not broadcast when the merge fails", async () => {
+		gitSyncMocks.runGitMergeIntoCurrentAction.mockResolvedValue({
+			ok: false,
+			branch: "feature",
+			summary: SUMMARY,
+			output: "",
+			error: "conflicts",
+		});
+		const { api, broadcast } = makeApi();
+
+		const res = await api.mergeBranchIntoCurrent(SCOPE, { branch: "feature" });
+
+		expect(broadcast).not.toHaveBeenCalled();
+		expect(res.ok).toBe(false);
+	});
+});
+
+describe("workspaceApi.rebaseCurrentOnto", () => {
+	it("rebases onto the selected branch and broadcasts on success", async () => {
+		gitSyncMocks.runGitRebaseCurrentOntoAction.mockResolvedValue({
+			ok: true,
+			branch: "main",
+			summary: SUMMARY,
+			output: "",
+		});
+		const { api, broadcast } = makeApi();
+
+		const res = await api.rebaseCurrentOnto(SCOPE, { branch: "main" });
+
+		expect(gitSyncMocks.runGitRebaseCurrentOntoAction).toHaveBeenCalledWith({
+			cwd: "/repo",
+			branch: "main",
+		});
+		expect(broadcast).toHaveBeenCalledWith("ws-1", "/repo");
 		expect(res.ok).toBe(true);
 	});
 });

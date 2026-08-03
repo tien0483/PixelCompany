@@ -8,6 +8,7 @@ import {
 	FileText,
 	GitBranch,
 	GitBranchPlus,
+	GitMerge,
 	Info,
 	Locate,
 	RefreshCw,
@@ -90,6 +91,8 @@ export function GitRefsPanel({
 	onCheckoutRef,
 	onDeleteRef,
 	onCreateBranch,
+	onMergeIntoCurrent,
+	onRebaseCurrentOnto,
 	isCreateBranchPending = false,
 	onRefresh,
 	isRefreshing,
@@ -106,6 +109,8 @@ export function GitRefsPanel({
 	onCheckoutRef?: (branchName: string) => void;
 	onDeleteRef?: (branchName: string) => void;
 	onCreateBranch?: (newBranch: string, startPoint: string) => void;
+	onMergeIntoCurrent?: (branchName: string) => void;
+	onRebaseCurrentOnto?: (branchName: string) => void;
 	isCreateBranchPending?: boolean;
 	onRefresh?: () => void;
 	isRefreshing?: boolean;
@@ -134,12 +139,16 @@ export function GitRefsPanel({
 	}, [contextMenu]);
 
 	const openBranchContextMenu = (branch: string, event: React.MouseEvent): void => {
-		if (!onCheckoutRef && !onDeleteRef && !onCreateBranch) {
+		if (!onCheckoutRef && !onDeleteRef && !onCreateBranch && !onMergeIntoCurrent && !onRebaseCurrentOnto) {
 			return;
 		}
 		event.preventDefault();
 		setContextMenu({ branch, x: event.clientX, y: event.clientY });
 	};
+
+	const hasBranchContextActions = Boolean(
+		onCheckoutRef || onDeleteRef || onCreateBranch || onMergeIntoCurrent || onRebaseCurrentOnto,
+	);
 
 	const confirmCreateBranch = (): void => {
 		const trimmedName = newBranchName.trim();
@@ -302,7 +311,7 @@ export function GitRefsPanel({
 								isSelected={isHeadBranchSelected}
 								onSelect={() => onSelectRef(headBranch)}
 								onContextMenu={
-									onCheckoutRef || onDeleteRef || onCreateBranch
+									hasBranchContextActions
 										? (event) => openBranchContextMenu(headBranch.name, event)
 										: undefined
 								}
@@ -357,7 +366,7 @@ export function GitRefsPanel({
 									onSelect={() => onSelectRef(ref)}
 									onDoubleClick={onCheckoutRef ? () => onCheckoutRef(ref.name) : undefined}
 									onContextMenu={
-										onCheckoutRef || onDeleteRef || onCreateBranch
+										hasBranchContextActions
 											? (event) => openBranchContextMenu(ref.name, event)
 											: undefined
 									}
@@ -429,6 +438,22 @@ export function GitRefsPanel({
 							? () => {
 									setCreateFromRef(contextMenu.branch);
 									setNewBranchName("");
+									setContextMenu(null);
+								}
+							: undefined
+					}
+					onMergeIntoCurrent={
+						onMergeIntoCurrent && contextMenu.branch !== headBranch?.name
+							? () => {
+									onMergeIntoCurrent(contextMenu.branch);
+									setContextMenu(null);
+								}
+							: undefined
+					}
+					onRebaseCurrentOnto={
+						onRebaseCurrentOnto && contextMenu.branch !== headBranch?.name
+							? () => {
+									onRebaseCurrentOnto(contextMenu.branch);
 									setContextMenu(null);
 								}
 							: undefined
@@ -515,6 +540,8 @@ function BranchContextMenu({
 	y,
 	onCheckout,
 	onCreateFrom,
+	onMergeIntoCurrent,
+	onRebaseCurrentOnto,
 	onDelete,
 	onClose,
 }: {
@@ -523,6 +550,8 @@ function BranchContextMenu({
 	y: number;
 	onCheckout?: () => void;
 	onCreateFrom?: () => void;
+	onMergeIntoCurrent?: () => void;
+	onRebaseCurrentOnto?: () => void;
 	onDelete?: () => void;
 	onClose: () => void;
 }): React.ReactElement {
@@ -571,6 +600,18 @@ function BranchContextMenu({
 					<button type="button" role="menuitem" className="kb-branch-context-menu-item" onClick={onCheckout}>
 						<ArrowRightLeft size={13} aria-hidden />
 						<span>Switch to branch</span>
+					</button>
+				) : null}
+				{onMergeIntoCurrent ? (
+					<button type="button" role="menuitem" className="kb-branch-context-menu-item" onClick={onMergeIntoCurrent}>
+						<GitMerge size={13} aria-hidden />
+						<span>Merge into Current</span>
+					</button>
+				) : null}
+				{onRebaseCurrentOnto ? (
+					<button type="button" role="menuitem" className="kb-branch-context-menu-item" onClick={onRebaseCurrentOnto}>
+						<GitBranch size={13} aria-hidden />
+						<span>Rebase Current onto Selected</span>
 					</button>
 				) : null}
 				{onCreateFrom ? (

@@ -450,6 +450,8 @@ export default function App(): ReactElement {
 		isDeletingHomeBranch,
 		createHomeBranch,
 		isCreatingHomeBranch,
+		mergeHomeBranchIntoCurrent,
+		rebaseHomeCurrentOnto,
 		discardHomeWorkingChanges,
 		revertTaskFile,
 		revertTaskHunk,
@@ -1265,6 +1267,12 @@ export default function App(): ReactElement {
 												isCreateBranchPending={
 													isCreatingHomeBranch
 												}
+												onMergeIntoCurrent={(branch) => {
+													void mergeHomeBranchIntoCurrent(branch);
+												}}
+												onRebaseCurrentOnto={(branch) => {
+													void rebaseHomeCurrentOnto(branch);
+												}}
 												onDiscardWorkingChanges={() => {
 													void discardHomeWorkingChanges();
 												}}

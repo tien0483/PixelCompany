@@ -352,6 +352,34 @@ export const runtimeGitMergeBranchResponseSchema = z.object({
 });
 export type RuntimeGitMergeBranchResponse = z.infer<typeof runtimeGitMergeBranchResponseSchema>;
 
+export const runtimeGitMergeIntoCurrentRequestSchema = z.object({
+	branch: z.string(),
+});
+export type RuntimeGitMergeIntoCurrentRequest = z.infer<typeof runtimeGitMergeIntoCurrentRequestSchema>;
+
+export const runtimeGitMergeIntoCurrentResponseSchema = z.object({
+	ok: z.boolean(),
+	branch: z.string(),
+	summary: runtimeGitSyncSummarySchema,
+	output: z.string(),
+	error: z.string().optional(),
+});
+export type RuntimeGitMergeIntoCurrentResponse = z.infer<typeof runtimeGitMergeIntoCurrentResponseSchema>;
+
+export const runtimeGitRebaseCurrentOntoRequestSchema = z.object({
+	branch: z.string(),
+});
+export type RuntimeGitRebaseCurrentOntoRequest = z.infer<typeof runtimeGitRebaseCurrentOntoRequestSchema>;
+
+export const runtimeGitRebaseCurrentOntoResponseSchema = z.object({
+	ok: z.boolean(),
+	branch: z.string(),
+	summary: runtimeGitSyncSummarySchema,
+	output: z.string(),
+	error: z.string().optional(),
+});
+export type RuntimeGitRebaseCurrentOntoResponse = z.infer<typeof runtimeGitRebaseCurrentOntoResponseSchema>;
+
 export const runtimeGitCherryPickRequestSchema = z.object({
 	taskId: z.string(),
 	baseRef: z.string(),
