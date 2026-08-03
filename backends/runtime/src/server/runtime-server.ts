@@ -27,7 +27,7 @@ import {
 	isKanbanRemoteHost,
 } from "../core/runtime-endpoint";
 import type { ManagerClient } from "../manager/manager-client";
-import { pickDefaultCursorAccountId } from "../manager/manager-account-pin";
+import { pickDefaultCursorAccountId, toManagerDonateAccount } from "../manager/manager-account-pin";
 import type { ManagerMonitor } from "../manager/manager-monitor";
 import {
 	createUsageResumeScheduler,
@@ -261,14 +261,7 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 			if (!account) {
 				return null;
 			}
-			return {
-				id: account.id,
-				provider: account.provider,
-				fiveHourPercent: account.fiveHourPercent,
-				sevenDayPercent: account.sevenDayPercent,
-				donateLimitPercent: account.donateLimitPercent,
-				donateLimitLocked: account.donateLimitLocked,
-			};
+			return toManagerDonateAccount(account);
 		},
 		resolveInteractiveShellCommand: deps.resolveInteractiveShellCommand,
 		runCommand: deps.runCommand,

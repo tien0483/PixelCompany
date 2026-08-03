@@ -8,6 +8,7 @@ import {
 	autoFallbackAccount,
 	filterManagerAccountsForAgent,
 	managerProviderForAgent,
+	shouldClearManagerAccountPin,
 } from "@/manager/task-account-picker";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import type { RuntimeManagerAccount } from "@/runtime/types";
@@ -107,6 +108,65 @@ describe("filterManagerAccountsForAgent", () => {
 		});
 		expect(filtered).toHaveLength(1);
 		expect(filtered[0]?.email).toBe("claude@example.com");
+	});
+});
+
+describe("shouldClearManagerAccountPin", () => {
+	const claudeSeat = account(1, "claude", "claude@example.com");
+	const cursorSeat = account(3, "cursor", "cursor@example.com");
+
+	it("clears a pin whose seat is no longer eligible (disabled in Manager)", () => {
+		const disabled = account(2, "claude", "off@example.com");
+		disabled.isActive = false;
+		expect(
+			shouldClearManagerAccountPin({
+				pinnedAccountId: 2,
+				snapshotAccounts: [claudeSeat, disabled],
+				eligibleAccounts: [claudeSeat],
+			}),
+		).toBe(true);
+	});
+
+	it("clears a pin that belongs to the other provider", () => {
+		expect(
+			shouldClearManagerAccountPin({
+				pinnedAccountId: 3,
+				snapshotAccounts: [claudeSeat, cursorSeat],
+				eligibleAccounts: [claudeSeat],
+			}),
+		).toBe(true);
+	});
+
+	it("keeps a pin whose seat is still eligible", () => {
+		expect(
+			shouldClearManagerAccountPin({
+				pinnedAccountId: 1,
+				snapshotAccounts: [claudeSeat, cursorSeat],
+				eligibleAccounts: [claudeSeat],
+			}),
+		).toBe(false);
+	});
+
+	// Manager offline or the snapshot still loading. Clearing here would wipe good
+	// pins on every boot, which is worse than briefly honoring a stale one.
+	it("keeps the pin when the snapshot is empty", () => {
+		expect(
+			shouldClearManagerAccountPin({
+				pinnedAccountId: 1,
+				snapshotAccounts: [],
+				eligibleAccounts: [],
+			}),
+		).toBe(false);
+	});
+
+	it("does nothing for an unpinned task", () => {
+		expect(
+			shouldClearManagerAccountPin({
+				pinnedAccountId: undefined,
+				snapshotAccounts: [claudeSeat],
+				eligibleAccounts: [claudeSeat],
+			}),
+		).toBe(false);
 	});
 });
 

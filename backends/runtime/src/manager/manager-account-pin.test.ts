@@ -3,10 +3,12 @@ import { describe, expect, it, vi } from "vitest";
 import {
 	CLAUDE_CONFIG_DIR_ENV,
 	CURSOR_API_KEY_ENV,
+	isManagerAccountDisabled,
 	isManagerAccountDonateExhausted,
 	isManagerAccountDonatePinBlocked,
 	pickDefaultCursorAccountId,
 	resolveManagerAccountPin,
+	toManagerDonateAccount,
 } from "./manager-account-pin";
 
 describe("isManagerAccountDonateExhausted", () => {
@@ -29,6 +31,65 @@ describe("isManagerAccountDonateExhausted", () => {
 				donateLimitPercent: 70,
 			}),
 		).toBe(false);
+	});
+});
+
+describe("toManagerDonateAccount", () => {
+	const snapshotAccount = {
+		id: 7,
+		provider: "claude" as const,
+		email: "seat@example.com",
+		displayName: null,
+		organizationName: null,
+		isActive: false,
+		fiveHourPercent: 42,
+		sevenDayPercent: 11,
+		fiveHourResetsAt: null,
+		sevenDayResetsAt: null,
+		usageCachedAt: null,
+		subscriptionType: null,
+		donateLimitPercent: 80,
+		donateLimitLocked: true,
+		pressure: 0.42,
+		nextRefreshAt: null,
+		canAutoSwap: true,
+		canTrackUsage: true,
+		hasCcToken: true,
+		ccNeedsAuth: false,
+		isActiveForProvider: false,
+		validationStatus: null,
+		lastError: null,
+	};
+
+	// Every field the gate predicates read has to survive the projection; each one
+	// is optional on the target, so a dropped field fails silently rather than at
+	// compile time.
+	it("carries every field the pin gate reads", () => {
+		expect(toManagerDonateAccount(snapshotAccount)).toEqual({
+			id: 7,
+			provider: "claude",
+			isActive: false,
+			isActiveForProvider: false,
+			fiveHourPercent: 42,
+			sevenDayPercent: 11,
+			pressure: 0.42,
+			donateLimitPercent: 80,
+			donateLimitLocked: true,
+		});
+	});
+
+	it("keeps a disabled seat detectable after the projection", () => {
+		expect(isManagerAccountDisabled(toManagerDonateAccount(snapshotAccount))).toBe(true);
+		expect(isManagerAccountDisabled(toManagerDonateAccount({ ...snapshotAccount, isActive: true }))).toBe(false);
+	});
+});
+
+describe("isManagerAccountDisabled", () => {
+	it("only treats an explicit false as disabled", () => {
+		expect(isManagerAccountDisabled({ id: 1, provider: "claude", isActive: false })).toBe(true);
+		expect(isManagerAccountDisabled({ id: 1, provider: "claude", isActive: true })).toBe(false);
+		// Omitted by callers that do not carry the flag; must not read as disabled.
+		expect(isManagerAccountDisabled({ id: 1, provider: "claude" })).toBe(false);
 	});
 });
 
@@ -403,6 +464,101 @@ describe("resolveManagerAccountPin", () => {
 		expect(pin.blocked).toBeUndefined();
 		expect(pin.env).toEqual({ [CLAUDE_CONFIG_DIR_ENV]: "/home/u/.claude/accounts/6" });
 		expect(pin.accountId).toBe(6);
+	});
+
+	it("hard-blocks a Claude pin on a seat disabled in Manager", async () => {
+		const getAccountLaunchDir = vi.fn().mockResolvedValue({ configDir: "/home/u/.claude/accounts/12" });
+		const getPinnedAccount = vi.fn().mockResolvedValue({
+			id: 12,
+			provider: "claude",
+			isActive: false,
+			fiveHourPercent: 5,
+			sevenDayPercent: 5,
+			donateLimitPercent: 80,
+		});
+
+		const pin = await resolveManagerAccountPin({
+			agentId: "claude",
+			managerAccountId: 12,
+			getAccountLaunchDir,
+			getPinnedAccount,
+		});
+
+		expect(pin.blocked).toBe(true);
+		expect(pin.accountId).toBeNull();
+		expect(pin.env).toEqual({});
+		expect(pin.warning).toContain("disabled in Manager");
+		// Blocked before any credential prep — a disabled seat never gets a config dir.
+		expect(getAccountLaunchDir).not.toHaveBeenCalled();
+	});
+
+	it("hard-blocks a Cursor pin on a seat disabled in Manager", async () => {
+		const getAccountLaunchCredential = vi.fn().mockResolvedValue({ apiKey: "cursor-key-13" });
+		const getPinnedAccount = vi.fn().mockResolvedValue({
+			id: 13,
+			provider: "cursor",
+			isActive: false,
+			fiveHourPercent: 5,
+			sevenDayPercent: 5,
+		});
+
+		const pin = await resolveManagerAccountPin({
+			agentId: "cursor",
+			managerAccountId: 13,
+			getAccountLaunchDir: vi.fn(),
+			getAccountLaunchCredential,
+			getAccountProvider: async () => "cursor",
+			getPinnedAccount,
+		});
+
+		expect(pin.blocked).toBe(true);
+		expect(pin.accountId).toBeNull();
+		expect(pin.env).toEqual({});
+		expect(pin.warning).toContain("disabled in Manager");
+		expect(getAccountLaunchCredential).not.toHaveBeenCalled();
+	});
+
+	it("blocks a disabled seat even when it is well under its donate cap", async () => {
+		const getPinnedAccount = vi.fn().mockResolvedValue({
+			id: 14,
+			provider: "claude",
+			isActive: false,
+			fiveHourPercent: 0,
+			sevenDayPercent: 0,
+			donateLimitPercent: 100,
+			donateLimitLocked: false,
+		});
+
+		const pin = await resolveManagerAccountPin({
+			agentId: "claude",
+			managerAccountId: 14,
+			getAccountLaunchDir: vi.fn().mockResolvedValue({ configDir: "/home/u/.claude/accounts/14" }),
+			getPinnedAccount,
+		});
+
+		expect(pin.blocked).toBe(true);
+		expect(pin.warning).toContain("disabled in Manager");
+	});
+
+	it("pins normally when the snapshot omits isActive (treated as enabled)", async () => {
+		const getAccountLaunchDir = vi.fn().mockResolvedValue({ configDir: "/home/u/.claude/accounts/15" });
+		const getPinnedAccount = vi.fn().mockResolvedValue({
+			id: 15,
+			provider: "claude",
+			fiveHourPercent: 5,
+			sevenDayPercent: 5,
+		});
+
+		const pin = await resolveManagerAccountPin({
+			agentId: "claude",
+			managerAccountId: 15,
+			getAccountLaunchDir,
+			getPinnedAccount,
+		});
+
+		expect(pin.blocked).toBeUndefined();
+		expect(pin.env).toEqual({ [CLAUDE_CONFIG_DIR_ENV]: "/home/u/.claude/accounts/15" });
+		expect(pin.accountId).toBe(15);
 	});
 
 	it("ignores a Claude pin on a Cursor task and does not force a Seats key", async () => {
