@@ -39,6 +39,7 @@ import {
 	parseTaskChatReloadRequest,
 	parseTaskChatSendRequest,
 	parseTaskSessionInputRequest,
+	parseTaskSessionPauseRequest,
 	parseTaskSessionStartRequest,
 	parseTaskSessionStopRequest,
 } from "../core/api-validation";
@@ -409,6 +410,34 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 					summary: null,
 					error: message,
 				};
+			}
+		},
+		pauseTaskSession: async (workspaceScope, input) => {
+			try {
+				const body = parseTaskSessionPauseRequest(input);
+				const terminalManager = await deps.getScopedTerminalManager(workspaceScope);
+				const summary = terminalManager.pauseTaskSession(body.taskId);
+				if (!summary) {
+					return { ok: false, summary: null, error: "Task session is not running." };
+				}
+				return { ok: true, summary };
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error);
+				return { ok: false, summary: null, error: message };
+			}
+		},
+		resumeTaskSession: async (workspaceScope, input) => {
+			try {
+				const body = parseTaskSessionPauseRequest(input);
+				const terminalManager = await deps.getScopedTerminalManager(workspaceScope);
+				const summary = terminalManager.resumeTaskSession(body.taskId);
+				if (!summary) {
+					return { ok: false, summary: null, error: "Task session is not running." };
+				}
+				return { ok: true, summary };
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error);
+				return { ok: false, summary: null, error: message };
 			}
 		},
 		sendTaskSessionInput: async (workspaceScope, input) => {

@@ -27,6 +27,13 @@ import { hasCodexWorkspaceTrustPrompt, shouldAutoConfirmCodexWorkspaceTrust } fr
 import { isCursorOutputTransitionDetector } from "./cursor-output-transition";
 import { stripAnsi } from "./output-utils";
 import { PtySession } from "./pty-session";
+import {
+	computeRunTimingPatch,
+	freezeRunTimingPatch,
+	PAUSE_INTERRUPT_INPUT,
+	PAUSE_RESUME_INPUT,
+	resumeRunTimingPatch,
+} from "./session-run-timing";
 import { reduceSessionTransition, type SessionTransitionEvent } from "./session-state-machine";
 import {
 	createTerminalProtocolFilterState,
@@ -127,6 +134,10 @@ function createDefaultSummary(taskId: string): RuntimeTaskSessionSummary {
 		pid: null,
 		startedAt: null,
 		updatedAt: now(),
+		activeRunMs: 0,
+		runningSince: null,
+		pausedAt: null,
+		pauseReason: null,
 		lastOutputAt: null,
 		reviewReason: null,
 		exitCode: null,
@@ -147,10 +158,12 @@ function cloneSummary(summary: RuntimeTaskSessionSummary): RuntimeTaskSessionSum
 }
 
 function updateSummary(entry: SessionEntry, patch: Partial<RuntimeTaskSessionSummary>): RuntimeTaskSessionSummary {
+	const nowTs = now();
 	entry.summary = {
 		...entry.summary,
+		...computeRunTimingPatch(entry.summary, patch, nowTs),
 		...patch,
-		updatedAt: now(),
+		updatedAt: nowTs,
 	};
 	return entry.summary;
 }
@@ -668,6 +681,8 @@ export class TerminalSessionManager implements TerminalSessionService {
 			workspacePath: request.cwd,
 			pid: session.pid,
 			startedAt,
+			activeRunMs: 0,
+			pausedAt: null,
 			lastOutputAt: null,
 			reviewReason: request.resumeFromTrash ? "attention" : null,
 			exitCode: null,
@@ -825,6 +840,8 @@ export class TerminalSessionManager implements TerminalSessionService {
 			workspacePath: request.cwd,
 			pid: session.pid,
 			startedAt: now(),
+			activeRunMs: 0,
+			pausedAt: null,
 			lastOutputAt: null,
 			reviewReason: null,
 			exitCode: null,
@@ -926,6 +943,55 @@ export class TerminalSessionManager implements TerminalSessionService {
 		}
 		entry.active.session.resume();
 		return true;
+	}
+
+	/**
+	 * Manual pause: interrupt the agent's current turn like pressing Esc, keep the
+	 * process alive, and freeze the run stopwatch. `reason` distinguishes a user
+	 * pause from an automatic max-runtime force-pause.
+	 */
+	pauseTaskSession(taskId: string, reason: "manual" | "max_runtime" = "manual"): RuntimeTaskSessionSummary | null {
+		const entry = this.entries.get(taskId);
+		if (!entry?.active) {
+			return entry ? cloneSummary(entry.summary) : null;
+		}
+		if (entry.summary.pausedAt != null) {
+			return cloneSummary(entry.summary);
+		}
+		entry.active.session.write(Buffer.from(PAUSE_INTERRUPT_INPUT, "utf8"));
+		const nowTs = now();
+		const summary = updateSummary(entry, {
+			pausedAt: nowTs,
+			pauseReason: reason,
+			...freezeRunTimingPatch(entry.summary, nowTs),
+		});
+		for (const listener of entry.listeners.values()) {
+			listener.onState?.(cloneSummary(summary));
+		}
+		this.emitSummary(summary);
+		return cloneSummary(summary);
+	}
+
+	/** Resume a manually/force-paused session: send "continue" and restart the stopwatch. */
+	resumeTaskSession(taskId: string): RuntimeTaskSessionSummary | null {
+		const entry = this.entries.get(taskId);
+		if (!entry?.active) {
+			return entry ? cloneSummary(entry.summary) : null;
+		}
+		if (entry.summary.pausedAt == null) {
+			return cloneSummary(entry.summary);
+		}
+		entry.active.session.write(Buffer.from(PAUSE_RESUME_INPUT, "utf8"));
+		const summary = updateSummary(entry, {
+			pausedAt: null,
+			pauseReason: null,
+			...resumeRunTimingPatch(now()),
+		});
+		for (const listener of entry.listeners.values()) {
+			listener.onState?.(cloneSummary(summary));
+		}
+		this.emitSummary(summary);
+		return cloneSummary(summary);
 	}
 
 	transitionToReview(taskId: string, reason: RuntimeTaskSessionReviewReason): RuntimeTaskSessionSummary | null {

@@ -133,6 +133,8 @@ import type {
 	RuntimeTaskChatSendResponse,
 	RuntimeTaskSessionInputRequest,
 	RuntimeTaskSessionInputResponse,
+	RuntimeTaskSessionPauseRequest,
+	RuntimeTaskSessionPauseResponse,
 	RuntimeTaskSessionStartRequest,
 	RuntimeTaskSessionStartResponse,
 	RuntimeTaskSessionStopRequest,
@@ -280,6 +282,8 @@ import {
 	runtimeTaskChatSendResponseSchema,
 	runtimeTaskSessionInputRequestSchema,
 	runtimeTaskSessionInputResponseSchema,
+	runtimeTaskSessionPauseRequestSchema,
+	runtimeTaskSessionPauseResponseSchema,
 	runtimeTaskSessionStartRequestSchema,
 	runtimeTaskSessionStartResponseSchema,
 	runtimeTaskSessionStopRequestSchema,
@@ -334,6 +338,14 @@ export interface RuntimeTrpcContext {
 			scope: RuntimeTrpcWorkspaceScope,
 			input: RuntimeTaskSessionStopRequest,
 		) => Promise<RuntimeTaskSessionStopResponse>;
+		pauseTaskSession: (
+			scope: RuntimeTrpcWorkspaceScope,
+			input: RuntimeTaskSessionPauseRequest,
+		) => Promise<RuntimeTaskSessionPauseResponse>;
+		resumeTaskSession: (
+			scope: RuntimeTrpcWorkspaceScope,
+			input: RuntimeTaskSessionPauseRequest,
+		) => Promise<RuntimeTaskSessionPauseResponse>;
 		sendTaskSessionInput: (
 			scope: RuntimeTrpcWorkspaceScope,
 			input: RuntimeTaskSessionInputRequest,
@@ -664,6 +676,18 @@ export const runtimeAppRouter = t.router({
 			.output(runtimeTaskSessionStopResponseSchema)
 			.mutation(async ({ ctx, input }) => {
 				return await ctx.runtimeApi.stopTaskSession(ctx.workspaceScope, input);
+			}),
+		pauseTaskSession: workspaceProcedure
+			.input(runtimeTaskSessionPauseRequestSchema)
+			.output(runtimeTaskSessionPauseResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.runtimeApi.pauseTaskSession(ctx.workspaceScope, input);
+			}),
+		resumeTaskSession: workspaceProcedure
+			.input(runtimeTaskSessionPauseRequestSchema)
+			.output(runtimeTaskSessionPauseResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.runtimeApi.resumeTaskSession(ctx.workspaceScope, input);
 			}),
 		sendTaskSessionInput: workspaceProcedure
 			.input(runtimeTaskSessionInputRequestSchema)

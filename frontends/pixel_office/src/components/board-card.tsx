@@ -2,7 +2,19 @@ import { Draggable } from "@hello-pangea/dnd";
 import { getRuntimeAgentCatalogEntry } from "@runtime-agent-catalog";
 import { formatClineToolCallLabel } from "@runtime-cline-tool-call-display";
 import { buildTaskWorktreeDisplayPath } from "@runtime-task-worktree-path";
-import { AlertCircle, AlertTriangle, Bot, GitBranch, GitMerge, Pencil, Play, RotateCcw, Trash2 } from "lucide-react";
+import {
+	AlertCircle,
+	AlertTriangle,
+	Bot,
+	Clock,
+	GitBranch,
+	GitMerge,
+	Pause,
+	Pencil,
+	Play,
+	RotateCcw,
+	Trash2,
+} from "lucide-react";
 import type { KeyboardEvent, MouseEvent } from "react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -16,9 +28,11 @@ import { cn } from "@/components/ui/cn";
 import { Spinner } from "@/components/ui/spinner";
 import { Tooltip } from "@/components/ui/tooltip";
 import type { RuntimeTaskSessionSummary } from "@/runtime/types";
+import { useElapsedMs } from "@/hooks/use-elapsed-timer";
 import { useTaskWorkspaceSnapshotValue } from "@/stores/workspace-metadata-store";
 import type { BoardCard as BoardCardModel, BoardColumnId } from "@/types";
 import { getTaskAutoReviewCancelButtonLabel } from "@/types";
+import { formatElapsed } from "@/utils/format-elapsed";
 import { formatPathForDisplay } from "@/utils/path-display";
 import { useMeasure } from "@/utils/react-use";
 import {
@@ -231,6 +245,8 @@ export function BoardCard({
 	selected = false,
 	onClick,
 	onStart,
+	onPause,
+	onResume,
 	onDelete,
 	onMoveToTrash,
 	onRestoreFromTrash,
@@ -258,6 +274,8 @@ export function BoardCard({
 	selected?: boolean;
 	onClick?: () => void;
 	onStart?: (taskId: string) => void;
+	onPause?: (taskId: string) => void;
+	onResume?: (taskId: string) => void;
 	onDelete?: (taskId: string) => void;
 	onMoveToTrash?: (taskId: string) => void;
 	onRestoreFromTrash?: (taskId: string) => void;
@@ -307,6 +325,13 @@ export function BoardCard({
 		lastSessionActivityRef.current = rawSessionActivity;
 	}
 	const sessionActivity = rawSessionActivity ?? lastSessionActivityRef.current;
+	const isPaused = sessionSummary?.pausedAt != null;
+	const pausedByMaxRuntime = sessionSummary?.pauseReason === "max_runtime";
+	const elapsedMs = useElapsedMs(sessionSummary);
+	const showElapsed =
+		columnId === "in_progress" &&
+		sessionSummary != null &&
+		(sessionSummary.runningSince != null || sessionSummary.activeRunMs > 0 || isPaused);
 	const displayTitle = useMemo(
 		() => normalizePromptForDisplay(card.title) || truncateTaskPromptLabel(card.prompt),
 		[card.prompt, card.title],
@@ -705,6 +730,23 @@ export function BoardCard({
 											}}
 										/>
 									</Tooltip>
+								) : columnId === "in_progress" ? (
+									<Button
+										icon={isPaused ? <Play size={14} /> : <Pause size={13} />}
+										variant="ghost"
+										size="sm"
+										aria-label={isPaused ? "Resume task" : "Pause task"}
+										title={isPaused ? "Resume agent" : "Pause agent (Esc)"}
+										onMouseDown={stopEvent}
+										onClick={(event) => {
+											stopEvent(event);
+											if (isPaused) {
+												onResume?.(card.id);
+											} else {
+												onPause?.(card.id);
+											}
+										}}
+									/>
 								) : null}
 							</div>
 							{displayDescription ? (
@@ -801,6 +843,25 @@ export function BoardCard({
 											{sessionActivity.text}
 										</p>
 									</div>
+								</div>
+							) : null}
+							{showElapsed ? (
+								<div
+									className="flex items-center gap-1.5 mt-[6px] font-mono"
+									style={{ fontSize: 12 }}
+								>
+									<Clock
+										size={11}
+										className={isPaused ? "text-status-orange" : "text-text-tertiary"}
+									/>
+									<span className={isPaused ? "text-status-orange" : "text-text-secondary"}>
+										{formatElapsed(elapsedMs)}
+									</span>
+									{isPaused ? (
+										<span className="text-status-orange">
+											· Paused{pausedByMaxRuntime ? " (max runtime)" : ""}
+										</span>
+									) : null}
 								</div>
 							) : null}
 							{showWorkspaceStatus && reviewWorkspacePath ? (

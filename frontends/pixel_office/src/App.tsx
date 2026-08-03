@@ -251,6 +251,8 @@ export default function App(): ReactElement {
 		ensureTaskWorkspace,
 		startTaskSession,
 		stopTaskSession,
+		pauseTaskSession,
+		resumeTaskSession,
 		sendTaskSessionInput,
 		sendTaskChatMessage,
 		cancelTaskChatTurn,
@@ -1250,6 +1252,8 @@ export default function App(): ReactElement {
 														onCardSelect={handleCardSelect}
 														onCreateTask={handleOpenCreateTask}
 														onStartTask={handleStartTaskFromBoard}
+														onPauseTask={pauseTaskSession}
+														onResumeTask={resumeTaskSession}
 														onDeleteTask={handleDeleteBacklogTask}
 														onStartAllTasks={
 															handleStartAllBacklogTasksFromBoard
@@ -1371,6 +1375,8 @@ export default function App(): ReactElement {
 									onTaskDragEnd={handleDetailTaskDragEnd}
 									onCreateTask={handleOpenCreateTask}
 									onStartTask={handleStartTaskFromBoard}
+									onPauseTask={pauseTaskSession}
+									onResumeTask={resumeTaskSession}
 									onStartAllTasks={handleStartAllBacklogTasksFromBoard}
 									onClearTrash={handleOpenClearTrash}
 									editingTaskId={editingTaskId}

@@ -2,6 +2,7 @@
 // This module owns the in-memory summary and message shape plus the low-level
 // mutations shared by the event adapter and the message repository.
 import type { RuntimeTaskImage, RuntimeTaskSessionSummary } from "../core/api-contract";
+import { computeRunTimingPatch } from "../terminal/session-run-timing";
 
 const CLINE_USER_ATTENTION_TOOL_NAMES = new Set(["ask_followup_question", "plan_mode_respond"]);
 
@@ -131,6 +132,10 @@ export function createDefaultSummary(taskId: string): RuntimeTaskSessionSummary 
 		pid: null,
 		startedAt: null,
 		updatedAt: now(),
+		activeRunMs: 0,
+		runningSince: null,
+		pausedAt: null,
+		pauseReason: null,
 		lastOutputAt: null,
 		reviewReason: null,
 		exitCode: null,
@@ -147,10 +152,12 @@ export function updateSummary(
 	entry: ClineTaskSessionEntry,
 	patch: Partial<RuntimeTaskSessionSummary>,
 ): RuntimeTaskSessionSummary {
+	const nowTs = now();
 	entry.summary = {
 		...entry.summary,
+		...computeRunTimingPatch(entry.summary, patch, nowTs),
 		...patch,
-		updatedAt: now(),
+		updatedAt: nowTs,
 	};
 	return cloneSummary(entry.summary);
 }
