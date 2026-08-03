@@ -2,7 +2,12 @@ import { describe, expect, it } from "vitest";
 
 import { createInitialBoardData } from "@/data/board-data";
 import { addTaskDependency, addTaskToColumn, moveTaskToColumn } from "@/state/board-state";
-import { computeBacklogChainGroups, computeChainGroups, resolveChainRootId } from "@/state/chain-groups";
+import {
+	computeBacklogChainGroups,
+	computeChainGroups,
+	isTaskInChain,
+	resolveChainRootId,
+} from "@/state/chain-groups";
 import type { BoardData } from "@/types";
 
 // Builds N backlog tasks and returns the board plus each task id by its 1-based order.
@@ -125,5 +130,22 @@ describe("resolveChainRootId", () => {
 		linked = chain(linked, c, b);
 		expect(resolveChainRootId(linked.dependencies, c)).toBe(a);
 		expect(resolveChainRootId(linked.dependencies, a)).toBe(a);
+	});
+});
+
+describe("isTaskInChain", () => {
+	it("is false for unlinked backlog tasks", () => {
+		const { board, ids } = backlogBoard(2);
+		const [a, b] = ids as [string, string];
+		expect(isTaskInChain(board.dependencies, a)).toBe(false);
+		expect(isTaskInChain(board.dependencies, b)).toBe(false);
+	});
+
+	it("is true for both the chain root and follower", () => {
+		const { board, ids } = backlogBoard(2);
+		const [root, follower] = ids as [string, string];
+		const linked = chain(board, follower, root);
+		expect(isTaskInChain(linked.dependencies, root)).toBe(true);
+		expect(isTaskInChain(linked.dependencies, follower)).toBe(true);
 	});
 });

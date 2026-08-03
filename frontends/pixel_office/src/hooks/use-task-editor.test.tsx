@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useTaskEditor } from "@/hooks/use-task-editor";
 import type { RuntimeAgentId, RuntimeTaskClineSettings } from "@/runtime/types";
+import { addTaskDependency } from "@/state/board-state";
 import type { BoardCard, BoardData, TaskAutoReviewMode, TaskImage } from "@/types";
 
 function createTask(taskId: string, prompt: string, createdAt: number, overrides: Partial<BoardCard> = {}): BoardCard {
@@ -41,6 +42,7 @@ interface HookSnapshot {
 	newTaskBranchRef: string;
 	newTaskAgentId: RuntimeAgentId | undefined;
 	newTaskClineSettings: RuntimeTaskClineSettings | undefined;
+	newTaskManagerAccountId: number | undefined;
 	editingTaskId: string | null;
 	editTaskPrompt: string;
 	editTaskStartInPlanMode: boolean;
@@ -58,6 +60,7 @@ interface HookSnapshot {
 	setEditTaskAutoReviewMode: (value: TaskAutoReviewMode) => void;
 	setNewTaskAgentId: (value: RuntimeAgentId | undefined) => void;
 	setNewTaskClineSettings: (value: RuntimeTaskClineSettings | undefined) => void;
+	setNewTaskManagerAccountId: (value: number | undefined) => void;
 }
 
 function requireSnapshot(snapshot: HookSnapshot | null): HookSnapshot {
@@ -98,6 +101,7 @@ function HookHarness({
 			newTaskBranchRef: editor.newTaskBranchRef,
 			newTaskAgentId: editor.newTaskAgentId,
 			newTaskClineSettings: editor.newTaskClineSettings,
+			newTaskManagerAccountId: editor.newTaskManagerAccountId,
 			editingTaskId: editor.editingTaskId,
 			editTaskPrompt: editor.editTaskPrompt,
 			editTaskStartInPlanMode: editor.editTaskStartInPlanMode,
@@ -115,6 +119,7 @@ function HookHarness({
 			setEditTaskAutoReviewMode: editor.setEditTaskAutoReviewMode,
 			setNewTaskAgentId: editor.setNewTaskAgentId,
 			setNewTaskClineSettings: editor.setNewTaskClineSettings,
+			setNewTaskManagerAccountId: editor.setNewTaskManagerAccountId,
 		});
 	}, [
 		board,
@@ -134,6 +139,7 @@ function HookHarness({
 		editor.newTaskBranchRef,
 		editor.newTaskAgentId,
 		editor.newTaskClineSettings,
+		editor.newTaskManagerAccountId,
 		editor.setEditTaskAutoReviewEnabled,
 		editor.setEditTaskAutoReviewMode,
 		editor.setEditTaskPrompt,
@@ -474,5 +480,151 @@ describe("useTaskEditor", () => {
 				reasoningEffort: "medium",
 			});
 		}
+	});
+
+	it("always creates tasks without auto-review armed", async () => {
+		let latestSnapshot: HookSnapshot | null = null;
+
+		await act(async () => {
+			root.render(
+				<HookHarness
+					initialBoard={createBoard()}
+					onSnapshot={(snapshot) => {
+						latestSnapshot = snapshot;
+					}}
+				/>,
+			);
+		});
+
+		await act(async () => {
+			requireSnapshot(latestSnapshot).handleOpenCreateTask();
+			requireSnapshot(latestSnapshot).setNewTaskPrompt("Human review by default");
+		});
+
+		await act(async () => {
+			requireSnapshot(latestSnapshot).handleCreateTask();
+		});
+
+		const createdCard = requireSnapshot(latestSnapshot).board.columns[0]?.cards[0];
+		expect(createdCard?.autoReviewEnabled).toBe(false);
+	});
+
+	it("clears auto-review when saving a non-chain edited task", async () => {
+		let latestSnapshot: HookSnapshot | null = null;
+		const initialBoard = createBoard([
+			createTask("task-1", "Initial prompt", 1, {
+				autoReviewEnabled: true,
+				autoReviewMode: "pr",
+			}),
+		]);
+
+		await act(async () => {
+			root.render(
+				<HookHarness
+					initialBoard={initialBoard}
+					onSnapshot={(snapshot) => {
+						latestSnapshot = snapshot;
+					}}
+				/>,
+			);
+		});
+
+		const task = requireSnapshot(latestSnapshot).board.columns[0]?.cards[0];
+		if (!task) {
+			throw new Error("Expected a backlog task.");
+		}
+
+		await act(async () => {
+			requireSnapshot(latestSnapshot).handleOpenEditTask(task);
+		});
+
+		await act(async () => {
+			latestSnapshot?.setEditTaskAutoReviewEnabled(true);
+			latestSnapshot?.setEditTaskAutoReviewMode("pr");
+		});
+
+		await act(async () => {
+			requireSnapshot(latestSnapshot).handleSaveEditedTask();
+		});
+
+		const saved = requireSnapshot(latestSnapshot).board.columns[0]?.cards[0];
+		expect(saved?.autoReviewEnabled).toBe(false);
+	});
+
+	it("keeps commit auto-review when saving an opted-in chain member", async () => {
+		let latestSnapshot: HookSnapshot | null = null;
+		let initialBoard = createBoard([
+			createTask("task-1", "Root", 1),
+			createTask("task-2", "Follower", 2),
+		]);
+		const linked = addTaskDependency(initialBoard, "task-1", "task-2");
+		if (!linked.added) {
+			throw new Error("Expected chain link.");
+		}
+		initialBoard = linked.board;
+
+		await act(async () => {
+			root.render(
+				<HookHarness
+					initialBoard={initialBoard}
+					onSnapshot={(snapshot) => {
+						latestSnapshot = snapshot;
+					}}
+				/>,
+			);
+		});
+
+		const follower = requireSnapshot(latestSnapshot).board.columns[0]?.cards.find((card) => card.id === "task-2");
+		if (!follower) {
+			throw new Error("Expected follower task.");
+		}
+
+		await act(async () => {
+			requireSnapshot(latestSnapshot).handleOpenEditTask(follower);
+		});
+
+		await act(async () => {
+			latestSnapshot?.setEditTaskAutoReviewEnabled(true);
+		});
+
+		await act(async () => {
+			requireSnapshot(latestSnapshot).handleSaveEditedTask();
+		});
+
+		const saved = requireSnapshot(latestSnapshot).board.columns[0]?.cards.find((card) => card.id === "task-2");
+		expect(saved?.autoReviewEnabled).toBe(true);
+		expect(saved?.autoReviewMode).toBe("commit");
+	});
+
+	it("stamps an explicit Manager seat pin onto the created card", async () => {
+		let latestSnapshot: HookSnapshot | null = null;
+
+		await act(async () => {
+			root.render(
+				<HookHarness
+					initialBoard={createBoard()}
+					onSnapshot={(snapshot) => {
+						latestSnapshot = snapshot;
+					}}
+				/>,
+			);
+		});
+
+		await act(async () => {
+			requireSnapshot(latestSnapshot).handleOpenCreateTask();
+		});
+		await act(async () => {
+			requireSnapshot(latestSnapshot).setNewTaskPrompt("Pinned seat task");
+			requireSnapshot(latestSnapshot).setNewTaskAgentId("claude");
+			requireSnapshot(latestSnapshot).setNewTaskManagerAccountId(7);
+		});
+
+		await act(async () => {
+			requireSnapshot(latestSnapshot).handleCreateTask();
+		});
+
+		const createdCard = requireSnapshot(latestSnapshot).board.columns[0]?.cards[0];
+		expect(createdCard?.managerAccountId).toBe(7);
+		expect(requireSnapshot(latestSnapshot).newTaskManagerAccountId).toBeUndefined();
 	});
 });

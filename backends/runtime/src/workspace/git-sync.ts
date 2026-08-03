@@ -1,12 +1,14 @@
-import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { access, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 
 import type {
 	RuntimeGitCheckoutResponse,
 	RuntimeGitCreateBranchResponse,
 	RuntimeGitDeleteBranchResponse,
 	RuntimeGitMergeBranchResponse,
+	RuntimeGitMergeIntoCurrentResponse,
+	RuntimeGitRebaseCurrentOntoResponse,
 	RuntimeGitCherryPickResponse,
 	RuntimeGitPushBranchResponse,
 	RuntimeGitCommitResponse,
@@ -236,6 +238,33 @@ async function countUntrackedAdditions(repoRoot: string, untrackedPaths: string[
 async function hasGitRef(repoRoot: string, ref: string): Promise<boolean> {
 	const result = await runGit(repoRoot, ["show-ref", "--verify", "--quiet", ref]);
 	return result.ok;
+}
+
+async function gitPathExists(repoRoot: string, gitPath: string): Promise<boolean> {
+	const pathResult = await runGit(repoRoot, ["rev-parse", "--git-path", gitPath]);
+	if (!pathResult.ok || !pathResult.stdout) {
+		return false;
+	}
+	const resolved = isAbsolute(pathResult.stdout) ? pathResult.stdout : join(repoRoot, pathResult.stdout);
+	try {
+		await access(resolved);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+async function isMergeInProgress(repoRoot: string): Promise<boolean> {
+	const mergeHead = await runGit(repoRoot, ["rev-parse", "-q", "--verify", "MERGE_HEAD"]);
+	return mergeHead.ok;
+}
+
+async function isRebaseInProgress(repoRoot: string): Promise<boolean> {
+	const rebaseMerge = await gitPathExists(repoRoot, "rebase-merge");
+	if (rebaseMerge) {
+		return true;
+	}
+	return await gitPathExists(repoRoot, "rebase-apply");
 }
 
 export async function getGitSyncSummary(
@@ -609,6 +638,204 @@ export async function runGitMergeBranchAction(options: {
 		baseRef,
 		summary: nextSummary,
 		output: mergeResult.output,
+	};
+}
+
+/**
+ * Merges {@link options.branch} into the currently checked-out branch (HEAD stays put).
+ * Aborts the merge on conflict so the worktree is never left half-merged.
+ */
+export async function runGitMergeIntoCurrentAction(options: {
+	cwd: string;
+	branch: string;
+}): Promise<RuntimeGitMergeIntoCurrentResponse> {
+	const branch = options.branch.trim();
+	const repoRoot = await resolveRepoRoot(options.cwd);
+	const initialSummary = await getGitSyncSummary(repoRoot);
+
+	if (!branch) {
+		return {
+			ok: false,
+			branch,
+			summary: initialSummary,
+			output: "",
+			error: "Branch name cannot be empty.",
+		};
+	}
+
+	if (!initialSummary.currentBranch) {
+		return {
+			ok: false,
+			branch,
+			summary: initialSummary,
+			output: "",
+			error: "Cannot merge while HEAD is detached. Check out a branch first.",
+		};
+	}
+
+	if (initialSummary.currentBranch === branch) {
+		return {
+			ok: false,
+			branch,
+			summary: initialSummary,
+			output: "",
+			error: `Already on '${branch}'. Choose a different branch to merge.`,
+		};
+	}
+
+	if (await isMergeInProgress(repoRoot)) {
+		return {
+			ok: false,
+			branch,
+			summary: initialSummary,
+			output: "",
+			error: "A merge is already in progress. Finish or abort it first.",
+		};
+	}
+
+	if (await isRebaseInProgress(repoRoot)) {
+		return {
+			ok: false,
+			branch,
+			summary: initialSummary,
+			output: "",
+			error: "A rebase is already in progress. Finish or abort it first.",
+		};
+	}
+
+	if (initialSummary.changedFiles > 0) {
+		return {
+			ok: false,
+			branch,
+			summary: initialSummary,
+			output: "",
+			error: "Working tree has local changes. Commit, stash, or discard changes before merging.",
+		};
+	}
+
+	const mergeResult = await runGit(repoRoot, [
+		"merge",
+		"--no-ff",
+		branch,
+		"-m",
+		`Merge branch '${branch}' into ${initialSummary.currentBranch}`,
+	]);
+	const nextSummary = await getGitSyncSummary(repoRoot);
+
+	if (!mergeResult.ok) {
+		await runGit(repoRoot, ["merge", "--abort"]);
+		return {
+			ok: false,
+			branch,
+			summary: await getGitSyncSummary(repoRoot),
+			output: mergeResult.output,
+			error:
+				mergeResult.error ??
+				`Could not merge '${branch}' into ${initialSummary.currentBranch} (likely conflicts). The merge was aborted.`,
+		};
+	}
+
+	return {
+		ok: true,
+		branch,
+		summary: nextSummary,
+		output: mergeResult.output,
+	};
+}
+
+/**
+ * Rebases the currently checked-out branch onto {@link options.branch} (HEAD stays on current).
+ * Aborts the rebase on conflict so the worktree is never left mid-rebase.
+ */
+export async function runGitRebaseCurrentOntoAction(options: {
+	cwd: string;
+	branch: string;
+}): Promise<RuntimeGitRebaseCurrentOntoResponse> {
+	const branch = options.branch.trim();
+	const repoRoot = await resolveRepoRoot(options.cwd);
+	const initialSummary = await getGitSyncSummary(repoRoot);
+
+	if (!branch) {
+		return {
+			ok: false,
+			branch,
+			summary: initialSummary,
+			output: "",
+			error: "Branch name cannot be empty.",
+		};
+	}
+
+	if (!initialSummary.currentBranch) {
+		return {
+			ok: false,
+			branch,
+			summary: initialSummary,
+			output: "",
+			error: "Cannot rebase while HEAD is detached. Check out a branch first.",
+		};
+	}
+
+	if (initialSummary.currentBranch === branch) {
+		return {
+			ok: false,
+			branch,
+			summary: initialSummary,
+			output: "",
+			error: `Already on '${branch}'. Choose a different branch to rebase onto.`,
+		};
+	}
+
+	if (await isMergeInProgress(repoRoot)) {
+		return {
+			ok: false,
+			branch,
+			summary: initialSummary,
+			output: "",
+			error: "A merge is already in progress. Finish or abort it first.",
+		};
+	}
+
+	if (await isRebaseInProgress(repoRoot)) {
+		return {
+			ok: false,
+			branch,
+			summary: initialSummary,
+			output: "",
+			error: "A rebase is already in progress. Finish or abort it first.",
+		};
+	}
+
+	if (initialSummary.changedFiles > 0) {
+		return {
+			ok: false,
+			branch,
+			summary: initialSummary,
+			output: "",
+			error: "Working tree has local changes. Commit, stash, or discard changes before rebasing.",
+		};
+	}
+
+	const rebaseResult = await runGit(repoRoot, ["rebase", branch]);
+	const nextSummary = await getGitSyncSummary(repoRoot);
+
+	if (!rebaseResult.ok) {
+		await runGit(repoRoot, ["rebase", "--abort"]);
+		return {
+			ok: false,
+			branch,
+			summary: await getGitSyncSummary(repoRoot),
+			output: rebaseResult.output,
+			error:
+				rebaseResult.error ??
+				`Could not rebase '${initialSummary.currentBranch}' onto '${branch}' (likely conflicts). The rebase was aborted.`,
+		};
+	}
+
+	return {
+		ok: true,
+		branch,
+		summary: nextSummary,
+		output: rebaseResult.output,
 	};
 }
 

@@ -50,10 +50,8 @@ export function resolveChainRootId(dependencies: BoardDependency[], taskId: stri
 	return current;
 }
 
-/**
- * True when `taskId` participates in a chain dependency (as follower or prerequisite).
- */
-function isChainParticipant(dependencies: BoardDependency[], taskId: string): boolean {
+/** True when the task is a root or follower in any `chain: true` dependency. */
+export function isTaskInChain(dependencies: BoardDependency[], taskId: string): boolean {
 	return dependencies.some(
 		(dependency) =>
 			dependency.chain === true && (dependency.fromTaskId === taskId || dependency.toTaskId === taskId),
@@ -88,7 +86,7 @@ export function computeChainGroups(cards: BoardCard[], dependencies: BoardDepend
 
 	const membersByUltimateRoot = new Map<string, string[]>();
 	for (const card of cards) {
-		if (!isChainParticipant(dependencies, card.id)) {
+		if (!isTaskInChain(dependencies, card.id)) {
 			continue;
 		}
 		const ultimateRoot = resolveChainRootId(dependencies, card.id);

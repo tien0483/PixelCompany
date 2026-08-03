@@ -17,6 +17,8 @@ import {
 	type RuntimeGitCreateBranchRequest,
 	type RuntimeGitDeleteBranchRequest,
 	type RuntimeGitMergeBranchRequest,
+	type RuntimeGitMergeIntoCurrentRequest,
+	type RuntimeGitRebaseCurrentOntoRequest,
 	type RuntimeGitCherryPickRequest,
 	type RuntimeGitPushBranchRequest,
 	type RuntimeHookIngestRequest,
@@ -55,6 +57,8 @@ import {
 	runtimeGitCreateBranchRequestSchema,
 	runtimeGitDeleteBranchRequestSchema,
 	runtimeGitMergeBranchRequestSchema,
+	runtimeGitMergeIntoCurrentRequestSchema,
+	runtimeGitRebaseCurrentOntoRequestSchema,
 	runtimeGitCherryPickRequestSchema,
 	runtimeGitPushBranchRequestSchema,
 	runtimeHookIngestRequestSchema,
@@ -200,6 +204,28 @@ export function parseGitMergeBranchRequest(value: unknown): RuntimeGitMergeBranc
 	return {
 		taskId,
 		baseRef,
+	};
+}
+
+export function parseGitMergeIntoCurrentRequest(value: unknown): RuntimeGitMergeIntoCurrentRequest {
+	const parsed = parseWithSchema(runtimeGitMergeIntoCurrentRequestSchema, value);
+	const branch = parsed.branch.trim();
+	if (!branch) {
+		throw new Error("Branch cannot be empty.");
+	}
+	return {
+		branch,
+	};
+}
+
+export function parseGitRebaseCurrentOntoRequest(value: unknown): RuntimeGitRebaseCurrentOntoRequest {
+	const parsed = parseWithSchema(runtimeGitRebaseCurrentOntoRequestSchema, value);
+	const branch = parsed.branch.trim();
+	if (!branch) {
+		throw new Error("Branch cannot be empty.");
+	}
+	return {
+		branch,
 	};
 }
 

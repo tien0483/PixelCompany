@@ -119,9 +119,9 @@ export const ClineAgentChatPanel = React.forwardRef<ClineAgentChatPanelHandle, C
 			incomingMessages,
 			incomingMessage,
 			onCommit,
-			onOpenPr,
+			onOpenPr: _onOpenPr,
 			isCommitLoading = false,
-			isOpenPrLoading = false,
+			isOpenPrLoading: _isOpenPrLoading = false,
 			onMoveToTrash,
 			isMoveToTrashLoading = false,
 			onCancelAutomaticAction,
@@ -155,7 +155,6 @@ export const ClineAgentChatPanel = React.forwardRef<ClineAgentChatPanelHandle, C
 			incomingMessages,
 			incomingMessage,
 			onCommit,
-			onOpenPr,
 			onMoveToTrash,
 			onCancelAutomaticAction,
 			cancelAutomaticActionLabel,
@@ -469,19 +468,10 @@ export const ClineAgentChatPanel = React.forwardRef<ClineAgentChatPanelHandle, C
 									variant="primary"
 									size="sm"
 									fill
-									disabled={isCommitLoading || isOpenPrLoading}
+									disabled={isCommitLoading}
 									onClick={onCommit}
 								>
 									{isCommitLoading ? "..." : "Commit"}
-								</Button>
-								<Button
-									variant="primary"
-									size="sm"
-									fill
-									disabled={isCommitLoading || isOpenPrLoading}
-									onClick={onOpenPr}
-								>
-									{isOpenPrLoading ? "..." : "Open PR"}
 								</Button>
 							</div>
 						) : null}

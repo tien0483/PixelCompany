@@ -2,18 +2,14 @@ import { deriveTaskTitleFromPrompt } from "@runtime-task-title";
 import type { Dispatch, SetStateAction } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import {
-	normalizeStoredTaskAutoReviewMode,
-	TASK_AUTO_REVIEW_ENABLED_STORAGE_KEY,
-	TASK_AUTO_REVIEW_MODE_STORAGE_KEY,
-	TASK_START_IN_PLAN_MODE_STORAGE_KEY,
-} from "@/hooks/app-utils";
+import { TASK_START_IN_PLAN_MODE_STORAGE_KEY } from "@/hooks/app-utils";
 import type { RuntimeAgentId, RuntimeTaskClineSettings, RuntimeTaskLaunchSettings } from "@/runtime/types";
 import { addTaskToColumnWithResult, findCardSelection, updateTask, updateTaskTitle } from "@/state/board-state";
+import { isTaskInChain } from "@/state/chain-groups";
 import { toTelemetrySelectedAgentId, trackTaskCreated } from "@/telemetry/events";
 import type { BoardCard, BoardData, TaskAutoReviewMode, TaskImage } from "@/types";
 import { resolveTaskAutoReviewMode } from "@/types";
-import { useBooleanLocalStorageValue, useRawLocalStorageValue } from "@/utils/react-use";
+import { useBooleanLocalStorageValue } from "@/utils/react-use";
 
 interface UseTaskEditorInput {
 	board: BoardData;
@@ -42,10 +38,6 @@ export interface UseTaskEditorResult {
 	setNewTaskImages: Dispatch<SetStateAction<TaskImage[]>>;
 	newTaskStartInPlanMode: boolean;
 	setNewTaskStartInPlanMode: Dispatch<SetStateAction<boolean>>;
-	newTaskAutoReviewEnabled: boolean;
-	setNewTaskAutoReviewEnabled: Dispatch<SetStateAction<boolean>>;
-	newTaskAutoReviewMode: TaskAutoReviewMode;
-	setNewTaskAutoReviewMode: Dispatch<SetStateAction<TaskAutoReviewMode>>;
 	/** Minutes until the new backlog card auto-starts; 0 = off (start manually). */
 	newTaskAutoRunDelayMinutes: number;
 	setNewTaskAutoRunDelayMinutes: Dispatch<SetStateAction<number>>;
@@ -58,6 +50,9 @@ export interface UseTaskEditorResult {
 	setNewTaskClineSettings: Dispatch<SetStateAction<RuntimeTaskClineSettings | undefined>>;
 	newTaskLaunchSettings: RuntimeTaskLaunchSettings | undefined;
 	setNewTaskLaunchSettings: Dispatch<SetStateAction<RuntimeTaskLaunchSettings | undefined>>;
+	/** Explicit Manager seat pin for the new task; undefined means Auto. */
+	newTaskManagerAccountId: number | undefined;
+	setNewTaskManagerAccountId: Dispatch<SetStateAction<number | undefined>>;
 	editingTaskId: string | null;
 	editTaskPrompt: string;
 	setEditTaskPrompt: Dispatch<SetStateAction<string>>;
@@ -107,15 +102,6 @@ export function useTaskEditor({
 		TASK_START_IN_PLAN_MODE_STORAGE_KEY,
 		false,
 	);
-	const [newTaskAutoReviewEnabled, setNewTaskAutoReviewEnabled] = useBooleanLocalStorageValue(
-		TASK_AUTO_REVIEW_ENABLED_STORAGE_KEY,
-		false,
-	);
-	const [newTaskAutoReviewMode, setNewTaskAutoReviewMode] = useRawLocalStorageValue<TaskAutoReviewMode>(
-		TASK_AUTO_REVIEW_MODE_STORAGE_KEY,
-		"commit",
-		normalizeStoredTaskAutoReviewMode,
-	);
 	const [newTaskAutoRunDelayMinutes, setNewTaskAutoRunDelayMinutes] = useState(0);
 	const isNewTaskStartInPlanModeDisabled = false;
 	const [newTaskBranchRef, setNewTaskBranchRef] = useState("");
@@ -132,6 +118,7 @@ export function useTaskEditor({
 	const [newTaskAgentId, setNewTaskAgentId] = useState<RuntimeAgentId | undefined>(undefined);
 	const [newTaskClineSettings, setNewTaskClineSettings] = useState<RuntimeTaskClineSettings | undefined>(undefined);
 	const [newTaskLaunchSettings, setNewTaskLaunchSettings] = useState<RuntimeTaskLaunchSettings | undefined>(undefined);
+	const [newTaskManagerAccountId, setNewTaskManagerAccountId] = useState<number | undefined>(undefined);
 	const [editTaskAgentId, setEditTaskAgentId] = useState<RuntimeAgentId | undefined>(undefined);
 	const [editTaskClineSettings, setEditTaskClineSettings] = useState<RuntimeTaskClineSettings | undefined>(undefined);
 	const [editTaskLaunchSettings, setEditTaskLaunchSettings] = useState<RuntimeTaskLaunchSettings | undefined>(
@@ -222,6 +209,7 @@ export function useTaskEditor({
 		setNewTaskAgentId(undefined);
 		setNewTaskClineSettings(undefined);
 		setNewTaskLaunchSettings(undefined);
+		setNewTaskManagerAccountId(undefined);
 		setIsInlineTaskCreateOpen(true);
 	}, []);
 
@@ -234,6 +222,7 @@ export function useTaskEditor({
 		setNewTaskAgentId(undefined);
 		setNewTaskClineSettings(undefined);
 		setNewTaskLaunchSettings(undefined);
+		setNewTaskManagerAccountId(undefined);
 	}, [resolvedDefaultTaskBranchRef]);
 
 	const handleOpenEditTask = useCallback(
@@ -291,12 +280,14 @@ export function useTaskEditor({
 		setBoard((currentBoard) => {
 			const currentCard = currentBoard.columns.flatMap((c) => c.cards).find((c) => c.id === savedTaskId);
 			const title = currentCard?.title ?? "";
+			const inChain = isTaskInChain(currentBoard.dependencies, savedTaskId);
+			const autoReviewEnabled = inChain && editTaskAutoReviewEnabled;
 			const updated = updateTask(currentBoard, savedTaskId, {
 				title,
 				prompt,
 				startInPlanMode: editTaskStartInPlanMode,
-				autoReviewEnabled: editTaskAutoReviewEnabled,
-				autoReviewMode: editTaskAutoReviewMode,
+				autoReviewEnabled,
+				autoReviewMode: autoReviewEnabled ? "commit" : resolveTaskAutoReviewMode(editTaskAutoReviewMode),
 				images: editTaskImages,
 				agentId: editTaskAgentId,
 				clineSettings: editTaskClineSettings,
@@ -365,12 +356,15 @@ export function useTaskEditor({
 				title,
 				prompt,
 				startInPlanMode: newTaskStartInPlanMode,
-				autoReviewEnabled: newTaskAutoReviewEnabled,
-				autoReviewMode: newTaskAutoReviewMode,
+				autoReviewEnabled: false,
+				autoReviewMode: "commit",
 				images: newTaskImages,
 				// Stamp the effective agent onto the card so launches do not silently
 				// fall back to Claude when Settings still points at the old default.
 				agentId: newTaskAgentId ?? selectedAgentId ?? undefined,
+				...(typeof newTaskManagerAccountId === "number"
+					? { managerAccountId: newTaskManagerAccountId }
+					: {}),
 				clineSettings: newTaskClineSettings,
 				taskLaunchSettings: newTaskLaunchSettings,
 				autoRunAt: newTaskAutoRunDelayMinutes > 0 ? Date.now() + newTaskAutoRunDelayMinutes * 60_000 : undefined,
@@ -380,7 +374,6 @@ export function useTaskEditor({
 			trackTaskCreated({
 				selected_agent_id: toTelemetrySelectedAgentId(newTaskAgentId ?? selectedAgentId),
 				start_in_plan_mode: newTaskStartInPlanMode,
-				...(newTaskAutoReviewEnabled ? { auto_review_mode: newTaskAutoReviewMode } : {}),
 				prompt_character_count: prompt.length,
 			});
 			if (currentProjectId) {
@@ -396,6 +389,7 @@ export function useTaskEditor({
 			setNewTaskAgentId(undefined);
 			setNewTaskClineSettings(undefined);
 			setNewTaskLaunchSettings(undefined);
+			setNewTaskManagerAccountId(undefined);
 			setNewTaskAutoRunDelayMinutes(0);
 			if (!options?.keepDialogOpen) {
 				setIsInlineTaskCreateOpen(false);
@@ -406,13 +400,12 @@ export function useTaskEditor({
 			board,
 			currentProjectId,
 			newTaskAgentId,
-			newTaskAutoReviewEnabled,
-			newTaskAutoReviewMode,
 			newTaskAutoRunDelayMinutes,
 			setNewTaskAutoRunDelayMinutes,
 			newTaskBranchRef,
 			newTaskClineSettings,
 			newTaskLaunchSettings,
+			newTaskManagerAccountId,
 			newTaskImages,
 			newTaskPrompt,
 			newTaskStartInPlanMode,
@@ -441,10 +434,13 @@ export function useTaskEditor({
 				const created = addTaskToColumnWithResult(updatedBoard, "backlog", {
 					prompt,
 					startInPlanMode: newTaskStartInPlanMode,
-					autoReviewEnabled: newTaskAutoReviewEnabled,
-					autoReviewMode: newTaskAutoReviewMode,
+					autoReviewEnabled: false,
+					autoReviewMode: "commit",
 					images: newTaskImages,
 					agentId: newTaskAgentId ?? selectedAgentId ?? undefined,
+					...(typeof newTaskManagerAccountId === "number"
+						? { managerAccountId: newTaskManagerAccountId }
+						: {}),
 					clineSettings: newTaskClineSettings,
 					taskLaunchSettings: newTaskLaunchSettings,
 					autoRunAt,
@@ -458,7 +454,6 @@ export function useTaskEditor({
 				trackTaskCreated({
 					selected_agent_id: toTelemetrySelectedAgentId(newTaskAgentId ?? selectedAgentId),
 					start_in_plan_mode: newTaskStartInPlanMode,
-					...(newTaskAutoReviewEnabled ? { auto_review_mode: newTaskAutoReviewMode } : {}),
 					prompt_character_count: prompt.length,
 				});
 			}
@@ -475,6 +470,7 @@ export function useTaskEditor({
 			setNewTaskAgentId(undefined);
 			setNewTaskClineSettings(undefined);
 			setNewTaskLaunchSettings(undefined);
+			setNewTaskManagerAccountId(undefined);
 			setNewTaskAutoRunDelayMinutes(0);
 			if (!options?.keepDialogOpen) {
 				setIsInlineTaskCreateOpen(false);
@@ -485,13 +481,12 @@ export function useTaskEditor({
 			board,
 			currentProjectId,
 			newTaskAgentId,
-			newTaskAutoReviewEnabled,
-			newTaskAutoReviewMode,
 			newTaskAutoRunDelayMinutes,
 			setNewTaskAutoRunDelayMinutes,
 			newTaskBranchRef,
 			newTaskClineSettings,
 			newTaskLaunchSettings,
+			newTaskManagerAccountId,
 			newTaskImages,
 			newTaskStartInPlanMode,
 			resolvedDefaultTaskBranchRef,
@@ -521,6 +516,7 @@ export function useTaskEditor({
 		setNewTaskAgentId(undefined);
 		setNewTaskClineSettings(undefined);
 		setNewTaskLaunchSettings(undefined);
+		setNewTaskManagerAccountId(undefined);
 	}, []);
 
 	return {
@@ -531,10 +527,6 @@ export function useTaskEditor({
 		setNewTaskImages,
 		newTaskStartInPlanMode,
 		setNewTaskStartInPlanMode,
-		newTaskAutoReviewEnabled,
-		setNewTaskAutoReviewEnabled,
-		newTaskAutoReviewMode,
-		setNewTaskAutoReviewMode,
 		newTaskAutoRunDelayMinutes,
 		setNewTaskAutoRunDelayMinutes,
 		isNewTaskStartInPlanModeDisabled,
@@ -546,6 +538,8 @@ export function useTaskEditor({
 		setNewTaskClineSettings,
 		newTaskLaunchSettings,
 		setNewTaskLaunchSettings,
+		newTaskManagerAccountId,
+		setNewTaskManagerAccountId,
 		editingTaskId,
 		editTaskPrompt,
 		setEditTaskPrompt,

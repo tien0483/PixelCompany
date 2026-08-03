@@ -285,7 +285,7 @@ function AccountRow({
 							) : null}
 							{!account.isActive ? (
 								<span className="shrink-0 rounded bg-surface-2 px-1 py-0.5 text-[9px] uppercase tracking-wide text-text-tertiary">
-									disabled
+									deactivated
 								</span>
 							) : null}
 							{!account.canAutoSwap ? (
@@ -1554,7 +1554,7 @@ export function ManagerAccountsView({
 															accountId: account.id,
 															isActive: !account.isActive,
 														}),
-													account.isActive ? "Seat disabled." : "Seat enabled.",
+													account.isActive ? "Seat deactivated." : "Seat activated.",
 												);
 											}}
 											onDelete={() => {

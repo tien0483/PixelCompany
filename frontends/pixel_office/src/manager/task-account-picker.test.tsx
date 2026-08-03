@@ -5,9 +5,12 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
 	TaskAccountPicker,
+	agentIdForManagerProvider,
 	autoFallbackAccount,
 	filterManagerAccountsForAgent,
 	managerProviderForAgent,
+	resolveActiveManagerSeat,
+	resolveCreateTaskDefaultAgentId,
 	shouldClearManagerAccountPin,
 } from "@/manager/task-account-picker";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -32,11 +35,13 @@ function account(
 		usageCachedAt: null,
 		subscriptionType: null,
 		donateLimitPercent: 100,
+		donateLimitLocked: false,
 		pressure: 0.1,
 		nextRefreshAt: null,
 		canAutoSwap: provider === "claude",
 		canTrackUsage: true,
 		hasCcToken: provider === "claude",
+		ccNeedsAuth: false,
 		isActiveForProvider: id === 3,
 		validationStatus: "valid",
 		lastError: null,
@@ -194,6 +199,101 @@ describe("autoFallbackAccount", () => {
 		disabled.isActive = false;
 		const active = account(2, "claude", "on@example.com");
 		expect(autoFallbackAccount([disabled, active], 1, "claude")?.id).toBe(2);
+	});
+});
+
+describe("resolveActiveManagerSeat", () => {
+	it("skips disabled seats", () => {
+		const disabled = account(1, "claude", "off@example.com");
+		disabled.isActive = false;
+		const enabled = account(2, "claude", "on@example.com");
+		expect(resolveActiveManagerSeat([disabled, enabled], 1)?.id).toBe(2);
+	});
+
+	it("prefers the Claude activeAccountId when that seat is enabled", () => {
+		const primary = account(1, "claude", "primary@example.com");
+		const spare = account(2, "claude", "spare@example.com");
+		const cursor = account(3, "cursor", "cursor@example.com");
+		expect(resolveActiveManagerSeat([primary, spare, cursor], 2)?.id).toBe(2);
+	});
+
+	it("falls through to Cursor IDE-active when Claude active is missing or disabled", () => {
+		const disabledClaude = account(1, "claude", "off@example.com");
+		disabledClaude.isActive = false;
+		const cursor = account(3, "cursor", "cursor@example.com");
+		cursor.isActiveForProvider = true;
+		const spareCursor = account(4, "cursor", "spare-cursor@example.com");
+		spareCursor.isActiveForProvider = false;
+		expect(resolveActiveManagerSeat([disabledClaude, spareCursor, cursor], 1)?.id).toBe(3);
+	});
+
+	it("returns the first enabled seat when no active markers match", () => {
+		const a = account(10, "claude", "a@example.com");
+		const b = account(11, "claude", "b@example.com");
+		expect(resolveActiveManagerSeat([a, b], null)?.id).toBe(10);
+	});
+
+	it("returns null when every seat is disabled", () => {
+		const disabled = account(1, "claude", "off@example.com");
+		disabled.isActive = false;
+		expect(resolveActiveManagerSeat([disabled], 1)).toBeNull();
+	});
+});
+
+describe("agentIdForManagerProvider", () => {
+	it("maps seat providers to launch agents", () => {
+		expect(agentIdForManagerProvider("claude")).toBe("claude");
+		expect(agentIdForManagerProvider("cursor")).toBe("cursor");
+		expect(agentIdForManagerProvider(null)).toBeNull();
+	});
+});
+
+describe("resolveCreateTaskDefaultAgentId", () => {
+	it("uses the active seat provider when that agent is launchable", () => {
+		const cursor = account(3, "cursor", "cursor@example.com");
+		cursor.isActiveForProvider = true;
+		expect(
+			resolveCreateTaskDefaultAgentId({
+				accounts: [cursor],
+				activeAccountId: null,
+				selectedAgentId: "claude",
+			}),
+		).toBe("cursor");
+	});
+
+	it("falls back to Settings selectedAgentId when Manager has no eligible seat", () => {
+		expect(
+			resolveCreateTaskDefaultAgentId({
+				accounts: [],
+				activeAccountId: null,
+				selectedAgentId: "cursor",
+			}),
+		).toBe("cursor");
+	});
+
+	it("falls back to the first installed launchable agent when Settings is empty", () => {
+		expect(
+			resolveCreateTaskDefaultAgentId({
+				accounts: [],
+				activeAccountId: null,
+				selectedAgentId: null,
+				installedAgentIds: ["cursor", "claude"],
+			}),
+		).toBe("cursor");
+	});
+
+	it("skips a disabled activeAccountId and uses the next enabled seat", () => {
+		const disabled = account(1, "claude", "off@example.com");
+		disabled.isActive = false;
+		const cursor = account(3, "cursor", "cursor@example.com");
+		cursor.isActiveForProvider = true;
+		expect(
+			resolveCreateTaskDefaultAgentId({
+				accounts: [disabled, cursor],
+				activeAccountId: 1,
+				selectedAgentId: "claude",
+			}),
+		).toBe("cursor");
 	});
 });
 

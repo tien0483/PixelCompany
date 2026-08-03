@@ -21,6 +21,7 @@ export interface RuntimeCreateTaskInput {
 	autoReviewMode?: RuntimeTaskAutoReviewMode;
 	images?: RuntimeTaskImage[];
 	agentId?: RuntimeAgentId;
+	managerAccountId?: number;
 	clineSettings?: RuntimeTaskClineSettings;
 	taskLaunchSettings?: RuntimeTaskLaunchSettings;
 	/** Epoch ms for a scheduled backlog auto-run (countdown set at create time). */
@@ -486,6 +487,9 @@ export function addTaskToColumn(
 		autoReviewMode: normalizeTaskAutoReviewMode(input.autoReviewMode),
 		images: cloneTaskImages(input.images),
 		...(input.agentId ? { agentId: input.agentId } : {}),
+		...(typeof input.managerAccountId === "number" && Number.isInteger(input.managerAccountId) && input.managerAccountId > 0
+			? { managerAccountId: input.managerAccountId }
+			: {}),
 		...(input.clineSettings !== undefined ? { clineSettings: cloneTaskClineSettings(input.clineSettings) } : {}),
 		...(input.taskLaunchSettings !== undefined
 			? { taskLaunchSettings: cloneTaskLaunchSettings(input.taskLaunchSettings) }
