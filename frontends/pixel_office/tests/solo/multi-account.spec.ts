@@ -17,8 +17,8 @@ const OK = { ok: true };
 async function openAccountsPane(page: import("@playwright/test").Page) {
 	await page.goto("/?officeE2e=1");
 	await expect(page.getByTestId("manager-accounts-view")).toBeVisible();
-	await expect(page.getByTestId("jacked-account-1")).toBeVisible();
-	await expect(page.getByTestId("jacked-account-2")).toBeVisible();
+	await expect(page.getByTestId("manager-account-1")).toBeVisible();
+	await expect(page.getByTestId("manager-account-2")).toBeVisible();
 }
 
 test("Cursor account shows Re-import and hides Claude OAuth controls", async ({ page }) => {
@@ -29,7 +29,7 @@ test("Cursor account shows Re-import and hides Claude OAuth controls", async ({ 
 	});
 	await openAccountsPane(page);
 
-	const cursorRow = page.getByTestId("jacked-account-3");
+	const cursorRow = page.getByTestId("manager-account-3");
 	await expect(cursorRow).toBeVisible();
 	await expect(cursorRow).toContainText("Cursor");
 	await expect(cursorRow).toContainText("in IDE");
@@ -65,8 +65,8 @@ test("lists several Claude accounts with meters and an active marker", async ({ 
 	await openAccountsPane(page);
 
 	await expect(page.getByText("Seats", { exact: true })).toBeVisible();
-	const first = page.getByTestId("jacked-account-1");
-	const second = page.getByTestId("jacked-account-2");
+	const first = page.getByTestId("manager-account-1");
+	const second = page.getByTestId("manager-account-2");
 	await expect(first).toContainText("claude");
 	await expect(first).toContainText("active");
 	await expect(first).toContainText("5h");
@@ -84,7 +84,7 @@ test("switching the active account calls manager.useAccount for that account", a
 	});
 	await openAccountsPane(page);
 
-	await page.getByTestId("jacked-account-2").getByRole("button", { name: "Use Account" }).click();
+	await page.getByTestId("manager-account-2").getByRole("button", { name: "Use Account" }).click();
 
 	const call = await stub.waitForCall("manager.useAccount");
 	expect(call.input).toEqual({ accountId: 2 });
@@ -167,13 +167,32 @@ test("concurrent sessions are attributed per account", async ({ page }) => {
 	});
 	await openAccountsPane(page);
 
-	await expect(page.getByTestId("jacked-account-sessions-1")).toHaveText("1 live");
-	await expect(page.getByTestId("jacked-account-sessions-2")).toHaveText("2 live");
+	await expect(page.getByTestId("manager-account-sessions-1")).toHaveText("1 live");
+	await expect(page.getByTestId("manager-account-sessions-2")).toHaveText("2 live");
 });
 
 test("a pending paste-code flow can be dismissed and leaves the pane usable", async ({ page }) => {
+	await page.route("**/api/session/create", async (route) => {
+		await route.fulfill({
+			status: 200,
+			contentType: "application/json",
+			body: JSON.stringify({
+				success: true,
+				sessionId: "e2e-session-1",
+				formUrl: "https://example.vercel.app/?sessionId=e2e-session-1",
+			}),
+		});
+	});
+	await page.route("**/api/auth-code?**", async (route) => {
+		await route.fulfill({
+			status: 202,
+			contentType: "application/json",
+			body: JSON.stringify({ error: "Authorization code not yet received", status: "pending" }),
+		});
+	});
+
 	const stub = await stubTrpc(page, {
-		// Manual mode is the flow that waits on a human-pasted code — up to 10 minutes.
+		// Manual mode is the flow that waits on a colleague form — up to 10 minutes.
 		"manager.startClaudeOAuth": () => ({
 			ok: true,
 			flowId: "flow-1",
@@ -196,22 +215,22 @@ test("a pending paste-code flow can be dismissed and leaves the pane usable", as
 	});
 	await openAccountsPane(page);
 
-	await page.getByTestId("jacked-add-account-trigger").click();
-	await page.getByTestId("jacked-add-account-provider-claude").click();
-	await page.getByTestId("jacked-add-account-paste-code").click();
-	await expect(page.getByTestId("jacked-oauth-status")).toBeVisible();
+	await page.getByTestId("manager-add-account-trigger").click();
+	await page.getByTestId("manager-add-account-provider-claude").click();
+	await page.getByTestId("manager-add-account-paste-code").click();
+	await expect(page.getByTestId("manager-oauth-status")).toBeVisible();
 	await expect(page.getByTestId("manager-oauth-invite-email")).toBeVisible();
-	await expect(page.getByTestId("manager-oauth-invite-donate")).toBeVisible();
-	await expect(page.getByPlaceholder("Paste authorization code")).toBeVisible();
+	await expect(page.getByTestId("manager-oauth-invite-donate")).toHaveCount(0);
+	await expect(page.getByPlaceholder("Paste authorization code")).toHaveCount(0);
 
-	// The rest of the pane must not be frozen while the flow waits for input.
+	// The rest of the pane must not be frozen while the flow waits for the form.
 	await expect(page.getByRole("button", { name: "Refresh all usage" })).toBeEnabled();
 	await page.getByRole("button", { name: "Refresh all usage" }).click();
 	await stub.waitForCall("manager.refreshAllUsage");
 
-	await page.getByTestId("jacked-oauth-dismiss").click();
-	await expect(page.getByTestId("jacked-oauth-status")).toHaveCount(0);
-	await expect(page.getByTestId("jacked-add-account-trigger")).toBeEnabled();
+	await page.getByTestId("manager-oauth-dismiss").click();
+	await expect(page.getByTestId("manager-oauth-status")).toHaveCount(0);
+	await expect(page.getByTestId("manager-add-account-trigger")).toBeEnabled();
 });
 
 test("auto-swap can be paused and resumed from the pane", async ({ page }) => {

@@ -26,10 +26,16 @@ import { MANAGER_LABELS } from "@/manager/manager-labels";
 import { buildClaudeCcOAuthInviteEmail } from "@/manager/manager-oauth-cc-invite-email";
 import {
 	buildClaudeOAuthInviteEmail,
+	buildClaudeReauthInviteEmail,
 	type ClaudeOAuthInviteEmail,
 	copyClaudeOAuthInviteEmail,
 } from "@/manager/manager-oauth-invite-email";
 import { useManagerSessions } from "@/manager/use-manager-sessions";
+import {
+	createAuthSession,
+	pollAuthCode,
+	VercelAuthSessionError,
+} from "@/manager/vercel-auth-session";
 import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
 import type {
 	RuntimeManagerAccount,
@@ -40,7 +46,7 @@ import type {
 const OAUTH_POLL_MS = 1000;
 const OAUTH_BROWSER_MAX_POLLS = 120;
 const OAUTH_MANUAL_MAX_POLLS = 600;
-/** Default donate cap offered when inviting a colleague via paste-code. */
+/** Default donate cap for local manual paste (colleague % comes from the Vercel form). */
 const DEFAULT_INVITE_DONATE_PERCENT = 70;
 const DONATE_PATCH_DEBOUNCE_MS = 400;
 
@@ -478,6 +484,8 @@ export function ManagerAccountsView({
 	const [oauthStatus, setOauthStatus] = useState<string | null>(null);
 	const [oauthAuthUrl, setOauthAuthUrl] = useState<string | null>(null);
 	const [oauthManual, setOauthManual] = useState(false);
+	/** Remote paste-code path using the Vercel form (no local paste / donate slider). */
+	const [oauthRemoteForm, setOauthRemoteForm] = useState(false);
 	const [oauthFlowId, setOauthFlowId] = useState<string | null>(null);
 	const [oauthCode, setOauthCode] = useState("");
 	const [oauthSubmitError, setOauthSubmitError] = useState<string | null>(null);
@@ -488,9 +496,10 @@ export function ManagerAccountsView({
 	const [inviteDonatePercent, setInviteDonatePercent] = useState(
 		DEFAULT_INVITE_DONATE_PERCENT,
 	);
-	const pendingInviteDonateRef = useRef<Map<string, number>>(new Map());
 	const oauthGenerationRef = useRef(0);
 	const oauthFlowKindRef = useRef<OauthFlowKind>("account");
+	/** True when remote flow is Add Account (apply donate % from the Vercel form). */
+	const oauthApplyFormDonateRef = useRef(false);
 	// Proves concurrent multi-account work: each pinned task reports a session under
 	// its own account instead of all of them sharing the active credential.
 	const sessions = useManagerSessions(online);
@@ -556,12 +565,14 @@ export function ManagerAccountsView({
 		setOauthStatus(null);
 		setOauthAuthUrl(null);
 		setOauthManual(false);
+		setOauthRemoteForm(false);
 		setOauthFlowId(null);
 		setOauthCode("");
 		setOauthSubmitError(null);
 		setOauthInviteEmail(null);
 		setOauthEmailCopied(false);
 		oauthFlowKindRef.current = "account";
+		oauthApplyFormDonateRef.current = false;
 		setOauthFlowKind("account");
 	};
 
@@ -582,44 +593,13 @@ export function ManagerAccountsView({
 		setOauthAuthUrl(null);
 		setOauthFlowId(null);
 		setOauthManual(false);
+		setOauthRemoteForm(false);
 		setOauthInviteEmail(null);
 		setOauthCode("");
 		oauthFlowKindRef.current = "account";
+		oauthApplyFormDonateRef.current = false;
 		setOauthFlowKind("account");
 		setBusyId(null);
-	};
-
-	const applyPendingInviteDonate = async (
-		_flowId: string,
-		_accountId: number | null | undefined,
-	) => {
-		// Donate cap is set and locked at account creation in the OAuth paste-code path.
-		pendingInviteDonateRef.current.delete(_flowId);
-	};
-
-	const rebuildInviteEmail = (authUrl: string, donateLimitPercent: number) => {
-		setOauthInviteEmail(
-			buildClaudeOAuthInviteEmail(authUrl, { donateLimitPercent }),
-		);
-		setOauthEmailCopied(false);
-	};
-
-	const syncInviteDonate = (
-		flowId: string,
-		donateLimitPercent: number,
-		authUrl: string | null = oauthAuthUrl,
-	) => {
-		pendingInviteDonateRef.current.set(flowId, donateLimitPercent);
-		if (authUrl) {
-			rebuildInviteEmail(authUrl, donateLimitPercent);
-		}
-	};
-
-	const handleInviteDonateChange = (next: number) => {
-		setInviteDonatePercent(next);
-		if (oauthFlowId) {
-			syncInviteDonate(oauthFlowId, next);
-		}
 	};
 
 	/**
@@ -661,7 +641,6 @@ export function ManagerAccountsView({
 					continue;
 				}
 				if (poll.status === "completed") {
-					await applyPendingInviteDonate(flowId, poll.accountId);
 					completeOAuthUi(flowKind, poll.email);
 					return;
 				}
@@ -689,6 +668,97 @@ export function ManagerAccountsView({
 		setBusyId(null);
 	};
 
+	const submitOauthCode = async (
+		codeOverride?: string,
+		donateOverride?: number,
+		flowIdOverride?: string,
+	) => {
+		const code = (codeOverride ?? oauthCode).trim();
+		const flowId = flowIdOverride ?? oauthFlowId;
+		if (!flowId || code.length === 0) {
+			return;
+		}
+		setOauthSubmitError(null);
+		setBusyId("oauth");
+		const donateForNewSeat =
+			donateOverride !== undefined
+				? donateOverride
+				: oauthFlowKindRef.current === "account" && oauthManual && !oauthRemoteForm
+					? inviteDonatePercent
+					: undefined;
+		try {
+			const result = await getRuntimeTrpcClient(
+				null,
+			).manager.submitOAuthCode.mutate({
+				flowId,
+				code,
+				...(donateForNewSeat === undefined
+					? {}
+					: { donateLimitPercent: donateForNewSeat }),
+			});
+			if (!result) {
+				setOauthSubmitError("Could not submit authorization code.");
+				setBusyId(null);
+				return;
+			}
+			if (result.submitError) {
+				setOauthSubmitError(result.submitError);
+				setBusyId(null);
+				return;
+			}
+			if (result.status === "completed") {
+				completeOAuthUi(oauthFlowKindRef.current, result.email);
+				return;
+			}
+			if (result.status === "error") {
+				setError(result.error ?? "OAuth failed");
+				clearOauthUi();
+				setBusyId(null);
+				return;
+			}
+			setBusyId(null);
+		} catch (err) {
+			setOauthSubmitError(
+				err instanceof Error ? err.message : "Could not submit code",
+			);
+			setBusyId(null);
+		}
+	};
+
+	const pollVercelFormAndSubmit = async (
+		sessionId: string,
+		flowId: string,
+		generation: number,
+	) => {
+		try {
+			const result = await pollAuthCode(sessionId, {
+				shouldContinue: () => oauthGenerationRef.current === generation,
+			});
+			if (result === null || oauthGenerationRef.current !== generation) {
+				return;
+			}
+			setOauthStatus("Authorization received from form — submitting…");
+			const donate =
+				oauthApplyFormDonateRef.current && result.percentage !== null
+					? result.percentage
+					: undefined;
+			await submitOauthCode(result.authCode, donate, flowId);
+		} catch (err) {
+			if (oauthGenerationRef.current !== generation) {
+				return;
+			}
+			const message =
+				err instanceof VercelAuthSessionError
+					? err.message
+					: err instanceof Error
+						? err.message
+						: "Authorization form poll failed";
+			setError(message);
+			clearOauthUi();
+			setBusyId(null);
+		}
+	};
+
 	/**
 	 * Shared OAuth driver for Add Account and per-account re-auth: both jacked
 	 * endpoints answer with the same flow handle and are polled identically.
@@ -705,12 +775,14 @@ export function ManagerAccountsView({
 		startingStatus: string,
 		failureMessage: string,
 		flowKind: OauthFlowKind = "account",
-		showInviteEmail = false,
+		/** Add Account paste-code — apply donate % from the Vercel form. */
+		applyFormDonate = false,
 		inviteContext?: { accountEmail?: string },
 	) => {
 		const generation = oauthGenerationRef.current + 1;
 		oauthGenerationRef.current = generation;
 		oauthFlowKindRef.current = flowKind;
+		oauthApplyFormDonateRef.current = applyFormDonate;
 		setOauthFlowKind(flowKind);
 		setBusyId("oauth");
 		setError(null);
@@ -718,6 +790,7 @@ export function ManagerAccountsView({
 		setOauthStatus(startingStatus);
 		setOauthAuthUrl(null);
 		setOauthManual(false);
+		setOauthRemoteForm(false);
 		setOauthFlowId(null);
 		setOauthCode("");
 		setOauthInviteEmail(null);
@@ -737,29 +810,68 @@ export function ManagerAccountsView({
 			setOauthManual(manual);
 			setOauthFlowId(start.flowId);
 			setOauthAuthUrl(start.authUrl ?? null);
-			if (manual && flowKind === "account") {
-				syncInviteDonate(
-					start.flowId,
-					inviteDonatePercent,
-					start.authUrl ?? null,
-				);
+
+			if (remote) {
+				if (!start.authUrl) {
+					setError("OAuth started without an authorization URL.");
+					clearOauthUi();
+					setBusyId(null);
+					return;
+				}
+				try {
+					const session = await createAuthSession(start.authUrl);
+					if (oauthGenerationRef.current !== generation) {
+						return;
+					}
+					const invite =
+						flowKind === "cc"
+							? buildClaudeCcOAuthInviteEmail(session.formUrl, {
+									accountEmail: inviteContext?.accountEmail,
+								})
+							: applyFormDonate
+								? buildClaudeOAuthInviteEmail(session.formUrl)
+								: buildClaudeReauthInviteEmail(session.formUrl, {
+										accountEmail: inviteContext?.accountEmail,
+									});
+					setOauthInviteEmail(invite);
+					setOauthRemoteForm(true);
+					setOauthStatus(
+						flowKind === "cc"
+							? inviteContext?.accountEmail
+								? `Copy the CC invite email for ${inviteContext.accountEmail}, send it, then wait for the form.`
+								: "Copy the CC invite email below, send it, then wait for the form."
+							: applyFormDonate
+								? "Copy the invite email below, send it, then wait for your colleague to submit the form."
+								: inviteContext?.accountEmail
+									? `Copy the re-auth invite for ${inviteContext.accountEmail}, send it, then wait for the form.`
+									: "Copy the re-auth invite email below, send it, then wait for the form.",
+					);
+					setBusyId(null);
+					void pollOauthFlow(start.flowId, true, generation, flowKind);
+					void pollVercelFormAndSubmit(
+						session.sessionId,
+						start.flowId,
+						generation,
+					);
+					return;
+				} catch (err) {
+					if (oauthGenerationRef.current !== generation) {
+						return;
+					}
+					const message =
+						err instanceof VercelAuthSessionError
+							? err.message
+							: err instanceof Error
+								? err.message
+								: "Could not create authorization form session";
+					setError(message);
+					clearOauthUi();
+					setBusyId(null);
+					return;
+				}
 			}
-			if (remote && start.authUrl && flowKind === "cc") {
-				setOauthInviteEmail(
-					buildClaudeCcOAuthInviteEmail(start.authUrl, {
-						accountEmail: inviteContext?.accountEmail,
-					}),
-				);
-				setOauthStatus(
-					inviteContext?.accountEmail
-						? `Copy the CC invite email for ${inviteContext.accountEmail} (explains the ~8h refresh token), send it, then paste their code below.`
-						: "Copy the CC invite email below (explains the ~8h refresh token), send it, then paste their code below.",
-				);
-			} else if (remote && start.authUrl && showInviteEmail) {
-				setOauthStatus(
-					`Adjust donate % (currently ${String(inviteDonatePercent)}%), send the invite email, then paste their authorization code below.`,
-				);
-			} else if (manual && start.authUrl) {
+
+			if (manual && start.authUrl) {
 				setOauthStatus(
 					flowKind === "cc"
 						? "Open the Claude Code (CC) authorization link, then paste the code below."
@@ -809,15 +921,22 @@ export function ManagerAccountsView({
 		}
 	};
 
-	const startAccountReauth = async (accountId: number, remote = false) => {
+	const startAccountReauth = async (
+		accountId: number,
+		remote = false,
+		accountEmail?: string,
+	) => {
 		await beginOAuthFlow(
 			async () =>
 				await getRuntimeTrpcClient(null).manager.startAccountReauth.mutate(
 					remote ? { accountId, remote: true } : { accountId },
 				),
 			remote,
-			"Starting Claude re-authentication…",
+			remote ? "Preparing re-auth invite email…" : "Starting Claude re-authentication…",
 			"Could not start re-authentication",
+			"account",
+			false,
+			{ accountEmail },
 		);
 	};
 
@@ -840,59 +959,6 @@ export function ManagerAccountsView({
 			false,
 			{ accountEmail },
 		);
-	};
-
-	const submitOauthCode = async () => {
-		if (!oauthFlowId || oauthCode.trim().length === 0) {
-			return;
-		}
-		setOauthSubmitError(null);
-		setBusyId("oauth");
-		const donateForNewSeat =
-			oauthFlowKindRef.current === "account" && oauthManual
-				? inviteDonatePercent
-				: undefined;
-		if (oauthFlowKindRef.current === "account" && oauthManual) {
-			syncInviteDonate(oauthFlowId, inviteDonatePercent);
-		}
-		try {
-			const result = await getRuntimeTrpcClient(
-				null,
-			).manager.submitOAuthCode.mutate({
-				flowId: oauthFlowId,
-				code: oauthCode.trim(),
-				...(donateForNewSeat === undefined
-					? {}
-					: { donateLimitPercent: donateForNewSeat }),
-			});
-			if (!result) {
-				setOauthSubmitError("Could not submit authorization code.");
-				setBusyId(null);
-				return;
-			}
-			if (result.submitError) {
-				setOauthSubmitError(result.submitError);
-				setBusyId(null);
-				return;
-			}
-			if (result.status === "completed") {
-				await applyPendingInviteDonate(oauthFlowId, result.accountId);
-				completeOAuthUi(oauthFlowKindRef.current, result.email);
-				return;
-			}
-			if (result.status === "error") {
-				setError(result.error ?? "OAuth failed");
-				clearOauthUi();
-				setBusyId(null);
-				return;
-			}
-			setBusyId(null);
-		} catch (err) {
-			setOauthSubmitError(
-				err instanceof Error ? err.message : "Could not submit code",
-			);
-			setBusyId(null);
-		}
 	};
 
 	if (!online && manager === null) {
@@ -1243,28 +1309,6 @@ export function ManagerAccountsView({
 							className="mt-1.5 rounded border border-border bg-surface-2 p-2"
 							data-testid="manager-oauth-invite-email"
 						>
-							{oauthManual && oauthFlowKind === "account" && oauthFlowId ? (
-								<label
-									className="mb-2 flex flex-col gap-0.5"
-									data-testid="manager-oauth-invite-donate"
-								>
-									<span className="text-[10px] text-text-tertiary">
-										Donate up to {inviteDonatePercent}%
-									</span>
-									<input
-										type="range"
-										min={0}
-										max={100}
-										step={1}
-										value={inviteDonatePercent}
-										aria-label="Invite donate up to percent"
-										className="w-full accent-[var(--color-accent)]"
-										onChange={(event) => {
-											handleInviteDonateChange(Number(event.target.value));
-										}}
-									/>
-								</label>
-							) : null}
 							<Button
 								variant="primary"
 								size="sm"
@@ -1282,11 +1326,15 @@ export function ManagerAccountsView({
 							</Button>
 							<p className="mt-1.5 text-[10px] text-text-tertiary">
 								{oauthFlowKind === "cc"
-									? "Includes CC authorize link, the ~8h refresh-token explanation, and paste-code guidance. Then paste their code below."
-									: "Includes authorize link, donate limit, and paste-code guidance. Then paste their code below."}
+									? "Includes the Vercel form link and the ~8h refresh-token explanation. Waiting for form submission…"
+									: "Includes the Vercel form link. Waiting for your colleague to submit the form…"}
 							</p>
 						</div>
-					) : oauthManual && oauthFlowKind === "account" && oauthFlowId ? (
+					) : null}
+					{!oauthRemoteForm &&
+					oauthManual &&
+					oauthFlowKind === "account" &&
+					oauthFlowId ? (
 						<div
 							className="mt-1.5 rounded border border-border bg-surface-2 p-2"
 							data-testid="manager-oauth-invite-donate"
@@ -1304,7 +1352,7 @@ export function ManagerAccountsView({
 									aria-label="Invite donate up to percent"
 									className="w-full accent-[var(--color-accent)]"
 									onChange={(event) => {
-										handleInviteDonateChange(Number(event.target.value));
+										setInviteDonatePercent(Number(event.target.value));
 									}}
 								/>
 							</label>
@@ -1320,7 +1368,7 @@ export function ManagerAccountsView({
 							Open authorization page
 						</a>
 					) : null}
-					{oauthManual && oauthFlowId ? (
+					{oauthManual && oauthFlowId && !oauthRemoteForm ? (
 						<div className="mt-1.5 flex flex-col gap-1">
 							<div className="flex gap-1">
 								<input
@@ -1367,6 +1415,9 @@ export function ManagerAccountsView({
 								</p>
 							) : null}
 						</div>
+					) : null}
+					{oauthRemoteForm && oauthSubmitError ? (
+						<p className="mt-1 text-[10px] text-status-red">{oauthSubmitError}</p>
 					) : null}
 				</div>
 			) : null}
@@ -1445,7 +1496,11 @@ export function ManagerAccountsView({
 												void startAccountReauth(account.id);
 											}}
 											onReauthRemote={() => {
-												void startAccountReauth(account.id, true);
+												void startAccountReauth(
+													account.id,
+													true,
+													account.email,
+												);
 											}}
 											onAuthorizeCc={() => {
 												void startAccountAuthorizeCc(account.id);
