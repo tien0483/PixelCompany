@@ -172,25 +172,6 @@ test("concurrent sessions are attributed per account", async ({ page }) => {
 });
 
 test("a pending paste-code flow can be dismissed and leaves the pane usable", async ({ page }) => {
-	await page.route("**/api/session/create", async (route) => {
-		await route.fulfill({
-			status: 200,
-			contentType: "application/json",
-			body: JSON.stringify({
-				success: true,
-				sessionId: "e2e-session-1",
-				formUrl: "https://example.vercel.app/?sessionId=e2e-session-1",
-			}),
-		});
-	});
-	await page.route("**/api/auth-code?**", async (route) => {
-		await route.fulfill({
-			status: 202,
-			contentType: "application/json",
-			body: JSON.stringify({ error: "Authorization code not yet received", status: "pending" }),
-		});
-	});
-
 	const stub = await stubTrpc(page, {
 		// Manual mode is the flow that waits on a colleague form — up to 10 minutes.
 		"manager.startClaudeOAuth": () => ({
@@ -198,6 +179,17 @@ test("a pending paste-code flow can be dismissed and leaves the pane usable", as
 			flowId: "flow-1",
 			mode: "manual",
 			authUrl: "https://claude.com/cai/oauth/authorize?example=1",
+		}),
+		"manager.createUsageAuthSession": () => ({
+			sessionId: "e2e-session-1",
+			formUrl: "https://example.vercel.app/?sessionId=e2e-session-1",
+		}),
+		"manager.getUsageAuthCode": () => ({
+			status: "pending",
+			authCode: null,
+			percentage: null,
+			submittedAt: null,
+			error: null,
 		}),
 		"manager.oauthFlowStatus": () => ({
 			status: "pending",

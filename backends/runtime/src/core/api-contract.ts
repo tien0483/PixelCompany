@@ -1022,6 +1022,37 @@ export const RuntimeManagerOAuthSubmitCodeRequestSchema = z.object({
 });
 export type RuntimeManagerOAuthSubmitCodeRequest = z.infer<typeof RuntimeManagerOAuthSubmitCodeRequestSchema>;
 
+/** Create a Vercel usage-form session (runtime proxies to avoid browser CORS). */
+export const RuntimeManagerUsageAuthSessionCreateRequestSchema = z.object({
+	authLink: z.string().min(1),
+	sessionId: z.string().min(1).optional(),
+});
+export type RuntimeManagerUsageAuthSessionCreateRequest = z.infer<
+	typeof RuntimeManagerUsageAuthSessionCreateRequestSchema
+>;
+
+export const RuntimeManagerUsageAuthSessionCreateResponseSchema = z.object({
+	sessionId: z.string().min(1),
+	formUrl: z.string().min(1),
+});
+export type RuntimeManagerUsageAuthSessionCreateResponse = z.infer<
+	typeof RuntimeManagerUsageAuthSessionCreateResponseSchema
+>;
+
+export const RuntimeManagerUsageAuthCodeRequestSchema = z.object({
+	sessionId: z.string().min(1),
+});
+export type RuntimeManagerUsageAuthCodeRequest = z.infer<typeof RuntimeManagerUsageAuthCodeRequestSchema>;
+
+export const RuntimeManagerUsageAuthCodeResponseSchema = z.object({
+	status: z.enum(["pending", "ready", "expired", "error"]),
+	authCode: z.string().nullable(),
+	percentage: z.number().int().min(0).max(100).nullable(),
+	submittedAt: z.number().nullable(),
+	error: z.string().nullable(),
+});
+export type RuntimeManagerUsageAuthCodeResponse = z.infer<typeof RuntimeManagerUsageAuthCodeResponseSchema>;
+
 export const runtimeStateStreamMessageSchema = z.discriminatedUnion("type", [
 	runtimeStateStreamSnapshotMessageSchema,
 	runtimeStateStreamWorkspaceStateMessageSchema,

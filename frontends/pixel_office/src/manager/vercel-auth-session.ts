@@ -1,23 +1,13 @@
-/** Vercel Pixel Office usage form — session create + auth-code poll. */
+/**
+ * Vercel usage-form auth session — browser talks to runtime tRPC, which proxies
+ * to Vercel (avoids CORS / preflight redirects from localhost).
+ */
 
-const DEFAULT_BASE_URL =
-	"https://pixel-office-usage-j4jls5hjl-pixel-company.vercel.app";
+import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
 
 const AUTH_CODE_POLL_MS = 5000;
 /** Match Manager remote OAuth window (~10 minutes). */
 const AUTH_CODE_MAX_POLLS = 120;
-
-export function resolveVercelAuthBaseUrl(
-	envValue: string | undefined = import.meta.env.VITE_PIXEL_OFFICE_USAGE_URL as
-		| string
-		| undefined,
-): string {
-	const trimmed = typeof envValue === "string" ? envValue.trim() : "";
-	if (trimmed.length > 0) {
-		return trimmed.replace(/\/+$/, "");
-	}
-	return DEFAULT_BASE_URL;
-}
 
 export interface CreatedAuthSession {
 	sessionId: string;
@@ -43,49 +33,21 @@ export class VercelAuthSessionError extends Error {
 export async function createAuthSession(
 	authLink: string,
 	options?: {
-		baseUrl?: string;
 		sessionId?: string;
-		fetchImpl?: typeof fetch;
 	},
 ): Promise<CreatedAuthSession> {
-	const baseUrl = options?.baseUrl ?? resolveVercelAuthBaseUrl();
-	const sessionId = options?.sessionId ?? crypto.randomUUID();
-	const fetchImpl = options?.fetchImpl ?? fetch;
-	const response = await fetchImpl(`${baseUrl}/api/session/create`, {
-		method: "POST",
-		headers: { "Content-Type": "application/json", Accept: "application/json" },
-		body: JSON.stringify({ sessionId, authLink }),
-	});
-	if (!response.ok) {
+	try {
+		return await getRuntimeTrpcClient(null).manager.createUsageAuthSession.mutate({
+			authLink,
+			...(options?.sessionId === undefined ? {} : { sessionId: options.sessionId }),
+		});
+	} catch (err) {
 		throw new VercelAuthSessionError(
-			`Could not create authorization session (${String(response.status)})`,
-			response.status,
+			err instanceof Error
+				? err.message
+				: "Could not create authorization form session",
 		);
 	}
-	const data = (await response.json()) as {
-		formUrl?: string;
-		sessionId?: string;
-	};
-	if (typeof data.formUrl !== "string" || data.formUrl.trim().length === 0) {
-		throw new VercelAuthSessionError("Authorization session response missing formUrl");
-	}
-	return {
-		sessionId: typeof data.sessionId === "string" ? data.sessionId : sessionId,
-		formUrl: data.formUrl.trim(),
-	};
-}
-
-function parsePercentage(raw: unknown): number | null {
-	if (typeof raw === "number" && Number.isFinite(raw)) {
-		return Math.max(0, Math.min(100, Math.round(raw)));
-	}
-	if (typeof raw === "string" && raw.trim().length > 0) {
-		const parsed = Number.parseInt(raw.trim(), 10);
-		if (Number.isFinite(parsed)) {
-			return Math.max(0, Math.min(100, parsed));
-		}
-	}
-	return null;
 }
 
 /**
@@ -95,16 +57,12 @@ function parsePercentage(raw: unknown): number | null {
 export async function pollAuthCode(
 	sessionId: string,
 	options?: {
-		baseUrl?: string;
-		fetchImpl?: typeof fetch;
 		pollMs?: number;
 		maxPolls?: number;
 		shouldContinue?: () => boolean;
 		sleep?: (ms: number) => Promise<void>;
 	},
 ): Promise<AuthCodeResult | null> {
-	const baseUrl = options?.baseUrl ?? resolveVercelAuthBaseUrl();
-	const fetchImpl = options?.fetchImpl ?? fetch;
 	const pollMs = options?.pollMs ?? AUTH_CODE_POLL_MS;
 	const maxPolls = options?.maxPolls ?? AUTH_CODE_MAX_POLLS;
 	const shouldContinue = options?.shouldContinue ?? (() => true);
@@ -125,12 +83,16 @@ export async function pollAuthCode(
 				return null;
 			}
 		}
-		const url = `${baseUrl}/api/auth-code?sessionId=${encodeURIComponent(sessionId)}`;
-		let response: Response;
+		let lookup: {
+			status: "pending" | "ready" | "expired" | "error";
+			authCode: string | null;
+			percentage: number | null;
+			submittedAt: number | null;
+			error: string | null;
+		};
 		try {
-			response = await fetchImpl(url, {
-				method: "GET",
-				headers: { Accept: "application/json" },
+			lookup = await getRuntimeTrpcClient(null).manager.getUsageAuthCode.query({
+				sessionId,
 			});
 		} catch {
 			continue;
@@ -138,31 +100,27 @@ export async function pollAuthCode(
 		if (!shouldContinue()) {
 			return null;
 		}
-		if (response.status === 202) {
+		if (lookup.status === "pending") {
 			continue;
 		}
-		if (response.status === 404) {
+		if (lookup.status === "expired") {
 			throw new VercelAuthSessionError(
-				"Authorization form session expired. Try Paste code again.",
+				lookup.error ?? "Authorization form session expired. Try Paste code again.",
 				404,
 			);
 		}
-		if (!response.ok) {
-			continue;
+		if (lookup.status === "error") {
+			throw new VercelAuthSessionError(
+				lookup.error ?? "Authorization form poll failed",
+			);
 		}
-		const data = (await response.json()) as {
-			authCode?: string;
-			percentage?: unknown;
-			submittedAt?: number;
-		};
-		if (typeof data.authCode !== "string" || data.authCode.trim().length === 0) {
+		if (typeof lookup.authCode !== "string" || lookup.authCode.trim().length === 0) {
 			continue;
 		}
 		return {
-			authCode: data.authCode.trim(),
-			percentage: parsePercentage(data.percentage),
-			submittedAt:
-				typeof data.submittedAt === "number" ? data.submittedAt : null,
+			authCode: lookup.authCode.trim(),
+			percentage: lookup.percentage,
+			submittedAt: lookup.submittedAt,
 		};
 	}
 	if (!shouldContinue()) {

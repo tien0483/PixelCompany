@@ -5,6 +5,10 @@ import type { inferRouterInputs, inferRouterOutputs } from "@trpc/server";
 import { initTRPC, TRPCError } from "@trpc/server";
 import { z } from "zod";
 
+import {
+	createUsageAuthSession,
+	lookupUsageAuthCode,
+} from "../manager/vercel-auth-proxy.js";
 import type {
 	RuntimeAgentModelInventory,
 	RuntimeClineAccountBalanceResponse,
@@ -165,6 +169,10 @@ import {
 	RuntimeManagerOAuthStartRequestSchema,
 	RuntimeManagerOAuthStartResponseSchema,
 	RuntimeManagerOAuthSubmitCodeRequestSchema,
+	RuntimeManagerUsageAuthCodeRequestSchema,
+	RuntimeManagerUsageAuthCodeResponseSchema,
+	RuntimeManagerUsageAuthSessionCreateRequestSchema,
+	RuntimeManagerUsageAuthSessionCreateResponseSchema,
 	RuntimeManagerPacksSchema,
 	RuntimeManagerPackToggleRequestSchema,
 	RuntimeManagerProviderSchema,
@@ -1187,6 +1195,30 @@ export const runtimeAppRouter = t.router({
 			.output(RuntimeManagerOAuthFlowStatusSchema.nullable())
 			.mutation(async ({ ctx, input }) => {
 				return await ctx.managerApi.submitOAuthCode(input);
+			}),
+		createUsageAuthSession: t.procedure
+			.input(RuntimeManagerUsageAuthSessionCreateRequestSchema)
+			.output(RuntimeManagerUsageAuthSessionCreateResponseSchema)
+			.mutation(async ({ input }) => {
+				try {
+					return await createUsageAuthSession(input.authLink, {
+						sessionId: input.sessionId,
+					});
+				} catch (err) {
+					throw new TRPCError({
+						code: "BAD_GATEWAY",
+						message:
+							err instanceof Error
+								? err.message
+								: "Could not create authorization form session",
+					});
+				}
+			}),
+		getUsageAuthCode: t.procedure
+			.input(RuntimeManagerUsageAuthCodeRequestSchema)
+			.output(RuntimeManagerUsageAuthCodeResponseSchema)
+			.query(async ({ input }) => {
+				return await lookupUsageAuthCode(input.sessionId);
 			}),
 	}),
 });
