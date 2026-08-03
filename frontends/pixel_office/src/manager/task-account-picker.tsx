@@ -108,6 +108,28 @@ export function managerProviderForAgent(agentId: RuntimeAgentId | null | undefin
 	return null;
 }
 
+/**
+ * True when a stored task pin can no longer be honored and should fall back to
+ * Auto: the seat belongs to the other provider, or it was disabled in Manager and
+ * has dropped out of the eligible list.
+ *
+ * An empty snapshot means Manager is offline or still loading, not that every seat
+ * vanished, so it never clears — otherwise every boot would wipe good pins.
+ */
+export function shouldClearManagerAccountPin(input: {
+	pinnedAccountId: number | null | undefined;
+	snapshotAccounts: RuntimeManagerAccount[];
+	eligibleAccounts: RuntimeManagerAccount[];
+}): boolean {
+	if (typeof input.pinnedAccountId !== "number") {
+		return false;
+	}
+	if (input.snapshotAccounts.length === 0) {
+		return false;
+	}
+	return !input.eligibleAccounts.some((account) => account.id === input.pinnedAccountId);
+}
+
 export function filterManagerAccountsForAgent(
 	accounts: RuntimeManagerAccount[],
 	agentId: RuntimeAgentId | null | undefined,

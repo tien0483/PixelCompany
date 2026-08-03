@@ -29,6 +29,7 @@ import type { ClineChatMessage } from "@/hooks/use-cline-chat-session";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import {
 	filterManagerAccountsForAgent,
+	shouldClearManagerAccountPin,
 	TaskAccountPicker,
 } from "@/manager/task-account-picker";
 import { ResizableBottomPane } from "@/resize/resizable-bottom-pane";
@@ -662,21 +663,24 @@ export function CardDetailView({
 			),
 		[effectiveTaskAgentId, managerAccounts],
 	);
-	// Clear a pin that belongs to the other provider (e.g. Claude seat left on a
-	// Cursor task after an agent switch) so Auto can resolve the right fleet.
+	// Clear a pin the task can no longer use so Auto can resolve a seat instead:
+	// a cross-provider leftover (Claude seat on a Cursor task after an agent
+	// switch) or a seat that has since been disabled in Manager.
 	useEffect(() => {
 		if (!onTaskManagerAccountChanged) {
 			return;
 		}
-		const pinnedId = selection.card.managerAccountId;
-		if (typeof pinnedId !== "number") {
-			return;
-		}
-		if (taskManagerAccounts.some((account) => account.id === pinnedId)) {
+		const shouldClear = shouldClearManagerAccountPin({
+			pinnedAccountId: selection.card.managerAccountId,
+			snapshotAccounts: managerAccounts ?? [],
+			eligibleAccounts: taskManagerAccounts,
+		});
+		if (!shouldClear) {
 			return;
 		}
 		onTaskManagerAccountChanged(selection.card.id, null);
 	}, [
+		managerAccounts,
 		onTaskManagerAccountChanged,
 		selection.card.id,
 		selection.card.managerAccountId,

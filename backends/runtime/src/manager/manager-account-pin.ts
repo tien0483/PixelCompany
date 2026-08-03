@@ -10,7 +10,7 @@
 //
 // Pinning is best-effort: if Manager is offline or refuses the account, the session
 // still launches on the CLI login / globally active credential rather than failing.
-import type { RuntimeAgentId, RuntimeManagerProvider } from "../core/api-contract";
+import type { RuntimeAgentId, RuntimeManagerAccount, RuntimeManagerProvider } from "../core/api-contract";
 import { resolveHostPath } from "../terminal/task-launch-settings";
 
 export const CLAUDE_CONFIG_DIR_ENV = "CLAUDE_CONFIG_DIR";
@@ -75,6 +75,38 @@ export function isManagerAccountDonateExhausted(account: ManagerDonateAccountLik
 		return (account.pressure ?? 0) * 100 >= limit;
 	}
 	return Math.max(account.fiveHourPercent ?? 0, account.sevenDayPercent ?? 0) >= limit;
+}
+
+/**
+ * Projects a Manager snapshot account onto the gate's input shape.
+ *
+ * Lives next to the predicates because the fields it has to carry are exactly the
+ * ones they read, and every field here is optional on the target: omitting one
+ * type-checks cleanly and silently disables the gate that depends on it. That is
+ * how `isActive` went missing and let pins on disabled seats launch.
+ */
+export function toManagerDonateAccount(account: RuntimeManagerAccount): ManagerDonateAccountLike {
+	return {
+		id: account.id,
+		provider: account.provider,
+		isActive: account.isActive,
+		isActiveForProvider: account.isActiveForProvider,
+		fiveHourPercent: account.fiveHourPercent,
+		sevenDayPercent: account.sevenDayPercent,
+		pressure: account.pressure,
+		donateLimitPercent: account.donateLimitPercent,
+		donateLimitLocked: account.donateLimitLocked,
+	};
+}
+
+/**
+ * True when the seat is paused/disabled in Manager (`is_active=false`).
+ *
+ * Compared against `false` explicitly: `isActive` is optional on this shape, and
+ * a caller that omits it must keep counting as enabled.
+ */
+export function isManagerAccountDisabled(account: ManagerDonateAccountLike): boolean {
+	return account.isActive === false;
 }
 
 /**
@@ -232,9 +264,25 @@ export async function resolveManagerAccountPin(
 		return mismatchWarning ? { ...UNPINNED, warning: mismatchWarning } : UNPINNED;
 	}
 
+	const pinnedAccount = (await input.getPinnedAccount?.(managerAccountId)) ?? null;
+
+	// A seat disabled in Manager must not run a task, even when it is under its
+	// donate cap. The card picker already hides disabled seats, but a pin stored
+	// before the seat was disabled survives on the board (and the CLI `start` path
+	// passes it straight through), so the gate has to live here too. Checked before
+	// the provider branches so Claude and Cursor pins share one rule — matching
+	// pickDefaultCursorAccountId, which already skips disabled Cursor seats.
+	if (pinnedAccount && isManagerAccountDisabled(pinnedAccount)) {
+		return {
+			env: {},
+			accountId: null,
+			blocked: true,
+			warning: `Account ${String(managerAccountId)} is disabled in Manager; re-enable the seat or switch this task to Auto.`,
+		};
+	}
+
 	// Locked donate cap over limit: refuse the pin outright. The launch path aborts
 	// on `blocked`. Unlocked over-cap seats fall through and pin normally (soft).
-	const pinnedAccount = (await input.getPinnedAccount?.(managerAccountId)) ?? null;
 	if (pinnedAccount && isManagerAccountDonatePinBlocked(pinnedAccount)) {
 		return {
 			env: {},

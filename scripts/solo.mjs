@@ -6,16 +6,16 @@
  *   http://127.0.0.1:3484   →  board + Claude Accounts + Pixel Office
  *
  * Usage (from repo root):
- *   npm run solo              # build the UI if needed, then serve
+ *   npm run solo              # build the UI when missing or stale, then serve
  *   npm run solo -- --restart # free the ports first
- *   npm run solo -- --skip-build   # fail instead of building
+ *   npm run solo -- --skip-build   # fail if missing, warn+serve if stale
  *   npm run solo -- --build        # always rebuild first
  */
 import { connect } from "node:net";
 import { constants as fsConstants, existsSync } from "node:fs";
-import { access } from "node:fs/promises";
+import { access, lstat, readdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn, spawnSync } from "node:child_process";
 
@@ -92,6 +92,17 @@ const repoRoot = join(__dirname, "..");
 const runtimeRoot = join(repoRoot, "backends", "runtime");
 const webUiRoot = join(repoRoot, "frontends", "pixel_office");
 const webUiDist = join(webUiRoot, "dist");
+
+/**
+ * What counts as a UI source change. Mirrors WATCH_PATHS in
+ * scripts/rebuild-ui-if-changed.sh so the git hooks and this script agree.
+ */
+const WATCHED_UI_PATHS = [
+	join(webUiRoot, "src"),
+	join(webUiRoot, "index.html"),
+	join(webUiRoot, "vite.config.ts"),
+	join(webUiRoot, "package.json"),
+];
 
 /**
  * Resolves a dependency entrypoint from either the package's own node_modules or
@@ -174,6 +185,79 @@ async function hasBuiltUi() {
 	return (await pathExists(join(webUiDist, "index.html"))) && (await pathExists(join(webUiDist, "assets")));
 }
 
+/**
+ * Newest mtime across `targets`, walking directories recursively. Missing paths
+ * contribute 0 so a deleted watch path never reads as a fresh edit.
+ */
+async function newestMtimeMs(targets) {
+	let newest = 0;
+	const pending = [...targets];
+	while (pending.length > 0) {
+		const current = pending.pop();
+		let entry;
+		try {
+			entry = await stat(current);
+		} catch {
+			continue;
+		}
+		if (entry.mtimeMs > newest) {
+			newest = entry.mtimeMs;
+		}
+		if (!entry.isDirectory()) {
+			continue;
+		}
+		let children;
+		try {
+			children = await readdir(current);
+		} catch {
+			continue;
+		}
+		for (const child of children) {
+			pending.push(join(current, child));
+		}
+	}
+	return newest;
+}
+
+/**
+ * Existence alone is not enough: a checkout that built dist once kept serving
+ * that bundle after every later `git pull`, so anything merged afterwards was
+ * simply absent from the running app. That reads as an environment-specific bug
+ * (present under `npm start`/Vite, missing here) rather than a stale build, so
+ * compare dist against the watched sources and rebuild when it has fallen behind.
+ *
+ * Returns "missing" | "fresh" | "stale"; `distStamp` is set for the last two.
+ */
+async function checkUiDistFreshness() {
+	if (!(await hasBuiltUi())) {
+		return { state: "missing", distStamp: 0 };
+	}
+	const distStamp = (await stat(join(webUiDist, "index.html"))).mtimeMs;
+	const sourceStamp = await newestMtimeMs(WATCHED_UI_PATHS);
+	return { state: sourceStamp <= distStamp ? "fresh" : "stale", distStamp };
+}
+
+/**
+ * Task worktrees get `frontends/pixel_office/dist` symlinked in by the runtime
+ * (see backends/runtime/AGENTS.md, worktree-hooks-fire-before-symlinks), so a
+ * rebuild here would overwrite the main checkout's shared bundle from worktree
+ * source. Warn and serve as-is instead.
+ */
+async function uiDistIsSymlink() {
+	try {
+		return (await lstat(webUiDist)).isSymbolicLink();
+	} catch {
+		return false;
+	}
+}
+
+function warnStaleUi(distStamp, reason) {
+	console.warn(
+		`  Warning: the built UI at ${webUiDist} is older than its sources (dist built ${new Date(distStamp).toLocaleString()}).`,
+	);
+	console.warn(`  Serving it as-is because ${reason}. Run \`npm run solo -- --build\` to rebuild.`);
+}
+
 function buildUi() {
 	console.log("  Building the UI (frontends/pixel_office)...");
 	const result = spawnSync(process.execPath, [viteCli, "build"], {
@@ -202,14 +286,31 @@ async function main() {
 		process.exit(1);
 	}
 
-	if (forceBuild || !(await hasBuiltUi())) {
-		if (skipBuild && !forceBuild) {
+	const freshness = await checkUiDistFreshness();
+	let shouldBuild = forceBuild || freshness.state !== "fresh";
+	if (shouldBuild && !forceBuild) {
+		// A missing dist stays a hard error under --skip-build (nothing to serve);
+		// a stale one is served with a loud warning, since --skip-build is an
+		// explicit opt-out and the solo e2e config passes --build instead.
+		if (freshness.state === "missing" && skipBuild) {
 			console.error(`No built UI at ${webUiDist}. Drop --skip-build or run: npm --prefix frontends/pixel_office run build`);
 			process.exit(1);
 		}
+		if (freshness.state === "stale" && skipBuild) {
+			warnStaleUi(freshness.distStamp, "--skip-build was passed");
+			shouldBuild = false;
+		} else if (freshness.state === "stale" && (await uiDistIsSymlink())) {
+			warnStaleUi(freshness.distStamp, "dist is a symlink into another checkout (task worktree)");
+			shouldBuild = false;
+		}
+	}
+	if (shouldBuild) {
 		if (!viteCli) {
 			console.error("vite not found (frontends/pixel_office or repo root). Run: npm install --install-links");
 			process.exit(1);
+		}
+		if (freshness.state === "stale") {
+			console.log("  Built UI is older than its sources — rebuilding.");
 		}
 		buildUi();
 	}
@@ -254,7 +355,13 @@ async function main() {
 	});
 }
 
-main().catch((error) => {
-	console.error(error);
-	process.exit(1);
-});
+// Only launch when run as a script, so the freshness helpers above can be
+// imported and exercised directly without booting the whole stack.
+export { checkUiDistFreshness, newestMtimeMs, WATCHED_UI_PATHS };
+
+if (process.argv[1] && resolve(process.argv[1]) === __filename) {
+	main().catch((error) => {
+		console.error(error);
+		process.exit(1);
+	});
+}
