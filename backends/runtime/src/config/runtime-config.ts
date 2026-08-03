@@ -11,6 +11,8 @@ import { detectInstalledCommands } from "../terminal/agent-registry";
 import { LEGACY_RUNTIME_HOME_PARENT_DIR_NAME, RUNTIME_HOME_PARENT_DIR_NAME } from "../workspace/task-worktree-path";
 import { areRuntimeProjectShortcutsEqual } from "./shortcut-utils";
 
+export type RuntimeCommitTrailerMode = "omit" | "include";
+
 interface RuntimeGlobalConfigFileShape {
 	selectedAgentId?: RuntimeAgentId;
 	selectedShortcutLabel?: string;
@@ -20,6 +22,8 @@ interface RuntimeGlobalConfigFileShape {
 	openPrPromptTemplate?: string;
 	agentDisplayName?: string;
 	seamCommentTagTemplate?: string;
+	commitTrailerMode?: RuntimeCommitTrailerMode;
+	commitTrailerTemplate?: string;
 }
 
 interface RuntimeProjectConfigFileShape {
@@ -41,6 +45,9 @@ export interface RuntimeConfigState {
 	agentDisplayName: string;
 	seamCommentTagTemplate: string;
 	seamCommentTagTemplateDefault: string;
+	commitTrailerMode: RuntimeCommitTrailerMode;
+	commitTrailerTemplate: string;
+	commitTrailerTemplateDefault: string;
 }
 
 export interface RuntimeConfigUpdateInput {
@@ -53,6 +60,8 @@ export interface RuntimeConfigUpdateInput {
 	openPrPromptTemplate?: string;
 	agentDisplayName?: string;
 	seamCommentTagTemplate?: string;
+	commitTrailerMode?: RuntimeCommitTrailerMode;
+	commitTrailerTemplate?: string;
 }
 
 const RUNTIME_HOME_PARENT_DIR = RUNTIME_HOME_PARENT_DIR_NAME;
@@ -104,6 +113,8 @@ Steps:
    - Head branch
    - Any follow-up needed`;
 const DEFAULT_SEAM_COMMENT_TAG_TEMPLATE = "// {{ticket_id}} ({{agent_name}}):";
+const DEFAULT_COMMIT_TRAILER_MODE: RuntimeCommitTrailerMode = "omit";
+const DEFAULT_COMMIT_TRAILER_TEMPLATE = "Co-Authored-By: Claude <noreply@anthropic.com>";
 
 export function pickBestInstalledAgentIdFromDetected(detectedCommands: readonly string[]): RuntimeAgentId | null {
 	const detected = new Set(detectedCommands);
@@ -195,6 +206,13 @@ function normalizeAgentDisplayName(value: unknown): string {
 		return "";
 	}
 	return value.trim();
+}
+
+function normalizeCommitTrailerMode(value: unknown): RuntimeCommitTrailerMode {
+	if (value === "omit" || value === "include") {
+		return value;
+	}
+	return DEFAULT_COMMIT_TRAILER_MODE;
 }
 
 function normalizeShortcutLabel(value: unknown): string | null {
@@ -314,6 +332,12 @@ function toRuntimeConfigState({
 			DEFAULT_SEAM_COMMENT_TAG_TEMPLATE,
 		),
 		seamCommentTagTemplateDefault: DEFAULT_SEAM_COMMENT_TAG_TEMPLATE,
+		commitTrailerMode: normalizeCommitTrailerMode(globalConfig?.commitTrailerMode),
+		commitTrailerTemplate: normalizePromptTemplate(
+			globalConfig?.commitTrailerTemplate,
+			DEFAULT_COMMIT_TRAILER_TEMPLATE,
+		),
+		commitTrailerTemplateDefault: DEFAULT_COMMIT_TRAILER_TEMPLATE,
 	};
 }
 
@@ -337,6 +361,8 @@ async function writeRuntimeGlobalConfigFile(
 		openPrPromptTemplate?: string;
 		agentDisplayName?: string;
 		seamCommentTagTemplate?: string;
+		commitTrailerMode?: RuntimeCommitTrailerMode;
+		commitTrailerTemplate?: string;
 	},
 ): Promise<void> {
 	const existing = await readRuntimeConfigFile<RuntimeGlobalConfigFileShape>(configPath);
@@ -371,6 +397,14 @@ async function writeRuntimeGlobalConfigFile(
 		config.seamCommentTagTemplate === undefined
 			? DEFAULT_SEAM_COMMENT_TAG_TEMPLATE
 			: normalizePromptTemplate(config.seamCommentTagTemplate, DEFAULT_SEAM_COMMENT_TAG_TEMPLATE);
+	const commitTrailerMode =
+		config.commitTrailerMode === undefined
+			? DEFAULT_COMMIT_TRAILER_MODE
+			: normalizeCommitTrailerMode(config.commitTrailerMode);
+	const commitTrailerTemplate =
+		config.commitTrailerTemplate === undefined
+			? DEFAULT_COMMIT_TRAILER_TEMPLATE
+			: normalizePromptTemplate(config.commitTrailerTemplate, DEFAULT_COMMIT_TRAILER_TEMPLATE);
 
 	const payload: RuntimeGlobalConfigFileShape = {};
 	if (selectedAgentId !== undefined) {
@@ -413,6 +447,15 @@ async function writeRuntimeGlobalConfigFile(
 		seamCommentTagTemplate !== DEFAULT_SEAM_COMMENT_TAG_TEMPLATE
 	) {
 		payload.seamCommentTagTemplate = seamCommentTagTemplate;
+	}
+	if (hasOwnKey(existing, "commitTrailerMode") || commitTrailerMode !== DEFAULT_COMMIT_TRAILER_MODE) {
+		payload.commitTrailerMode = commitTrailerMode;
+	}
+	if (
+		hasOwnKey(existing, "commitTrailerTemplate") ||
+		commitTrailerTemplate !== DEFAULT_COMMIT_TRAILER_TEMPLATE
+	) {
+		payload.commitTrailerTemplate = commitTrailerTemplate;
 	}
 
 	await lockedFileSystem.writeJsonFileAtomic(configPath, payload, {
@@ -512,6 +555,8 @@ function createRuntimeConfigStateFromValues(input: {
 	openPrPromptTemplate: string;
 	agentDisplayName: string;
 	seamCommentTagTemplate: string;
+	commitTrailerMode: RuntimeCommitTrailerMode;
+	commitTrailerTemplate: string;
 }): RuntimeConfigState {
 	return {
 		globalConfigPath: input.globalConfigPath,
@@ -537,6 +582,12 @@ function createRuntimeConfigStateFromValues(input: {
 			DEFAULT_SEAM_COMMENT_TAG_TEMPLATE,
 		),
 		seamCommentTagTemplateDefault: DEFAULT_SEAM_COMMENT_TAG_TEMPLATE,
+		commitTrailerMode: normalizeCommitTrailerMode(input.commitTrailerMode),
+		commitTrailerTemplate: normalizePromptTemplate(
+			input.commitTrailerTemplate,
+			DEFAULT_COMMIT_TRAILER_TEMPLATE,
+		),
+		commitTrailerTemplateDefault: DEFAULT_COMMIT_TRAILER_TEMPLATE,
 	};
 }
 
@@ -553,6 +604,8 @@ export function toGlobalRuntimeConfigState(current: RuntimeConfigState): Runtime
 		openPrPromptTemplate: current.openPrPromptTemplate,
 		agentDisplayName: current.agentDisplayName,
 		seamCommentTagTemplate: current.seamCommentTagTemplate,
+		commitTrailerMode: current.commitTrailerMode,
+		commitTrailerTemplate: current.commitTrailerTemplate,
 	});
 }
 
@@ -590,6 +643,8 @@ export async function saveRuntimeConfig(
 		openPrPromptTemplate: string;
 		agentDisplayName: string;
 		seamCommentTagTemplate: string;
+		commitTrailerMode: RuntimeCommitTrailerMode;
+		commitTrailerTemplate: string;
 	},
 ): Promise<RuntimeConfigState> {
 	const { globalConfigPath, projectConfigPath } = resolveRuntimeConfigPaths(cwd);
@@ -603,6 +658,8 @@ export async function saveRuntimeConfig(
 			openPrPromptTemplate: config.openPrPromptTemplate,
 			agentDisplayName: config.agentDisplayName,
 			seamCommentTagTemplate: config.seamCommentTagTemplate,
+			commitTrailerMode: config.commitTrailerMode,
+			commitTrailerTemplate: config.commitTrailerTemplate,
 		});
 		await writeRuntimeProjectConfigFile(projectConfigPath, { shortcuts: config.shortcuts });
 		return createRuntimeConfigStateFromValues({
@@ -617,6 +674,8 @@ export async function saveRuntimeConfig(
 			openPrPromptTemplate: config.openPrPromptTemplate,
 			agentDisplayName: config.agentDisplayName,
 			seamCommentTagTemplate: config.seamCommentTagTemplate,
+			commitTrailerMode: config.commitTrailerMode,
+			commitTrailerTemplate: config.commitTrailerTemplate,
 		});
 	});
 }
@@ -640,6 +699,8 @@ export async function updateRuntimeConfig(cwd: string, updates: RuntimeConfigUpd
 			openPrPromptTemplate: updates.openPrPromptTemplate ?? current.openPrPromptTemplate,
 			agentDisplayName: updates.agentDisplayName ?? current.agentDisplayName,
 			seamCommentTagTemplate: updates.seamCommentTagTemplate ?? current.seamCommentTagTemplate,
+			commitTrailerMode: updates.commitTrailerMode ?? current.commitTrailerMode,
+			commitTrailerTemplate: updates.commitTrailerTemplate ?? current.commitTrailerTemplate,
 		};
 
 		const hasChanges =
@@ -651,6 +712,8 @@ export async function updateRuntimeConfig(cwd: string, updates: RuntimeConfigUpd
 			nextConfig.openPrPromptTemplate !== current.openPrPromptTemplate ||
 			nextConfig.agentDisplayName !== current.agentDisplayName ||
 			nextConfig.seamCommentTagTemplate !== current.seamCommentTagTemplate ||
+			nextConfig.commitTrailerMode !== current.commitTrailerMode ||
+			nextConfig.commitTrailerTemplate !== current.commitTrailerTemplate ||
 			!areRuntimeProjectShortcutsEqual(nextConfig.shortcuts, current.shortcuts);
 
 		if (!hasChanges) {
@@ -666,6 +729,8 @@ export async function updateRuntimeConfig(cwd: string, updates: RuntimeConfigUpd
 			openPrPromptTemplate: nextConfig.openPrPromptTemplate,
 			agentDisplayName: nextConfig.agentDisplayName,
 			seamCommentTagTemplate: nextConfig.seamCommentTagTemplate,
+			commitTrailerMode: nextConfig.commitTrailerMode,
+			commitTrailerTemplate: nextConfig.commitTrailerTemplate,
 		});
 		await writeRuntimeProjectConfigFile(projectConfigPath, {
 			shortcuts: nextConfig.shortcuts,
@@ -682,6 +747,8 @@ export async function updateRuntimeConfig(cwd: string, updates: RuntimeConfigUpd
 			openPrPromptTemplate: nextConfig.openPrPromptTemplate,
 			agentDisplayName: nextConfig.agentDisplayName,
 			seamCommentTagTemplate: nextConfig.seamCommentTagTemplate,
+			commitTrailerMode: nextConfig.commitTrailerMode,
+			commitTrailerTemplate: nextConfig.commitTrailerTemplate,
 		});
 	});
 }
@@ -713,6 +780,8 @@ export async function updateGlobalRuntimeConfig(
 				openPrPromptTemplate: updates.openPrPromptTemplate ?? current.openPrPromptTemplate,
 				agentDisplayName: updates.agentDisplayName ?? current.agentDisplayName,
 				seamCommentTagTemplate: updates.seamCommentTagTemplate ?? current.seamCommentTagTemplate,
+				commitTrailerMode: updates.commitTrailerMode ?? current.commitTrailerMode,
+				commitTrailerTemplate: updates.commitTrailerTemplate ?? current.commitTrailerTemplate,
 			};
 
 			const hasChanges =
@@ -723,7 +792,9 @@ export async function updateGlobalRuntimeConfig(
 				nextConfig.commitPromptTemplate !== current.commitPromptTemplate ||
 				nextConfig.openPrPromptTemplate !== current.openPrPromptTemplate ||
 				nextConfig.agentDisplayName !== current.agentDisplayName ||
-				nextConfig.seamCommentTagTemplate !== current.seamCommentTagTemplate;
+				nextConfig.seamCommentTagTemplate !== current.seamCommentTagTemplate ||
+				nextConfig.commitTrailerMode !== current.commitTrailerMode ||
+				nextConfig.commitTrailerTemplate !== current.commitTrailerTemplate;
 
 			if (!hasChanges) {
 				return current;
@@ -738,6 +809,8 @@ export async function updateGlobalRuntimeConfig(
 				openPrPromptTemplate: nextConfig.openPrPromptTemplate,
 				agentDisplayName: nextConfig.agentDisplayName,
 				seamCommentTagTemplate: nextConfig.seamCommentTagTemplate,
+				commitTrailerMode: nextConfig.commitTrailerMode,
+				commitTrailerTemplate: nextConfig.commitTrailerTemplate,
 			});
 
 			return createRuntimeConfigStateFromValues({
@@ -752,6 +825,8 @@ export async function updateGlobalRuntimeConfig(
 				openPrPromptTemplate: nextConfig.openPrPromptTemplate,
 				agentDisplayName: nextConfig.agentDisplayName,
 				seamCommentTagTemplate: nextConfig.seamCommentTagTemplate,
+				commitTrailerMode: nextConfig.commitTrailerMode,
+				commitTrailerTemplate: nextConfig.commitTrailerTemplate,
 			});
 		},
 	);

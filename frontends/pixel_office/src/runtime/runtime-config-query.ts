@@ -58,6 +58,8 @@ export async function saveRuntimeConfig(
 		openPrPromptTemplate?: string;
 		agentDisplayName?: string;
 		seamCommentTagTemplate?: string;
+		commitTrailerMode?: "omit" | "include";
+		commitTrailerTemplate?: string;
 	},
 ): Promise<RuntimeConfigResponse> {
 	const trpcClient = getRuntimeTrpcClient(workspaceId);

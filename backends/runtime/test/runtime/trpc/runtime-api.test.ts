@@ -195,6 +195,9 @@ function createRuntimeConfigState(): RuntimeConfigState {
 		agentDisplayName: "",
 		seamCommentTagTemplate: "seam",
 		seamCommentTagTemplateDefault: "seam",
+		commitTrailerMode: "omit" as const,
+		commitTrailerTemplate: "Co-Authored-By: Claude <noreply@anthropic.com>",
+		commitTrailerTemplateDefault: "Co-Authored-By: Claude <noreply@anthropic.com>",
 		globalConfigPath: "/tmp/global-config.json",
 		projectConfigPath: "/tmp/project-config.json",
 	};

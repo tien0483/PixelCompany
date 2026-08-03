@@ -140,5 +140,8 @@ export function buildRuntimeConfigResponse(
 		agentDisplayName: runtimeConfig.agentDisplayName,
 		seamCommentTagTemplate: runtimeConfig.seamCommentTagTemplate,
 		seamCommentTagTemplateDefault: runtimeConfig.seamCommentTagTemplateDefault,
+		commitTrailerMode: runtimeConfig.commitTrailerMode,
+		commitTrailerTemplate: runtimeConfig.commitTrailerTemplate,
+		commitTrailerTemplateDefault: runtimeConfig.commitTrailerTemplateDefault,
 	};
 }

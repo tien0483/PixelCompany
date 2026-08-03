@@ -32,6 +32,9 @@ function createRuntimeConfigState(overrides: Partial<RuntimeConfigState> = {}): 
 		agentDisplayName: "",
 		seamCommentTagTemplate: "seam",
 		seamCommentTagTemplateDefault: "seam",
+		commitTrailerMode: "omit",
+		commitTrailerTemplate: "Co-Authored-By: Claude <noreply@anthropic.com>",
+		commitTrailerTemplateDefault: "Co-Authored-By: Claude <noreply@anthropic.com>",
 		...overrides,
 	};
 }

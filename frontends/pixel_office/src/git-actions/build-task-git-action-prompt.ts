@@ -2,6 +2,8 @@ import type { RuntimeTaskAutoReviewMode, RuntimeTaskWorkspaceInfoResponse } from
 
 export type TaskGitAction = Extract<RuntimeTaskAutoReviewMode, "commit" | "pr">;
 
+export type TaskGitCommitTrailerMode = "omit" | "include";
+
 interface TaskGitPromptVariable {
 	key: string;
 	token: string;
@@ -35,6 +37,14 @@ export const TASK_GIT_SEAM_COMMENT_TAG_PROMPT_VARIABLE: TaskGitPromptVariable = 
 	token: "{{seam_comment_tag}}",
 	description: "the computed seam-comment tag; reference this inside commit/PR prompts",
 };
+export const TASK_GIT_COMMIT_TRAILER_PROMPT_VARIABLE: TaskGitPromptVariable = {
+	key: "commit_trailer",
+	token: "{{commit_trailer}}",
+	description: "the resolved commit trailer line when trailer behaviour is Include",
+};
+
+export const COMMIT_TRAILER_OMIT_POLICY =
+	"Do not add any commit message trailers or AI attribution lines (including Co-Authored-By, Signed-off-by invented for attribution, or Generated-with footers).";
 
 /**
  * Deterministic name for a task's commit branch. The commit agent creates this
@@ -56,6 +66,9 @@ export interface TaskGitPromptTemplates {
 	openPrPromptTemplateDefault?: string | null;
 	seamCommentTagTemplate?: string | null;
 	seamCommentTagTemplateDefault?: string | null;
+	commitTrailerMode?: TaskGitCommitTrailerMode | null;
+	commitTrailerTemplate?: string | null;
+	commitTrailerTemplateDefault?: string | null;
 }
 
 interface BuildTaskGitActionPromptInput {
@@ -116,6 +129,46 @@ export function resolveSeamCommentTag(
 	return interpolateTemplate(resolvedTemplate, variables ?? {});
 }
 
+function resolveCommitTrailerMode(templates?: TaskGitPromptTemplates | null): TaskGitCommitTrailerMode {
+	return templates?.commitTrailerMode === "include" ? "include" : "omit";
+}
+
+export function resolveCommitTrailer(
+	templates?: TaskGitPromptTemplates | null,
+	variables?: Record<string, string>,
+): string {
+	if (resolveCommitTrailerMode(templates) !== "include") {
+		return "";
+	}
+	const resolvedTemplate = (() => {
+		const template = templates?.commitTrailerTemplate?.trim();
+		if (template) {
+			return template;
+		}
+		const defaultTemplate = templates?.commitTrailerTemplateDefault?.trim();
+		if (defaultTemplate) {
+			return defaultTemplate;
+		}
+		return "";
+	})();
+	return interpolateTemplate(resolvedTemplate, variables ?? {});
+}
+
+export function buildCommitTrailerPolicy(
+	templates?: TaskGitPromptTemplates | null,
+	variables?: Record<string, string>,
+): string {
+	const mode = resolveCommitTrailerMode(templates);
+	if (mode === "omit") {
+		return COMMIT_TRAILER_OMIT_POLICY;
+	}
+	const trailer = resolveCommitTrailer(templates, variables);
+	if (trailer.length === 0) {
+		return COMMIT_TRAILER_OMIT_POLICY;
+	}
+	return `Append this exact trailer line to the commit message (and do not invent other AI attribution footers):\n${trailer}`;
+}
+
 export function buildTaskGitActionPrompt(input: BuildTaskGitActionPromptInput): string {
 	const override = input.taskBranchOverride?.trim();
 	const taskBranch =
@@ -127,6 +180,9 @@ export function buildTaskGitActionPrompt(input: BuildTaskGitActionPromptInput): 
 		[TASK_GIT_SEAM_AGENT_NAME_PROMPT_VARIABLE.key]: input.agentDisplayName ?? "",
 	};
 	variables[TASK_GIT_SEAM_COMMENT_TAG_PROMPT_VARIABLE.key] = resolveSeamCommentTag(input.templates, variables);
+	variables[TASK_GIT_COMMIT_TRAILER_PROMPT_VARIABLE.key] = resolveCommitTrailer(input.templates, variables);
 	const template = resolveTemplate(input.action, input.templates);
-	return interpolateTemplate(template, variables);
+	const body = interpolateTemplate(template, variables);
+	const policy = buildCommitTrailerPolicy(input.templates, variables);
+	return `${body}\n\n${policy}`;
 }

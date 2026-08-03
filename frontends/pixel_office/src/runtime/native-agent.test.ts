@@ -62,6 +62,9 @@ function createRuntimeConfigResponse(
 		agentDisplayName: "",
 		seamCommentTagTemplate: "",
 		seamCommentTagTemplateDefault: "",
+		commitTrailerMode: "omit",
+		commitTrailerTemplate: "",
+		commitTrailerTemplateDefault: "",
 	};
 	return {
 		...nextConfig,

@@ -41,11 +41,13 @@ import { Dialog, DialogFooter, DialogHeader } from "@/components/ui/dialog";
 import { NativeSelect } from "@/components/ui/native-select";
 import {
 	TASK_GIT_BASE_REF_PROMPT_VARIABLE,
+	TASK_GIT_COMMIT_TRAILER_PROMPT_VARIABLE,
 	TASK_GIT_SEAM_AGENT_NAME_PROMPT_VARIABLE,
 	TASK_GIT_SEAM_COMMENT_TAG_PROMPT_VARIABLE,
 	TASK_GIT_SEAM_TICKET_ID_PROMPT_VARIABLE,
 	TASK_GIT_TASK_BRANCH_PROMPT_VARIABLE,
 	type TaskGitAction,
+	type TaskGitCommitTrailerMode,
 } from "@/git-actions/build-task-git-action-prompt";
 import { useRuntimeSettingsClineController } from "@/hooks/use-runtime-settings-cline-controller";
 import { useRuntimeSettingsClineMcpController } from "@/hooks/use-runtime-settings-cline-mcp-controller";
@@ -99,6 +101,11 @@ function normalizeTemplateForComparison(value: string): string {
 const GIT_PROMPT_VARIANT_OPTIONS: Array<{ value: TaskGitAction; label: string }> = [
 	{ value: "commit", label: "Commit" },
 	{ value: "pr", label: "Make PR" },
+];
+
+const GIT_TRAILER_MODE_OPTIONS: Array<{ value: TaskGitCommitTrailerMode; label: string }> = [
+	{ value: "omit", label: "Omit" },
+	{ value: "include", label: "Include" },
 ];
 
 export type RuntimeSettingsSection = "shortcuts";
@@ -393,6 +400,8 @@ export function RuntimeSettingsDialog({
 	const [openPrPromptTemplate, setOpenPrPromptTemplate] = useState("");
 	const [agentDisplayName, setAgentDisplayName] = useState("");
 	const [seamCommentTagTemplate, setSeamCommentTagTemplate] = useState("");
+	const [commitTrailerMode, setCommitTrailerMode] = useState<TaskGitCommitTrailerMode>("omit");
+	const [commitTrailerTemplate, setCommitTrailerTemplate] = useState("");
 	const [selectedPromptVariant, setSelectedPromptVariant] = useState<TaskGitAction>("commit");
 	const [copiedVariableToken, setCopiedVariableToken] = useState<string | null>(null);
 	const [saveError, setSaveError] = useState<string | null>(null);
@@ -420,6 +429,10 @@ export function RuntimeSettingsDialog({
 	const isSeamCommentTagTemplateAtDefault =
 		normalizeTemplateForComparison(seamCommentTagTemplate) ===
 		normalizeTemplateForComparison(seamCommentTagTemplateDefault);
+	const commitTrailerTemplateDefault = config?.commitTrailerTemplateDefault ?? "";
+	const isCommitTrailerTemplateAtDefault =
+		normalizeTemplateForComparison(commitTrailerTemplate) ===
+		normalizeTemplateForComparison(commitTrailerTemplateDefault);
 	const selectedPromptValue = selectedPromptVariant === "commit" ? commitPromptTemplate : openPrPromptTemplate;
 	const selectedPromptDefaultValue =
 		selectedPromptVariant === "commit" ? commitPromptTemplateDefault : openPrPromptTemplateDefault;
@@ -473,6 +486,8 @@ export function RuntimeSettingsDialog({
 	const initialOpenPrPromptTemplate = config?.openPrPromptTemplate ?? "";
 	const initialAgentDisplayName = config?.agentDisplayName ?? "";
 	const initialSeamCommentTagTemplate = config?.seamCommentTagTemplate ?? "";
+	const initialCommitTrailerMode = config?.commitTrailerMode ?? "omit";
+	const initialCommitTrailerTemplate = config?.commitTrailerTemplate ?? "";
 	const clineSettings = useRuntimeSettingsClineController({
 		open,
 		workspaceId,
@@ -525,6 +540,15 @@ export function RuntimeSettingsDialog({
 		if (agentDisplayName !== initialAgentDisplayName) {
 			return true;
 		}
+		if (commitTrailerMode !== initialCommitTrailerMode) {
+			return true;
+		}
+		if (
+			normalizeTemplateForComparison(commitTrailerTemplate) !==
+			normalizeTemplateForComparison(initialCommitTrailerTemplate)
+		) {
+			return true;
+		}
 		return (
 			normalizeTemplateForComparison(seamCommentTagTemplate) !==
 			normalizeTemplateForComparison(initialSeamCommentTagTemplate)
@@ -535,11 +559,15 @@ export function RuntimeSettingsDialog({
 		clineMcpSettings.hasUnsavedChanges,
 		clineSettings.hasUnsavedChanges,
 		commitPromptTemplate,
+		commitTrailerMode,
+		commitTrailerTemplate,
 		config,
 		draftThemeId,
 		initialAgentAutonomousModeEnabled,
 		initialAgentDisplayName,
 		initialCommitPromptTemplate,
+		initialCommitTrailerMode,
+		initialCommitTrailerTemplate,
 		initialOpenPrPromptTemplate,
 		initialReadyForReviewNotificationsEnabled,
 		initialSeamCommentTagTemplate,
@@ -565,11 +593,15 @@ export function RuntimeSettingsDialog({
 		setOpenPrPromptTemplate(config?.openPrPromptTemplate ?? "");
 		setAgentDisplayName(config?.agentDisplayName ?? "");
 		setSeamCommentTagTemplate(config?.seamCommentTagTemplate ?? "");
+		setCommitTrailerMode(config?.commitTrailerMode ?? "omit");
+		setCommitTrailerTemplate(config?.commitTrailerTemplate ?? "");
 		setSaveError(null);
 	}, [
 		config?.agentAutonomousModeEnabled,
 		config?.agentDisplayName,
 		config?.commitPromptTemplate,
+		config?.commitTrailerMode,
+		config?.commitTrailerTemplate,
 		config?.openPrPromptTemplate,
 		config?.readyForReviewNotificationsEnabled,
 		config?.seamCommentTagTemplate,
@@ -748,6 +780,10 @@ export function RuntimeSettingsDialog({
 		setSeamCommentTagTemplate(seamCommentTagTemplateDefault);
 	};
 
+	const handleResetCommitTrailerTemplate = () => {
+		setCommitTrailerTemplate(commitTrailerTemplateDefault);
+	};
+
 	const handleSave = async () => {
 		setSaveError(null);
 		if (!config) {
@@ -792,6 +828,8 @@ export function RuntimeSettingsDialog({
 			openPrPromptTemplate,
 			agentDisplayName,
 			seamCommentTagTemplate,
+			commitTrailerMode,
+			commitTrailerTemplate,
 		});
 		if (!saved) {
 			setSaveError("Could not save runtime settings. Check runtime logs and try again.");
@@ -1038,6 +1076,81 @@ export function RuntimeSettingsDialog({
 									disabled={controlsDisabled}
 								/>{" "}
 								to reference {TASK_GIT_SEAM_COMMENT_TAG_PROMPT_VARIABLE.description} inside the commit/PR prompts
+								below.
+							</p>
+						</div>
+						<div className="mb-3">
+							<label
+								htmlFor="runtime-settings-commit-trailer-mode"
+								className="block text-[12px] font-semibold uppercase tracking-wider text-text-secondary mb-1"
+							>
+								Trailer behaviour
+							</label>
+							<NativeSelect
+								id="runtime-settings-commit-trailer-mode"
+								value={commitTrailerMode}
+								onChange={(event) => setCommitTrailerMode(event.target.value as TaskGitCommitTrailerMode)}
+								disabled={controlsDisabled}
+								style={{ minWidth: 220 }}
+							>
+								{GIT_TRAILER_MODE_OPTIONS.map((option) => (
+									<option key={option.value} value={option.value}>
+										{option.label}
+									</option>
+								))}
+							</NativeSelect>
+							<p className="text-text-secondary text-[13px] mt-1 mb-0">
+								Omit tells Commit/Make PR agents not to add trailers. Include appends the trailer text below to
+								the commit message.
+							</p>
+						</div>
+						<div className="mb-3">
+							<div className="flex items-center justify-between gap-2 mb-2">
+								<label
+									htmlFor="runtime-settings-commit-trailer-template"
+									className="text-[12px] font-semibold uppercase tracking-wider text-text-secondary"
+								>
+									Trailer text
+								</label>
+								<Button
+									variant="ghost"
+									size="sm"
+									onClick={handleResetCommitTrailerTemplate}
+									disabled={controlsDisabled || isCommitTrailerTemplateAtDefault}
+								>
+									Reset
+								</Button>
+							</div>
+							<textarea
+								id="runtime-settings-commit-trailer-template"
+								rows={2}
+								value={commitTrailerTemplate}
+								onChange={(event) => setCommitTrailerTemplate(event.target.value)}
+								placeholder="Commit trailer text"
+								disabled={controlsDisabled}
+								className={cn(
+									"w-full rounded-md border border-border bg-surface-2 p-3 text-[13px] text-text-primary font-mono placeholder:text-text-tertiary focus:border-border-focus focus:outline-none resize-none disabled:opacity-40",
+									commitTrailerMode === "omit" && "opacity-60",
+								)}
+							/>
+							<p className="text-text-secondary text-[13px] mt-2 mb-0">
+								Use{" "}
+								<InlineUtilityButton
+									text={
+										copiedVariableToken === TASK_GIT_COMMIT_TRAILER_PROMPT_VARIABLE.token
+											? "Copied!"
+											: TASK_GIT_COMMIT_TRAILER_PROMPT_VARIABLE.token
+									}
+									monospace
+									widthCh={
+										Math.max(TASK_GIT_COMMIT_TRAILER_PROMPT_VARIABLE.token.length, "Copied!".length) + 2
+									}
+									onClick={() => {
+										handleCopyVariableToken(TASK_GIT_COMMIT_TRAILER_PROMPT_VARIABLE.token);
+									}}
+									disabled={controlsDisabled}
+								/>{" "}
+								to reference {TASK_GIT_COMMIT_TRAILER_PROMPT_VARIABLE.description} inside the commit/PR prompts
 								below.
 							</p>
 						</div>
