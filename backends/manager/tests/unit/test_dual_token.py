@@ -760,21 +760,52 @@ class TestAddAccountActivation:
         flow = OAuthFlow(db, purpose="primary")
         alice, bob = db.get_account(1), db.get_account(2)
 
-        # No active account chosen → the next one becomes active.
-        assert flow._should_become_active(alice) is True
+        # Isolate from the host's real credential stamp — these cases assert the
+        # DB-setting layer alone (no live credential).
+        with patch(
+            "manager.api.credential_helpers.read_active_account_id",
+            return_value=None,
+        ):
+            # No active account anywhere → the next one becomes active.
+            assert flow._should_become_active(alice) is True
 
-        # alice is active → re-auth alice keeps her active; bob must NOT switch.
-        db.set_setting("active_account_id", "1")
-        assert flow._should_become_active(alice) is True
-        assert flow._should_become_active(bob) is False
+            # alice is active → re-auth alice keeps her active; bob must NOT switch.
+            db.set_setting("active_account_id", "1")
+            assert flow._should_become_active(alice) is True
+            assert flow._should_become_active(bob) is False
 
-        # Active points at a deleted/missing account → next becomes active.
-        db.set_setting("active_account_id", "999")
-        assert flow._should_become_active(bob) is True
+            # Active points at a deleted/missing account → next becomes active.
+            db.set_setting("active_account_id", "999")
+            assert flow._should_become_active(bob) is True
 
-        # Corrupt setting → treated as no active account.
-        db.set_setting("active_account_id", "not-an-int")
-        assert flow._should_become_active(bob) is True
+            # Corrupt setting → treated as no active account.
+            db.set_setting("active_account_id", "not-an-int")
+            assert flow._should_become_active(bob) is True
+
+    def test_should_become_active_falls_back_to_credential_stamp(self, tmp_path):
+        """Regression: when the DB `active_account_id` setting is empty/stale but
+        the live credential stamp (_jackedAccountId) points to an existing
+        account, adding a NEW account must NOT steal activation — the CLI is
+        already logged into that account."""
+        from manager.web.oauth import OAuthFlow
+        db = _make_db(tmp_path)  # alice=1, bob=2; NO active setting
+        flow = OAuthFlow(db, purpose="primary")
+        alice, bob = db.get_account(1), db.get_account(2)
+
+        # No DB setting, but the credential stamp says alice (1) is the live CLI.
+        with patch(
+            "manager.api.credential_helpers.read_active_account_id",
+            return_value=1,
+        ):
+            assert flow._should_become_active(bob) is False    # must not steal
+            assert flow._should_become_active(alice) is True   # re-auth of active
+
+        # Stamp points to a deleted/missing account → next one wins.
+        with patch(
+            "manager.api.credential_helpers.read_active_account_id",
+            return_value=999,
+        ):
+            assert flow._should_become_active(bob) is True
 
     @patch("manager.api.credential_helpers.sync_credential_to_all_stores")
     def test_second_account_does_not_switch(self, mock_sync, tmp_path):
@@ -797,6 +828,7 @@ class TestAddAccountActivation:
             patch.object(flow, "_fetch_profile", new_callable=AsyncMock, return_value=profile),
             patch.object(flow, "_fetch_usage", new_callable=AsyncMock, return_value={}),
             patch.object(OAuthFlow, "start", new_callable=AsyncMock, return_value={"flow_id": "cc"}),
+            patch("manager.api.credential_helpers.read_active_account_id", return_value=1),
         ):
             asyncio.run(flow._complete_auth("test_code"))
 
@@ -825,6 +857,7 @@ class TestAddAccountActivation:
             patch.object(flow, "_fetch_profile", new_callable=AsyncMock, return_value=profile),
             patch.object(flow, "_fetch_usage", new_callable=AsyncMock, return_value={}),
             patch.object(OAuthFlow, "start", new_callable=AsyncMock, return_value={"flow_id": "cc"}),
+            patch("manager.api.credential_helpers.read_active_account_id", return_value=None),
         ):
             asyncio.run(flow._complete_auth("test_code"))
 

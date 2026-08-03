@@ -123,6 +123,9 @@ export function createManagerApi(deps: CreateManagerApiDependencies): RuntimeTrp
 		refreshAllUsage: async () => {
 			return await refreshAfter(await deps.client.refreshAllUsage());
 		},
+		reconcileActive: async () => {
+			return await refreshAfter(await deps.client.reconcileActive());
+		},
 		updateAccount: async (input: RuntimeManagerAccountUpdateRequest) => {
 			const refused = await refuseUnmanagedAccount(input.accountId);
 			if (refused !== null) {

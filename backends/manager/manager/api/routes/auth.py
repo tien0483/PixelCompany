@@ -2055,6 +2055,88 @@ async def get_active_credential(request: Request):
     return ActiveCredentialResponse()
 
 
+@router.post("/reconcile-active")
+async def reconcile_active_credential(request: Request):
+    """Push the dashboard's active seat into the live CLI credential.
+
+    The dashboard's intended active seat is the DB `active_account_id`
+    setting (last set by Use Account / auto-swap). The Claude CLI can drift
+    away from it — e.g. an out-of-band `claude` login, or a stale credential
+    file. This makes the CLI match the dashboard: when the live login
+    (get_active_credential) differs from the intended seat, it writes the
+    seat's tokens to all credential stores. Dashboard is the source of
+    truth; the CLI follows.
+
+    No-op (reconciled=False) when there is no intended seat, the seat is
+    gone / disabled / invalid / non-Claude, or the CLI already matches.
+    """
+    db = _get_db(request)
+    if db is None:
+        return _db_unavailable()
+
+    target_raw = db.get_setting("active_account_id")
+    live = (await get_active_credential(request)).account_id
+
+    if not target_raw:
+        return JSONResponse(content={"reconciled": False, "active": live})
+    try:
+        target_id = int(target_raw)
+    except (TypeError, ValueError):
+        return JSONResponse(content={"reconciled": False, "active": live})
+
+    account = db.get_account(target_id)
+    if (
+        not account
+        or account.get("is_deleted")
+        or not account.get("is_active")
+        or (account.get("provider") or "claude") != "claude"
+        or account.get("validation_status") == "invalid"
+    ):
+        return JSONResponse(content={"reconciled": False, "active": live})
+
+    if live == target_id:
+        return JSONResponse(content={"reconciled": False, "active": live})
+
+    # Reconcile the outgoing (live) account from the store first, so any
+    # token rotation Claude Code performed is captured before we overwrite.
+    from manager.api.credential_helpers import (
+        reconcile_credentials_from_live_store,
+        sync_credential_to_all_stores,
+    )
+
+    if live and live != target_id:
+        reconcile_credentials_from_live_store(live, db)
+
+    # SAFETY: user-initiated one-shot credential write (same contract as
+    # use_account) — NOT a background loop. Do not copy into refresh loops.
+    sync_credential_to_all_stores(
+        target_id,
+        account,
+        email=account.get("email"),
+        display_name=account.get("display_name"),
+    )
+
+    # Arm the auto-swap cooldown + record the swap so the sweep loop does not
+    # immediately revert the reconciled choice.
+    try:
+        from manager.api import usage_monitor
+        from manager.web.auto_swap import format_account_label
+
+        usage_monitor.note_external_swap()
+        db.record_swap(
+            from_account_id=live,
+            to_account_id=target_id,
+            reason=f"reconciled CLI to active seat {format_account_label(account)}",
+            trigger="reconcile",
+        )
+    except Exception:
+        logger.debug("reconcile bookkeeping failed", exc_info=True)
+
+    return JSONResponse(
+        content={"reconciled": True, "from": live, "to": target_id},
+    )
+
+
 # --- Session queries ---
 
 

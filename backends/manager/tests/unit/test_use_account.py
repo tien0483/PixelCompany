@@ -549,3 +549,91 @@ def test_active_credential_no_match(client, db, tmp_path):
     assert resp.status_code == 200
     data = resp.json()
     assert data["account_id"] is None
+
+
+class TestReconcileActive:
+    """POST /api/auth/reconcile-active pushes the dashboard's active seat (DB
+    active_account_id) into the live CLI credential when they drift apart."""
+
+    def _patch_credential_io(self):
+        """Patch the credential writers so no real stores are touched."""
+        return (
+            mock.patch(
+                "manager.api.credential_helpers.sync_credential_to_all_stores"
+            ),
+            mock.patch(
+                "manager.api.credential_helpers.reconcile_credentials_from_live_store"
+            ),
+            mock.patch("manager.api.usage_monitor.note_external_swap"),
+        )
+
+    def test_reconcile_pushes_active_seat_to_cli(self, client, db):
+        """Live CLI (3) differs from the intended active seat (1) → write seat 1."""
+        db.set_setting("active_account_id", "1")
+        import types
+
+        sync_p, recon_p, note_p = self._patch_credential_io()
+        with sync_p as mock_sync, recon_p as mock_recon, note_p, mock.patch(
+            "manager.api.routes.auth.get_active_credential",
+            new_callable=mock.AsyncMock,
+            return_value=types.SimpleNamespace(account_id=3),
+        ):
+            resp = client.post("/api/auth/reconcile-active")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data == {"reconciled": True, "from": 3, "to": 1}
+        mock_sync.assert_called_once()
+        assert mock_sync.call_args.args[0] == 1  # wrote the active seat
+        mock_recon.assert_called_once()  # captured outgoing (3) first
+
+    def test_reconcile_noop_when_already_aligned(self, client, db):
+        """CLI already on the active seat → no write."""
+        db.set_setting("active_account_id", "1")
+        import types
+
+        sync_p, recon_p, note_p = self._patch_credential_io()
+        with sync_p as mock_sync, recon_p, note_p, mock.patch(
+            "manager.api.routes.auth.get_active_credential",
+            new_callable=mock.AsyncMock,
+            return_value=types.SimpleNamespace(account_id=1),
+        ):
+            resp = client.post("/api/auth/reconcile-active")
+
+        assert resp.status_code == 200
+        assert resp.json() == {"reconciled": False, "active": 1}
+        mock_sync.assert_not_called()
+
+    def test_reconcile_noop_when_no_active_setting(self, client, db):
+        """No intended seat → nothing to push."""
+        import types
+
+        sync_p, recon_p, note_p = self._patch_credential_io()
+        with sync_p as mock_sync, recon_p, note_p, mock.patch(
+            "manager.api.routes.auth.get_active_credential",
+            new_callable=mock.AsyncMock,
+            return_value=types.SimpleNamespace(account_id=3),
+        ):
+            resp = client.post("/api/auth/reconcile-active")
+
+        assert resp.status_code == 200
+        assert resp.json() == {"reconciled": False, "active": 3}
+        mock_sync.assert_not_called()
+
+    def test_reconcile_skips_disabled_or_invalid_seat(self, client, db):
+        """Intended seat is disabled (2) or invalid (4) → refuse to push it."""
+        import types
+
+        for bad_id in ("2", "4"):
+            db.set_setting("active_account_id", bad_id)
+            sync_p, recon_p, note_p = self._patch_credential_io()
+            with sync_p as mock_sync, recon_p, note_p, mock.patch(
+                "manager.api.routes.auth.get_active_credential",
+                new_callable=mock.AsyncMock,
+                return_value=types.SimpleNamespace(account_id=1),
+            ):
+                resp = client.post("/api/auth/reconcile-active")
+
+            assert resp.status_code == 200
+            assert resp.json()["reconciled"] is False
+            mock_sync.assert_not_called()

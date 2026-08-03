@@ -482,25 +482,53 @@ class OAuthFlow:
             self._event.set()
             return self.get_status()
 
+    def _resolve_existing_active(self) -> dict | None:
+        """Return the currently-active account row across all layers, or None.
+
+        Checks the DB `active_account_id` setting first, then the live
+        credential stamp (`_jackedAccountId`, via read_active_account_id).
+        Deleted / missing rows are ignored, so a stale pointer reads as "no
+        active account". This is deliberately broader than the DB setting
+        alone: the setting can be empty (e.g. accounts imported or launched
+        without ever writing it) while the CLI is genuinely logged into an
+        existing account — in that case adding a new account must NOT steal
+        activation.
+        """
+        candidates: list[int] = []
+        cur = self.db.get_setting("active_account_id")
+        if cur:
+            try:
+                candidates.append(int(cur))
+            except (TypeError, ValueError):
+                pass
+        try:
+            from manager.api.credential_helpers import read_active_account_id
+
+            stamp = read_active_account_id()
+            if stamp:
+                candidates.append(stamp)
+        except Exception:
+            logger.debug("read_active_account_id failed", exc_info=True)
+        for cid in candidates:
+            existing = self.db.get_account(cid)
+            if existing is not None and not existing.get("is_deleted"):
+                return existing
+        return None
+
     def _should_become_active(self, account: dict) -> bool:
         """Whether this freshly-stored account should become the active one.
 
-        True only when there is no valid active account yet, or this account
-        already IS the active one (a re-auth). Adding an account must never
-        steal the active selection from a different existing account — the
-        user stays on whoever they were on. First account (or one added when
-        the prior active account is gone) still becomes active.
+        True only when there is no valid active account yet anywhere (DB
+        setting OR live credential stamp), or this account already IS the
+        active one (a re-auth). Adding an account must never steal the active
+        selection from a different existing account — the user stays on
+        whoever they were on. First account (or one added when the prior
+        active account is gone) still becomes active.
         """
-        cur = self.db.get_setting("active_account_id")
-        if not cur:
-            return True  # no active account chosen yet → first one wins
-        try:
-            existing = self.db.get_account(int(cur))
-        except (TypeError, ValueError):
-            return True  # corrupt setting → treat as no active account
+        existing = self._resolve_existing_active()
         if existing is None:
-            return True  # active points to a deleted/missing account
-        return int(cur) == account.get("id")  # only when it already IS active
+            return True  # no active account anywhere → this one wins
+        return existing.get("id") == account.get("id")  # only on re-auth of active
 
     async def _complete_auth(self, code: str) -> dict:
         """Complete the OAuth flow: token exchange, API key, profile, usage, DB store."""

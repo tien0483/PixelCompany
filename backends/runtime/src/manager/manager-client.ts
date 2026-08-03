@@ -65,6 +65,8 @@ export interface ManagerClient {
 	/** Refresh cached usage windows for one account (jacked POST …/refresh-usage). */
 	refreshAccount: (accountId: number) => Promise<{ ok: boolean; error?: string }>;
 	refreshAllUsage: () => Promise<{ ok: boolean; error?: string }>;
+	/** Push the dashboard's active seat into the live CLI credential (jacked POST /api/auth/reconcile-active). */
+	reconcileActive: () => Promise<{ ok: boolean; error?: string }>;
 	/** Enable/disable, relabel, or set donate limit on an account. */
 	updateAccount: (input: {
 		accountId: number;
@@ -672,6 +674,8 @@ export function createManagerClient(deps: CreateManagerClientDependencies): Mana
 			),
 		refreshAllUsage: async () =>
 			await mutate("/api/auth/accounts/refresh-all-usage", { method: "POST" }, LONG_REQUEST_TIMEOUT_MS),
+		reconcileActive: async () =>
+			await mutate("/api/auth/reconcile-active", { method: "POST" }, LONG_REQUEST_TIMEOUT_MS),
 		updateAccount: async ({ accountId, isActive, displayName, donateLimitPercent }) => {
 			// jacked rejects an empty patch, and `display_name` is keyed off presence
 			// (not null-ness), so only send what the caller actually set.

@@ -1,3 +1,4 @@
+import * as Collapsible from "@radix-ui/react-collapsible";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import {
 	ArrowLeft,
@@ -196,6 +197,13 @@ function AccountRow({
 	const seatControlsLocked = !online || busy || isSeatDisabled;
 	const [donateDraft, setDonateDraft] = useState(account.donateLimitPercent);
 	const donateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+	// Only the active seat is expanded by default; the rest collapse to their
+	// header (name + badges). Re-syncs when activation moves to another seat.
+	const [open, setOpen] = useState(isSelected);
+
+	useEffect(() => {
+		setOpen(isSelected);
+	}, [isSelected]);
 
 	useEffect(() => {
 		setDonateDraft(account.donateLimitPercent);
@@ -232,14 +240,24 @@ function AccountRow({
 						: "border-border bg-surface-1",
 			)}
 		>
-			<div className={cn(isSeatDisabled && "opacity-50 saturate-0")}>
-				<div className="flex items-start justify-between gap-2">
-					<div className="min-w-0 flex-1">
-						<div className="flex items-center gap-1.5">
-							<span className="truncate text-[12px] font-medium text-text-primary">
-								{account.displayName ?? account.email}
-							</span>
-							{isSelected ? (
+			<Collapsible.Root open={open} onOpenChange={setOpen}>
+				<Collapsible.Trigger asChild>
+					<button
+						type="button"
+						className="flex w-full items-start justify-between gap-2 text-left"
+						aria-label={`${open ? "Collapse" : "Expand"} ${account.email}`}
+					>
+						<div className="min-w-0 flex-1">
+							<div
+								className={cn(
+									"flex items-center gap-1.5",
+									isSeatDisabled && "opacity-50 saturate-0",
+								)}
+							>
+								<span className="truncate text-[12px] font-medium text-text-primary">
+									{account.displayName ?? account.email}
+								</span>
+								{isSelected ? (
 								<span
 									className="shrink-0 rounded bg-accent/20 px-1 py-0.5 text-[9px] uppercase tracking-wide text-accent"
 									title={
@@ -292,16 +310,34 @@ function AccountRow({
 									{account.subscriptionType}
 								</span>
 							) : null}
-							{sessionCount > 0 ? (
-								<span
-									data-testid={`manager-account-sessions-${account.id}`}
-									className="shrink-0 rounded bg-status-green/15 px-1 py-0.5 text-[9px] uppercase tracking-wide text-status-green"
-									title={sessionBadgeTitle(account.provider)}
-								>
-									{sessionCount} live
-								</span>
-							) : null}
+								{sessionCount > 0 ? (
+									<span
+										data-testid={`manager-account-sessions-${account.id}`}
+										className="shrink-0 rounded bg-status-green/15 px-1 py-0.5 text-[9px] uppercase tracking-wide text-status-green"
+										title={sessionBadgeTitle(account.provider)}
+									>
+										{sessionCount} live
+									</span>
+								) : null}
+							</div>
 						</div>
+						{open ? (
+							<ChevronDown
+								size={14}
+								className="mt-0.5 shrink-0 text-text-tertiary transition-colors hover:text-text-secondary"
+								aria-hidden
+							/>
+						) : (
+							<ChevronRight
+								size={14}
+								className="mt-0.5 shrink-0 text-text-tertiary transition-colors hover:text-text-secondary"
+								aria-hidden
+							/>
+						)}
+					</button>
+				</Collapsible.Trigger>
+				<Collapsible.Content className="overflow-hidden data-[state=closed]:animate-[kb-collapsible-up_200ms_ease-out] data-[state=open]:animate-[kb-collapsible-down_200ms_ease-out]">
+					<div className={cn(isSeatDisabled && "opacity-50 saturate-0")}>
 						<p className="truncate text-[10px] text-text-tertiary">
 							{providerDisplayName(account.provider)}
 							{account.organizationName ? ` · ${account.organizationName}` : ""}
@@ -311,9 +347,7 @@ function AccountRow({
 								{account.email}
 							</p>
 						) : null}
-					</div>
-				</div>
-				{account.canTrackUsage ? (
+						{account.canTrackUsage ? (
 					<div
 						className="mt-2 flex flex-col gap-1.5"
 						data-testid={`manager-account-usage-${account.id}`}
@@ -416,6 +450,8 @@ function AccountRow({
 				/>
 			</div>
 			{actions}
+				</Collapsible.Content>
+			</Collapsible.Root>
 		</div>
 	);
 }
@@ -915,12 +951,43 @@ export function ManagerAccountsView({
 						aria-label={MANAGER_LABELS.refreshAllUsage}
 						className="h-7 px-2 text-[10px]"
 						onClick={() => {
-							void run("all", () =>
-								getRuntimeTrpcClient(null).manager.refreshAllUsage.mutate(),
-							);
+							void run("all", async () => {
+								const result = await getRuntimeTrpcClient(
+									null,
+								).manager.refreshAllUsage.mutate();
+								// Opportunistically realign the CLI login with the active
+								// seat on every full refresh (best-effort — never fail the
+								// refresh over a reconcile hiccup).
+								try {
+									await getRuntimeTrpcClient(
+										null,
+									).manager.reconcileActive.mutate();
+								} catch {
+									/* ignore — Sync CLI button covers manual retry */
+								}
+								return result;
+							});
 						}}
 					>
 						Refresh All
+					</Button>
+					<Button
+						variant="ghost"
+						size="sm"
+						disabled={!online || busyId !== null}
+						aria-label="Sync the Claude CLI login to the active seat"
+						title="Re-write the Claude CLI credential so it matches the active seat"
+						className="h-7 px-2 text-[10px]"
+						onClick={() => {
+							void run(
+								"swap",
+								() =>
+									getRuntimeTrpcClient(null).manager.reconcileActive.mutate(),
+								"CLI synced to the active seat.",
+							);
+						}}
+					>
+						Sync CLI
 					</Button>
 					<DropdownMenu.Root
 						onOpenChange={(open) => {

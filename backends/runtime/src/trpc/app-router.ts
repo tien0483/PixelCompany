@@ -527,6 +527,7 @@ export interface RuntimeTrpcContext {
 		useAccount: (input: RuntimeManagerAccountIdRequest) => Promise<RuntimeManagerMutationResponse>;
 		refreshAccount: (input: RuntimeManagerAccountIdRequest) => Promise<RuntimeManagerMutationResponse>;
 		refreshAllUsage: () => Promise<RuntimeManagerMutationResponse>;
+		reconcileActive: () => Promise<RuntimeManagerMutationResponse>;
 		updateAccount: (input: RuntimeManagerAccountUpdateRequest) => Promise<RuntimeManagerMutationResponse>;
 		deleteAccount: (input: RuntimeManagerAccountIdRequest) => Promise<RuntimeManagerMutationResponse>;
 		validateAccount: (input: RuntimeManagerAccountIdRequest) => Promise<RuntimeManagerMutationResponse>;
@@ -1033,6 +1034,9 @@ export const runtimeAppRouter = t.router({
 			}),
 		refreshAllUsage: t.procedure.output(RuntimeManagerMutationResponseSchema).mutation(async ({ ctx }) => {
 			return await ctx.managerApi.refreshAllUsage();
+		}),
+		reconcileActive: t.procedure.output(RuntimeManagerMutationResponseSchema).mutation(async ({ ctx }) => {
+			return await ctx.managerApi.reconcileActive();
 		}),
 		updateAccount: t.procedure
 			.input(RuntimeManagerAccountUpdateRequestSchema)
