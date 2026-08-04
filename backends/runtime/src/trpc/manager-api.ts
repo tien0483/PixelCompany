@@ -49,6 +49,20 @@ export function createManagerApi(deps: CreateManagerApiDependencies): RuntimeTrp
 		return result.error === undefined ? { ok: result.ok } : { ok: result.ok, error: result.error };
 	};
 
+	/**
+	 * Validate always rewrites validation_status/last_error server-side — even
+	 * when the verdict is a failure — so the snapshot must be re-read either
+	 * way, or the badge keeps showing the pre-check state.
+	 */
+	const refreshAlways = async (result: {
+		ok: boolean;
+		verdict: "good" | "bad" | "indeterminate";
+		error?: string;
+	}): Promise<RuntimeManagerMutationResponse> => {
+		await deps.monitor.refresh();
+		return { ok: result.ok, verdict: result.verdict, ...(result.error === undefined ? {} : { error: result.error }) };
+	};
+
 	const MANAGED_PROVIDERS = new Set<RuntimeManagerProvider>(["claude", "cursor"]);
 
 	const lookupManagedAccount = async (accountId: number) => {
@@ -152,7 +166,7 @@ export function createManagerApi(deps: CreateManagerApiDependencies): RuntimeTrp
 			if (refused !== null) {
 				return refused;
 			}
-			return await refreshAfter(await deps.client.validateAccount(input.accountId));
+			return await refreshAlways(await deps.client.validateAccount(input.accountId));
 		},
 		reorderAccounts: async (input: RuntimeManagerAccountReorderRequest) => {
 			for (const accountId of input.accountIds) {

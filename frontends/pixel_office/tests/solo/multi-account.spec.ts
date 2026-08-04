@@ -92,7 +92,7 @@ test("switching the active account calls manager.useAccount for that account", a
 
 test("per-account management actions reach the right jacked procedures", async ({ page }) => {
 	const stub = await stubTrpc(page, {
-		"manager.validateAccount": () => OK,
+		"manager.validateAccount": () => ({ ok: true, verdict: "good" }),
 		"manager.updateAccount": () => OK,
 		"manager.reorderAccounts": () => OK,
 		"manager.activeSessions": () => ({ sessions: [] }),
@@ -103,6 +103,7 @@ test("per-account management actions reach the right jacked procedures", async (
 	const secondActions = page.getByTestId("manager-account-actions-2");
 	await secondActions.getByRole("button", { name: /^Validate/ }).click();
 	expect((await stub.waitForCall("manager.validateAccount")).input).toEqual({ accountId: 2 });
+	await expect(page.getByTestId("manager-action-status")).toContainText("profile and live inference both OK");
 
 	await secondActions.getByRole("button", { name: /^Deactivate/ }).click();
 	expect((await stub.waitForCall("manager.updateAccount")).input).toEqual({
@@ -235,4 +236,46 @@ test("auto-swap can be paused and resumed from the pane", async ({ page }) => {
 
 	await page.getByRole("button", { name: "Pause auto-swap for 30 minutes" }).click();
 	expect((await stub.waitForCall("manager.pauseSwap")).input).toEqual({ minutes: 30 });
+});
+
+test("a failed credential check shows the upstream reason, not a success banner", async ({ page }) => {
+	const stub = await stubTrpc(page, {
+		"manager.validateAccount": () => ({
+			ok: false,
+			verdict: "bad",
+			error: "Anthropic refused this account (permission_error): Your account has been suspended.",
+		}),
+		"manager.activeSessions": () => ({ sessions: [] }),
+		"manager.swapLog": () => ({ swaps: [] }),
+	});
+	await openAccountsPane(page);
+
+	const secondActions = page.getByTestId("manager-account-actions-2");
+	await secondActions.getByRole("button", { name: /^Validate/ }).click();
+	await stub.waitForCall("manager.validateAccount");
+
+	await expect(page.getByTestId("manager-action-error")).toContainText("suspended");
+	await expect(page.getByText("Credential check finished.")).toHaveCount(0);
+	await expect(page.getByTestId("manager-action-status")).toHaveCount(0);
+});
+
+test("an indeterminate credential check reads as not-verified, not a success", async ({ page }) => {
+	const stub = await stubTrpc(page, {
+		"manager.validateAccount": () => ({
+			ok: true,
+			verdict: "indeterminate",
+			error: "Credential looks good; the live inference check was rate-limited — try again in a few minutes.",
+		}),
+		"manager.activeSessions": () => ({ sessions: [] }),
+		"manager.swapLog": () => ({ swaps: [] }),
+	});
+	await openAccountsPane(page);
+
+	const secondActions = page.getByTestId("manager-account-actions-2");
+	await secondActions.getByRole("button", { name: /^Validate/ }).click();
+	await stub.waitForCall("manager.validateAccount");
+
+	await expect(page.getByTestId("manager-check-notice")).toContainText("rate-limited");
+	await expect(page.getByTestId("manager-action-status")).toHaveCount(0);
+	await expect(page.getByTestId("manager-action-error")).toHaveCount(0);
 });

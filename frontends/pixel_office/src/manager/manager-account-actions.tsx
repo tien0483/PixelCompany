@@ -272,11 +272,13 @@ export function ManagerAccountActions({
 					</Button>
 				</ActionTooltip>
 			) : null}
-			<ActionTooltip content={offlineReason ?? seatLockedReason ?? "Check the stored credential without switching to it"}>
+			<ActionTooltip
+				content={offlineReason ?? "Check the stored credential without switching to it (works on deactivated seats)"}
+			>
 				<Button
 					variant="ghost"
 					size="sm"
-					disabled={actionDisabled}
+					disabled={disabled}
 					onClick={onValidate}
 					icon={<BadgeCheck size={10} />}
 					className="h-6 px-1.5 text-[10px]"

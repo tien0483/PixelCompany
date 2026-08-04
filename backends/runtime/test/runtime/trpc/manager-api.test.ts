@@ -86,6 +86,7 @@ function createDeps() {
 		})),
 		startAccountReauth: vi.fn(),
 		startAccountAuthorizeCc: vi.fn(),
+		validateAccount: vi.fn(async () => ({ ok: true, verdict: "good" as const })),
 	};
 	return { monitor, client, api: createManagerApi({ monitor: monitor as never, client: client as never }) };
 }
@@ -165,5 +166,43 @@ describe("createManagerApi reimportCursorAccount", () => {
 			error: "Only Claude accounts support this action.",
 		});
 		expect(client.startAccountAuthorizeCc).not.toHaveBeenCalled();
+	});
+});
+
+describe("createManagerApi validateAccount", () => {
+	it("refreshes the monitor after a failed check (refreshAlways, not refreshAfter)", async () => {
+		const { api, client, monitor } = createDeps();
+		client.validateAccount.mockResolvedValueOnce({
+			ok: false,
+			verdict: "bad",
+			error: "Anthropic refused this account (permission_error): Your account has been suspended.",
+		} as never);
+
+		const result = await api.validateAccount({ accountId: 1 });
+
+		expect(result.ok).toBe(false);
+		expect(result.verdict).toBe("bad");
+		expect(result.error).toContain("suspended");
+		expect(monitor.refresh).toHaveBeenCalledTimes(1);
+	});
+
+	it("refreshes the monitor after a successful check", async () => {
+		const { api, client, monitor } = createDeps();
+		client.validateAccount.mockResolvedValueOnce({ ok: true, verdict: "good" } as never);
+
+		const result = await api.validateAccount({ accountId: 1 });
+
+		expect(result).toEqual({ ok: true, verdict: "good" });
+		expect(monitor.refresh).toHaveBeenCalledTimes(1);
+	});
+
+	it("does not refresh the monitor or call jacked for an unmanaged account", async () => {
+		const { api, client, monitor } = createDeps();
+
+		const result = await api.validateAccount({ accountId: 999 });
+
+		expect(result.ok).toBe(false);
+		expect(client.validateAccount).not.toHaveBeenCalled();
+		expect(monitor.refresh).not.toHaveBeenCalled();
 	});
 });

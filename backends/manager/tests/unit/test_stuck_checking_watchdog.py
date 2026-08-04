@@ -186,6 +186,7 @@ class TestValidateAccountClearsLastError:
 
         async def _run():
             from manager.web import auth as auth_mod
+            from manager.web.inference_probe import InferenceProbeResult
 
             class FakeResp:
                 status_code = 200
@@ -197,7 +198,9 @@ class TestValidateAccountClearsLastError:
             fake_client.__aexit__.return_value = False
             fake_client.get.return_value = FakeResp()
 
-            with patch.object(auth_mod.httpx, "AsyncClient", return_value=fake_client):
+            ok_probe = InferenceProbeResult(verdict="ok", status_code=200, error_type=None, error_message=None)
+            with patch.object(auth_mod.httpx, "AsyncClient", return_value=fake_client), \
+                 patch.object(auth_mod, "probe_inference", AsyncMock(return_value=ok_probe)):
                 await auth_mod.validate_account(a["id"], db)
 
         asyncio.run(_run())
@@ -219,6 +222,7 @@ class TestValidateAccountClearsLastError:
 
         async def _run():
             from manager.web import auth as auth_mod
+            from manager.web.inference_probe import InferenceProbeResult
 
             call_count = {"n": 0}
 
@@ -244,8 +248,10 @@ class TestValidateAccountClearsLastError:
             async def fake_refresh(*args, **kwargs):
                 return "fresh_access_token"
 
+            ok_probe = InferenceProbeResult(verdict="ok", status_code=200, error_type=None, error_message=None)
             with patch.object(auth_mod.httpx, "AsyncClient", return_value=fake_client), \
-                 patch.object(auth_mod, "_try_refresh_primary_token", side_effect=fake_refresh):
+                 patch.object(auth_mod, "_try_refresh_primary_token", side_effect=fake_refresh), \
+                 patch.object(auth_mod, "probe_inference", AsyncMock(return_value=ok_probe)):
                 await auth_mod.validate_account(a["id"], db)
 
         asyncio.run(_run())

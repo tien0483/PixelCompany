@@ -163,7 +163,7 @@ describe("ManagerAccountActions", () => {
 		expect(container.querySelector('[aria-label="Lower auto-swap priority of cursor@example.com"]')).toBeNull();
 	});
 
-	it("locks seat actions when disabled except On and Delete", () => {
+	it("locks seat actions when disabled except On, Delete, and Check", () => {
 		const onToggleEnabled = vi.fn();
 		const onDelete = vi.fn();
 		const onValidate = vi.fn();
@@ -174,9 +174,6 @@ describe("ManagerAccountActions", () => {
 		});
 		expect(container.querySelector('[data-testid="manager-account-actions-1"]')?.getAttribute("data-seat-locked")).toBe(
 			"true",
-		);
-		expect((container.querySelector('[aria-label="Validate claude@example.com"]') as HTMLButtonElement).disabled).toBe(
-			true,
 		);
 		expect((container.querySelector('[aria-label="Activate claude@example.com"]') as HTMLButtonElement).disabled).toBe(
 			false,
@@ -189,5 +186,55 @@ describe("ManagerAccountActions", () => {
 		});
 		expect(onToggleEnabled).toHaveBeenCalledTimes(1);
 		expect(onValidate).not.toHaveBeenCalled();
+	});
+
+	it("keeps Check enabled on a deactivated seat, unlike Re-authenticate", () => {
+		const onValidate = vi.fn();
+		const container = renderActions(baseAccount({ isActive: false }), { onValidate });
+
+		const check = container.querySelector('[aria-label="Validate claude@example.com"]') as HTMLButtonElement;
+		const reauth = container.querySelector('[aria-label="Re-authenticate claude@example.com"]') as HTMLButtonElement;
+
+		expect(check.disabled).toBe(false);
+		expect(reauth.disabled).toBe(true);
+
+		act(() => {
+			check.click();
+		});
+		expect(onValidate).toHaveBeenCalledTimes(1);
+	});
+
+	it("disables Check when the manager is offline or busy, same as other actions", () => {
+		const container = document.createElement("div");
+		document.body.appendChild(container);
+		const root: Root = createRoot(container);
+		act(() => {
+			root.render(
+				<TooltipProvider>
+					<ManagerAccountActions
+						account={baseAccount({ isActive: false })}
+						online={false}
+						busy={false}
+						isFirst={false}
+						isLast={false}
+						onReauth={vi.fn()}
+						onReauthRemote={vi.fn()}
+						onAuthorizeCc={vi.fn()}
+						onAuthorizeCcRemote={vi.fn()}
+						onValidate={vi.fn()}
+						onToggleEnabled={vi.fn()}
+						onDelete={vi.fn()}
+						onMoveUp={vi.fn()}
+						onMoveDown={vi.fn()}
+					/>
+				</TooltipProvider>,
+			);
+		});
+		const check = container.querySelector('[aria-label="Validate claude@example.com"]') as HTMLButtonElement;
+		expect(check.disabled).toBe(true);
+		act(() => {
+			root.unmount();
+		});
+		document.body.removeChild(container);
 	});
 });
