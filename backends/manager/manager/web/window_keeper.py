@@ -125,34 +125,19 @@ async def ping_account(
 
     Returns True on success (HTTP 200), False on any failure.
     """
-    import httpx
-    from manager.web.oauth import OAUTH_BETA_HEADER
+    from manager.web.inference_probe import probe_inference
 
-    try:
-        async with httpx.AsyncClient(timeout=httpx.Timeout(connect=10, read=timeout, write=10, pool=5)) as client:
-            resp = await client.post(
-                "https://api.anthropic.com/v1/messages",
-                headers={
-                    "Authorization": f"Bearer {cc_access_token}",
-                    "Content-Type": "application/json",
-                    "anthropic-version": "2023-06-01",
-                    "anthropic-beta": OAUTH_BETA_HEADER,
-                },
-                json={
-                    "model": "claude-haiku-4-5-20251001",
-                    "max_tokens": 1,
-                    "messages": [{"role": "user", "content": "hi"}],
-                },
-            )
-        if resp.status_code == 200:
-            return True
-        if resp.status_code == 401:
-            logger.warning("ping_account: 401 — token expired, will refresh next cycle")
-        elif resp.status_code == 429:
-            logger.warning("ping_account: 429 — rate limited")
-        else:
-            logger.warning("ping_account: HTTP %d — %s", resp.status_code, resp.text[:200])
-        return False
-    except Exception:
-        logger.exception("ping_account: unexpected error")
-        return False
+    result = await probe_inference(cc_access_token, timeout=timeout)
+    if result.ok:
+        return True
+    if result.verdict == "unauthorized":
+        logger.warning("ping_account: 401 — token expired, will refresh next cycle")
+    elif result.verdict == "rate_limited":
+        logger.warning("ping_account: 429 — rate limited")
+    elif result.verdict == "network_error":
+        logger.warning("ping_account: unexpected error — %s", result.error_message or "")
+    else:
+        logger.warning(
+            "ping_account: HTTP %s — %s", result.status_code, result.error_message or result.error_type or ""
+        )
+    return False

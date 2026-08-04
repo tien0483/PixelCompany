@@ -173,3 +173,31 @@ class TestPingAccount:
                 assert result is False
 
         asyncio.run(_run())
+
+    def test_ping_account_true_on_ok_verdict(self):
+        """Bool-wrapper contract: probe_inference verdict="ok" -> True."""
+        from manager.web.inference_probe import InferenceProbeResult
+        from manager.web.window_keeper import ping_account
+
+        ok = InferenceProbeResult(verdict="ok", status_code=200, error_type=None, error_message=None)
+
+        async def _run():
+            with patch("manager.web.inference_probe.probe_inference", AsyncMock(return_value=ok)):
+                return await ping_account("fake-token")
+
+        assert asyncio.run(_run()) is True
+
+    def test_ping_account_false_on_forbidden(self):
+        """Bool-wrapper contract: probe_inference verdict="forbidden" -> False."""
+        from manager.web.inference_probe import InferenceProbeResult
+        from manager.web.window_keeper import ping_account
+
+        forbidden = InferenceProbeResult(
+            verdict="forbidden", status_code=403, error_type="permission_error", error_message="suspended"
+        )
+
+        async def _run():
+            with patch("manager.web.inference_probe.probe_inference", AsyncMock(return_value=forbidden)):
+                return await ping_account("fake-token")
+
+        assert asyncio.run(_run()) is False

@@ -230,11 +230,17 @@ class TestHealLoop:
                           refresh_last_failed_at=int(time.time()),
                           refresh_failure_type="invalid_grant")
 
-        # Mock the token exchange to succeed; mock Database() to return our test db
+        # Mock the token exchange to succeed; mock Database() to return our test db.
+        # A refresh success alone no longer means "healed" — heal_invalid_accounts
+        # always follows up with validate_account (the live inference probe), so
+        # that must report a "good" verdict too for this test's healed=1 to hold.
         mock_result = TokenExchangeResult(success=True, access_token="new-at")
         with patch("manager.web.auth.Database", return_value=db), \
              patch("manager.web.auth._refresh_token_flow",
-                   new_callable=AsyncMock, return_value=mock_result):
+                   new_callable=AsyncMock, return_value=mock_result), \
+             patch("manager.web.auth.validate_account",
+                   new_callable=AsyncMock,
+                   return_value={"valid": True, "error": None, "verdict": "good", "code": None}):
             result = asyncio.run(heal_invalid_accounts())
 
         assert result["healed"] == 1
@@ -258,7 +264,10 @@ class TestHealLoop:
         mock_flow = AsyncMock(
             return_value=TokenExchangeResult(success=True, access_token="new-at"))
         with patch("manager.web.auth.Database", return_value=db), \
-             patch("manager.web.auth._refresh_token_flow", mock_flow):
+             patch("manager.web.auth._refresh_token_flow", mock_flow), \
+             patch("manager.web.auth.validate_account",
+                   new_callable=AsyncMock,
+                   return_value={"valid": True, "error": None, "verdict": "good", "code": None}):
             asyncio.run(heal_invalid_accounts())
 
         # Should have attempted a real exchange even though token isn't near expiry

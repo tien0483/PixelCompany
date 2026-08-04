@@ -116,9 +116,18 @@ class TestHealNoDeadlock:
         )
         exchange = _success_exchange()
 
+        # A refresh success alone is no longer proof of health — heal_invalid_accounts
+        # always follows up with validate_account (the live inference probe), so it
+        # must be mocked to a "good" verdict (and, like the real function, write the
+        # row) for this deadlock test's healed=1 / validation_status=="valid" to hold.
+        async def fake_validate(account_id, _db):
+            db.update_account(account_id, validation_status="valid", last_validated_at=int(time.time()))
+            return {"valid": True, "error": None, "verdict": "good", "code": None}
+
         with patch("manager.web.auth.Database", return_value=db), \
              patch("manager.web.auth._exchange_refresh_token", exchange), \
-             patch("manager.web.auth.fetch_profile", new_callable=AsyncMock):
+             patch("manager.web.auth.fetch_profile", new_callable=AsyncMock), \
+             patch("manager.web.auth.validate_account", fake_validate):
             result = asyncio.run(
                 asyncio.wait_for(heal_invalid_accounts(), timeout=5))
 
@@ -136,9 +145,14 @@ class TestHealNoDeadlock:
         )
         exchange = _success_exchange()
 
+        async def fake_validate(account_id, _db):
+            db.update_account(account_id, validation_status="valid", last_validated_at=int(time.time()))
+            return {"valid": True, "error": None, "verdict": "good", "code": None}
+
         with patch("manager.web.auth.Database", return_value=db), \
              patch("manager.web.auth._exchange_refresh_token", exchange), \
-             patch("manager.web.auth.fetch_profile", new_callable=AsyncMock):
+             patch("manager.web.auth.fetch_profile", new_callable=AsyncMock), \
+             patch("manager.web.auth.validate_account", fake_validate):
             result = asyncio.run(
                 asyncio.wait_for(heal_invalid_accounts(), timeout=5))
 

@@ -482,6 +482,7 @@ export function ManagerAccountsView({
 	>(null);
 	const [error, setError] = useState<string | null>(null);
 	const [actionStatus, setActionStatus] = useState<string | null>(null);
+	const [notice, setNotice] = useState<string | null>(null);
 	const [swapLog, setSwapLog] = useState<RuntimeManagerSwapLog | null>(null);
 	const [addAccountStep, setAddAccountStep] =
 		useState<AddAccountMenuStep>("provider");
@@ -543,6 +544,20 @@ export function ManagerAccountsView({
 		};
 	}, []);
 
+	/** Best-effort message for a caught value that isn't guaranteed to be an Error. */
+	const describeThrown = (err: unknown): string => {
+		if (err instanceof Error) {
+			return err.message;
+		}
+		if (typeof err === "string" && err.trim() !== "") {
+			return err;
+		}
+		if (typeof err === "object" && err !== null && "message" in err && typeof err.message === "string") {
+			return err.message;
+		}
+		return "Action failed";
+	};
+
 	const run = async (
 		id: number | "all" | "swap" | "oauth" | "import-cursor" | "import-claude",
 		action: () => Promise<{ ok: boolean; error?: string }>,
@@ -551,6 +566,7 @@ export function ManagerAccountsView({
 		setBusyId(id);
 		setError(null);
 		setActionStatus(null);
+		setNotice(null);
 		try {
 			const result = await action();
 			if (!result.ok) {
@@ -559,7 +575,38 @@ export function ManagerAccountsView({
 				setActionStatus(successMessage);
 			}
 		} catch (err) {
-			setError(err instanceof Error ? err.message : "Action failed");
+			setError(describeThrown(err));
+		} finally {
+			setBusyId(null);
+		}
+	};
+
+	/**
+	 * Validate returns a tri-state verdict, not a binary ok/error — a `valid:true`
+	 * result can still carry a message (rate-limited/indeterminate probe), so it
+	 * can't share `run()`'s green-or-red rendering without losing that distinction.
+	 */
+	const checkCredential = async (account: RuntimeManagerAccount) => {
+		setBusyId(account.id);
+		setError(null);
+		setActionStatus(null);
+		setNotice(null);
+		const label = account.displayName ?? account.email;
+		try {
+			const result = await getRuntimeTrpcClient(null).manager.validateAccount.mutate({
+				accountId: account.id,
+			});
+			if (!result.ok) {
+				setError(result.error ?? `Credential check failed for ${label}.`);
+				return;
+			}
+			if (result.verdict === "indeterminate" || result.error !== undefined) {
+				setNotice(result.error ?? `Couldn't fully verify ${label} — try again.`);
+				return;
+			}
+			setActionStatus(`${label}: profile and live inference both OK.`);
+		} catch (err) {
+			setError(describeThrown(err));
 		} finally {
 			setBusyId(null);
 		}
@@ -1278,13 +1325,27 @@ export function ManagerAccountsView({
 				</p>
 			) : null}
 			{error ? (
-				<p className="shrink-0 border-b border-border px-2 py-1 text-[10px] text-status-red">
+				<p
+					data-testid="manager-action-error"
+					className="shrink-0 border-b border-border px-2 py-1 text-[10px] text-status-red"
+				>
 					{error}
 				</p>
 			) : null}
 			{actionStatus ? (
-				<p className="shrink-0 border-b border-border px-2 py-1 text-[10px] text-status-green">
+				<p
+					data-testid="manager-action-status"
+					className="shrink-0 border-b border-border px-2 py-1 text-[10px] text-status-green"
+				>
 					{actionStatus}
+				</p>
+			) : null}
+			{notice ? (
+				<p
+					data-testid="manager-check-notice"
+					className="shrink-0 border-b border-border px-2 py-1 text-[10px] text-status-orange"
+				>
+					{notice}
 				</p>
 			) : null}
 			{oauthStatus ? (
@@ -1533,16 +1594,7 @@ export function ManagerAccountsView({
 													: undefined
 											}
 											onValidate={() => {
-												void run(
-													account.id,
-													() =>
-														getRuntimeTrpcClient(
-															null,
-														).manager.validateAccount.mutate({
-															accountId: account.id,
-														}),
-													"Credential check finished.",
-												);
+												void checkCredential(account);
 											}}
 											onToggleEnabled={() => {
 												void run(

@@ -882,9 +882,16 @@ export const RuntimeManagerFeatureToggleRequestSchema = z.object({
 });
 export type RuntimeManagerFeatureToggleRequest = z.infer<typeof RuntimeManagerFeatureToggleRequestSchema>;
 
+export const RuntimeManagerValidateVerdictSchema = z.enum(["good", "bad", "indeterminate"]);
+export type RuntimeManagerValidateVerdict = z.infer<typeof RuntimeManagerValidateVerdictSchema>;
+
 export const RuntimeManagerMutationResponseSchema = z.object({
 	ok: z.boolean(),
 	error: z.string().optional(),
+	// Only set by validateAccount — a tri-state verdict so a `valid:true` result
+	// that still carries a message (rate-limited, indeterminate probe) isn't
+	// forced into a binary ok/error reading.
+	verdict: RuntimeManagerValidateVerdictSchema.optional(),
 });
 export type RuntimeManagerMutationResponse = z.infer<typeof RuntimeManagerMutationResponseSchema>;
 

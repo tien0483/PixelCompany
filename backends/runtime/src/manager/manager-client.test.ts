@@ -267,6 +267,119 @@ describe("createManagerClient", () => {
 		vi.unstubAllGlobals();
 	});
 
+	it("reports a 200 body with valid:false as a failure", async () => {
+		const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+			const path = String(url);
+			if (path.includes("/api/auth/accounts/5/validate") && init?.method === "POST") {
+				return {
+					ok: true,
+					status: 200,
+					json: async () => ({
+						valid: false,
+						error: "Anthropic refused this account (permission_error): Your account has been suspended.",
+						verdict: "bad",
+					}),
+				};
+			}
+			return { ok: false, json: async () => ({}) };
+		});
+		vi.stubGlobal("fetch", fetchMock);
+
+		const client = createManagerClient({ baseUrl: "http://127.0.0.1:8321", warn: vi.fn() });
+		const result = await client.validateAccount(5);
+		expect(result.ok).toBe(false);
+		expect(result.verdict).toBe("bad");
+		expect(result.error).toContain("suspended");
+		client.close();
+		vi.unstubAllGlobals();
+	});
+
+	it("surfaces an indeterminate verdict without claiming success", async () => {
+		const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+			const path = String(url);
+			if (path.includes("/api/auth/accounts/5/validate") && init?.method === "POST") {
+				return {
+					ok: true,
+					status: 200,
+					json: async () => ({
+						valid: true,
+						error: "Credential looks good; the live inference check was rate-limited — try again in a few minutes.",
+						verdict: "indeterminate",
+					}),
+				};
+			}
+			return { ok: false, json: async () => ({}) };
+		});
+		vi.stubGlobal("fetch", fetchMock);
+
+		const client = createManagerClient({ baseUrl: "http://127.0.0.1:8321", warn: vi.fn() });
+		const result = await client.validateAccount(5);
+		expect(result.ok).toBe(true);
+		expect(result.verdict).toBe("indeterminate");
+		expect(result.error).toContain("rate-limited");
+		client.close();
+		vi.unstubAllGlobals();
+	});
+
+	it("maps a 504 VALIDATE_TIMEOUT envelope to indeterminate, not bad", async () => {
+		const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+			const path = String(url);
+			if (path.includes("/api/auth/accounts/5/validate") && init?.method === "POST") {
+				return {
+					ok: false,
+					status: 504,
+					json: async () => ({
+						error: { message: "Validation timed out — server may be recovering a wedged refresh" },
+					}),
+				};
+			}
+			return { ok: false, json: async () => ({}) };
+		});
+		vi.stubGlobal("fetch", fetchMock);
+
+		const client = createManagerClient({ baseUrl: "http://127.0.0.1:8321", warn: vi.fn() });
+		const result = await client.validateAccount(5);
+		expect(result.ok).toBe(false);
+		expect(result.verdict).toBe("indeterminate");
+		expect(result.error).toContain("timed out");
+		client.close();
+		vi.unstubAllGlobals();
+	});
+
+	it("defaults verdict to good for a legacy body without verdict", async () => {
+		const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+			const path = String(url);
+			if (path.includes("/api/auth/accounts/5/validate") && init?.method === "POST") {
+				return { ok: true, status: 200, json: async () => ({ valid: true, error: null }) };
+			}
+			return { ok: false, json: async () => ({}) };
+		});
+		vi.stubGlobal("fetch", fetchMock);
+
+		const client = createManagerClient({ baseUrl: "http://127.0.0.1:8321", warn: vi.fn() });
+		const result = await client.validateAccount(5);
+		expect(result.ok).toBe(true);
+		expect(result.verdict).toBe("good");
+		expect(result.error).toBeUndefined();
+		client.close();
+		vi.unstubAllGlobals();
+	});
+
+	it("reports transport failure on validate as not-reachable and indeterminate", async () => {
+		const fetchMock = vi.fn(async () => {
+			throw new Error("ECONNREFUSED");
+		});
+		vi.stubGlobal("fetch", fetchMock);
+
+		const client = createManagerClient({ baseUrl: "http://127.0.0.1:9", warn: vi.fn() });
+		const result = await client.validateAccount(5);
+		expect(result.ok).toBe(false);
+		expect(result.verdict).toBe("indeterminate");
+		expect(result.error).toContain("not reachable");
+		client.close();
+		vi.unstubAllGlobals();
+	});
+
 	it("parses installations overview", async () => {
 		const fetchMock = vi.fn(async (url: string) => {
 			const path = String(url);
