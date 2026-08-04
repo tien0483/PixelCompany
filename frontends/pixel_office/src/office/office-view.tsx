@@ -1,7 +1,6 @@
 import type { ReactElement } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import type { RuntimeManagerState, RuntimeTaskSessionSummary } from "@/runtime/types";
 import type { BoardData } from "@/types";
@@ -12,7 +11,6 @@ import { EditorState } from "./editor/editorState.js";
 import { OfficeState } from "./engine/officeState.js";
 import { OfficeAtmosphere } from "./manager/office-atmosphere.js";
 import { deriveOfficeManagerSemantics } from "./manager/office-manager-semantics.js";
-import { OfficeMeterWall } from "./manager/office-meter-wall.js";
 import { reconcileReviewerNpcs } from "./manager/reconcile-reviewer-npcs.js";
 import { useOfficeSync } from "./use-office-sync.js";
 
@@ -24,8 +22,6 @@ interface OfficeViewProps {
 	manager: RuntimeManagerState;
 	/** Opens the task's detail view, the same target a board card click has. */
 	onSelectTask: (taskId: string) => void;
-	/** The intake desk: opens Kanban's normal task creation dialog. */
-	onCreateTask: () => void;
 }
 
 type LoadStatus = { kind: "loading" } | { kind: "ready" } | { kind: "error"; message: string };
@@ -43,7 +39,6 @@ export function OfficeView({
 	workspaceId,
 	manager,
 	onSelectTask,
-	onCreateTask,
 }: OfficeViewProps): ReactElement {
 	const [status, setStatus] = useState<LoadStatus>({ kind: "loading" });
 	const [officeState, setOfficeState] = useState<OfficeState | null>(null);
@@ -55,8 +50,6 @@ export function OfficeView({
 	const editorState = useMemo(() => new EditorState(), []);
 	const { resolveTaskId, handleSeatsPersist } = useOfficeSync({ officeState, board, sessions, workspaceId });
 	const semantics = useMemo(() => deriveOfficeManagerSemantics(manager), [manager]);
-	const managerStale = manager?.stale === true;
-	const managerReachable = manager !== null && !managerStale;
 	const lastSwapAtRef = useRef<number | null>(null);
 	const reviewerNpcIdsRef = useRef<Set<number>>(new Set());
 
@@ -192,15 +185,6 @@ export function OfficeView({
 					activeAreaLabel={null}
 				/>
 				<OfficeAtmosphere manager={manager} />
-				<div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex items-start justify-between gap-2 p-3">
-					<div className="pointer-events-auto min-w-0 flex-1">
-						<OfficeMeterWall
-							semantics={semantics}
-							managerOnline={managerReachable}
-							managerStale={managerStale}
-						/>
-					</div>
-				</div>
 				{staffedCount === 0 ? (
 					<div
 						data-testid="office-empty-hint"
@@ -211,18 +195,6 @@ export function OfficeView({
 						</p>
 					</div>
 				) : null}
-				<div className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-center p-4">
-					<Button
-						data-testid="office-intake-cta"
-						variant="primary"
-						size="sm"
-						onClick={onCreateTask}
-						className="pointer-events-auto"
-						aria-label="Create task"
-					>
-						Create task
-					</Button>
-				</div>
 			</div>
 		</div>
 	);
