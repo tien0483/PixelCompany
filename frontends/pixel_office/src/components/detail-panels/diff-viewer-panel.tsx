@@ -262,77 +262,73 @@ function UnifiedDiff({
 					style={canClickRow ? undefined : { cursor: "default" }}
 					onClick={handleRowClick}
 				>
-					{blameByLine ? (
-						<span
-							className="kb-diff-blame-gutter"
-							title={
-								blame
-									? `${blame.shortHash} · ${blame.author}${blame.summary ? ` · ${blame.summary}` : ""}`
-									: undefined
-							}
-							style={{
-								display: "inline-block",
-								width: 62,
-								flexShrink: 0,
-								overflow: "hidden",
-								whiteSpace: "nowrap",
-								textOverflow: "ellipsis",
-								paddingRight: 6,
-								fontSize: 10,
-								color: "var(--color-text-tertiary)",
-							}}
-						>
-							{blame ? `${blame.shortHash} ${blame.author}` : ""}
-						</span>
-					) : null}
-					{onRevertHunk && hunkIndex != null ? (
-						<button
-							type="button"
-							className="kb-diff-hunk-revert"
-							aria-label={`Revert hunk ${String(hunkIndex + 1)}`}
-							title="Revert this hunk to HEAD"
-							onClick={(event) => {
-								event.stopPropagation();
-								onRevertHunk(hunkIndex);
-							}}
-							style={{
-								flexShrink: 0,
-								marginRight: 2,
-								color: "var(--color-text-tertiary)",
-								cursor: "pointer",
-							}}
-						>
-							<RotateCcw size={11} />
-						</button>
-					) : null}
-					<span
-						className="kb-diff-line-number"
-						style={{ color: "var(--color-text-tertiary)" }}
-					>
-						<span className="kb-diff-line-number-text">
-							{row.lineNumber ?? ""}
-						</span>
-						{row.lineNumber != null ? (
+					<span className="kb-diff-gutter">
+						{blameByLine ? (
 							<span
-								className="kb-diff-comment-gutter"
-								onClick={
-									hasComment
-										? (event) => {
-												event.stopPropagation();
-												onDeleteComment(row.lineNumber!, row.variant);
-											}
+								className="kb-diff-blame-gutter"
+								title={
+									blame
+										? `${blame.shortHash} · ${blame.author}${blame.summary ? ` · ${blame.summary}` : ""}`
 										: undefined
 								}
-								style={hasComment ? { cursor: "pointer" } : undefined}
+								style={{
+									display: "inline-block",
+									width: 62,
+									flexShrink: 0,
+									overflow: "hidden",
+									whiteSpace: "nowrap",
+									textOverflow: "ellipsis",
+									paddingRight: 6,
+									fontSize: 10,
+									color: "var(--color-text-tertiary)",
+								}}
 							>
-								<span className="kb-diff-gutter-icon-comment">
-									<MessageSquare size={12} />
-								</span>
-								<span className="kb-diff-gutter-icon-delete">
-									<X size={12} className="text-status-red" />
-								</span>
+								{blame ? `${blame.shortHash} ${blame.author}` : ""}
 							</span>
 						) : null}
+						{onRevertHunk && hunkIndex != null ? (
+							<button
+								type="button"
+								className="kb-diff-hunk-revert"
+								aria-label={`Revert hunk ${String(hunkIndex + 1)}`}
+								title="Revert this hunk to HEAD"
+								onClick={(event) => {
+									event.stopPropagation();
+									onRevertHunk(hunkIndex);
+								}}
+							>
+								<RotateCcw size={11} />
+							</button>
+						) : null}
+						<span
+							className="kb-diff-line-number"
+							style={{ color: "var(--color-text-tertiary)" }}
+						>
+							<span className="kb-diff-line-number-text">
+								{row.lineNumber ?? ""}
+							</span>
+							{row.lineNumber != null ? (
+								<span
+									className="kb-diff-comment-gutter"
+									onClick={
+										hasComment
+											? (event) => {
+													event.stopPropagation();
+													onDeleteComment(row.lineNumber!, row.variant);
+												}
+											: undefined
+									}
+									style={hasComment ? { cursor: "pointer" } : undefined}
+								>
+									<span className="kb-diff-gutter-icon-comment">
+										<MessageSquare size={12} />
+									</span>
+									<span className="kb-diff-gutter-icon-delete">
+										<X size={12} className="text-status-red" />
+									</span>
+								</span>
+							) : null}
+						</span>
 					</span>
 					<DiffRowText
 						row={row}
