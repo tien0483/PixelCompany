@@ -781,9 +781,8 @@ describe("useBoardInteractions", () => {
 		}
 	});
 
-	it("pre-fetches workspace info for chain followers when running a chain", async () => {
+	it("clearing Done preserves a chain's shared worktree while a follower is still live", async () => {
 		let latestSnapshot: HookSnapshot | null = null;
-		let startBacklogTaskWithAnimation: ((task: BoardCard) => Promise<boolean>) | null = null;
 
 		useProgrammaticCardMovesMock.mockReturnValue({
 			handleProgrammaticCardMoveReady: () => {},
@@ -797,35 +796,26 @@ describe("useBoardInteractions", () => {
 			programmaticCardMoveCycle: 0,
 		});
 
-		useLinkedBacklogTaskActionsMock.mockImplementation(
-			(input: { startBacklogTaskWithAnimation?: (task: BoardCard) => Promise<boolean> }) => {
-				startBacklogTaskWithAnimation = input.startBacklogTaskWithAnimation ?? null;
-				return {
-					handleCreateDependency: () => {},
-					handleDeleteDependency: () => {},
-					confirmMoveTaskToTrash: async () => {},
-					requestMoveTaskToTrash: async () => {},
-				};
-			},
-		);
+		useLinkedBacklogTaskActionsMock.mockReturnValue({
+			handleCreateDependency: () => {},
+			handleDeleteDependency: () => {},
+			confirmMoveTaskToTrash: async () => {},
+			requestMoveTaskToTrash: async () => {},
+		});
 
-		// Create 3 chain tasks: hello → hello1 → hello2
-		const helloTask = createTask("hello", "Chain root", 1);
-		const hello1Task = createTask("hello1", "Chain follower 1", 2);
-		const hello2Task = createTask("hello2", "Chain follower 2", 3);
+		// Chain: "hello" (root, already Done) -> "hello1" (follower, still queued/running in
+		// In Progress). "standalone" is an unrelated Done card with no chain dependency.
+		const rootTask = createTask("hello", "Chain root", 1);
+		const followerTask = createTask("hello1", "Chain follower", 2);
+		const standaloneTask = createTask("standalone", "Unrelated done task", 3);
 
 		const board: BoardData = {
 			columns: [
-				{
-					id: "backlog",
-					title: "Backlog",
-					cards: [helloTask, hello1Task, hello2Task],
-				},
-				{ id: "in_progress", title: "In Progress", cards: [] },
+				{ id: "backlog", title: "Backlog", cards: [] },
+				{ id: "in_progress", title: "In Progress", cards: [followerTask] },
 				{ id: "review", title: "Review", cards: [] },
-				{ id: "trash", title: "Done", cards: [] },
+				{ id: "trash", title: "Done", cards: [rootTask, standaloneTask] },
 			],
-			// Chain dependencies: hello (root) → hello1 → hello2
 			dependencies: [
 				{
 					id: "dep-1",
@@ -834,42 +824,11 @@ describe("useBoardInteractions", () => {
 					chain: true,
 					createdAt: 1,
 				},
-				{
-					id: "dep-2",
-					fromTaskId: "hello2",
-					toTaskId: "hello1",
-					chain: true,
-					createdAt: 2,
-				},
 			],
 		};
 
-		const setBoard = vi.fn<Dispatch<SetStateAction<BoardData>>>((nextBoardFn) => {
-			// Simulate board update for test
-		});
-
-		const ensureTaskWorkspace = vi.fn(async () => ({
-			ok: true as const,
-			response: {
-				ok: true as const,
-				path: "/tmp/task",
-				baseRef: "main",
-				baseCommit: "abc123",
-			},
-		}));
-
-		const startTaskSession = vi.fn(async () => ({ ok: true as const }));
-
-		// Track workspace info fetches
-		const fetchTaskWorkspaceInfo = vi.fn(async (task: BoardCard) => ({
-			taskId: task.id,
-			path: `/tmp/${task.id}`,
-			exists: true,
-			baseRef: "main",
-			branch: "task-branch",
-			isDetached: true,
-			headCommit: "def456",
-		}));
+		const stopTaskSession = vi.fn(async (_taskId: string) => {});
+		const cleanupTaskWorkspace = vi.fn(async (_taskId: string) => null);
 
 		const container = document.createElement("div");
 		document.body.appendChild(container);
@@ -880,10 +839,11 @@ describe("useBoardInteractions", () => {
 				root.render(
 					<HookHarness
 						board={board}
-						setBoard={setBoard}
-						ensureTaskWorkspace={ensureTaskWorkspace}
-						startTaskSession={startTaskSession}
-						fetchTaskWorkspaceInfo={fetchTaskWorkspaceInfo}
+						setBoard={() => board}
+						ensureTaskWorkspace={async () => ({ ok: true as const })}
+						startTaskSession={async () => ({ ok: true as const })}
+						stopTaskSession={stopTaskSession}
+						cleanupTaskWorkspace={cleanupTaskWorkspace}
 						onSnapshot={(snapshot) => {
 							latestSnapshot = snapshot;
 						}}
@@ -895,31 +855,19 @@ describe("useBoardInteractions", () => {
 				throw new Error("Expected a hook snapshot.");
 			}
 
-			// Start the chain by calling handleStartTask on the root
 			await act(async () => {
-				latestSnapshot!.handleStartTask("hello");
+				latestSnapshot!.handleConfirmClearTrash();
 			});
 
-			// Verify workspace info was fetched for followers
-			// hello1 and hello2 should have their workspace info pre-fetched
-			expect(fetchTaskWorkspaceInfo).toHaveBeenCalledWith(
-				expect.objectContaining({ id: "hello1" }),
-			);
-			expect(fetchTaskWorkspaceInfo).toHaveBeenCalledWith(
-				expect.objectContaining({ id: "hello2" }),
-			);
+			// Both Done cards get their live session stopped.
+			expect(stopTaskSession).toHaveBeenCalledWith("hello");
+			expect(stopTaskSession).toHaveBeenCalledWith("standalone");
 
-			// Root (hello) should also be ensured
-			expect(ensureTaskWorkspace).toHaveBeenCalledWith(
-				expect.objectContaining({ id: "hello" }),
-				expect.objectContaining({ worktreeTaskId: "hello" }),
-			);
-
-			// Root task should be started
-			expect(startTaskSession).toHaveBeenCalledWith(
-				expect.objectContaining({ id: "hello" }),
-				expect.anything(),
-			);
+			// The chain root's shared worktree must NOT be deleted while its follower is
+			// still live in In Progress.
+			expect(cleanupTaskWorkspace).not.toHaveBeenCalledWith("hello");
+			// The unrelated standalone task has no live chain member, so it cleans up normally.
+			expect(cleanupTaskWorkspace).toHaveBeenCalledWith("standalone");
 		} finally {
 			root.unmount();
 			document.body.removeChild(container);

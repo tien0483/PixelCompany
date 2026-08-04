@@ -4,6 +4,7 @@ import type {
 	RuntimeTaskWorkspaceMetadata,
 	RuntimeWorkspaceMetadata,
 } from "../core/api-contract";
+import { resolveChainWorktreeOwnerTaskId } from "../core/task-board-mutations";
 import { getCommitsAheadOfBaseRef, getGitSyncSummary, probeGitWorkspaceState } from "../workspace/git-sync";
 import { getTaskWorkspacePathInfo } from "../workspace/task-worktree";
 
@@ -12,6 +13,10 @@ const WORKSPACE_METADATA_POLL_INTERVAL_MS = 1_000;
 interface TrackedTaskWorkspace {
 	taskId: string;
 	baseRef: string;
+	// Chain followers share their chain root's git worktree. This is the id whose
+	// worktree path we actually probe on disk; `taskId` above stays the card's own id
+	// so the reported metadata is keyed by what the UI asked about.
+	worktreeTaskId: string;
 }
 
 interface CachedHomeGitMetadata {
@@ -68,6 +73,7 @@ function collectTrackedTasks(board: RuntimeBoardData): TrackedTaskWorkspace[] {
 			tracked.push({
 				taskId: card.id,
 				baseRef: card.baseRef,
+				worktreeTaskId: resolveChainWorktreeOwnerTaskId(board, card.id),
 			});
 		}
 	}
@@ -185,9 +191,12 @@ async function loadTaskWorkspaceMetadata(
 	task: TrackedTaskWorkspace,
 	current: CachedTaskWorkspaceMetadata | null,
 ): Promise<CachedTaskWorkspaceMetadata | null> {
+	// Probe the shared worktree owner's path (chain root for followers, the task's own
+	// id for standalone/root tasks), but every returned record stays keyed on the
+	// card's own taskId so the frontend store still looks it up by card id.
 	const pathInfo = await getTaskWorkspacePathInfo({
 		cwd: workspacePath,
-		taskId: task.taskId,
+		taskId: task.worktreeTaskId,
 		baseRef: task.baseRef,
 	});
 

@@ -1261,6 +1261,10 @@ export type RuntimeWorktreeDeleteResponse = z.infer<typeof runtimeWorktreeDelete
 export const runtimeTaskWorkspaceInfoRequestSchema = z.object({
 	taskId: z.string(),
 	baseRef: z.string(),
+	// Chain followers share their chain root's worktree. When set, the path is
+	// resolved from this id instead of taskId, while the response still reports
+	// back taskId so the caller's cache stays keyed on the card it asked about.
+	worktreeTaskId: z.string().optional(),
 });
 export type RuntimeTaskWorkspaceInfoRequest = z.infer<typeof runtimeTaskWorkspaceInfoRequestSchema>;
 

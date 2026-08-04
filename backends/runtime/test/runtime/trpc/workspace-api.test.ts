@@ -4,6 +4,7 @@ import type { RuntimeTaskSessionSummary, RuntimeWorkspaceChangesResponse } from 
 
 const workspaceTaskWorktreeMocks = vi.hoisted(() => ({
 	resolveTaskCwd: vi.fn(),
+	deleteTaskWorktree: vi.fn(),
 }));
 
 const workspaceChangesMocks = vi.hoisted(() => ({
@@ -13,8 +14,12 @@ const workspaceChangesMocks = vi.hoisted(() => ({
 	getWorkspaceChangesFromRef: vi.fn(),
 }));
 
+const workspaceStateMocks = vi.hoisted(() => ({
+	loadWorkspaceState: vi.fn(),
+}));
+
 vi.mock("../../../src/workspace/task-worktree.js", () => ({
-	deleteTaskWorktree: vi.fn(),
+	deleteTaskWorktree: workspaceTaskWorktreeMocks.deleteTaskWorktree,
 	ensureTaskWorktreeIfDoesntExist: vi.fn(),
 	getTaskWorkspaceInfo: vi.fn(),
 	resolveTaskCwd: workspaceTaskWorktreeMocks.resolveTaskCwd,
@@ -27,6 +32,13 @@ vi.mock("../../../src/workspace/get-workspace-changes.js", () => ({
 	getWorkspaceChangesFromRef: workspaceChangesMocks.getWorkspaceChangesFromRef,
 }));
 
+vi.mock("../../../src/state/workspace-state.js", () => ({
+	loadWorkspaceState: workspaceStateMocks.loadWorkspaceState,
+	saveWorkspaceState: vi.fn(),
+	WorkspaceStateConflictError: class WorkspaceStateConflictError extends Error {},
+}));
+
+import { addTaskDependency, addTaskToColumn, moveTaskToColumn } from "../../../src/core/task-board-mutations";
 import { createWorkspaceApi } from "../../../src/trpc/workspace-api";
 
 function createSummary(overrides: Partial<RuntimeTaskSessionSummary> = {}): RuntimeTaskSessionSummary {
@@ -327,5 +339,149 @@ describe("createWorkspaceApi loadChanges", () => {
 		expect(response).toBe(emptyResponse);
 		expect(workspaceChangesMocks.createEmptyWorkspaceChangesResponse).toHaveBeenCalledWith("/tmp/repo");
 		expect(workspaceChangesMocks.getWorkspaceChanges).not.toHaveBeenCalled();
+	});
+});
+
+describe("createWorkspaceApi deleteWorktree", () => {
+	beforeEach(() => {
+		workspaceTaskWorktreeMocks.deleteTaskWorktree.mockReset();
+		workspaceStateMocks.loadWorkspaceState.mockReset();
+	});
+
+	function stateResponseWithBoard(board: ReturnType<typeof addTaskToColumn>["board"]) {
+		return {
+			repoPath: "/tmp/repo",
+			statePath: "/tmp/repo/.agent/kanban/board.json",
+			git: { currentBranch: "main", defaultBranch: "main", branches: ["main"] },
+			board,
+			sessions: {},
+			revision: 1,
+		} as never;
+	}
+
+	function createApi() {
+		return createWorkspaceApi({
+			ensureTerminalManagerForWorkspace: vi.fn(),
+			getScopedClineTaskSessionService: vi.fn(),
+			broadcastRuntimeWorkspaceStateUpdated: vi.fn(),
+			broadcastRuntimeProjectsUpdated: vi.fn(),
+			buildWorkspaceStateSnapshot: vi.fn(),
+		});
+	}
+
+	it("refuses to delete a chain root's worktree while a live follower still shares it", async () => {
+		const withRoot = addTaskToColumn(
+			{
+				columns: [
+					{ id: "backlog", title: "Backlog", cards: [] },
+					{ id: "in_progress", title: "In Progress", cards: [] },
+					{ id: "review", title: "Review", cards: [] },
+					{ id: "trash", title: "Done", cards: [] },
+				],
+				dependencies: [],
+			},
+			"backlog",
+			{ prompt: "Chain root", baseRef: "main" },
+			() => "root-task",
+		);
+		const withFollower = addTaskToColumn(
+			withRoot.board,
+			"backlog",
+			{ prompt: "Chain follower", baseRef: "main" },
+			() => "follower-task",
+		);
+		const linked = addTaskDependency(withFollower.board, "root-task", "follower-task");
+		expect(linked.dependency?.chain).toBe(true);
+		let board = moveTaskToColumn(linked.board, "root-task", "in_progress").board;
+		board = moveTaskToColumn(board, "follower-task", "in_progress").board;
+
+		workspaceStateMocks.loadWorkspaceState.mockResolvedValue(stateResponseWithBoard(board));
+
+		const api = createApi();
+		const response = await api.deleteWorktree(
+			{ workspaceId: "workspace-1", workspacePath: "/tmp/repo" },
+			{ taskId: "root-task" },
+		);
+
+		expect(response.ok).toBe(false);
+		expect(response.removed).toBe(false);
+		expect(response.error).toMatch(/shared with a live chain member/i);
+		expect(workspaceTaskWorktreeMocks.deleteTaskWorktree).not.toHaveBeenCalled();
+	});
+
+	it("deletes a chain root's worktree once its last live follower is gone", async () => {
+		const withRoot = addTaskToColumn(
+			{
+				columns: [
+					{ id: "backlog", title: "Backlog", cards: [] },
+					{ id: "in_progress", title: "In Progress", cards: [] },
+					{ id: "review", title: "Review", cards: [] },
+					{ id: "trash", title: "Done", cards: [] },
+				],
+				dependencies: [],
+			},
+			"backlog",
+			{ prompt: "Chain root", baseRef: "main" },
+			() => "root-task",
+		);
+		const withFollower = addTaskToColumn(
+			withRoot.board,
+			"backlog",
+			{ prompt: "Chain follower", baseRef: "main" },
+			() => "follower-task",
+		);
+		const linked = addTaskDependency(withFollower.board, "root-task", "follower-task");
+		let board = moveTaskToColumn(linked.board, "root-task", "trash").board;
+		// The follower is also done/trashed — no live chain member remains.
+		board = moveTaskToColumn(board, "follower-task", "trash").board;
+
+		workspaceStateMocks.loadWorkspaceState.mockResolvedValue(stateResponseWithBoard(board));
+		workspaceTaskWorktreeMocks.deleteTaskWorktree.mockResolvedValue({ ok: true, removed: true });
+
+		const api = createApi();
+		const response = await api.deleteWorktree(
+			{ workspaceId: "workspace-1", workspacePath: "/tmp/repo" },
+			{ taskId: "root-task" },
+		);
+
+		expect(response.ok).toBe(true);
+		expect(response.removed).toBe(true);
+		expect(workspaceTaskWorktreeMocks.deleteTaskWorktree).toHaveBeenCalledWith({
+			repoPath: "/tmp/repo",
+			taskId: "root-task",
+		});
+	});
+
+	it("deletes a standalone (non-chain) task's worktree as before", async () => {
+		const withTask = addTaskToColumn(
+			{
+				columns: [
+					{ id: "backlog", title: "Backlog", cards: [] },
+					{ id: "in_progress", title: "In Progress", cards: [] },
+					{ id: "review", title: "Review", cards: [] },
+					{ id: "trash", title: "Done", cards: [] },
+				],
+				dependencies: [],
+			},
+			"backlog",
+			{ prompt: "Standalone task", baseRef: "main" },
+			() => "standalone-task",
+		);
+		const board = moveTaskToColumn(withTask.board, "standalone-task", "trash").board;
+
+		workspaceStateMocks.loadWorkspaceState.mockResolvedValue(stateResponseWithBoard(board));
+		workspaceTaskWorktreeMocks.deleteTaskWorktree.mockResolvedValue({ ok: true, removed: true });
+
+		const api = createApi();
+		const response = await api.deleteWorktree(
+			{ workspaceId: "workspace-1", workspacePath: "/tmp/repo" },
+			{ taskId: "standalone-task" },
+		);
+
+		expect(response.ok).toBe(true);
+		expect(workspaceTaskWorktreeMocks.deleteTaskWorktree).toHaveBeenCalledWith({
+			repoPath: "/tmp/repo",
+			taskId: "standalone-task",
+		});
 	});
 });

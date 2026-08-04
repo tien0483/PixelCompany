@@ -8,13 +8,14 @@ import { useLinkedBacklogTaskActions } from "@/hooks/use-linked-backlog-task-act
 import { useProgrammaticCardMoves } from "@/hooks/use-programmatic-card-moves";
 import { useReviewAutoActions } from "@/hooks/use-review-auto-actions";
 import type { UseTaskSessionsResult } from "@/hooks/use-task-sessions";
-import type { RuntimeTaskSessionSummary, RuntimeTaskWorkspaceInfoResponse } from "@/runtime/types";
+import type { RuntimeTaskSessionSummary } from "@/runtime/types";
 import {
 	applyDragResult,
 	clearColumnTasks,
 	disableTaskAutoReview,
 	findCardSelection,
 	getTaskColumnId,
+	hasLiveChainMemberSharingWorktree,
 	moveTaskToColumn,
 	removeTask,
 	reorderChainMembers,
@@ -72,7 +73,7 @@ interface UseBoardInteractionsInput {
 	cleanupTaskWorkspace: (taskId: string) => Promise<unknown>;
 	ensureTaskWorkspace: UseTaskSessionsResult["ensureTaskWorkspace"];
 	startTaskSession: UseTaskSessionsResult["startTaskSession"];
-	fetchTaskWorkspaceInfo: (task: BoardCard) => Promise<RuntimeTaskWorkspaceInfoResponse | null>;
+	fetchTaskWorkspaceInfo: UseTaskSessionsResult["fetchTaskWorkspaceInfo"];
 	sendTaskSessionInput: (
 		taskId: string,
 		input: string,
@@ -347,7 +348,7 @@ export function useBoardInteractions({
 						headCommit: ensured.response.baseCommit,
 					});
 				}
-				const infoAfterEnsure = await fetchTaskWorkspaceInfo(task);
+				const infoAfterEnsure = await fetchTaskWorkspaceInfo(task, { worktreeTaskId });
 				if (infoAfterEnsure) {
 					setTaskWorkspaceInfo(infoAfterEnsure);
 				}
@@ -820,25 +821,8 @@ export function useBoardInteractions({
 			}
 			maybeRequestNotificationPermissionForTaskStart();
 			void kickoffTaskInProgress(headSelection.card, headId, "backlog", { optimisticMove: true });
-
-			// Pre-fetch workspace info for all chain followers queued in In Progress.
-			// Backlog tasks are not tracked by the metadata monitor, so when followers move
-			// to In Progress but haven't started yet, the frontend has no cached workspace info.
-			// Fetching early ensures the UI doesn't show "worktree not created yet" while followers
-			// wait to auto-start after the root completes.
-			const followersInProgress = orderedMemberIds.slice(1);
-			for (const followerId of followersInProgress) {
-				const followerSelection = findCardSelection(nextBoard, followerId);
-				if (followerSelection?.column.id === "in_progress") {
-					void fetchTaskWorkspaceInfo(followerSelection.card).then((info) => {
-						if (info) {
-							setTaskWorkspaceInfo(info);
-						}
-					});
-				}
-			}
 		},
-		[board, fetchTaskWorkspaceInfo, kickoffTaskInProgress, maybeRequestNotificationPermissionForTaskStart, setBoard],
+		[board, kickoffTaskInProgress, maybeRequestNotificationPermissionForTaskStart, setBoard],
 	);
 
 	const handleStartTask = useCallback(
@@ -1087,18 +1071,37 @@ export function useBoardInteractions({
 			clearTaskWorkspaceInfo(selectedTaskId);
 		}
 
+		// Snapshot before the optimistic clear above mutates state — chain ownership must be
+		// resolved against the board as it stood when Done still held these cards, since a
+		// live follower elsewhere in the board (e.g. queued in In Progress) is what decides
+		// whether the shared worktree survives.
+		const boardBeforeClear = board;
+		const cleanedWorktreeOwnerIds = new Set<string>();
 		const limitCleanup = pLimit(CLEAR_TRASH_CLEANUP_CONCURRENCY);
 		void (async () => {
 			await Promise.all(
 				taskIds.map((taskId) =>
 					limitCleanup(async () => {
 						await stopTaskSession(taskId);
-						await cleanupTaskWorkspace(taskId);
+						// Chained tasks share one worktree keyed on the chain root. Never delete it
+						// while a live (non-trash) chain member still depends on it, and only clean
+						// each shared owner once even if several of its trashed followers are being
+						// cleared in the same batch.
+						const worktreeOwnerId = resolveChainWorktreeOwnerTaskId(boardBeforeClear, taskId);
+						if (hasLiveChainMemberSharingWorktree(boardBeforeClear, worktreeOwnerId, taskId)) {
+							return;
+						}
+						if (cleanedWorktreeOwnerIds.has(worktreeOwnerId)) {
+							return;
+						}
+						cleanedWorktreeOwnerIds.add(worktreeOwnerId);
+						await cleanupTaskWorkspace(worktreeOwnerId);
 					}),
 				),
 			);
 		})();
 	}, [
+		board,
 		cleanupTaskWorkspace,
 		selectedTaskId,
 		setBoard,

@@ -78,7 +78,10 @@ export interface UseTaskSessionsResult {
 	cancelTaskChatTurn: (taskId: string) => Promise<ClineChatActionResult>;
 	fetchTaskChatMessages: (taskId: string) => Promise<RuntimeTaskChatMessage[] | null>;
 	cleanupTaskWorkspace: (taskId: string) => Promise<RuntimeWorktreeDeleteResponse | null>;
-	fetchTaskWorkspaceInfo: (task: BoardCard) => Promise<RuntimeTaskWorkspaceInfoResponse | null>;
+	fetchTaskWorkspaceInfo: (
+		task: BoardCard,
+		options?: { worktreeTaskId?: string },
+	) => Promise<RuntimeTaskWorkspaceInfoResponse | null>;
 }
 
 export function useTaskSessions({ currentProjectId, setSessions }: UseTaskSessionsInput): UseTaskSessionsResult {
@@ -326,7 +329,10 @@ export function useTaskSessions({ currentProjectId, setSessions }: UseTaskSessio
 	);
 
 	const fetchTaskWorkspaceInfo = useCallback(
-		async (task: BoardCard): Promise<RuntimeTaskWorkspaceInfoResponse | null> => {
+		async (
+			task: BoardCard,
+			options?: { worktreeTaskId?: string },
+		): Promise<RuntimeTaskWorkspaceInfoResponse | null> => {
 			if (!currentProjectId) {
 				return null;
 			}
@@ -335,6 +341,7 @@ export function useTaskSessions({ currentProjectId, setSessions }: UseTaskSessio
 				return await trpcClient.workspace.getTaskContext.query({
 					taskId: task.id,
 					baseRef: task.baseRef,
+					...(options?.worktreeTaskId?.trim() ? { worktreeTaskId: options.worktreeTaskId.trim() } : {}),
 				});
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);

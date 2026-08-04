@@ -31,7 +31,8 @@ import {
 	parseWorktreeDeleteRequest,
 	parseWorktreeEnsureRequest,
 } from "../core/api-validation";
-import { saveWorkspaceState, WorkspaceStateConflictError } from "../state/workspace-state";
+import { hasLiveChainMemberSharingWorktree } from "../core/task-board-mutations";
+import { loadWorkspaceState, saveWorkspaceState, WorkspaceStateConflictError } from "../state/workspace-state";
 import type { TerminalSessionManager } from "../terminal/session-manager";
 import {
 	createEmptyWorkspaceChangesResponse,
@@ -743,6 +744,19 @@ export function createWorkspaceApi(deps: CreateWorkspaceApiDependencies): Runtim
 		},
 		deleteWorktree: async (workspaceScope, input) => {
 			const body = parseWorktreeDeleteRequest(input);
+			// Defense in depth: chain followers share their chain root's worktree. Every UI
+			// caller is expected to resolve the owner and check for live members first (see
+			// use-linked-backlog-task-actions.ts, use-board-interactions.ts), but this guard
+			// protects any future/other caller from deleting a worktree a live chain member
+			// still depends on.
+			const { board } = await loadWorkspaceState(workspaceScope.workspacePath);
+			if (hasLiveChainMemberSharingWorktree(board, body.taskId, body.taskId)) {
+				return {
+					ok: false,
+					removed: false,
+					error: "Worktree is shared with a live chain member and cannot be deleted yet.",
+				};
+			}
 			return await deleteTaskWorktree({
 				repoPath: workspaceScope.workspacePath,
 				taskId: body.taskId,
@@ -750,11 +764,16 @@ export function createWorkspaceApi(deps: CreateWorkspaceApiDependencies): Runtim
 		},
 		loadTaskContext: async (workspaceScope, input) => {
 			const normalizedInput = normalizeRequiredTaskWorkspaceScopeInput(input);
-			return await getTaskWorkspaceInfo({
+			// Chain followers share their chain root's worktree: resolve the path from the
+			// owner id when the caller supplied one, but report back the requested taskId so
+			// the frontend's cache stays keyed on the card it asked about (not the owner).
+			const worktreeTaskId = input.worktreeTaskId?.trim() || normalizedInput.taskId;
+			const info = await getTaskWorkspaceInfo({
 				cwd: workspaceScope.workspacePath,
-				taskId: normalizedInput.taskId,
+				taskId: worktreeTaskId,
 				baseRef: normalizedInput.baseRef,
 			});
+			return { ...info, taskId: normalizedInput.taskId };
 		},
 		searchFiles: async (workspaceScope, input) => {
 			const query = input.query.trim();

@@ -424,6 +424,33 @@ describe("task chains", () => {
 		expect(getTaskColumnId(trashed.board, "bbbbb")).toBe("in_progress");
 	});
 
+	it("unlocks a chain follower when the root is dragged directly from in_progress to Done (skipping review)", () => {
+		// A→B: A is root, B follows, both already in_progress. Root goes straight to Done
+		// without passing through Review — the follower must still unlock, or the shared
+		// worktree stalls forever.
+		const linkAB = addTaskDependency(boardWithThreeBacklogTasks(), "aaaaa", "bbbbb");
+		let board = moveTaskToColumn(linkAB.board, "aaaaa", "in_progress").board;
+		board = moveTaskToColumn(board, "bbbbb", "in_progress").board;
+		const trashed = trashTaskAndGetReadyLinkedTaskIds(board, "aaaaa");
+		expect(trashed.moved).toBe(true);
+		expect(trashed.readyTaskIds).toEqual(["bbbbb"]);
+	});
+
+	it("does not unlock a classic Backlog wait-link when its prerequisite skips Review straight to Done", () => {
+		// A is the running prerequisite, B is a non-chain waiter left in Backlog (link created
+		// while A is already running, so it's never a chain — see "does not mark a link as a
+		// chain when one endpoint is already running" above). Classic wait-links only unlock a
+		// waiter once the prerequisite went through Review; A going in_progress → Done directly
+		// must not unlock B early.
+		const running = moveTaskToColumn(boardWithThreeBacklogTasks(), "aaaaa", "in_progress");
+		const linked = addTaskDependency(running.board, "aaaaa", "bbbbb");
+		expect(linked.dependency?.chain).toBeUndefined();
+		const trashed = trashTaskAndGetReadyLinkedTaskIds(linked.board, "aaaaa");
+		expect(trashed.moved).toBe(true);
+		expect(trashed.readyTaskIds).toEqual([]);
+		expect(getTaskColumnId(trashed.board, "bbbbb")).toBe("backlog");
+	});
+
 	it("unlocks every direct waiter of a forked chain when the root is Done", () => {
 		// Fork without linearize: B and C both wait on A, so both unlock together.
 		const linkAB = addTaskDependency(boardWithThreeBacklogTasks(), "aaaaa", "bbbbb");
