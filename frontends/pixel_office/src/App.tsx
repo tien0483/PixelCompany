@@ -66,6 +66,7 @@ import { useShortcutActions } from "@/hooks/use-shortcut-actions";
 import { useStartupOnboarding } from "@/hooks/use-startup-onboarding";
 import { useTaskBranchOptions } from "@/hooks/use-task-branch-options";
 import { useTaskEditor } from "@/hooks/use-task-editor";
+import { useSavedPlans } from "@/hooks/use-saved-plans";
 import { useTaskSessions } from "@/hooks/use-task-sessions";
 import { useBacklogAutorunScheduler } from "@/hooks/use-backlog-autorun-scheduler";
 import { useTaskStartActions } from "@/hooks/use-task-start-actions";
@@ -126,7 +127,7 @@ export default function App(): ReactElement {
 	const [settingsInitialSection, setSettingsInitialSection] =
 		useState<RuntimeSettingsSection | null>(null);
 	const [homeSidebarSection, setHomeSidebarSection] = useState<
-		"projects" | "manager"
+		"projects" | "manager" | "plans"
 	>("projects");
 	const [managerSettingsFocusToken, setManagerSettingsFocusToken] = useState(0);
 	const [isClearTrashDialogOpen, setIsClearTrashDialogOpen] = useState(false);
@@ -385,6 +386,8 @@ export default function App(): ReactElement {
 		setNewTaskImages,
 		newTaskStartInPlanMode,
 		setNewTaskStartInPlanMode,
+		newTaskPlanFilePath,
+		setNewTaskPlanFilePath,
 		newTaskAutoRunDelayMinutes,
 		setNewTaskAutoRunDelayMinutes,
 		isNewTaskStartInPlanModeDisabled,
@@ -405,6 +408,8 @@ export default function App(): ReactElement {
 		setEditTaskImages,
 		editTaskStartInPlanMode,
 		setEditTaskStartInPlanMode,
+		editTaskPlanFilePath,
+		setEditTaskPlanFilePath,
 		editTaskAutoReviewEnabled,
 		setEditTaskAutoReviewEnabled,
 		editTaskAutoReviewMode,
@@ -438,6 +443,14 @@ export default function App(): ReactElement {
 		setSelectedTaskId,
 		queueTaskStartAfterEdit,
 	});
+	const { plans: savedPlans, refresh: refreshSavedPlans } = useSavedPlans(currentProjectId);
+
+	useEffect(() => {
+		if (!isInlineTaskCreateOpen && !editingTaskId) {
+			return;
+		}
+		void refreshSavedPlans();
+	}, [editingTaskId, isInlineTaskCreateOpen, refreshSavedPlans]);
 
 	useEffect(() => {
 		taskEditorResetRef.current = resetTaskEditorState;
@@ -1043,6 +1056,9 @@ export default function App(): ReactElement {
 			onCancel={handleCancelEditTask}
 			startInPlanMode={editTaskStartInPlanMode}
 			onStartInPlanModeChange={setEditTaskStartInPlanMode}
+			planFilePath={editTaskPlanFilePath}
+			onPlanFilePathChange={setEditTaskPlanFilePath}
+			savedPlans={savedPlans}
 			startInPlanModeDisabled={isEditTaskStartInPlanModeDisabled}
 			showAutoCommitOptIn={isTaskInChain(board.dependencies, editingTaskId)}
 			autoReviewEnabled={editTaskAutoReviewEnabled}
@@ -1621,6 +1637,9 @@ export default function App(): ReactElement {
 					onCreateAndStartMultiple={handleCreateAndStartTasks}
 					startInPlanMode={newTaskStartInPlanMode}
 					onStartInPlanModeChange={setNewTaskStartInPlanMode}
+					planFilePath={newTaskPlanFilePath}
+					onPlanFilePathChange={setNewTaskPlanFilePath}
+					savedPlans={savedPlans}
 					startInPlanModeDisabled={isNewTaskStartInPlanModeDisabled}
 					autoRunDelayMinutes={newTaskAutoRunDelayMinutes}
 					onAutoRunDelayMinutesChange={setNewTaskAutoRunDelayMinutes}

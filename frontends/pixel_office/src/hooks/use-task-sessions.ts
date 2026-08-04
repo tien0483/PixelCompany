@@ -175,6 +175,7 @@ export function useTaskSessions({ currentProjectId, setSessions }: UseTaskSessio
 					taskTitle: task.title,
 					images: options?.resumeFromTrash ? undefined : task.images,
 					startInPlanMode: options?.resumeFromTrash ? undefined : task.startInPlanMode,
+					planFilePath: options?.resumeFromTrash ? undefined : task.planFilePath,
 					resumeFromTrash: options?.resumeFromTrash,
 					resumeFromPersistence: options?.resumeFromPersistence,
 					baseRef: task.baseRef,

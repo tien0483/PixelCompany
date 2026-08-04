@@ -14,6 +14,7 @@ import {
 import { useHotkeys } from "react-hotkeys-hook";
 
 import { BranchSelectDropdown, type BranchSelectOption } from "@/components/branch-select-dropdown";
+import { PlanPickerSelect } from "@/components/plan-picker-select";
 import { TaskAgentModelPicker, useTaskAgentModelPicker } from "@/components/task-agent-model-picker";
 import { TaskLaunchSettingsPicker } from "@/components/task-launch-settings";
 import { TaskPromptComposer } from "@/components/task-prompt-composer";
@@ -26,6 +27,7 @@ import type {
 	RuntimeAgentId,
 	RuntimeClineReasoningEffort,
 	RuntimeManagerAccount,
+	RuntimeSavedPlan,
 	RuntimeTaskClineSettings,
 	RuntimeTaskLaunchSettings,
 } from "@/runtime/types";
@@ -69,6 +71,9 @@ export function TaskInlineCreateCard({
 	onCancel,
 	startInPlanMode,
 	onStartInPlanModeChange,
+	planFilePath = null,
+	onPlanFilePathChange,
+	savedPlans = [],
 	autoReviewEnabled = false,
 	onAutoReviewEnabledChange,
 	showAutoCommitOptIn = false,
@@ -106,6 +111,9 @@ export function TaskInlineCreateCard({
 	onCancel?: () => void;
 	startInPlanMode: boolean;
 	onStartInPlanModeChange: (value: boolean) => void;
+	planFilePath?: string | null;
+	onPlanFilePathChange?: (value: string | null) => void;
+	savedPlans?: RuntimeSavedPlan[];
 	/** Chain-edit only: when true, show the auto-commit checkbox. */
 	showAutoCommitOptIn?: boolean;
 	autoReviewEnabled?: boolean;
@@ -284,6 +292,15 @@ export function TaskInlineCreateCard({
 			</div>
 
 			<div className="flex flex-col gap-2 mt-3">
+				{onPlanFilePathChange ? (
+					<PlanPickerSelect
+						id={`${planModeId}-plan-file`}
+						plans={savedPlans}
+						value={planFilePath}
+						onChange={onPlanFilePathChange}
+						disabled={!enabled}
+					/>
+				) : null}
 				<label
 					htmlFor={planModeId}
 					className="flex items-center gap-2 text-[12px] text-text-primary cursor-pointer select-none"

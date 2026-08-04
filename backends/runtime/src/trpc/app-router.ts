@@ -115,6 +115,15 @@ import type {
 	RuntimeMcpInventory,
 	RuntimeOpenFileRequest,
 	RuntimeOpenFileResponse,
+	RuntimePlansImportFromFolderRequest,
+	RuntimePlansImportFromFolderResponse,
+	RuntimePlansListResponse,
+	RuntimePlansReadRequest,
+	RuntimePlansReadResponse,
+	RuntimePlansRemoveRequest,
+	RuntimePlansRemoveResponse,
+	RuntimePlansWriteRequest,
+	RuntimePlansWriteResponse,
 	RuntimeProjectAddRequest,
 	RuntimeProjectAddResponse,
 	RuntimeProjectDirectoryPickerResponse,
@@ -272,6 +281,15 @@ import {
 	runtimeMcpInventorySchema,
 	runtimeOpenFileRequestSchema,
 	runtimeOpenFileResponseSchema,
+	runtimePlansImportFromFolderRequestSchema,
+	runtimePlansImportFromFolderResponseSchema,
+	runtimePlansListResponseSchema,
+	runtimePlansReadRequestSchema,
+	runtimePlansReadResponseSchema,
+	runtimePlansRemoveRequestSchema,
+	runtimePlansRemoveResponseSchema,
+	runtimePlansWriteRequestSchema,
+	runtimePlansWriteResponseSchema,
 	runtimeProjectAddRequestSchema,
 	runtimeProjectAddResponseSchema,
 	runtimeProjectDirectoryPickerResponseSchema,
@@ -567,6 +585,13 @@ export interface RuntimeTrpcContext {
 			preferredWorkspaceId: string | null,
 			input: RuntimeDirectoryListRequest,
 		) => Promise<RuntimeDirectoryListResponse>;
+	};
+	plansApi: {
+		list: () => Promise<RuntimePlansListResponse>;
+		importFromFolder: (input: RuntimePlansImportFromFolderRequest) => Promise<RuntimePlansImportFromFolderResponse>;
+		remove: (input: RuntimePlansRemoveRequest) => Promise<RuntimePlansRemoveResponse>;
+		read: (input: RuntimePlansReadRequest) => Promise<RuntimePlansReadResponse>;
+		write: (input: RuntimePlansWriteRequest) => Promise<RuntimePlansWriteResponse>;
 	};
 	hooksApi: {
 		ingest: (input: RuntimeHookIngestRequest) => Promise<RuntimeHookIngestResponse>;
@@ -1093,6 +1118,35 @@ export const runtimeAppRouter = t.router({
 			.output(runtimeDirectoryListResponseSchema)
 			.query(async ({ ctx, input }) => {
 				return await ctx.projectsApi.listDirectoryContents(ctx.requestedWorkspaceId, input);
+			}),
+	}),
+	plans: t.router({
+		list: t.procedure.output(runtimePlansListResponseSchema).query(async ({ ctx }) => {
+			return await ctx.plansApi.list();
+		}),
+		importFromFolder: t.procedure
+			.input(runtimePlansImportFromFolderRequestSchema)
+			.output(runtimePlansImportFromFolderResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.plansApi.importFromFolder(input);
+			}),
+		remove: t.procedure
+			.input(runtimePlansRemoveRequestSchema)
+			.output(runtimePlansRemoveResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.plansApi.remove(input);
+			}),
+		read: t.procedure
+			.input(runtimePlansReadRequestSchema)
+			.output(runtimePlansReadResponseSchema)
+			.query(async ({ ctx, input }) => {
+				return await ctx.plansApi.read(input);
+			}),
+		write: t.procedure
+			.input(runtimePlansWriteRequestSchema)
+			.output(runtimePlansWriteResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.plansApi.write(input);
 			}),
 	}),
 	hooks: t.router({

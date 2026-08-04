@@ -313,7 +313,7 @@ function KanbanShellChrome({
 	manager: RuntimeManagerSnapshot;
 	children: ReactElement;
 }): ReactElement {
-	const [sidebarSection, setSidebarSection] = useState<"projects" | "manager">("projects");
+	const [sidebarSection, setSidebarSection] = useState<"projects" | "manager" | "plans">("projects");
 	return (
 		<div className="flex min-h-0 flex-1" data-testid="office-e2e-kanban-shell">
 			{/* Project sidebar — matches Kanban home layout */}
@@ -339,9 +339,25 @@ function KanbanShellChrome({
 						active={sidebarSection === "manager"}
 						onSelect={() => setSidebarSection("manager")}
 					/>
+					<button
+						type="button"
+						data-testid="sidebar-plans-tab"
+						onClick={() => setSidebarSection("plans")}
+						className={
+							sidebarSection === "plans"
+								? "rounded-sm bg-surface-4 px-1.5 py-1 text-[11px] text-text-primary"
+								: "rounded-sm px-1.5 py-1 text-[11px] text-text-secondary"
+						}
+					>
+						Plans
+					</button>
 				</div>
 				{sidebarSection === "manager" ? (
 					<HomeSidebarManagerPanel online manager={manager} />
+				) : sidebarSection === "plans" ? (
+					<div className="p-2 text-[11px] text-text-tertiary" data-testid="sidebar-plans-panel">
+						Plans
+					</div>
 				) : (
 				<div className="flex flex-col gap-1 p-2">
 					<button

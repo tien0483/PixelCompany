@@ -176,6 +176,8 @@ export const runtimeBoardCardSchema = z.preprocess(
 			title: z.string().optional(),
 			prompt: z.string(),
 			startInPlanMode: z.boolean(),
+			/** Absolute path to a saved plan file the agent should read at session start. */
+			planFilePath: z.string().optional(),
 			autoReviewEnabled: z.boolean().optional(),
 			autoReviewMode: runtimeTaskAutoReviewModeSchema.optional(),
 			images: z.array(runtimeTaskImageSchema).optional(),
@@ -1210,6 +1212,72 @@ export const runtimeDirectoryListResponseSchema = z.object({
 });
 export type RuntimeDirectoryListResponse = z.infer<typeof runtimeDirectoryListResponseSchema>;
 
+export const runtimeSavedPlanSchema = z.object({
+	id: z.string(),
+	name: z.string(),
+	path: z.string(),
+	addedAt: z.number(),
+	missing: z.boolean().optional(),
+});
+export type RuntimeSavedPlan = z.infer<typeof runtimeSavedPlanSchema>;
+
+export const runtimePlansListResponseSchema = z.object({
+	ok: z.boolean(),
+	plans: z.array(runtimeSavedPlanSchema),
+	error: z.string().optional(),
+});
+export type RuntimePlansListResponse = z.infer<typeof runtimePlansListResponseSchema>;
+
+export const runtimePlansImportFromFolderRequestSchema = z.object({
+	folderPath: z.string(),
+});
+export type RuntimePlansImportFromFolderRequest = z.infer<typeof runtimePlansImportFromFolderRequestSchema>;
+
+export const runtimePlansImportFromFolderResponseSchema = z.object({
+	ok: z.boolean(),
+	added: z.array(runtimeSavedPlanSchema),
+	skipped: z.number(),
+	error: z.string().optional(),
+});
+export type RuntimePlansImportFromFolderResponse = z.infer<typeof runtimePlansImportFromFolderResponseSchema>;
+
+export const runtimePlansRemoveRequestSchema = z.object({
+	planId: z.string(),
+});
+export type RuntimePlansRemoveRequest = z.infer<typeof runtimePlansRemoveRequestSchema>;
+
+export const runtimePlansRemoveResponseSchema = z.object({
+	ok: z.boolean(),
+	error: z.string().optional(),
+});
+export type RuntimePlansRemoveResponse = z.infer<typeof runtimePlansRemoveResponseSchema>;
+
+export const runtimePlansReadRequestSchema = z.object({
+	planId: z.string(),
+});
+export type RuntimePlansReadRequest = z.infer<typeof runtimePlansReadRequestSchema>;
+
+export const runtimePlansReadResponseSchema = z.object({
+	ok: z.boolean(),
+	plan: runtimeSavedPlanSchema.nullable(),
+	content: z.string().nullable(),
+	error: z.string().optional(),
+});
+export type RuntimePlansReadResponse = z.infer<typeof runtimePlansReadResponseSchema>;
+
+export const runtimePlansWriteRequestSchema = z.object({
+	planId: z.string(),
+	content: z.string(),
+});
+export type RuntimePlansWriteRequest = z.infer<typeof runtimePlansWriteRequestSchema>;
+
+export const runtimePlansWriteResponseSchema = z.object({
+	ok: z.boolean(),
+	plan: runtimeSavedPlanSchema.nullable(),
+	error: z.string().optional(),
+});
+export type RuntimePlansWriteResponse = z.infer<typeof runtimePlansWriteResponseSchema>;
+
 export const runtimeProjectRemoveRequestSchema = z.object({
 	projectId: z.string(),
 });
@@ -1680,6 +1748,8 @@ export const runtimeTaskSessionStartRequestSchema = z.object({
 	taskTitle: z.string().optional(),
 	images: z.array(runtimeTaskImageSchema).optional(),
 	startInPlanMode: z.boolean().optional(),
+	/** Absolute path to a saved plan file; runtime prepends a read-and-follow instruction. */
+	planFilePath: z.string().optional(),
 	mode: runtimeTaskSessionModeSchema.optional(),
 	resumeFromTrash: z.boolean().optional(),
 	/** Hydrate prior persisted messages into a normal (non-trash) start, e.g. restarting a live session on a new manager account. */
