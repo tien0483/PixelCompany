@@ -23,6 +23,7 @@ import httpx
 
 from manager.api.credential_helpers import claude_config_dir
 from manager.web.database import Database
+from manager.web.inference_probe import InferenceProbeResult, probe_inference
 from manager.web.oauth import (
     CLIENT_ID,
     DEFAULT_TOKEN_TTL_SECONDS,
@@ -89,6 +90,21 @@ _account_usage_state: dict[int, dict] = {}
 # rotates would show a stale plan forever after an upgrade/downgrade.
 _PROFILE_REFRESH_INTERVAL = 6 * 3600  # seconds
 _profile_refreshed_at: dict[int, float] = {}
+
+# validate_account budget. The real ceiling is the runtime client's
+# LONG_REQUEST_TIMEOUT_MS (30s, manager-client.ts), not the route's 60s
+# _VALIDATE_TIMEOUT — an internal deadline keeps the profile+probe pair
+# under that so the client never aborts mid-write.
+_VALIDATE_BUDGET_SECONDS = 25.0
+_VALIDATE_PROFILE_TIMEOUT = 10.0
+_VALIDATE_PROBE_TIMEOUT = 12.0
+_PROBE_MIN_BUDGET = 4.0
+
+# Hard verdicts prove the credential itself is bad (not rate limiting, not a
+# transient upstream hiccup). Used to protect last_error_code from being
+# silently overwritten by an unrelated successful poll (see database.py
+# clear_account_errors) and to gate heal_invalid_accounts re-probing.
+_HARD_VERDICT_CODES = frozenset({"account_forbidden", "token_unauthorized"})
 
 
 def _update_profile_metadata(account_id: int, data: dict, db) -> None:
@@ -1131,36 +1147,119 @@ def _validate_cursor_account(account_id: int, db: Database) -> dict:
     return {"valid": False, "error": "Cursor signed out"}
 
 
+async def _resolve_probe_token(account: dict, db: Database) -> tuple[Optional[str], str]:
+    """Pick the token to run the inference probe with.
+
+    Prefers cc_access_token (what Claude Code actually runs under). Refreshes
+    it first if stale, unless this is the active account — the CC refresh
+    token is single-use and shared with Claude Code itself, so rotating it
+    for a background probe on the account the user is actively running would
+    force Claude Code into a surprise re-login (see refresh_all_expiring_tokens
+    comment on the same invariant). For the active account with a stale CC
+    token, fall back to the primary token instead (scope user:inference
+    permits it — see oauth.py SCOPES).
+
+    Returns (token, kind) where kind is "cc", "primary", or "none".
+    """
+    from manager.api.credential_helpers import read_active_account_id
+
+    account_id = account["id"]
+    cc_token = account.get("cc_access_token")
+    if cc_token:
+        if should_refresh_cc(account):
+            if read_active_account_id() != account_id:
+                await refresh_cc_token(account_id, db)
+                refreshed = db.get_account(account_id)
+                if refreshed:
+                    account = refreshed
+                    cc_token = account.get("cc_access_token")
+                if should_refresh_cc(account):
+                    # Refresh didn't clear the staleness (failed or was a
+                    # no-op) — treat the CC token as unusable and fall back
+                    # to primary below.
+                    cc_token = None
+            else:
+                # Active account with a stale CC token: never rotate its CC
+                # refresh token from a background probe (see docstring above).
+                # Fall back to the primary token instead.
+                cc_token = None
+        if cc_token:
+            return cc_token, "cc"
+
+    primary_token = account.get("access_token")
+    if primary_token:
+        return primary_token, "primary"
+
+    return None, "none"
+
+
 async def validate_account(account_id: int, db: Database) -> dict:
-    """Validate an account by attempting a profile fetch.
+    """Validate an account via a profile fetch AND a live inference probe.
 
-    If the profile fetch succeeds, the token is valid.
-    If it fails with 401/403, the token is invalid.
+    The profile fetch alone only proves the OAuth token is alive — an
+    upstream-suspended account still answers 200 there (it's an identity
+    endpoint, not an entitlement check). Suspension only manifests at
+    inference time, so a 1-token /v1/messages probe runs after a successful
+    profile fetch to catch it.
 
-    Returns dict with 'valid' (bool) and 'error' (str or None).
+    Returns dict with:
+      valid (bool), error (str or None), verdict ("good"|"bad"|"indeterminate"),
+      code (str or None — machine-readable reason, persisted as last_error_code)
 
     This is simpler than ralphx's approach — we don't try to refresh
     as part of validation. The frontend calls refresh first if needed.
     """
+    deadline = time.monotonic() + _VALIDATE_BUDGET_SECONDS
+
     account = db.get_account(account_id)
     if not account:
-        return {"valid": False, "error": "Account not found"}
+        return {"valid": False, "error": "Account not found", "verdict": "indeterminate", "code": None}
 
     # Codex accounts are NOT Anthropic-token-validated (their stored token is a
     # sentinel). Validity = signed in to Codex (the account's slot holds a real
     # credential); hitting the Anthropic profile API would always 401 and
     # falsely mark them invalid.
     if (account.get("provider") or "claude") == "codex":
-        return _validate_codex_account(account_id, db)
+        result = _validate_codex_account(account_id, db)
+        return {**result, "verdict": "good" if result["valid"] else "bad", "code": None}
 
     if (account.get("provider") or "claude") == "cursor":
-        return _validate_cursor_account(account_id, db)
+        result = _validate_cursor_account(account_id, db)
+        return {**result, "verdict": "good" if result["valid"] else "bad", "code": None}
+
+    prior_validation_status = account.get("validation_status") or "unknown"
 
     # Mark as checking
     db.update_account(account_id, validation_status="checking")
 
+    async def _run_probe(deadline: float) -> Optional[InferenceProbeResult]:
+        """Run the inference probe if there's token + budget for it."""
+        token, kind = await _resolve_probe_token(account, db)
+        if token is None:
+            return None
+        remaining = deadline - time.monotonic()
+        if remaining < _PROBE_MIN_BUDGET:
+            return None
+        probe = await probe_inference(token, timeout=min(_VALIDATE_PROBE_TIMEOUT, remaining))
+        if probe.verdict == "unauthorized" and kind == "cc":
+            # CC token expired — fall back to the primary token once (zero
+            # extra tokens burned on a 401) to disambiguate "CC needs
+            # re-auth" from "account is actually dead".
+            primary_token = account.get("access_token")
+            if primary_token:
+                remaining = deadline - time.monotonic()
+                if remaining >= _PROBE_MIN_BUDGET:
+                    primary_probe = await probe_inference(
+                        primary_token, timeout=min(_VALIDATE_PROBE_TIMEOUT, remaining)
+                    )
+                    if primary_probe.ok:
+                        return InferenceProbeResult(
+                            verdict="ok", status_code=200, error_type="cc_token_expired", error_message=None
+                        )
+        return probe
+
     try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
+        async with httpx.AsyncClient(timeout=_VALIDATE_PROFILE_TIMEOUT) as client:
             resp = await client.get(
                 PROFILE_URL,
                 headers={
@@ -1170,16 +1269,9 @@ async def validate_account(account_id: int, db: Database) -> dict:
             )
 
             if resp.status_code == 200:
-                db.update_account(
-                    account_id,
-                    validation_status="valid",
-                    last_validated_at=int(time.time()),
-                    consecutive_failures=0,
-                    last_error=None,
-                    last_error_at=None,
-                )
-                _update_profile_metadata(account_id, resp.json(), db)
-                return {"valid": True, "error": None}
+                profile_data = resp.json()
+                probe = await _run_probe(deadline)
+                return _finalize_validate_result(account_id, db, profile_data, probe, prior_validation_status)
 
             if resp.status_code in (401, 403):
                 fresh = await _try_refresh_primary_token(
@@ -1194,51 +1286,72 @@ async def validate_account(account_id: int, db: Database) -> dict:
                         },
                     )
                     if retry_resp.status_code == 200:
-                        db.update_account(
-                            account_id,
-                            validation_status="valid",
-                            last_validated_at=int(time.time()),
-                            consecutive_failures=0,
-                            last_error=None,
-                            last_error_at=None,
-                        )
-                        _update_profile_metadata(account_id, retry_resp.json(), db)
-                        return {"valid": True, "error": None}
+                        account["access_token"] = fresh
+                        profile_data = retry_resp.json()
+                        probe = await _run_probe(deadline)
+                        return _finalize_validate_result(account_id, db, profile_data, probe, prior_validation_status)
 
-                # Refresh failed — truly invalid
+                # Refresh failed — truly invalid. No probe: credential is
+                # already known-bad, a probe would spend a call for no
+                # new information.
                 db.update_account(
                     account_id,
                     validation_status="invalid",
                     last_validated_at=int(time.time()),
                     last_error=f"Token invalid (HTTP {resp.status_code}), refresh failed",
                     last_error_at=datetime.now(timezone.utc).isoformat(),
+                    last_error_code="profile_unauthorized",
                 )
-                return {"valid": False, "error": f"Token invalid (HTTP {resp.status_code})"}
+                return {
+                    "valid": False,
+                    "error": f"Token invalid (HTTP {resp.status_code})",
+                    "verdict": "bad",
+                    "code": "profile_unauthorized",
+                }
 
             if resp.status_code == 429:
-                # Rate limited — don't mark invalid, just note the error
+                # Rate limited — don't mark invalid, just note the error. No
+                # probe: upstream is already throttling this account.
                 db.update_account(
                     account_id,
                     validation_status=account.get("validation_status", "unknown"),
                     last_error="Rate limited during validation",
                     last_error_at=datetime.now(timezone.utc).isoformat(),
+                    last_error_code="profile_rate_limited",
                 )
-                return {"valid": False, "error": "Rate limited — try again later"}
+                return {
+                    "valid": False,
+                    "error": "Rate limited — try again later",
+                    "verdict": "indeterminate",
+                    "code": "profile_rate_limited",
+                }
 
             db.update_account(
                 account_id,
                 validation_status="unknown",
                 last_error=f"Validation HTTP {resp.status_code}",
                 last_error_at=datetime.now(timezone.utc).isoformat(),
+                last_error_code="profile_http_error",
             )
-            return {"valid": False, "error": f"Unexpected HTTP {resp.status_code}"}
+            return {
+                "valid": False,
+                "error": f"Unexpected HTTP {resp.status_code}",
+                "verdict": "indeterminate",
+                "code": "profile_http_error",
+            }
 
     except httpx.TimeoutException:
         db.update_account(
             account_id,
             validation_status=account.get("validation_status", "unknown"),
+            last_error_code="profile_network_error",
         )
-        return {"valid": False, "error": "Network timeout during validation"}
+        return {
+            "valid": False,
+            "error": "Network timeout during validation",
+            "verdict": "indeterminate",
+            "code": "profile_network_error",
+        }
     except Exception as e:
         logger.error(f"Validation error for account {account_id}: {e}")
         db.update_account(
@@ -1246,8 +1359,132 @@ async def validate_account(account_id: int, db: Database) -> dict:
             validation_status="unknown",
             last_error=str(e),
             last_error_at=datetime.now(timezone.utc).isoformat(),
+            last_error_code="profile_error",
         )
-        return {"valid": False, "error": str(e)}
+        return {"valid": False, "error": str(e), "verdict": "indeterminate", "code": "profile_error"}
+
+
+def _finalize_validate_result(
+    account_id: int,
+    db: Database,
+    profile_data: dict,
+    probe: Optional[InferenceProbeResult],
+    prior_validation_status: str,
+) -> dict:
+    """Apply the profile(200) x probe decision table and write the DB row.
+
+    profile fetch already succeeded by the time this runs — the remaining
+    branches are keyed off the probe's verdict (or its absence, when the
+    probe was skipped for lack of a token/budget). `prior_validation_status`
+    is the status BEFORE validate_account's "checking" write, needed by the
+    indeterminate branches to restore it — otherwise the row is stranded at
+    "checking" forever, since nothing else would ever revisit it.
+    """
+    now_iso = datetime.now(timezone.utc).isoformat()
+
+    def _mark_valid_row() -> None:
+        db.update_account(
+            account_id,
+            validation_status="valid",
+            last_validated_at=int(time.time()),
+            consecutive_failures=0,
+            last_error=None,
+            last_error_at=None,
+            last_error_code=None,
+        )
+        _update_profile_metadata(account_id, profile_data, db)
+
+    if probe is None:
+        _mark_valid_row()
+        return {
+            "valid": True,
+            "error": "Profile check passed; live inference check skipped (no Claude Code token or upstream too slow).",
+            "verdict": "indeterminate",
+            "code": None,
+        }
+
+    if probe.ok:
+        # CC-token-expired synthetic "ok" carries error_type="cc_token_expired"
+        # (see _run_probe) — surface it without downgrading validity, since
+        # the account IS usable (just via the primary token for now).
+        if probe.error_type == "cc_token_expired":
+            db.update_account(
+                account_id,
+                validation_status="valid",
+                last_validated_at=int(time.time()),
+                consecutive_failures=0,
+                last_error="Claude Code token expired — re-authorize with the CC button (usage credential is fine).",
+                last_error_at=now_iso,
+                last_error_code="cc_token_expired",
+            )
+            _update_profile_metadata(account_id, profile_data, db)
+            return {
+                "valid": False,
+                "error": "Claude Code token expired — re-authorize with the CC button (usage credential is fine).",
+                "verdict": "bad",
+                "code": "cc_token_expired",
+            }
+        _mark_valid_row()
+        return {"valid": True, "error": None, "verdict": "good", "code": None}
+
+    if probe.verdict == "forbidden":
+        message = f"Anthropic refused this account ({probe.error_type}): {probe.error_message}"
+        db.update_account(
+            account_id,
+            validation_status="invalid",
+            last_validated_at=int(time.time()),
+            last_error=message,
+            last_error_at=now_iso,
+            last_error_code="account_forbidden",
+        )
+        return {"valid": False, "error": message, "verdict": "bad", "code": "account_forbidden"}
+
+    if probe.verdict == "unauthorized":
+        message = f"Token rejected for inference (HTTP 401): {probe.error_message or probe.error_type or 'no detail'}"
+        db.update_account(
+            account_id,
+            validation_status="invalid",
+            last_validated_at=int(time.time()),
+            last_error=message,
+            last_error_at=now_iso,
+            last_error_code="token_unauthorized",
+        )
+        return {"valid": False, "error": message, "verdict": "bad", "code": "token_unauthorized"}
+
+    # rate_limited / bad_request / upstream_error / network_error are all
+    # indeterminate: never false-invalidate, but the row must not be left at
+    # "checking" (written before the probe ran) — restore the prior status.
+    db.update_account(account_id, validation_status=prior_validation_status)
+
+    if probe.verdict == "rate_limited":
+        # Rate-limited is not an account fault — leave last_error untouched,
+        # just note it in the response.
+        return {
+            "valid": True,
+            "error": "Credential looks good; the live inference check was rate-limited — try again in a few minutes.",
+            "verdict": "indeterminate",
+            "code": None,
+        }
+
+    if probe.verdict == "bad_request":
+        return {
+            "valid": True,
+            "error": (
+                f"Credential is fine; the probe request was rejected "
+                f"({probe.error_type}: {probe.error_message}) — probe model may be retired."
+            ),
+            "verdict": "indeterminate",
+            "code": None,
+        }
+
+    # upstream_error / network_error — indeterminate, never false-invalidate a
+    # previously-valid account; leave last_error as it was.
+    return {
+        "valid": True,
+        "error": "Credential responds, but the live inference check couldn't complete — status left unchanged.",
+        "verdict": "indeterminate",
+        "code": None,
+    }
 
 
 async def reset_stale_checking_accounts(
@@ -1465,13 +1702,23 @@ async def refresh_all_expiring_tokens(buffer_seconds: int = 14400) -> dict:
     return result
 
 
+# Accounts confirmed bad by a live inference probe (hard verdict) are re-probed
+# at most this often by the heal sweep — otherwise a permanently suspended
+# account gets re-validated against Anthropic's token+profile+inference
+# endpoints every 5 minutes forever for no new information.
+_HEAL_HARD_VERDICT_COOLDOWN = 3600
+
+
 async def heal_invalid_accounts() -> dict:
     """Attempt recovery for accounts with validation_status 'invalid' or 'unknown'.
 
     Called every 5 minutes by the background heal loop.
     For each stuck account:
     - If has refresh_token and token near/past expiry → attempt refresh
-    - Otherwise → validate via profile fetch (works for API key accounts too)
+    - Always follow with validate_account (a live inference probe) —  a
+      successful token refresh only proves the OAuth grant is alive, not that
+      the account is entitled to run inference (a suspended account's refresh
+      token still works), so refresh success alone can never mark "healed".
     - Mark healed (valid) or confirmed-invalid
 
     Returns dict with counts: {"checked": N, "healed": N, "confirmed_invalid": N}
@@ -1487,8 +1734,14 @@ async def heal_invalid_accounts() -> dict:
         if status not in ("invalid", "unknown", "checking"):
             continue
 
-        result["checked"] += 1
         account_id = account["id"]
+
+        if account.get("last_error_code") in _HARD_VERDICT_CODES:
+            last_validated_at = account.get("last_validated_at") or 0
+            if time.time() - last_validated_at < _HEAL_HARD_VERDICT_COOLDOWN:
+                continue
+
+        result["checked"] += 1
 
         # Try refresh first if has refresh token. Call _refresh_token_flow
         # directly — refresh_account_token's should_refresh gate would
@@ -1496,7 +1749,6 @@ async def heal_invalid_accounts() -> dict:
         # expiry, marking accounts healed without proving the credentials
         # work (phantom heal). The flow owns locking, so no lock is held
         # here (it's non-reentrant — holding it would self-deadlock).
-        healed = False
         if account.get("refresh_token"):
             lock = _get_refresh_lock(account_id)
             if not lock.locked():
@@ -1510,43 +1762,40 @@ async def heal_invalid_accounts() -> dict:
                     refresh_last_failed_at=None,
                     refresh_failure_type=None,
                 )
-                refresh_result = await _refresh_token_flow(
-                    account_id, db, RefreshMode.PRIMARY,
-                )
-                healed = refresh_result.success
+                await _refresh_token_flow(account_id, db, RefreshMode.PRIMARY)
 
-        if not healed:
-            # Try reconciling from live credentials before validate
+        # Try reconciling from live credentials before validate
+        try:
+            from manager.api.credential_helpers import reconcile_credentials_from_live_store
+            reconcile_credentials_from_live_store(account_id, db)
+        except ImportError:
             try:
-                from manager.api.credential_helpers import reconcile_credentials_from_live_store
-                reconcile_credentials_from_live_store(account_id, db)
-            except ImportError:
-                try:
-                    from manager.api.credential_helpers import reconcile_outgoing_credentials
-                    reconcile_outgoing_credentials(account_id, db)
-                except (ImportError, Exception):
-                    pass
-            except Exception:
-                logger.debug("Credential reconciliation failed for account %d", account_id)
+                from manager.api.credential_helpers import reconcile_outgoing_credentials
+                reconcile_outgoing_credentials(account_id, db)
+            except (ImportError, Exception):
+                pass
+        except Exception:
+            logger.debug("Credential reconciliation failed for account %d", account_id)
 
-            try:
-                validation = await asyncio.wait_for(
-                    validate_account(account_id, db), timeout=60,
-                )
-                healed = validation.get("valid", False)
-            except asyncio.TimeoutError:
-                logger.error(
-                    "Account %d: heal validation timed out after 60s — "
-                    "treating as not healed",
-                    account_id,
-                )
-                healed = False
+        # A refresh success alone is not proof of health — only validate_account's
+        # verdict (which includes the live inference probe) is authoritative, and
+        # it already writes validation_status/last_error/last_error_code itself.
+        try:
+            validation = await asyncio.wait_for(
+                validate_account(account_id, db), timeout=60,
+            )
+            healed = validation.get("verdict") == "good"
+        except asyncio.TimeoutError:
+            logger.error(
+                "Account %d: heal validation timed out after 60s — "
+                "treating as not healed",
+                account_id,
+            )
+            healed = False
 
         if healed:
             result["healed"] += 1
-            db.update_account(account_id,
-                              validation_status="valid",
-                              last_validated_at=int(time.time()))
+            account = db.get_account(account_id) or account
             # Check if CC tokens need re-auth after primary heals
             if not account.get("cc_refresh_token") and account.get("cc_access_token"):
                 logger.info(

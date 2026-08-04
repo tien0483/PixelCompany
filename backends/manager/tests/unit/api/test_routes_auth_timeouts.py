@@ -112,6 +112,36 @@ def test_validate_timeout_returns_504(monkeypatch):
     assert "timed out" in body["error"]["message"].lower()
 
 
+def test_validate_passes_verdict_through(monkeypatch):
+    """validate_token's response must carry validate_account's verdict, not
+    just the binary valid/error — the tri-state distinguishes a confirmed-bad
+    credential from an indeterminate probe result."""
+    from manager.api.routes import auth as routes_auth
+
+    db = MagicMock()
+    db.get_account.return_value = {"id": 1}
+    request = MagicMock()
+    monkeypatch.setattr(routes_auth, "_get_db", lambda r: db)
+
+    async def _run():
+        with patch.object(
+            routes_auth,
+            "validate_account",
+            AsyncMock(return_value={
+                "valid": False,
+                "error": "Anthropic refused this account (permission_error): suspended.",
+                "verdict": "bad",
+                "code": "account_forbidden",
+            }),
+        ):
+            return await routes_auth.validate_token(1, request)
+
+    resp = asyncio.run(_run())
+    assert resp.valid is False
+    assert resp.verdict == "bad"
+    assert "suspended" in resp.error
+
+
 def test_bulk_refresh_429_uses_standard_envelope(monkeypatch):
     """The in-progress rejection must use the standard error envelope,
     not the legacy {'detail': ...} shape."""

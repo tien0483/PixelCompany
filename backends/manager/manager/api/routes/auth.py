@@ -275,6 +275,7 @@ class RefreshResponse(BaseModel):
 class ValidateResponse(BaseModel):
     valid: bool
     error: Optional[str] = None
+    verdict: str = "good"  # "good" | "bad" | "indeterminate"
 
 
 class UsageRefreshResponse(BaseModel):
@@ -1407,6 +1408,7 @@ async def validate_token(account_id: int, request: Request):
     return ValidateResponse(
         valid=result["valid"],
         error=result.get("error"),
+        verdict=result.get("verdict", "good"),
     )
 
 

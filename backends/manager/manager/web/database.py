@@ -633,6 +633,20 @@ class Database:
                     )
                 except sqlite3.OperationalError:
                     pass
+            # Migration: machine-readable validate_account reason. Distinguishes a
+            # "hard" verdict (account_forbidden, token_unauthorized — the credential
+            # is confirmed bad) from a soft/transient one, so clear_account_errors
+            # (a routine successful usage poll) can't silently repaint a suspended
+            # account back to valid.
+            cursor = conn.execute("PRAGMA table_info(accounts)")
+            acct_cols_err_code = {row[1] for row in cursor.fetchall()}
+            if "last_error_code" not in acct_cols_err_code:
+                try:
+                    conn.execute(
+                        "ALTER TABLE accounts ADD COLUMN last_error_code TEXT"
+                    )
+                except sqlite3.OperationalError:
+                    pass
             # Migration: add `provider` column + provider-scoped uniqueness.
             # Codex support: the same (email, organization_uuid) can exist under
             # both 'claude' and 'codex'. SQLite can't ALTER a UNIQUE constraint,
@@ -970,6 +984,7 @@ class Database:
             "cached_usage_raw",
             "last_error",
             "last_error_at",
+            "last_error_code",
             "consecutive_failures",
             "last_validated_at",
             "validation_status",
@@ -1270,10 +1285,20 @@ class Database:
                 )
             return cursor.rowcount > 0
 
+    # Hard verdicts prove the credential itself is bad (checked via a live
+    # inference probe, not just an OAuth-family 200). A routine successful
+    # usage/profile poll must not silently overwrite one of these — see
+    # auth.py's _HARD_VERDICT_CODES and validate_account.
+    _HARD_ERROR_CODES = ("account_forbidden", "token_unauthorized")
+
     def clear_account_errors(self, account_id: int) -> bool:
         """Clear error state for an account and mark as valid.
 
-        Called after a successful API response, so the token is known-good.
+        Called after a successful API response, so the token is known-good —
+        UNLESS the account carries a hard verdict (confirmed via a live
+        inference probe in validate_account), which a mere OAuth-family 200
+        (profile/usage fetch) cannot override: those endpoints prove the
+        token is alive, not that the account is entitled to run inference.
 
         >>> db = Database(":memory:")
         >>> acct = db.create_account("u@t.com", "tok", 9999999999)
@@ -1283,16 +1308,26 @@ class Database:
         'valid'
         """
         now = datetime.now(timezone.utc).isoformat()
+        placeholders = ", ".join("?" for _ in self._HARD_ERROR_CODES)
         with self._writer() as conn:
             cursor = conn.execute(
-                """UPDATE accounts SET
+                f"""UPDATE accounts SET
                     validation_status = 'valid',
                     last_error = NULL, last_error_at = NULL,
+                    last_error_code = NULL,
                     consecutive_failures = 0, last_used_at = ?,
                     last_validated_at = ?,
                     updated_at = ?
-                   WHERE id = ?""",
-                (now, int(time.time()), now, account_id),
+                   WHERE id = ? AND (last_error_code IS NULL OR last_error_code NOT IN ({placeholders}))""",
+                (now, int(time.time()), now, account_id, *self._HARD_ERROR_CODES),
+            )
+            if cursor.rowcount > 0:
+                return True
+            # A hard verdict blocked the update above — a poll still succeeded,
+            # so stamp last_used_at/updated_at without touching the verdict.
+            cursor = conn.execute(
+                "UPDATE accounts SET last_used_at = ?, updated_at = ? WHERE id = ?",
+                (now, now, account_id),
             )
             return cursor.rowcount > 0
 

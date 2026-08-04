@@ -77,7 +77,9 @@ export interface ManagerClient {
 	/** Soft-delete an account; jacked refuses to remove the primary while others are active. */
 	deleteAccount: (accountId: number) => Promise<{ ok: boolean; error?: string }>;
 	/** Re-check a stored credential without switching to it. */
-	validateAccount: (accountId: number) => Promise<{ ok: boolean; error?: string }>;
+	validateAccount: (
+		accountId: number,
+	) => Promise<{ ok: boolean; verdict: "good" | "bad" | "indeterminate"; error?: string }>;
 	/** Auto-swap priority: first id becomes highest priority. */
 	reorderAccounts: (accountIds: number[]) => Promise<{ ok: boolean; error?: string }>;
 	/** Re-run OAuth against an existing account row instead of adding a duplicate. */
@@ -478,11 +480,19 @@ export function createManagerClient(deps: CreateManagerClientDependencies): Mana
 		};
 	};
 
-	const mutate = async (
+	interface ManagerPostResult {
+		httpOk: boolean;
+		status: number;
+		payload: unknown;
+		transportFailed: boolean;
+	}
+
+	/** Transport half shared by `mutate` and the validate-specific parser below. */
+	const postJson = async (
 		path: string,
 		init: RequestInit,
 		timeoutMs: number = REQUEST_TIMEOUT_MS,
-	): Promise<{ ok: boolean; error?: string }> => {
+	): Promise<ManagerPostResult> => {
 		const controller = new AbortController();
 		const timeout = setTimeout(() => {
 			controller.abort();
@@ -495,31 +505,79 @@ export function createManagerClient(deps: CreateManagerClientDependencies): Mana
 			} catch {
 				payload = null;
 			}
-			if (!response.ok) {
-				const message =
-					isRecord(payload) && typeof payload.error === "string"
-						? payload.error
-						: isRecord(payload) && isRecord(payload.error) && typeof payload.error.message === "string"
-							? payload.error.message
-							: isRecord(payload) && typeof payload.detail === "string"
-								? payload.detail
-								: `Manager returned HTTP ${String(response.status)}.`;
-				return { ok: false, error: message };
-			}
-			if (isRecord(payload) && typeof payload.error === "string") {
-				return { ok: false, error: payload.error };
-			}
 			didWarnUnreachable = false;
-			return { ok: true };
+			return { httpOk: response.ok, status: response.status, payload, transportFailed: false };
 		} catch {
 			if (!didWarnUnreachable) {
 				didWarnUnreachable = true;
 				deps.warn(`Manager is not reachable at ${baseUrl}; office vitality data is disabled.`);
 			}
-			return { ok: false, error: "Manager is not reachable." };
+			return { httpOk: false, status: 0, payload: null, transportFailed: true };
 		} finally {
 			clearTimeout(timeout);
 		}
+	};
+
+	const readErrorMessage = (r: ManagerPostResult): string => {
+		const { payload } = r;
+		return isRecord(payload) && typeof payload.error === "string"
+			? payload.error
+			: isRecord(payload) && isRecord(payload.error) && typeof payload.error.message === "string"
+				? payload.error.message
+				: isRecord(payload) && typeof payload.detail === "string"
+					? payload.detail
+					: `Manager returned HTTP ${String(r.status)}.`;
+	};
+
+	const mutate = async (
+		path: string,
+		init: RequestInit,
+		timeoutMs: number = REQUEST_TIMEOUT_MS,
+	): Promise<{ ok: boolean; error?: string }> => {
+		const r = await postJson(path, init, timeoutMs);
+		if (r.transportFailed) {
+			return { ok: false, error: "Manager is not reachable." };
+		}
+		if (!r.httpOk) {
+			return { ok: false, error: readErrorMessage(r) };
+		}
+		if (isRecord(r.payload) && typeof r.payload.error === "string") {
+			return { ok: false, error: r.payload.error };
+		}
+		return { ok: true };
+	};
+
+	/**
+	 * Validate's 200 body carries `valid: boolean` — a `valid:false` result must
+	 * never read as success, and rows that are `valid:true` with a message
+	 * (rate-limited/indeterminate probe) need a third state so they aren't forced
+	 * into a binary ok/error reading. Transport aborts and the 504
+	 * VALIDATE_TIMEOUT envelope map to "indeterminate", never "bad" — a slow
+	 * server must never read as "your account is suspended".
+	 */
+	const parseValidateResponse = async (
+		path: string,
+		init: RequestInit,
+		timeoutMs: number,
+	): Promise<{ ok: boolean; verdict: "good" | "bad" | "indeterminate"; error?: string }> => {
+		const r = await postJson(path, init, timeoutMs);
+		if (r.transportFailed) {
+			return { ok: false, verdict: "indeterminate", error: "Manager is not reachable." };
+		}
+		if (!r.httpOk) {
+			return { ok: false, verdict: "indeterminate", error: readErrorMessage(r) };
+		}
+		if (!isRecord(r.payload)) {
+			return { ok: false, verdict: "indeterminate", error: "Manager returned an unreadable validate response." };
+		}
+		const error =
+			typeof r.payload.error === "string" && r.payload.error.trim() !== "" ? r.payload.error : undefined;
+		const rawVerdict = r.payload.verdict;
+		const verdict: "good" | "bad" | "indeterminate" =
+			rawVerdict === "bad" ? "bad" : rawVerdict === "indeterminate" ? "indeterminate" : "good";
+		// A legacy jacked build without `verdict` still can't lie: valid !== true => not ok.
+		const ok = r.payload.valid === true;
+		return { ok, verdict: ok ? verdict : verdict === "good" ? "bad" : verdict, ...(error ? { error } : {}) };
 	};
 
 	/**
@@ -700,7 +758,11 @@ export function createManagerClient(deps: CreateManagerClientDependencies): Mana
 		},
 		deleteAccount: async (accountId) => await mutate(`/api/auth/accounts/${String(accountId)}`, { method: "DELETE" }),
 		validateAccount: async (accountId) =>
-			await mutate(`/api/auth/accounts/${String(accountId)}/validate`, { method: "POST" }, LONG_REQUEST_TIMEOUT_MS),
+			await parseValidateResponse(
+				`/api/auth/accounts/${String(accountId)}/validate`,
+				{ method: "POST" },
+				LONG_REQUEST_TIMEOUT_MS,
+			),
 		reorderAccounts: async (accountIds) =>
 			await mutate("/api/auth/accounts/reorder", {
 				method: "POST",
