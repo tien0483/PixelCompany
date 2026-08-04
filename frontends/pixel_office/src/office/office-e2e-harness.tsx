@@ -422,7 +422,6 @@ export function OfficeE2eHarness(): ReactElement {
 	const [pressure, setPressure] = useState(0.35);
 	const manager = useMemo(() => buildFixtureManager(pressure), [pressure]);
 	const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
-	const [createClicks, setCreateClicks] = useState(0);
 	const [officeOpen, setOfficeOpen] = useState(true);
 
 	return (
@@ -466,7 +465,6 @@ export function OfficeE2eHarness(): ReactElement {
 				<span data-testid="office-e2e-selected-task">
 					selected: {selectedTaskId ?? "none"}
 				</span>
-				<span data-testid="office-e2e-create-count">creates: {createClicks}</span>
 			</div>
 
 			<KanbanShellChrome
@@ -510,7 +508,6 @@ export function OfficeE2eHarness(): ReactElement {
 									workspaceId="e2e-workspace"
 									manager={manager}
 									onSelectTask={setSelectedTaskId}
-									onCreateTask={() => setCreateClicks((count) => count + 1)}
 								/>
 							</div>
 						</aside>
