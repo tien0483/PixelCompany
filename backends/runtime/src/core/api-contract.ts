@@ -595,6 +595,8 @@ export const runtimeTaskWorkspaceMetadataSchema = z.object({
 	changedFiles: z.number().nullable(),
 	additions: z.number().nullable(),
 	deletions: z.number().nullable(),
+	/** Commits reachable from HEAD but not from baseRef; non-zero means there's a committed branch ready to merge even with a clean working tree. */
+	aheadOfBaseCount: z.number().nullable(),
 	stateVersion: z.number().int().nonnegative(),
 });
 export type RuntimeTaskWorkspaceMetadata = z.infer<typeof runtimeTaskWorkspaceMetadataSchema>;

@@ -4,7 +4,7 @@ import type {
 	RuntimeTaskWorkspaceMetadata,
 	RuntimeWorkspaceMetadata,
 } from "../core/api-contract";
-import { getGitSyncSummary, probeGitWorkspaceState } from "../workspace/git-sync";
+import { getCommitsAheadOfBaseRef, getGitSyncSummary, probeGitWorkspaceState } from "../workspace/git-sync";
 import { getTaskWorkspacePathInfo } from "../workspace/task-worktree";
 
 const WORKSPACE_METADATA_POLL_INTERVAL_MS = 1_000;
@@ -104,6 +104,7 @@ function areTaskMetadataEqual(a: RuntimeTaskWorkspaceMetadata, b: RuntimeTaskWor
 		a.changedFiles === b.changedFiles &&
 		a.additions === b.additions &&
 		a.deletions === b.deletions &&
+		a.aheadOfBaseCount === b.aheadOfBaseCount &&
 		a.stateVersion === b.stateVersion
 	);
 }
@@ -211,6 +212,7 @@ async function loadTaskWorkspaceMetadata(
 				changedFiles: null,
 				additions: null,
 				deletions: null,
+				aheadOfBaseCount: null,
 				stateVersion: Date.now(),
 			},
 			stateToken: null,
@@ -228,6 +230,7 @@ async function loadTaskWorkspaceMetadata(
 			return current;
 		}
 		const summary = await getGitSyncSummary(pathInfo.path, { probe });
+		const aheadOfBaseCount = await getCommitsAheadOfBaseRef(pathInfo.path, pathInfo.baseRef);
 		return {
 			data: {
 				taskId: task.taskId,
@@ -240,6 +243,7 @@ async function loadTaskWorkspaceMetadata(
 				changedFiles: summary.changedFiles,
 				additions: summary.additions,
 				deletions: summary.deletions,
+				aheadOfBaseCount,
 				stateVersion: Date.now(),
 			},
 			stateToken: probe.stateToken,
@@ -260,6 +264,7 @@ async function loadTaskWorkspaceMetadata(
 				changedFiles: null,
 				additions: null,
 				deletions: null,
+				aheadOfBaseCount: null,
 				stateVersion: Date.now(),
 			},
 			stateToken: null,

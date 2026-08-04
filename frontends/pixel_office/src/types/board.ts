@@ -102,6 +102,8 @@ export interface ReviewTaskWorkspaceSnapshot {
 	changedFiles: number | null;
 	additions: number | null;
 	deletions: number | null;
+	/** Commits reachable from HEAD but not from baseRef; non-zero means there's a committed branch ready to merge even with a clean working tree. */
+	aheadOfBaseCount: number | null;
 }
 
 export interface CardSelection {

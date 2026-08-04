@@ -498,6 +498,9 @@ export function BoardCard({
 				}
 		: null;
 	const showReviewGitActions = columnId === "review" && (reviewWorkspaceSnapshot?.changedFiles ?? 0) > 0;
+	const canMergeToBase =
+		columnId === "review" &&
+		((reviewWorkspaceSnapshot?.changedFiles ?? 0) > 0 || (reviewWorkspaceSnapshot?.aheadOfBaseCount ?? 0) > 0);
 	const isAnyGitActionLoading = isCommitLoading || isMergeLoading;
 	const cancelAutomaticActionLabel =
 		!isTrashCard && card.autoReviewEnabled ? getTaskAutoReviewCancelButtonLabel(card.autoReviewMode) : null;
@@ -982,7 +985,7 @@ export function BoardCard({
 									}
 								/>
 							) : null}
-							{showReviewGitActions && onMerge ? (
+							{canMergeToBase && onMerge ? (
 								<div className="flex mt-1.5">
 									<Button
 										size="sm"

@@ -285,6 +285,7 @@ describe("BoardCard", () => {
 			changedFiles: 2,
 			additions: 5,
 			deletions: 1,
+			aheadOfBaseCount: null,
 		};
 
 		await act(async () => {

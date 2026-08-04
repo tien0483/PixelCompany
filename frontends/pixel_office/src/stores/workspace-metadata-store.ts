@@ -71,6 +71,7 @@ function toTaskWorkspaceSnapshot(metadata: RuntimeTaskWorkspaceMetadata): Review
 		changedFiles: metadata.changedFiles,
 		additions: metadata.additions,
 		deletions: metadata.deletions,
+		aheadOfBaseCount: metadata.aheadOfBaseCount,
 	};
 }
 
@@ -147,7 +148,8 @@ function areTaskWorkspaceSnapshotsEqual(
 		a.headCommit === b.headCommit &&
 		a.changedFiles === b.changedFiles &&
 		a.additions === b.additions &&
-		a.deletions === b.deletions
+		a.deletions === b.deletions &&
+		a.aheadOfBaseCount === b.aheadOfBaseCount
 	);
 }
 
