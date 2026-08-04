@@ -769,7 +769,7 @@ body.kb-dependency-link-mode {
 
 .kb-diff-row {
 	display: grid;
-	grid-template-columns: 2rem minmax(0, 1fr);
+	grid-template-columns: minmax(2rem, max-content) minmax(0, 1fr);
 	gap: 8px;
 	padding: 1px 2px 1px 0;
 	line-height: 1.6;
@@ -789,8 +789,37 @@ body.kb-dependency-link-mode {
 	background: rgba(248, 81, 73, 0.25);
 }
 
+.kb-diff-gutter {
+	display: flex;
+	align-items: center;
+	justify-content: flex-end;
+	gap: 2px;
+	min-width: 2rem;
+	user-select: none;
+}
+
+.kb-diff-hunk-revert {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	flex-shrink: 0;
+	align-self: center;
+	width: 14px;
+	height: 14px;
+	padding: 0;
+	border: none;
+	background: transparent;
+	color: var(--color-text-tertiary);
+	cursor: pointer;
+}
+
+.kb-diff-hunk-revert:hover {
+	color: var(--color-text-secondary);
+}
+
 .kb-diff-line-number {
 	position: relative;
+	min-width: 2rem;
 	text-align: right;
 	user-select: none;
 }
