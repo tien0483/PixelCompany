@@ -69,7 +69,7 @@
     "test:precommit": "node ../../scripts/pm.mjs run test:fast",
     "test:watch": "vitest",
     "prepare": "husky",
-    "prepublishOnly": "node ../../scripts/pm.mjs run build && node ../../scripts/pm.mjs run check"
+    "prepublishOnly": "node ../../scripts/prepublish-only.mjs"
   },
   "license": "Apache-2.0",
   "devDependencies": {

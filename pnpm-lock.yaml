@@ -190,8 +190,8 @@ importers:
         specifier: ^0.5.2
         version: 0.5.2
       kanban:
-        specifier: file:../../backends/runtime
-        version: file:backends/runtime(typescript@5.9.3)
+        specifier: workspace:*
+        version: link:../../backends/runtime
       lucide-react:
         specifier: ^0.577.0
         version: 0.577.0(react@18.3.1)
@@ -3471,11 +3471,6 @@ packages:
 
   jws@4.0.1:
     resolution: {integrity: sha512-EKI/M/yqPncGUUh44xz0PxSidXFr/+r0pA70+gIYhjv+et7yxM+s29Y+VGDkovRofQem0fs7Uvf4+YmAdyRduA==}
-
-  kanban@file:backends/runtime:
-    resolution: {directory: backends/runtime, type: directory}
-    engines: {node: '>=22'}
-    hasBin: true
 
   lightningcss-android-arm64@1.31.1:
     resolution: {integrity: sha512-HXJF3x8w9nQ4jbXRiNppBCqeZPIAfUo8zE/kOEGbW5NZvGc/K7nMxbhIr+YlFlHW5mpbg/YFPdbnCh1wAXCKFg==}
@@ -8254,41 +8249,6 @@ snapshots:
     dependencies:
       jwa: 2.0.1
       safe-buffer: 5.2.1
-
-  kanban@file:backends/runtime(typescript@5.9.3):
-    dependencies:
-      '@clinebot/core': 0.0.38(@opentelemetry/core@2.7.1(@opentelemetry/api@1.9.0))
-      '@clinebot/shared': 0.0.38
-      '@modelcontextprotocol/sdk': 1.29.0(zod@4.4.3)
-      '@sentry/node': 10.45.0
-      '@trpc/client': 11.11.0(@trpc/server@11.11.0(typescript@5.9.3))(typescript@5.9.3)
-      '@trpc/server': 11.11.0(typescript@5.9.3)
-      '@xterm/addon-serialize': 0.14.0
-      '@xterm/headless': 6.0.0
-      commander: 14.0.3
-      node-pty: 1.2.0-beta.11
-      open: 11.0.0
-      ora: 9.3.0
-      proper-lockfile: 4.1.2
-      tree-kill: 1.2.2
-      undici: 8.9.0
-      ws: 8.20.0
-      zod: 4.4.3
-    optionalDependencies:
-      '@biomejs/cli-linux-arm64': 2.3.5
-      '@biomejs/cli-linux-arm64-musl': 2.3.5
-      '@biomejs/cli-linux-x64': 2.3.5
-      '@biomejs/cli-linux-x64-musl': 2.3.5
-      '@rolldown/binding-linux-x64-gnu': 1.0.0-rc.9
-    transitivePeerDependencies:
-      - '@aws-sdk/client-bedrock-runtime'
-      - '@cfworker/json-schema'
-      - '@opentelemetry/core'
-      - aws-crt
-      - bufferutil
-      - supports-color
-      - typescript
-      - utf-8-validate
 
   lightningcss-android-arm64@1.31.1:
     optional: true

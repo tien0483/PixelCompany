@@ -476,7 +476,7 @@ export function useRuntimeStateStream(requestedWorkspaceId: string | null): UseR
 						const managerPayload = payload as {
 							type: string;
 							manager?: RuntimeManagerState;
-							manager?: RuntimeManagerState;
+							jacked?: RuntimeManagerState;
 						};
 						dispatch({
 							type: "manager_state_updated",
