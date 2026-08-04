@@ -100,6 +100,8 @@ export interface StartTaskSessionRequest {
 	images?: RuntimeTaskImage[];
 	startInPlanMode?: boolean;
 	resumeFromTrash?: boolean;
+	/** Hydrate the CLI's own prior conversation via --continue on a normal (non-trash) start, e.g. restarting a live session on a new manager account. */
+	resumeFromPersistence?: boolean;
 	cols?: number;
 	rows?: number;
 	env?: Record<string, string | undefined>;
@@ -414,6 +416,7 @@ export class TerminalSessionManager implements TerminalSessionService {
 			images: request.images,
 			startInPlanMode: request.startInPlanMode,
 			resumeFromTrash: request.resumeFromTrash,
+			resumeFromPersistence: request.resumeFromPersistence,
 			env: request.env,
 			workspaceId: request.workspaceId,
 			taskLaunchSettings: request.taskLaunchSettings,

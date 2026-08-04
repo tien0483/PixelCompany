@@ -458,6 +458,8 @@ export function CardDetailView({
 	managerAccounts,
 	managerActiveAccountId = null,
 	onTaskManagerAccountChanged,
+	onRestartTaskWithAccount,
+	restartTaskLoadingById,
 	onTaskLaunchSettingsChanged,
 	onTaskAutoResumeOnUsageLimitChanged,
 }: {
@@ -544,6 +546,9 @@ export function CardDetailView({
 		taskId: string,
 		managerAccountId: number | null,
 	) => void;
+	/** Stops the live session and relaunches it pinned to the task's newly-picked manager account. */
+	onRestartTaskWithAccount?: (taskId: string) => void;
+	restartTaskLoadingById?: Record<string, boolean>;
 	onTaskLaunchSettingsChanged?: (
 		taskId: string,
 		settings: RuntimeTaskLaunchSettings | null,
@@ -662,6 +667,13 @@ export function CardDetailView({
 				},
 			),
 		[effectiveTaskAgentId, managerAccounts],
+	);
+	const pinnedManagerAccount = useMemo(
+		() =>
+			(managerAccounts ?? []).find(
+				(account) => account.id === selection.card.managerAccountId,
+			) ?? null,
+		[managerAccounts, selection.card.managerAccountId],
 	);
 	// Clear a pin the task can no longer use so Auto can resolve a seat instead:
 	// a cross-provider leftover (Claude seat on a Cursor task after an agent
@@ -1061,15 +1073,32 @@ export function CardDetailView({
 										);
 									}}
 								/>
-								{/* Only warn when the card has an explicit pin that differs from the running session. */}
+								{/* Only offer a restart when the card has an explicit pin that differs from the running session. */}
 								{typeof sessionSummary?.managerAccountId === "number" &&
 								typeof selection.card.managerAccountId === "number" &&
 								sessionSummary.managerAccountId !==
-									selection.card.managerAccountId ? (
-									<span className="text-[10px] text-text-tertiary">
-										running on account {sessionSummary.managerAccountId} —
-										restart to apply
-									</span>
+									selection.card.managerAccountId &&
+								(sessionSummary.state === "running" ||
+									sessionSummary.state === "awaiting_review") ? (
+									<button
+										type="button"
+										data-testid="restart-task-with-account"
+										disabled={
+											restartTaskLoadingById?.[selection.card.id] === true
+										}
+										onClick={() =>
+											onRestartTaskWithAccount?.(selection.card.id)
+										}
+										className="text-[10px] text-accent underline underline-offset-2 disabled:opacity-50 disabled:no-underline"
+									>
+										{restartTaskLoadingById?.[selection.card.id]
+											? "Restarting…"
+											: `Restart with ${
+													pinnedManagerAccount?.displayName ??
+													pinnedManagerAccount?.email ??
+													`account ${selection.card.managerAccountId}`
+												}`}
+									</button>
 								) : null}
 							</div>
 						) : null}
