@@ -4,6 +4,7 @@ import { ChevronDown, ChevronUp, Ellipsis, ExternalLink, Info, Plus } from "luci
 import { type MouseEvent as ReactMouseEvent, useCallback, useEffect, useRef, useState } from "react";
 import { canShowFeaturebaseFeedbackButton } from "@/components/featurebase-feedback-button";
 import { HomeSidebarManagerPanel, HomeSidebarManagerTab } from "@/components/home-sidebar-manager";
+import { HomeSidebarPlansPanel, HomeSidebarPlansTab } from "@/components/home-sidebar-plans";
 import askeeLogo from "@/assets/images/askee-logo.png";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
@@ -65,8 +66,8 @@ export function ProjectNavigationPanel({
 	isLoadingProjects?: boolean;
 	currentProjectId: string | null;
 	removingProjectId: string | null;
-	activeSection: "projects" | "manager";
-	onActiveSectionChange: (section: "projects" | "manager") => void;
+	activeSection: "projects" | "manager" | "plans";
+	onActiveSectionChange: (section: "projects" | "manager" | "plans") => void;
 	/** When true, Jacked tab treats the companion as reachable for mutations. */
 	managerOnline?: boolean;
 	/** Latest jacked snapshot from the runtime stream (may be stale when offline). */
@@ -314,7 +315,7 @@ export function ProjectNavigationPanel({
 					) : null}
 				</div>
 				<div className="mt-2 rounded-md bg-surface-2 border border-border p-1">
-					<div className="grid grid-cols-2 gap-1">
+					<div className="grid grid-cols-3 gap-1">
 						<button
 							type="button"
 							onClick={() => onActiveSectionChange("projects")}
@@ -330,6 +331,10 @@ export function ProjectNavigationPanel({
 						<HomeSidebarManagerTab
 							active={activeSection === "manager"}
 							onSelect={() => onActiveSectionChange("manager")}
+						/>
+						<HomeSidebarPlansTab
+							active={activeSection === "plans"}
+							onSelect={() => onActiveSectionChange("plans")}
 						/>
 					</div>
 				</div>
@@ -390,12 +395,14 @@ export function ProjectNavigationPanel({
 						featurebaseFeedbackState={featurebaseFeedbackState}
 					/>
 				</>
-			) : (
+			) : activeSection === "manager" ? (
 				<HomeSidebarManagerPanel
 					online={managerOnline}
 					manager={managerState}
 					settingsFocusToken={managerSettingsFocusToken}
 				/>
+			) : (
+				<HomeSidebarPlansPanel workspaceId={currentProjectId} />
 			)}
 			<AlertDialog
 				open={pendingProjectRemoval !== null}

@@ -52,6 +52,7 @@ import { createTerminalWebSocketBridge } from "../terminal/ws-server";
 import { type RuntimeTrpcContext, type RuntimeTrpcWorkspaceScope, runtimeAppRouter } from "../trpc/app-router";
 import { createHooksApi } from "../trpc/hooks-api";
 import { createManagerApi } from "../trpc/manager-api";
+import { createPlansApi } from "../trpc/plans-api";
 import { createProjectsApi } from "../trpc/projects-api";
 import { createRuntimeApi } from "../trpc/runtime-api";
 import { createWorkspaceApi } from "../trpc/workspace-api";
@@ -376,6 +377,9 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 				warn: deps.warn,
 				buildProjectsPayload: deps.workspaceRegistry.buildProjectsPayload,
 				pickDirectoryPathFromSystemDialog: deps.pickDirectoryPathFromSystemDialog,
+				serverCwd: process.cwd(),
+			}),
+			plansApi: createPlansApi({
 				serverCwd: process.cwd(),
 			}),
 			hooksApi: createHooksApi({

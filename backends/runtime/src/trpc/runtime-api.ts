@@ -46,6 +46,7 @@ import {
 import { isHomeAgentSessionId } from "../core/home-agent-session";
 import { resolveTaskTitle } from "../core/task-title.js";
 import { type ManagerDonateAccountLike, resolveManagerAccountPin } from "../manager/manager-account-pin";
+import { composePromptWithAttachedPlan } from "../prompts/compose-prompt-with-plan";
 import {
 	LEGACY_RUNTIME_HOME_PARENT_DIR_NAME,
 	RUNTIME_HOME_PARENT_DIR_NAME,
@@ -207,6 +208,19 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 				if (body.resumeFromTrash) {
 					deps.broadcastTaskChatCleared?.(workspaceScope.workspaceId, body.taskId);
 				}
+				let launchPrompt = body.prompt;
+				try {
+					launchPrompt = await composePromptWithAttachedPlan({
+						prompt: body.prompt,
+						planFilePath: body.resumeFromTrash ? null : body.planFilePath,
+					});
+				} catch (error) {
+					return {
+						ok: false,
+						summary: null,
+						error: error instanceof Error ? error.message : String(error),
+					};
+				}
 				const requestedClineTaskMode = body.mode ?? "act";
 				const scopedRuntimeConfig = await deps.loadScopedRuntimeConfig(workspaceScope);
 				// Chain followers run in their chain root's worktree: resolve the cwd from
@@ -272,7 +286,7 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 					const summary = await clineTaskSessionService.startTaskSession({
 						taskId: body.taskId,
 						cwd: taskCwd,
-						prompt: body.prompt,
+						prompt: launchPrompt,
 						taskTitle: resolvedClineTitle.length > 0 ? resolvedClineTitle : undefined,
 						images: body.images,
 						resumeFromTrash: body.resumeFromTrash,
@@ -357,7 +371,7 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 					args: resolved.args,
 					autonomousModeEnabled: scopedRuntimeConfig.agentAutonomousModeEnabled,
 					cwd: taskCwd,
-					prompt: body.prompt,
+					prompt: launchPrompt,
 					images: body.images,
 					startInPlanMode: body.startInPlanMode,
 					resumeFromTrash: body.resumeFromTrash,

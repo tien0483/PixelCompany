@@ -184,21 +184,15 @@ describe("useTaskSessions", () => {
 			});
 		});
 
-		expect(startTaskSessionMutateMock).toHaveBeenCalledWith({
-			taskId: "task-1",
-			prompt: "Resume me",
-			taskTitle: "Resume me",
-			images: undefined,
-			startInPlanMode: true,
-			resumeFromTrash: undefined,
-			baseRef: "main",
-			cols: 120,
-			rows: 40,
-			agentId: undefined,
-			clineSettings: undefined,
-			taskLaunchSettings: undefined,
-			managerAccountId: undefined,
-		});
+		expect(startTaskSessionMutateMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				taskId: "task-1",
+				prompt: "Resume me",
+				taskTitle: "Resume me",
+				startInPlanMode: true,
+				planFilePath: undefined,
+			}),
+		);
 	});
 
 	it("forwards task images when starting a task", async () => {

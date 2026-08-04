@@ -42,6 +42,8 @@ export interface BoardCard {
 	title: string;
 	prompt: string;
 	startInPlanMode: boolean;
+	/** Absolute path to a saved plan file the agent should read at session start. */
+	planFilePath?: string;
 	autoReviewEnabled?: boolean;
 	autoReviewMode?: TaskAutoReviewMode;
 	images?: TaskImage[];

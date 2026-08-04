@@ -21,6 +21,7 @@ import { useHotkeys } from "react-hotkeys-hook";
 
 import { BranchSelectDropdown } from "@/components/branch-select-dropdown";
 import type { BranchSelectOption } from "@/components/branch-select-dropdown";
+import { PlanPickerSelect } from "@/components/plan-picker-select";
 import { TaskAgentModelPicker, useTaskAgentModelPicker } from "@/components/task-agent-model-picker";
 import { TaskLaunchSettingsPicker } from "@/components/task-launch-settings";
 import { TaskPromptComposer } from "@/components/task-prompt-composer";
@@ -34,6 +35,7 @@ import type {
 	RuntimeAgentId,
 	RuntimeClineReasoningEffort,
 	RuntimeManagerAccount,
+	RuntimeSavedPlan,
 	RuntimeTaskClineSettings,
 	RuntimeTaskLaunchSettings,
 } from "@/runtime/types";
@@ -114,6 +116,9 @@ export function TaskCreateDialog({
 	onCreateStartAndOpen,
 	startInPlanMode,
 	onStartInPlanModeChange,
+	planFilePath = null,
+	onPlanFilePathChange,
+	savedPlans = [],
 	autoRunDelayMinutes,
 	onAutoRunDelayMinutesChange,
 	startInPlanModeDisabled = false,
@@ -149,6 +154,9 @@ export function TaskCreateDialog({
 	onCreateStartAndOpen?: (options?: { keepDialogOpen?: boolean }) => string | null;
 	startInPlanMode: boolean;
 	onStartInPlanModeChange: (value: boolean) => void;
+	planFilePath?: string | null;
+	onPlanFilePathChange?: (value: string | null) => void;
+	savedPlans?: RuntimeSavedPlan[];
 	/** Minutes until the created backlog card auto-starts; 0 = off. */
 	autoRunDelayMinutes: number;
 	onAutoRunDelayMinutesChange: (value: number) => void;
@@ -546,6 +554,14 @@ export function TaskCreateDialog({
 				)}
 
 				<div className="flex flex-col gap-2.5 mt-4 pt-4 border-t border-border">
+					{onPlanFilePathChange ? (
+						<PlanPickerSelect
+							id={startInPlanModeId + "-plan-file"}
+							plans={savedPlans}
+							value={planFilePath}
+							onChange={onPlanFilePathChange}
+						/>
+					) : null}
 					<label
 						htmlFor={startInPlanModeId}
 						className="flex items-center gap-2 text-[12px] text-text-primary cursor-pointer select-none"

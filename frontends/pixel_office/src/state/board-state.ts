@@ -28,6 +28,7 @@ export interface TaskDraft {
 	title?: string;
 	prompt: string;
 	startInPlanMode?: boolean;
+	planFilePath?: string | null;
 	autoReviewEnabled?: boolean;
 	autoReviewMode?: TaskAutoReviewMode;
 	images?: TaskImage[];
@@ -218,6 +219,7 @@ function normalizeCard(rawCard: unknown): BoardCard | null {
 		title?: unknown;
 		prompt?: unknown;
 		startInPlanMode?: unknown;
+		planFilePath?: unknown;
 		autoReviewEnabled?: unknown;
 		autoReviewMode?: unknown;
 		images?: unknown;
@@ -265,6 +267,9 @@ function normalizeCard(rawCard: unknown): BoardCard | null {
 		title,
 		prompt,
 		startInPlanMode: typeof card.startInPlanMode === "boolean" ? card.startInPlanMode : false,
+		...(typeof card.planFilePath === "string" && card.planFilePath.trim()
+			? { planFilePath: card.planFilePath.trim() }
+			: {}),
 		autoReviewEnabled: typeof card.autoReviewEnabled === "boolean" ? card.autoReviewEnabled : false,
 		autoReviewMode: resolveTaskAutoReviewMode(
 			typeof card.autoReviewMode === "string" ? (card.autoReviewMode as TaskAutoReviewMode) : undefined,
@@ -421,6 +426,9 @@ export function addTaskToColumnWithResult(
 			title: draft.title,
 			prompt,
 			startInPlanMode: draft.startInPlanMode,
+			...(typeof draft.planFilePath === "string" && draft.planFilePath.trim()
+				? { planFilePath: draft.planFilePath.trim() }
+				: {}),
 			autoReviewEnabled: draft.autoReviewEnabled,
 			autoReviewMode: draft.autoReviewMode,
 			images: draft.images,
@@ -679,6 +687,13 @@ export function updateTask(board: BoardData, taskId: string, draft: TaskDraft): 
 				baseRef,
 				updatedAt: Date.now(),
 			};
+			if (draft.planFilePath !== undefined) {
+				if (typeof draft.planFilePath === "string" && draft.planFilePath.trim()) {
+					nextCard.planFilePath = draft.planFilePath.trim();
+				} else {
+					delete nextCard.planFilePath;
+				}
+			}
 			if (clearCrossProviderPin) {
 				const { managerAccountId: _clearedPin, ...withoutPin } = nextCard;
 				return withoutPin;
