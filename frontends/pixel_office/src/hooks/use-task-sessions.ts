@@ -46,6 +46,8 @@ interface StartTaskSessionResult {
 
 interface StartTaskSessionOptions {
 	resumeFromTrash?: boolean;
+	/** Hydrate the CLI's own prior conversation via --continue, e.g. restarting a live session on a new manager account. */
+	resumeFromPersistence?: boolean;
 	/** Chain follower: run this session in the chain root's worktree instead of a fresh one. */
 	worktreeTaskId?: string;
 }
@@ -171,6 +173,7 @@ export function useTaskSessions({ currentProjectId, setSessions }: UseTaskSessio
 					images: options?.resumeFromTrash ? undefined : task.images,
 					startInPlanMode: options?.resumeFromTrash ? undefined : task.startInPlanMode,
 					resumeFromTrash: options?.resumeFromTrash,
+					resumeFromPersistence: options?.resumeFromPersistence,
 					baseRef: task.baseRef,
 					cols: geometry.cols,
 					rows: geometry.rows,

@@ -712,6 +712,8 @@ export default function App(): ReactElement {
 		handleSendReviewComments,
 		moveToTrashLoadingById,
 		trashTaskCount,
+		handleRestartTaskWithCurrentAccount,
+		restartTaskLoadingById,
 	} = useBoardInteractions({
 		board,
 		setBoard,
@@ -1542,6 +1544,8 @@ export default function App(): ReactElement {
 									managerAccounts={managedManagerAccounts}
 									managerActiveAccountId={manager?.activeAccountId ?? null}
 									onTaskManagerAccountChanged={handleTaskManagerAccountChanged}
+									onRestartTaskWithAccount={handleRestartTaskWithCurrentAccount}
+									restartTaskLoadingById={restartTaskLoadingById}
 									onTaskLaunchSettingsChanged={handleTaskLaunchSettingsChanged}
 									onTaskAutoResumeOnUsageLimitChanged={
 										handleTaskAutoResumeOnUsageLimitChanged

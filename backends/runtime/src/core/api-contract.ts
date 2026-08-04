@@ -1676,6 +1676,8 @@ export const runtimeTaskSessionStartRequestSchema = z.object({
 	startInPlanMode: z.boolean().optional(),
 	mode: runtimeTaskSessionModeSchema.optional(),
 	resumeFromTrash: z.boolean().optional(),
+	/** Hydrate prior persisted messages into a normal (non-trash) start, e.g. restarting a live session on a new manager account. */
+	resumeFromPersistence: z.boolean().optional(),
 	baseRef: z.string(),
 	cols: z.number().int().positive().optional(),
 	rows: z.number().int().positive().optional(),

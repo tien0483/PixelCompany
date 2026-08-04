@@ -107,6 +107,8 @@ export interface UseBoardInteractionsResult {
 	handleSendReviewComments: (taskId: string, text: string) => Promise<void>;
 	moveToTrashLoadingById: Record<string, boolean>;
 	trashTaskCount: number;
+	handleRestartTaskWithCurrentAccount: (taskId: string) => Promise<void>;
+	restartTaskLoadingById: Record<string, boolean>;
 }
 
 export function useBoardInteractions({
@@ -137,6 +139,7 @@ export function useBoardInteractions({
 		Record<string, PendingProgrammaticStartMoveCompletion>
 	>({});
 	const [moveToTrashLoadingById, setMoveToTrashLoadingById] = useState<Record<string, boolean>>({});
+	const [restartTaskLoadingById, setRestartTaskLoadingById] = useState<Record<string, boolean>>({});
 	const {
 		handleProgrammaticCardMoveReady,
 		setRequestMoveTaskToTrashHandler,
@@ -613,6 +616,33 @@ export function useBoardInteractions({
 		[board, ensureTaskWorkspace, setBoard, startTaskSession],
 	);
 
+	const handleRestartTaskWithCurrentAccount = useCallback(
+		async (taskId: string): Promise<void> => {
+			const selection = findCardSelection(board, taskId);
+			if (!selection) {
+				return;
+			}
+			setRestartTaskLoadingById((current) => ({ ...current, [taskId]: true }));
+			try {
+				await stopTaskSession(taskId);
+				const restarted = await startTaskSession(selection.card, { resumeFromPersistence: true });
+				if (!restarted.ok) {
+					notifyError(restarted.message ?? "Could not restart task session.");
+				}
+			} finally {
+				setRestartTaskLoadingById((current) => {
+					if (!current[taskId]) {
+						return current;
+					}
+					const next = { ...current };
+					delete next[taskId];
+					return next;
+				});
+			}
+		},
+		[board, stopTaskSession, startTaskSession],
+	);
+
 	const handleDragEnd = useCallback(
 		(result: DropResult, options?: { selectDroppedTask?: boolean }) => {
 			if (options?.selectDroppedTask && result.type.startsWith("CARD") && result.destination) {
@@ -1066,6 +1096,7 @@ export function useBoardInteractions({
 		previousSessionsRef.current = {};
 		moveToTrashLoadingByIdRef.current = {};
 		setMoveToTrashLoadingById({});
+		setRestartTaskLoadingById({});
 		for (const taskId of Object.keys(pendingProgrammaticStartMoveCompletionByTaskIdRef.current)) {
 			resolvePendingProgrammaticStartMove(taskId, false);
 		}
@@ -1101,5 +1132,7 @@ export function useBoardInteractions({
 		handleSendReviewComments,
 		moveToTrashLoadingById,
 		trashTaskCount,
+		handleRestartTaskWithCurrentAccount,
+		restartTaskLoadingById,
 	};
 }

@@ -53,6 +53,8 @@ export interface AgentAdapterLaunchInput {
 	images?: RuntimeTaskImage[];
 	startInPlanMode?: boolean;
 	resumeFromTrash?: boolean;
+	/** Hydrate the CLI's own prior conversation via --continue on a normal (non-trash) start. */
+	resumeFromPersistence?: boolean;
 	env?: Record<string, string | undefined>;
 	workspaceId?: string;
 	taskLaunchSettings?: RuntimeTaskLaunchSettings;
@@ -686,7 +688,7 @@ const claudeAdapter: AgentSessionAdapter = {
 		) {
 			args.push("--permission-mode", "auto");
 		}
-		if (input.resumeFromTrash && !hasCliOption(args, "--continue")) {
+		if ((input.resumeFromTrash || input.resumeFromPersistence) && !hasCliOption(args, "--continue")) {
 			args.push("--continue");
 		}
 		if (input.startInPlanMode) {
