@@ -246,6 +246,7 @@ describe("useClineChatPanelController", () => {
 			changedFiles: 2,
 			additions: 4,
 			deletions: 1,
+			aheadOfBaseCount: null,
 		});
 
 		await act(async () => {
@@ -281,6 +282,7 @@ describe("useClineChatPanelController", () => {
 			changedFiles: 1,
 			additions: 1,
 			deletions: 0,
+			aheadOfBaseCount: null,
 		});
 
 		await act(async () => {
@@ -308,6 +310,7 @@ describe("useClineChatPanelController", () => {
 				changedFiles: 0,
 				additions: 0,
 				deletions: 0,
+				aheadOfBaseCount: null,
 			});
 			await Promise.resolve();
 		});
