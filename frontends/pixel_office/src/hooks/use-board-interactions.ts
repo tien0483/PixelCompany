@@ -820,8 +820,25 @@ export function useBoardInteractions({
 			}
 			maybeRequestNotificationPermissionForTaskStart();
 			void kickoffTaskInProgress(headSelection.card, headId, "backlog", { optimisticMove: true });
+
+			// Pre-fetch workspace info for all chain followers queued in In Progress.
+			// Backlog tasks are not tracked by the metadata monitor, so when followers move
+			// to In Progress but haven't started yet, the frontend has no cached workspace info.
+			// Fetching early ensures the UI doesn't show "worktree not created yet" while followers
+			// wait to auto-start after the root completes.
+			const followersInProgress = orderedMemberIds.slice(1);
+			for (const followerId of followersInProgress) {
+				const followerSelection = findCardSelection(nextBoard, followerId);
+				if (followerSelection?.column.id === "in_progress") {
+					void fetchTaskWorkspaceInfo(followerSelection.card).then((info) => {
+						if (info) {
+							setTaskWorkspaceInfo(info);
+						}
+					});
+				}
+			}
 		},
-		[board, kickoffTaskInProgress, maybeRequestNotificationPermissionForTaskStart, setBoard],
+		[board, fetchTaskWorkspaceInfo, kickoffTaskInProgress, maybeRequestNotificationPermissionForTaskStart, setBoard],
 	);
 
 	const handleStartTask = useCallback(

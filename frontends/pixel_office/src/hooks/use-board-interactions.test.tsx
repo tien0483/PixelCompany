@@ -93,6 +93,7 @@ function HookHarness({
 	startTaskSession,
 	stopTaskSession = NOOP_STOP_SESSION,
 	cleanupTaskWorkspace = NOOP_CLEANUP_WORKSPACE,
+	fetchTaskWorkspaceInfo = NOOP_FETCH_WORKSPACE_INFO,
 	selectedCard = null,
 	setSelectedTaskIdOverride,
 	onSnapshot,
@@ -103,6 +104,7 @@ function HookHarness({
 	startTaskSession: UseTaskSessionsResult["startTaskSession"];
 	stopTaskSession?: (taskId: string) => Promise<void>;
 	cleanupTaskWorkspace?: (taskId: string) => Promise<unknown>;
+	fetchTaskWorkspaceInfo?: (task: BoardCard) => Promise<unknown>;
 	selectedCard?: { card: BoardCard; column: { id: "backlog" | "in_progress" | "review" | "trash" } } | null;
 	setSelectedTaskIdOverride?: Dispatch<SetStateAction<string | null>>;
 	onSnapshot?: (snapshot: HookSnapshot) => void;
@@ -127,7 +129,7 @@ function HookHarness({
 		cleanupTaskWorkspace,
 		ensureTaskWorkspace,
 		startTaskSession,
-		fetchTaskWorkspaceInfo: NOOP_FETCH_WORKSPACE_INFO,
+		fetchTaskWorkspaceInfo,
 		sendTaskSessionInput: NOOP_SEND_TASK_INPUT,
 		readyForReviewNotificationsEnabled: false,
 		taskGitActionLoadingByTaskId: {},
@@ -776,6 +778,151 @@ describe("useBoardInteractions", () => {
 		for (const task of trashTasks) {
 			expect(stopTaskSession).toHaveBeenCalledWith(task.id);
 			expect(cleanupTaskWorkspace).toHaveBeenCalledWith(task.id);
+		}
+	});
+
+	it("pre-fetches workspace info for chain followers when running a chain", async () => {
+		let latestSnapshot: HookSnapshot | null = null;
+		let startBacklogTaskWithAnimation: ((task: BoardCard) => Promise<boolean>) | null = null;
+
+		useProgrammaticCardMovesMock.mockReturnValue({
+			handleProgrammaticCardMoveReady: () => {},
+			setRequestMoveTaskToTrashHandler: () => {},
+			tryProgrammaticCardMove: () => "unavailable",
+			consumeProgrammaticCardMove: () => ({}),
+			resolvePendingProgrammaticTrashMove: () => {},
+			waitForProgrammaticCardMoveAvailability: async () => {},
+			resetProgrammaticCardMoves: () => {},
+			requestMoveTaskToTrashWithAnimation: async () => {},
+			programmaticCardMoveCycle: 0,
+		});
+
+		useLinkedBacklogTaskActionsMock.mockImplementation(
+			(input: { startBacklogTaskWithAnimation?: (task: BoardCard) => Promise<boolean> }) => {
+				startBacklogTaskWithAnimation = input.startBacklogTaskWithAnimation ?? null;
+				return {
+					handleCreateDependency: () => {},
+					handleDeleteDependency: () => {},
+					confirmMoveTaskToTrash: async () => {},
+					requestMoveTaskToTrash: async () => {},
+				};
+			},
+		);
+
+		// Create 3 chain tasks: hello → hello1 → hello2
+		const helloTask = createTask("hello", "Chain root", 1);
+		const hello1Task = createTask("hello1", "Chain follower 1", 2);
+		const hello2Task = createTask("hello2", "Chain follower 2", 3);
+
+		const board: BoardData = {
+			columns: [
+				{
+					id: "backlog",
+					title: "Backlog",
+					cards: [helloTask, hello1Task, hello2Task],
+				},
+				{ id: "in_progress", title: "In Progress", cards: [] },
+				{ id: "review", title: "Review", cards: [] },
+				{ id: "trash", title: "Done", cards: [] },
+			],
+			// Chain dependencies: hello (root) → hello1 → hello2
+			dependencies: [
+				{
+					id: "dep-1",
+					fromTaskId: "hello1",
+					toTaskId: "hello",
+					chain: true,
+					createdAt: 1,
+				},
+				{
+					id: "dep-2",
+					fromTaskId: "hello2",
+					toTaskId: "hello1",
+					chain: true,
+					createdAt: 2,
+				},
+			],
+		};
+
+		const setBoard = vi.fn<Dispatch<SetStateAction<BoardData>>>((nextBoardFn) => {
+			// Simulate board update for test
+		});
+
+		const ensureTaskWorkspace = vi.fn(async () => ({
+			ok: true as const,
+			response: {
+				ok: true as const,
+				path: "/tmp/task",
+				baseRef: "main",
+				baseCommit: "abc123",
+			},
+		}));
+
+		const startTaskSession = vi.fn(async () => ({ ok: true as const }));
+
+		// Track workspace info fetches
+		const fetchTaskWorkspaceInfo = vi.fn(async (task: BoardCard) => ({
+			taskId: task.id,
+			path: `/tmp/${task.id}`,
+			exists: true,
+			baseRef: "main",
+			branch: "task-branch",
+			isDetached: true,
+			headCommit: "def456",
+		}));
+
+		const container = document.createElement("div");
+		document.body.appendChild(container);
+		const root = createRoot(container);
+
+		try {
+			await act(async () => {
+				root.render(
+					<HookHarness
+						board={board}
+						setBoard={setBoard}
+						ensureTaskWorkspace={ensureTaskWorkspace}
+						startTaskSession={startTaskSession}
+						fetchTaskWorkspaceInfo={fetchTaskWorkspaceInfo}
+						onSnapshot={(snapshot) => {
+							latestSnapshot = snapshot;
+						}}
+					/>,
+				);
+			});
+
+			if (!latestSnapshot) {
+				throw new Error("Expected a hook snapshot.");
+			}
+
+			// Start the chain by calling handleStartTask on the root
+			await act(async () => {
+				latestSnapshot!.handleStartTask("hello");
+			});
+
+			// Verify workspace info was fetched for followers
+			// hello1 and hello2 should have their workspace info pre-fetched
+			expect(fetchTaskWorkspaceInfo).toHaveBeenCalledWith(
+				expect.objectContaining({ id: "hello1" }),
+			);
+			expect(fetchTaskWorkspaceInfo).toHaveBeenCalledWith(
+				expect.objectContaining({ id: "hello2" }),
+			);
+
+			// Root (hello) should also be ensured
+			expect(ensureTaskWorkspace).toHaveBeenCalledWith(
+				expect.objectContaining({ id: "hello" }),
+				expect.objectContaining({ worktreeTaskId: "hello" }),
+			);
+
+			// Root task should be started
+			expect(startTaskSession).toHaveBeenCalledWith(
+				expect.objectContaining({ id: "hello" }),
+				expect.anything(),
+			);
+		} finally {
+			root.unmount();
+			document.body.removeChild(container);
 		}
 	});
 });
