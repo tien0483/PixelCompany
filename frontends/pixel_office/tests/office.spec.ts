@@ -29,22 +29,16 @@ test.beforeAll(async () => {
 	await mkdir(screenshotDir, { recursive: true });
 });
 
-test("office harness captures overview, meters, desks, and intake CTA", async ({ page }) => {
+test("office harness captures overview and desks", async ({ page }) => {
 	const canvas = await waitForOfficeCanvas(page);
 
 	await expect(page.getByTestId("office-e2e-kanban-shell")).toBeVisible();
 	await expect(page.getByTestId("office-e2e-topbar")).toBeVisible();
 	await expect(page.getByText("npx kanban · e2e shell")).toBeVisible();
 	await expect(page.getByTestId("toggle-office-button")).toBeVisible();
-	// PixelOffice is Claude-only: the meter wall shows the Claude fleet and no other
-	// provider. Scoped to the wall because each account row also prints "Claude".
-	await expect(page.getByTestId("office-meter-wall").getByText("Claude", { exact: true })).toBeVisible();
-	await expect(page.getByText("Codex", { exact: true })).toHaveCount(0);
-	await expect(page.getByText("Antigravity", { exact: true })).toHaveCount(0);
-	await expect(page.getByText("Cursor", { exact: true })).toHaveCount(0);
-	await expect(page.getByTestId("office-intake-cta")).toBeVisible();
-	await expect(page.getByTestId("office-shift-label")).toBeVisible();
-	await expect(page.getByTestId("office-vault-label")).toBeVisible();
+	await expect(page.getByTestId("office-floor")).toBeVisible();
+	await expect(page.getByTestId("office-meter-wall")).toHaveCount(0);
+	await expect(page.getByTestId("office-intake-cta")).toHaveCount(0);
 
 	await page.screenshot({
 		path: join(screenshotDir, "office-overview.png"),
@@ -56,12 +50,6 @@ test("office harness captures overview, meters, desks, and intake CTA", async ({
 	await page.getByTestId("office-canvas").screenshot({
 		path: join(screenshotDir, "office-agents-desks.png"),
 	});
-	await page.getByTestId("office-meter-wall").screenshot({
-		path: join(screenshotDir, "office-meter-wall.png"),
-	});
-	await page.getByTestId("office-intake-cta").screenshot({
-		path: join(screenshotDir, "office-intake-cta.png"),
-	});
 	await page.getByTestId("office-e2e-chrome").screenshot({
 		path: join(screenshotDir, "office-pressure-slider.png"),
 	});
@@ -69,11 +57,10 @@ test("office harness captures overview, meters, desks, and intake CTA", async ({
 		path: join(screenshotDir, "office-kanban-topbar.png"),
 	});
 });
-test("intake desk CTA increments create counter", async ({ page }) => {
+
+test("select sample task updates selection chrome", async ({ page }) => {
 	await waitForOfficeCanvas(page);
-	await expect(page.getByTestId("office-e2e-create-count")).toHaveText("creates: 0");
-	await page.getByTestId("office-intake-cta").click();
-	await expect(page.getByTestId("office-e2e-create-count")).toHaveText("creates: 1");
+	await expect(page.getByTestId("office-e2e-selected-task")).toHaveText("selected: none");
 
 	await page.getByTestId("office-e2e-select-sample").click();
 	await expect(page.getByTestId("office-e2e-selected-task")).toHaveText(
@@ -89,7 +76,6 @@ test("high usage pressure dims the office atmosphere", async ({ page }) => {
 
 	await page.getByTestId("office-e2e-pressure").fill("92");
 	await expect(page.getByTestId("office-e2e-pressure-value")).toHaveText("92%");
-	await expect(page.getByTestId("office-night-shift-label")).toBeVisible();
 	await expect(page.getByTestId("office-atmosphere")).toBeVisible();
 
 	await page.screenshot({
@@ -100,9 +86,6 @@ test("high usage pressure dims the office atmosphere", async ({ page }) => {
 		path: join(screenshotDir, "office-night-shift.png"),
 		fullPage: true,
 	});
-	await page.getByTestId("office-meter-wall").screenshot({
-		path: join(screenshotDir, "office-shift-vault.png"),
-	});
 });
 
 test("low usage pressure keeps atmosphere clear", async ({ page }) => {
@@ -110,7 +93,6 @@ test("low usage pressure keeps atmosphere clear", async ({ page }) => {
 
 	await page.getByTestId("office-e2e-pressure").fill("20");
 	await expect(page.getByTestId("office-e2e-pressure-value")).toHaveText("20%");
-	await expect(page.getByTestId("office-night-shift-label")).toHaveCount(0);
 	await expect(page.getByTestId("office-atmosphere")).toHaveCount(0);
 
 	await page.screenshot({

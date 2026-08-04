@@ -501,8 +501,20 @@ describe("DiffViewerPanel", () => {
 			);
 		});
 
+		const revertControl = query('[aria-label="Revert hunk 1"]');
+		expect(revertControl).toBeInstanceOf(HTMLButtonElement);
+
+		const hunkRow = revertControl?.closest(".kb-diff-row");
+		expect(hunkRow).toBeInstanceOf(HTMLElement);
+		const gutter = hunkRow?.querySelector(":scope > .kb-diff-gutter");
+		const code = hunkRow?.querySelector(":scope > .kb-diff-text");
+		expect(gutter).toBeInstanceOf(HTMLElement);
+		expect(code).toBeInstanceOf(HTMLElement);
+		expect(gutter?.contains(revertControl!)).toBe(true);
+		expect(hunkRow?.children.length).toBe(2);
+
 		await act(async () => {
-			query('[aria-label="Revert hunk 1"]')?.dispatchEvent(
+			revertControl?.dispatchEvent(
 				new MouseEvent("click", { bubbles: true }),
 			);
 		});

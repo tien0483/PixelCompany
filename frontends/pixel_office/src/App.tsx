@@ -1397,7 +1397,6 @@ export default function App(): ReactElement {
 														workspaceId={currentProjectId}
 														manager={manager}
 														onSelectTask={handleCardSelect}
-														onCreateTask={handleOpenCreateTask}
 													/>
 												}
 											/>
