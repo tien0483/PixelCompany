@@ -1,5 +1,5 @@
 import { ArrowDown, ArrowUp, Cloud, GitBranch, Locate } from "lucide-react";
-import { useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
 import { Virtuoso } from "react-virtuoso";
 
@@ -273,6 +273,8 @@ export function GitCommitListPanel({
 	panelWidth,
 	onSelectCommit,
 	onLoadMore,
+	headBranchName = null,
+	onCherryPickCommit,
 }: {
 	commits: RuntimeGitCommit[];
 	totalCount: number;
@@ -285,7 +287,34 @@ export function GitCommitListPanel({
 	panelWidth: number;
 	onSelectCommit: (commit: RuntimeGitCommit) => void;
 	onLoadMore?: () => void;
+	headBranchName?: string | null;
+	onCherryPickCommit?: (commitHash: string) => void;
 }): React.ReactElement {
+	const [contextMenu, setContextMenu] = useState<{
+		commitHash: string;
+		x: number;
+		y: number;
+	} | null>(null);
+
+	useEffect(() => {
+		if (!contextMenu) {
+			return;
+		}
+		const close = (): void => setContextMenu(null);
+		const onKeyDown = (event: KeyboardEvent): void => {
+			if (event.key === "Escape") {
+				setContextMenu(null);
+			}
+		};
+		window.addEventListener("resize", close);
+		window.addEventListener("keydown", onKeyDown);
+		return () => {
+			window.removeEventListener("resize", close);
+			window.removeEventListener("keydown", onKeyDown);
+		};
+	}, [contextMenu]);
+
+	const canCherryPick = Boolean(onCherryPickCommit && headBranchName);
 	const refsByHash = useMemo(() => {
 		const map = new Map<string, RuntimeGitRef[]>();
 		for (const ref of refs) {
@@ -453,6 +482,19 @@ export function GitCommitListPanel({
 									key={commit.hash}
 									type="button"
 									onClick={() => onSelectCommit(commit)}
+									onContextMenu={
+										canCherryPick
+											? (event) => {
+													event.preventDefault();
+													event.stopPropagation();
+													setContextMenu({
+														commitHash: commit.hash,
+														x: event.clientX,
+														y: event.clientY,
+													});
+												}
+											: undefined
+									}
 									className={isSelected ? "kb-git-commit-row kb-git-commit-row-selected" : "kb-git-commit-row"}
 									style={{
 										position: "relative",
@@ -676,6 +718,47 @@ export function GitCommitListPanel({
 					/>
 				)}
 			</div>
+			{contextMenu && canCherryPick && headBranchName ? (
+				<>
+					<div
+						style={{ position: "fixed", inset: 0, zIndex: 60 }}
+						onClick={() => setContextMenu(null)}
+						onContextMenu={(event) => {
+							event.preventDefault();
+							setContextMenu(null);
+						}}
+					/>
+					<div
+						role="menu"
+						className="kb-branch-context-menu"
+						style={{
+							position: "fixed",
+							top: contextMenu.y,
+							left: contextMenu.x,
+							zIndex: 61,
+							minWidth: 176,
+							padding: 4,
+							borderRadius: 6,
+							border: "1px solid var(--color-border)",
+							background: "var(--color-surface-2)",
+							boxShadow: "0 8px 24px rgba(0, 0, 0, 0.4)",
+						}}
+					>
+						<button
+							type="button"
+							role="menuitem"
+							className="kb-branch-context-menu-item"
+							onClick={() => {
+								onCherryPickCommit?.(contextMenu.commitHash);
+								setContextMenu(null);
+							}}
+						>
+							<GitBranch size={13} aria-hidden />
+							<span>Cherry pick onto {headBranchName}</span>
+						</button>
+					</div>
+				</>
+			) : null}
 		</div>
 	);
 }

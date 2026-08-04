@@ -107,6 +107,7 @@ export interface UseGitActionsResult {
 		newBranch: string;
 		startPoint: string;
 	}) => Promise<void>;
+	cherryPickOntoHomeHead: (commitHash: string) => Promise<void>;
 	mergeHomeBranchIntoCurrent: (branch: string) => Promise<void>;
 	rebaseHomeCurrentOnto: (branch: string) => Promise<void>;
 	discardHomeWorkingChanges: () => Promise<void>;
@@ -1107,6 +1108,59 @@ export function useGitActions({
 		],
 	);
 
+	const cherryPickOntoHomeHead = useCallback(
+		async (commitHash: string) => {
+			const normalizedHash = commitHash.trim();
+			const targetBranch = homeGitSummary?.currentBranch ?? null;
+			if (!currentProjectId || !normalizedHash || !targetBranch) {
+				showAppToast({
+					intent: "warning",
+					icon: "warning-sign",
+					message: !targetBranch
+						? "Checkout a branch before cherry-picking."
+						: "Missing commit hash for cherry-pick.",
+					timeout: 6000,
+				});
+				return;
+			}
+			try {
+				const trpcClient = getRuntimeTrpcClient(currentProjectId);
+				const payload = await trpcClient.workspace.cherryPickCommit.mutate({
+					commitHash: normalizedHash,
+					targetBranch,
+				});
+				if (!payload.ok) {
+					showAppToast({
+						intent: "danger",
+						icon: "warning-sign",
+						message: payload.error ?? "Cherry-pick failed.",
+						timeout: 8000,
+					});
+					return;
+				}
+				if (payload.summary) {
+					setHomeGitSummary(payload.summary);
+				}
+				refreshGitHistory();
+				showAppToast({
+					intent: "success",
+					icon: "tick",
+					message: `Cherry-picked ${normalizedHash.slice(0, 7)} onto ${targetBranch}.`,
+					timeout: 5000,
+				});
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error);
+				showAppToast({
+					intent: "danger",
+					icon: "warning-sign",
+					message: `Cherry-pick failed. ${message}`,
+					timeout: 8000,
+				});
+			}
+		},
+		[currentProjectId, homeGitSummary?.currentBranch, refreshGitHistory],
+	);
+
 	const mergeHomeBranchIntoCurrent = useCallback(
 		async (branch: string) => {
 			const normalizedBranch = branch.trim();
@@ -1509,6 +1563,7 @@ export function useGitActions({
 		switchHomeBranch,
 		deleteHomeBranch,
 		createHomeBranch,
+		cherryPickOntoHomeHead,
 		mergeHomeBranchIntoCurrent,
 		rebaseHomeCurrentOnto,
 		discardHomeWorkingChanges,

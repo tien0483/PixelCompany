@@ -298,6 +298,34 @@ describe("workspaceApi.cherryPickCommit", () => {
 		expect(broadcast).toHaveBeenCalledWith("ws-1", "/repo");
 		expect(res.ok).toBe(true);
 	});
+
+	it("accepts cherry-pick without taskId or baseRef (home git view)", async () => {
+		worktreeInventoryMocks.listGitWorktrees.mockResolvedValue({
+			ok: true,
+			worktrees: [{ path: "/repo", branch: "main" }],
+		});
+		gitSyncMocks.runGitCherryPickAction.mockResolvedValue({
+			ok: true,
+			commitHash: "abcdef1234567",
+			targetBranch: "main",
+			summary: SUMMARY,
+			output: "",
+		});
+		const { api, broadcast } = makeApi();
+
+		const res = await api.cherryPickCommit(SCOPE, {
+			commitHash: "abcdef1234567",
+			targetBranch: "main",
+		});
+
+		expect(gitSyncMocks.runGitCherryPickAction).toHaveBeenCalledWith({
+			cwd: "/repo",
+			commitHash: "abcdef1234567",
+			targetBranch: "main",
+		});
+		expect(broadcast).toHaveBeenCalledWith("ws-1", "/repo");
+		expect(res.ok).toBe(true);
+	});
 });
 
 describe("workspaceApi.pushGitBranch", () => {

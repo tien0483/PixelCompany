@@ -231,27 +231,21 @@ export function parseGitRebaseCurrentOntoRequest(value: unknown): RuntimeGitReba
 
 export function parseGitCherryPickRequest(value: unknown): RuntimeGitCherryPickRequest {
 	const parsed = parseWithSchema(runtimeGitCherryPickRequestSchema, value);
-	const taskId = parsed.taskId.trim();
-	const baseRef = parsed.baseRef.trim();
 	const commitHash = parsed.commitHash.trim();
 	const targetBranch = parsed.targetBranch.trim();
-	if (!taskId) {
-		throw new Error("Task id cannot be empty.");
-	}
-	if (!baseRef) {
-		throw new Error("Base ref cannot be empty.");
-	}
 	if (!commitHash) {
 		throw new Error("Commit hash cannot be empty.");
 	}
 	if (!targetBranch) {
 		throw new Error("Target branch cannot be empty.");
 	}
+	const taskId = parsed.taskId?.trim();
+	const baseRef = parsed.baseRef?.trim();
 	return {
-		taskId,
-		baseRef,
 		commitHash,
 		targetBranch,
+		taskId: taskId && taskId.length > 0 ? taskId : undefined,
+		baseRef: baseRef && baseRef.length > 0 ? baseRef : undefined,
 	};
 }
 

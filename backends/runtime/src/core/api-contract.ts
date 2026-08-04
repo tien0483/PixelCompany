@@ -381,8 +381,8 @@ export const runtimeGitRebaseCurrentOntoResponseSchema = z.object({
 export type RuntimeGitRebaseCurrentOntoResponse = z.infer<typeof runtimeGitRebaseCurrentOntoResponseSchema>;
 
 export const runtimeGitCherryPickRequestSchema = z.object({
-	taskId: z.string(),
-	baseRef: z.string(),
+	taskId: z.string().optional(),
+	baseRef: z.string().optional(),
 	commitHash: z.string().min(7),
 	targetBranch: z.string().min(1),
 });

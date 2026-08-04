@@ -476,6 +476,7 @@ export default function App(): ReactElement {
 		isDeletingHomeBranch,
 		createHomeBranch,
 		isCreatingHomeBranch,
+		cherryPickOntoHomeHead,
 		mergeHomeBranchIntoCurrent,
 		rebaseHomeCurrentOnto,
 		discardHomeWorkingChanges,
@@ -1297,6 +1298,9 @@ export default function App(): ReactElement {
 												}}
 												onRebaseCurrentOnto={(branch) => {
 													void rebaseHomeCurrentOnto(branch);
+												}}
+												onCherryPickCommit={(commitHash) => {
+													void cherryPickOntoHomeHead(commitHash);
 												}}
 												onDiscardWorkingChanges={() => {
 													void discardHomeWorkingChanges();

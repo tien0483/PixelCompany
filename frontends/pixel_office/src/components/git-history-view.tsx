@@ -81,6 +81,7 @@ interface GitHistoryViewProps {
 	onRebaseCurrentOnto?: (branch: string) => void;
 	onDiscardWorkingChanges?: () => void;
 	isDiscardWorkingChangesPending?: boolean;
+	onCherryPickCommit?: (commitHash: string) => void;
 }
 
 export function GitHistoryView({
@@ -95,6 +96,7 @@ export function GitHistoryView({
 	onRebaseCurrentOnto,
 	onDiscardWorkingChanges,
 	isDiscardWorkingChangesPending = false,
+	onCherryPickCommit,
 }: GitHistoryViewProps): React.ReactElement {
 	const [isDiscardAlertOpen, setIsDiscardAlertOpen] = useState(false);
 	const [branchPendingDelete, setBranchPendingDelete] = useState<string | null>(null);
@@ -235,6 +237,8 @@ export function GitHistoryView({
 				panelWidth={displayCommitsPanelWidth}
 				onSelectCommit={gitHistory.selectCommit}
 				onLoadMore={gitHistory.loadMoreCommits}
+				headBranchName={gitHistory.refs.find((r) => r.isHead && r.type === "branch")?.name ?? null}
+				onCherryPickCommit={onCherryPickCommit}
 			/>
 			<ResizeHandle
 				orientation="vertical"

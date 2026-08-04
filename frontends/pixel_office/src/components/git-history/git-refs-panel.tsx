@@ -116,7 +116,12 @@ export function GitRefsPanel({
 	isRefreshing?: boolean;
 }): React.ReactElement {
 	const [searchQuery, setSearchQuery] = useState("");
-	const [contextMenu, setContextMenu] = useState<{ branch: string; x: number; y: number } | null>(null);
+	const [contextMenu, setContextMenu] = useState<{
+		branch: string;
+		x: number;
+		y: number;
+		kind: "local" | "remote";
+	} | null>(null);
 	const [createFromRef, setCreateFromRef] = useState<string | null>(null);
 	const [newBranchName, setNewBranchName] = useState("");
 
@@ -138,17 +143,32 @@ export function GitRefsPanel({
 		};
 	}, [contextMenu]);
 
-	const openBranchContextMenu = (branch: string, event: React.MouseEvent): void => {
-		if (!onCheckoutRef && !onDeleteRef && !onCreateBranch && !onMergeIntoCurrent && !onRebaseCurrentOnto) {
+	const openBranchContextMenu = (
+		branch: string,
+		event: React.MouseEvent,
+		kind: "local" | "remote",
+	): void => {
+		if (kind === "remote") {
+			if (!onCheckoutRef && !onCreateBranch) {
+				return;
+			}
+		} else if (
+			!onCheckoutRef &&
+			!onDeleteRef &&
+			!onCreateBranch &&
+			!onMergeIntoCurrent &&
+			!onRebaseCurrentOnto
+		) {
 			return;
 		}
 		event.preventDefault();
-		setContextMenu({ branch, x: event.clientX, y: event.clientY });
+		setContextMenu({ branch, x: event.clientX, y: event.clientY, kind });
 	};
 
 	const hasBranchContextActions = Boolean(
 		onCheckoutRef || onDeleteRef || onCreateBranch || onMergeIntoCurrent || onRebaseCurrentOnto,
 	);
+	const hasRemoteContextActions = Boolean(onCheckoutRef || onCreateBranch);
 
 	const confirmCreateBranch = (): void => {
 		const trimmedName = newBranchName.trim();
@@ -312,7 +332,7 @@ export function GitRefsPanel({
 								onSelect={() => onSelectRef(headBranch)}
 								onContextMenu={
 									hasBranchContextActions
-										? (event) => openBranchContextMenu(headBranch.name, event)
+										? (event) => openBranchContextMenu(headBranch.name, event, "local")
 										: undefined
 								}
 							>
@@ -367,7 +387,7 @@ export function GitRefsPanel({
 									onDoubleClick={onCheckoutRef ? () => onCheckoutRef(ref.name) : undefined}
 									onContextMenu={
 										hasBranchContextActions
-											? (event) => openBranchContextMenu(ref.name, event)
+											? (event) => openBranchContextMenu(ref.name, event, "local")
 											: undefined
 									}
 								>
@@ -390,7 +410,17 @@ export function GitRefsPanel({
 								{filteredRemoteRefs.map((ref) => {
 									const isSelected = !isWorkingCopySelected && selectedRefName === ref.name;
 									return (
-										<RefRow key={ref.name} isSelected={isSelected} onSelect={() => onSelectRef(ref)}>
+										<RefRow
+											key={ref.name}
+											isSelected={isSelected}
+											onSelect={() => onSelectRef(ref)}
+											onDoubleClick={onCheckoutRef ? () => onCheckoutRef(ref.name) : undefined}
+											onContextMenu={
+												hasRemoteContextActions
+													? (event) => openBranchContextMenu(ref.name, event, "remote")
+													: undefined
+											}
+										>
 											<Cloud size={12} />
 											<span className="kb-line-clamp-1" style={{ flex: 1 }}>
 												{renderFuzzyHighlightedText(
@@ -443,7 +473,9 @@ export function GitRefsPanel({
 							: undefined
 					}
 					onMergeIntoCurrent={
-						onMergeIntoCurrent && contextMenu.branch !== headBranch?.name
+						contextMenu.kind === "local" &&
+						onMergeIntoCurrent &&
+						contextMenu.branch !== headBranch?.name
 							? () => {
 									onMergeIntoCurrent(contextMenu.branch);
 									setContextMenu(null);
@@ -451,7 +483,9 @@ export function GitRefsPanel({
 							: undefined
 					}
 					onRebaseCurrentOnto={
-						onRebaseCurrentOnto && contextMenu.branch !== headBranch?.name
+						contextMenu.kind === "local" &&
+						onRebaseCurrentOnto &&
+						contextMenu.branch !== headBranch?.name
 							? () => {
 									onRebaseCurrentOnto(contextMenu.branch);
 									setContextMenu(null);
@@ -459,7 +493,7 @@ export function GitRefsPanel({
 							: undefined
 					}
 					onDelete={
-						onDeleteRef
+						contextMenu.kind === "local" && onDeleteRef
 							? () => {
 									onDeleteRef(contextMenu.branch);
 									setContextMenu(null);

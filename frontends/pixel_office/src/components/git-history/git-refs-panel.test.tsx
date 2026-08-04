@@ -16,6 +16,12 @@ function renderUi(element: ReactElement): void {
 
 const HEAD_BRANCH: RuntimeGitRef = { name: "master", type: "branch", hash: "aaaa", isHead: true };
 const FEATURE_BRANCH: RuntimeGitRef = { name: "feature/login", type: "branch", hash: "bbbb", isHead: false };
+const REMOTE_REF: RuntimeGitRef = {
+	name: "origin/feature/login",
+	type: "remote",
+	hash: "cccc",
+	isHead: false,
+};
 
 function findBranchRow(branchName: string): HTMLElement {
 	const row = Array.from(container.querySelectorAll<HTMLElement>(".kb-git-ref-row")).find((element) =>
@@ -238,5 +244,56 @@ describe("GitRefsPanel branch context menu", () => {
 		expect(onCreateBranch).toHaveBeenCalledWith("release/1.0", "master");
 		// The dialog closes after a successful create.
 		expect(document.querySelector('input[aria-label="New branch name"]')).toBeNull();
+	});
+
+	it("opens a checkout/create-only context menu when right-clicking a remote ref", () => {
+		act(() => {
+			renderUi(
+				<GitRefsPanel
+					refs={[HEAD_BRANCH, REMOTE_REF]}
+					selectedRefName="master"
+					isLoading={false}
+					panelWidth={240}
+					workingCopyChanges={null}
+					onSelectRef={() => undefined}
+					onCheckoutRef={() => undefined}
+					onDeleteRef={() => undefined}
+					onCreateBranch={() => undefined}
+					onMergeIntoCurrent={() => undefined}
+					onRebaseCurrentOnto={() => undefined}
+				/>,
+			);
+		});
+
+		rightClick(findBranchRow("origin/feature/login"));
+
+		const labels = menuItemLabels();
+		expect(labels.some((label) => label.includes("Switch to branch"))).toBe(true);
+		expect(labels.some((label) => label.includes("New branch from"))).toBe(true);
+		expect(labels.some((label) => label.includes("Delete branch"))).toBe(false);
+		expect(labels.some((label) => label.includes("Merge into Current"))).toBe(false);
+		expect(labels.some((label) => label.includes("Rebase Current onto Selected"))).toBe(false);
+	});
+
+	it("invokes onCheckoutRef with the remote name when switching from a remote", () => {
+		const onCheckoutRef = vi.fn();
+		act(() => {
+			renderUi(
+				<GitRefsPanel
+					refs={[HEAD_BRANCH, REMOTE_REF]}
+					selectedRefName="master"
+					isLoading={false}
+					panelWidth={240}
+					workingCopyChanges={null}
+					onSelectRef={() => undefined}
+					onCheckoutRef={onCheckoutRef}
+					onCreateBranch={() => undefined}
+				/>,
+			);
+		});
+
+		rightClick(findBranchRow("origin/feature/login"));
+		clickMenuItem("Switch to branch");
+		expect(onCheckoutRef).toHaveBeenCalledWith("origin/feature/login");
 	});
 });
