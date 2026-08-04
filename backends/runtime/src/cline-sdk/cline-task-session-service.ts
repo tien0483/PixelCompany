@@ -323,13 +323,22 @@ export class InMemoryClineTaskSessionService implements ClineTaskSessionService 
 
 	async startTaskSession(request: StartClineTaskSessionRequest): Promise<RuntimeTaskSessionSummary> {
 		const existing = this.messageRepository.getTaskEntry(request.taskId);
+		// A chain follower can already have an entry from a prior standalone run. Only treat
+		// it as "already running, nothing to do" when the cwd still matches — otherwise this
+		// is a chain handoff onto a different (shared) worktree and must fall through to
+		// actually restart in the newly resolved cwd below.
 		if (
 			!request.resumeFromTrash &&
 			!request.resumeFromPersistence &&
 			existing &&
-			(existing.summary.state === "running" || existing.summary.state === "awaiting_review")
+			(existing.summary.state === "running" || existing.summary.state === "awaiting_review") &&
+			existing.summary.workspacePath === request.cwd
 		) {
 			return cloneSummary(existing.summary);
+		}
+
+		if (existing && (existing.summary.state === "running" || existing.summary.state === "awaiting_review")) {
+			await this.sessionRuntime.stopTaskSession(request.taskId).catch(() => null);
 		}
 
 		const providerId = request.providerId?.trim().toLowerCase() || SDK_DEFAULT_PROVIDER_ID;

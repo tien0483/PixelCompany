@@ -287,6 +287,24 @@ export async function getGitSyncSummary(
 	};
 }
 
+/**
+ * Commits reachable from the worktree's HEAD but not from `baseRef`. Used to decide whether
+ * a task branch has anything to merge even when the working tree is clean (changedFiles === 0)
+ * — e.g. right after a commit lands and there's no more uncommitted diff.
+ */
+export async function getCommitsAheadOfBaseRef(worktreePath: string, baseRef: string): Promise<number> {
+	const trimmedBaseRef = baseRef.trim();
+	if (!trimmedBaseRef) {
+		return 0;
+	}
+	const result = await getGitStdout(["rev-list", "--count", `${trimmedBaseRef}..HEAD`], worktreePath).catch(() => null);
+	if (!result) {
+		return 0;
+	}
+	const count = Number.parseInt(result, 10);
+	return Number.isFinite(count) ? count : 0;
+}
+
 export async function runGitSyncAction(options: {
 	cwd: string;
 	action: RuntimeGitSyncAction;

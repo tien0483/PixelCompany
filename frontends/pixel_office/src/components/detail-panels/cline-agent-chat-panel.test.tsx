@@ -1091,6 +1091,7 @@ describe("ClineAgentChatPanel", () => {
 			changedFiles: 2,
 			additions: 3,
 			deletions: 1,
+			aheadOfBaseCount: null,
 		});
 
 		await act(async () => {
@@ -1143,6 +1144,7 @@ describe("ClineAgentChatPanel", () => {
 			changedFiles: 0,
 			additions: 0,
 			deletions: 0,
+			aheadOfBaseCount: null,
 		});
 
 		await act(async () => {
@@ -1176,6 +1178,7 @@ describe("ClineAgentChatPanel", () => {
 			changedFiles: 2,
 			additions: 3,
 			deletions: 1,
+			aheadOfBaseCount: null,
 		});
 
 		await act(async () => {

@@ -374,7 +374,11 @@ export class TerminalSessionManager implements TerminalSessionService {
 			kind: "task",
 			request: cloneStartTaskSessionRequest(request),
 		};
-		if (entry.active && isActiveState(entry.summary.state)) {
+		// A chain follower can already have an active entry from a prior standalone run.
+		// Only treat it as "already running, nothing to do" when the cwd still matches —
+		// otherwise this is a chain handoff onto a different (shared) worktree and must
+		// fall through to actually restart in the newly resolved cwd below.
+		if (entry.active && isActiveState(entry.summary.state) && entry.summary.workspacePath === request.cwd) {
 			return cloneSummary(entry.summary);
 		}
 
