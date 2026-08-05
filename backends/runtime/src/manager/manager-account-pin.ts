@@ -171,6 +171,32 @@ export function pickDefaultCursorAccountId(input: {
 	return pool[0]?.id ?? null;
 }
 
+/**
+ * Prefer the currently active Claude seat if it is under its donate cap, else
+ * the first under-cap Claude seat. Mirrors `pickDefaultCursorAccountId`: an
+ * over-donate active seat is skipped for Auto selection so unpinned launches
+ * do not wait on jacked's own async auto-swap daemon to move off it first. If
+ * every Claude seat is exhausted, falls back to the unfiltered active seat so
+ * the locked-cap hard-block in `resolveManagerAccountPin` still has a target.
+ */
+export function pickDefaultClaudeAccountId(input: {
+	accounts: ReadonlyArray<ManagerDonateAccountLike>;
+	activeAccountId: number | null;
+}): number | null {
+	const claudeAccounts = input.accounts.filter(
+		(account) => account.provider === "claude" && account.isActive !== false,
+	);
+	if (claudeAccounts.length === 0) {
+		return null;
+	}
+	const underLimit = claudeAccounts.filter((account) => !isManagerAccountDonateExhausted(account));
+	const pool = underLimit.length > 0 ? underLimit : claudeAccounts;
+	if (input.activeAccountId !== null && pool.some((account) => account.id === input.activeAccountId)) {
+		return input.activeAccountId;
+	}
+	return pool[0]?.id ?? null;
+}
+
 async function resolveCursorCredentialPin(
 	accountId: number,
 	getCredential: (accountId: number) => Promise<{ apiKey: string } | null>,
