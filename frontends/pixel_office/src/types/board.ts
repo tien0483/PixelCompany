@@ -63,6 +63,8 @@ export interface BoardCard {
 	 * The client-side auto-run scheduler starts it once the time passes and a running slot is free.
 	 */
 	autoRunAt?: number | null;
+	/** Epoch ms when this task most recently entered the "review" column; unset outside review. */
+	reviewEnteredAt?: number;
 	clineSettings?: RuntimeTaskClineSettings;
 	/** Per-task model/effort + skill/MCP allowlist tags (empty = inherit Manager/global). */
 	taskLaunchSettings?: RuntimeTaskLaunchSettings;

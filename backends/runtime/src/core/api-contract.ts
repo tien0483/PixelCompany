@@ -195,6 +195,8 @@ export const runtimeBoardCardSchema = z.preprocess(
 			 * free (respecting `maxRunningTasks`); unset means no scheduled auto-run.
 			 */
 			autoRunAt: z.number().nullable().optional(),
+			/** Epoch ms when this task most recently entered the "review" column; unset outside review. */
+			reviewEnteredAt: z.number().optional(),
 			clineSettings: runtimeTaskClineSettingsSchema.optional(),
 			taskLaunchSettings: runtimeTaskLaunchSettingsSchema.optional(),
 			clineProviderId: z.string().optional(),

@@ -63,6 +63,7 @@ import {
 } from "@/hooks/use-project-navigation";
 import { useProjectUiState } from "@/hooks/use-project-ui-state";
 import { useReviewReadyNotifications } from "@/hooks/use-review-ready-notifications";
+import { useReviewStalenessAlert } from "@/hooks/use-review-staleness-alert";
 import { useShortcutActions } from "@/hooks/use-shortcut-actions";
 import { useStartupOnboarding } from "@/hooks/use-startup-onboarding";
 import { useTaskBranchOptions } from "@/hooks/use-task-branch-options";
@@ -350,6 +351,8 @@ export default function App(): ReactElement {
 		readyForReviewNotificationsEnabled,
 		workspacePath,
 	});
+
+	useReviewStalenessAlert({ board });
 
 	const { createTaskBranchOptions, defaultTaskBranchRef } =
 		useTaskBranchOptions({ workspaceGit });
