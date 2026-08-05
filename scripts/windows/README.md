@@ -1,65 +1,67 @@
-# PixelOffice Windows shortcuts + full Setup.exe
+# PixelOffice Windows install (private / bundled source)
 
-Per-user install under `%LOCALAPPDATA%\PixelOffice` (no admin / Program Files). Two paths:
+Per-user install under `%LOCALAPPDATA%\PixelOffice` (no admin / Program Files).
 
-1. **Full setup** — download release zip, winget Node/uv, install deps, create shortcuts
-2. **Shortcut-only** — point at an existing repo (WSL or Windows) and create shortcuts
+**Recommended path (private repos):** Node.js build packs an **allowlisted** source zip beside a `.cmd` setup. No public GitHub download. No PowerShell execution-policy for the maintainer build.
+
+Legacy PowerShell scripts (`Build-SetupExe.ps1`, `Install-PixelOffice.ps1`, shortcut `.ps1`) remain in this folder for older flows.
 
 ---
 
-## Full setup (recommended for new machines)
+## Full setup — Node bundle (recommended)
 
-### Build `PixelOffice-Setup.exe` (maintainers)
+### Build (maintainers)
 
-From PowerShell in this folder:
+Requires **Node ≥ 22** only:
 
-```powershell
-Set-ExecutionPolicy -Scope CurrentUser RemoteSigned   # once, if needed
-.\Build-SetupExe.ps1 -ReleaseUrl https://github.com/ORG/REPO/releases/download/vX.Y.Z/PixelOffice-windows.zip
+```bat
+cd scripts\windows
+node build-setup.mjs
 ```
 
-Output is `dist\PixelOffice-Setup.exe` plus companion scripts. Ship the **whole `dist\` folder** (or at least the exe and the listed `.ps1` / `.ico` files).
+Output is `scripts\windows\dist\`:
 
-Requires the [ps2exe](https://www.powershellgallery.com/packages/ps2exe) module (`Build-SetupExe.ps1` installs it for CurrentUser if missing).
+| File | Role |
+|------|------|
+| `PixelOffice-windows.zip` | Allowlisted source (no `node_modules`, no `_archive`) |
+| `PixelOffice-Setup.cmd` | Double-click installer entry |
+| `install.mjs` / `launch.mjs` / `stop.mjs` / … | Installer + helpers |
+
+**Ship the entire `dist\` folder** (zip + Setup.cmd + `.mjs` files).
+
+Allowlist includes: root lockfiles/`package.json`, `frontends/pixel_office`, `backends/runtime`, `backends/manager`, `scripts/solo.mjs` + `start-stack.mjs` + `pm.mjs`, `AGENT.md`, `.agent/AGENT.md`, `.agent/manager`, `.agent/skills`, `.agent/workflows`, `.claude`.
+
+Bundle only (no installer copy):
+
+```bat
+node bundle-source.mjs
+```
 
 ### Run setup (end users)
 
-Double-click `PixelOffice-Setup.exe`, or:
+1. Copy the whole `dist\` folder to the target machine.
+2. Double-click `PixelOffice-Setup.cmd`, or:
 
-```powershell
-.\Install-PixelOffice.ps1 -ReleaseUrl https://github.com/ORG/REPO/releases/download/vX.Y.Z/PixelOffice-windows.zip
-```
-
-GitHub latest asset (no direct URL):
-
-```powershell
-.\Install-PixelOffice.ps1 -GitHubRepo ORG/REPO -AssetName PixelOffice-windows.zip
-```
-
-Local zip (offline / dogfood):
-
-```powershell
-.\Install-PixelOffice.ps1 -ReleaseUrl C:\path\to\PixelOffice-windows.zip
+```bat
+node install.mjs
 ```
 
 What it does:
 
-1. Ensures **Node ≥ 22** and **uv** via **winget** (when missing)
-2. Downloads/extracts the zip to `%LOCALAPPDATA%\PixelOffice\app`
+1. Ensures **Node ≥ 22** and **uv** via **winget** when missing
+2. Extracts sibling `PixelOffice-windows.zip` → `%LOCALAPPDATA%\PixelOffice\app`
 3. `corepack` → `pnpm install`, then `uv sync` in `backends\manager`
-4. Creates **PixelOffice** / **PixelOffice Stop** Desktop and Start Menu shortcuts
+4. Creates **PixelOffice** / **PixelOffice Stop** Desktop and Start Menu shortcuts (`.cmd`)
 
-Useful switches: `-SkipWinget`, `-SkipDeps`, `-SkipDownload`, `-LaunchAfterInstall`.
+Useful flags: `--skip-winget`, `--skip-deps`, `--launch`, `--zip <path>`.
 
-### Release zip
-
-Attach a zip of the repo source (no need to include `node_modules`). The installer always runs `pnpm install` on the machine. Prefer a stable asset name such as `PixelOffice-windows.zip`.
+Network is still needed for winget + npm/pnpm registry + uv packages unless already cached. Source itself does not come from GitHub.
 
 ---
 
-## Shortcut-only install
+## Shortcut-only install (legacy PowerShell)
 
-From PowerShell in this folder (or from the repo root):
+Point at an existing clone (WSL or Windows):
 
 ```powershell
 cd scripts\windows
@@ -67,39 +69,33 @@ Set-ExecutionPolicy -Scope CurrentUser RemoteSigned   # once, if needed
 .\Install-PixelOfficeShortcut.ps1
 ```
 
-Choose **[1] WSL** or **[2] Windows**, then enter the repo path.
-
-### Scripted (Windows mode — good for testing)
+Or scripted:
 
 ```powershell
 .\Install-PixelOfficeShortcut.ps1 -Runtime windows -WindowsRepoPath C:\path\to\PixelOffice-v2
 ```
 
-### Scripted (WSL mode)
-
-```powershell
-.\Install-PixelOfficeShortcut.ps1 -Runtime wsl -WslRepoPath /home/you/work/PixelOffice-v2
-```
+---
 
 ## Daily use
 
-- **PixelOffice** (Desktop / Start Menu) — start stack if `:3484` is down, open UI
-- **PixelOffice Stop** — stop listeners on 3484/8321 (agents die with the stack)
+- **PixelOffice** — start stack if `:3484` is down, open UI
+- **PixelOffice Stop** — stop listeners on 3484/8321
 
-Config lives at `%LOCALAPPDATA%\PixelOffice\config.json`. Re-run the shortcut installer to switch WSL vs Windows. Full setup always uses Windows-native runtime.
+Config: `%LOCALAPPDATA%\PixelOffice\config.json`.
 
 ## Uninstall
 
-```powershell
-.\Uninstall-PixelOfficeShortcut.ps1
+```bat
+%LOCALAPPDATA%\PixelOffice\PixelOffice-Uninstall.cmd
 ```
 
-Removes shortcuts and `%LOCALAPPDATA%\PixelOffice\` (including `app\` from a full setup). Use `-KeepConfig` to retain `config.json`.
+Or: `node uninstall.mjs` (optional `--keep-config`).
 
 ## Prerequisites
 
 | Path | Need |
 |------|------|
-| Full setup | `winget`; network for download + package installs; Edge or Chrome for the app window |
-| Shortcut — Windows | Node ≥ 22, npm/pnpm, deps installed in the repo; Manager: `cd backends\manager && uv sync` for Accounts |
-| Shortcut — WSL | Same inside Linux; repo on **ext4** (`~/...`), not `/mnt/c/...` |
+| Node full setup | `winget` (or Node/uv already installed); network for package installs |
+| Shortcut — Windows | Node ≥ 22, deps already in the repo; Manager: `uv sync` |
+| Shortcut — WSL | Same inside Linux; repo on **ext4**, not `/mnt/c/...` |
