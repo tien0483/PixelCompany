@@ -33,6 +33,12 @@ from manager.api.security import (
     origin_allowed,
 )
 from manager.api.websocket import WebSocketRegistry
+from manager.logging_setup import (
+    LOG_FILE_BACKUP_COUNT,
+    LOG_FILE_MAX_BYTES,
+    build_log_formatter,
+    raise_log_namespaces_to_info,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -51,8 +57,6 @@ TOKEN_REFRESH_INTERVAL = 1800  # 30 minutes
 WS_KEEPALIVE_INTERVAL = 30  # seconds between WebSocket pings
 HEAL_SWEEP_INTERVAL = 300  # 5 minutes between heal sweeps
 SWEEP_PASS_TIMEOUT = 600  # hard cap on a single refresh/heal pass
-LOG_FILE_MAX_BYTES = 5_000_000  # 5 MB
-LOG_FILE_BACKUP_COUNT = 3
 
 
 async def _token_refresh_loop():
@@ -242,9 +246,7 @@ async def lifespan(app: FastAPI):
         _fh = logging.handlers.RotatingFileHandler(
             log_path, maxBytes=LOG_FILE_MAX_BYTES, backupCount=LOG_FILE_BACKUP_COUNT,
         )
-        _fmt = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-        _fmt.converter = time.gmtime
-        _fh.setFormatter(_fmt)
+        _fh.setFormatter(build_log_formatter())
         os.chmod(str(log_path), 0o600)
         # Attach only after chmod succeeds — prevents handler leak if chmod fails
         logging.getLogger().addHandler(_fh)
@@ -253,11 +255,8 @@ async def lifespan(app: FastAPI):
         logger.warning("File logging unavailable: %s", e)
         _file_handler = None
 
-    # Lower jacked namespace to INFO so messages reach the capture handler.
-    # basicConfig() in cli.py sets root to WARNING which would suppress them.
-    _jacked_logger = logging.getLogger("jacked")
-    if _jacked_logger.getEffectiveLevel() > logging.INFO:
-        _jacked_logger.setLevel(logging.INFO)
+    # Lower relevant namespaces to INFO so messages reach the capture handler.
+    raise_log_namespaces_to_info()
 
     if host not in ("127.0.0.1", "localhost", "::1"):
         logger.warning(

@@ -1052,6 +1052,10 @@ async def refresh_usage(account_id: int, request: Request):
         )
 
     if isinstance(usage_data, dict) and usage_data.get("_backed_off"):
+        logger.info(
+            "refresh_usage: account %d returned 429 (usage backoff active)",
+            account_id,
+        )
         return JSONResponse(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             content={"error": {"message": "Usage API rate limited — try again shortly", "code": "RATE_LIMITED"}},

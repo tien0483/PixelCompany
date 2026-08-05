@@ -792,9 +792,9 @@ async def fetch_usage(
 
     # 429 backoff check
     if now < state["backoff_until"]:
-        logger.debug(
+        logger.info(
             f"Usage fetch backed off for account {account_id} "
-            f"({int(state['backoff_until'] - now)}s remaining)"
+            f"({int(state['backoff_until'] - now)}s remaining, manual={manual})"
         )
         return {"_backed_off": True}
 
@@ -815,7 +815,11 @@ async def fetch_usage(
         elapsed = now - max(state["last_fetched_at"], db_cached_at)
         if manual:
             if elapsed < _USAGE_MANUAL_FLOOR_SECONDS:
-                logger.debug(
+                # INFO, not debug: this is a user's own Refresh click
+                # returning stale data with no error — the same silent,
+                # undiagnosable-without-source class of gap the 429 backoff
+                # line above was raised to INFO for.
+                logger.info(
                     f"Manual usage floor for account {account_id}: "
                     f"{int(elapsed)}s < {_USAGE_MANUAL_FLOOR_SECONDS}s, "
                     f"returning cached"
@@ -922,7 +926,7 @@ async def fetch_usage(
                     )
                     if fresh:
                         result = await fetch_usage(
-                            account_id, db, access_token=fresh,
+                            account_id, db, access_token=fresh, manual=manual,
                             _retry_depth=_retry_depth + 1,
                         )
                         state["last_fetched_at"] = time.time()
@@ -937,7 +941,7 @@ async def fetch_usage(
                             live_token = refreshed_acct.get("access_token")
                             if live_token and live_token != token:
                                 result = await fetch_usage(
-                                    account_id, db, access_token=live_token,
+                                    account_id, db, access_token=live_token, manual=manual,
                                     _retry_depth=_retry_depth + 1,
                                 )
                                 state["last_fetched_at"] = time.time()
@@ -986,7 +990,8 @@ async def fetch_usage(
                         # (success or not) so a 429 retry can never
                         # un-pace the account.
                         result = await fetch_usage(
-                            account_id, db, access_token=fresh_token, _retry_depth=1,
+                            account_id, db, access_token=fresh_token, manual=manual,
+                            _retry_depth=1,
                         )
                         state["last_fetched_at"] = time.time()
                         return result
@@ -1023,8 +1028,21 @@ async def fetch_usage(
             return None
 
     except Exception as e:
-        db.record_account_error(account_id, f"Usage fetch error: {e}")
-        logger.warning(f"Usage fetch failed for account {account_id}: {e}")
+        # Always include the class name: str(e) is empty for some exceptions
+        # (e.g. httpx.ReadTimeout with no message), and even when non-empty
+        # the bare message alone (e.g. "timed out") doesn't say which of the
+        # ~8 branches in this try raised. Traceback (exc_info) is reserved
+        # for non-transport exceptions — a genuine bug deserves a full
+        # traceback, but an httpx.TransportError during a network blip
+        # (already identified by class name above) doesn't need one on
+        # every retry, and this path is hit by every poller for every
+        # backed-off/timing-out account.
+        reason = f"{type(e).__name__}: {e}" if str(e) else type(e).__name__
+        db.record_account_error(account_id, f"Usage fetch error: {reason}")
+        logger.warning(
+            f"Usage fetch failed for account {account_id}: {reason}",
+            exc_info=not isinstance(e, httpx.TransportError),
+        )
         return None
 
 
