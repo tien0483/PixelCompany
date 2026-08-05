@@ -1900,6 +1900,20 @@ class Database:
         """
         ts = datetime.now(timezone.utc).isoformat()
         with self._writer() as conn:
+            if detection_method == "auth_success":
+                # Reauth must not move a session to a different shared-token
+                # account — lock to whichever account first claimed this
+                # session_id (its 1st Auth), regardless of what the refreshed
+                # credential resolves to.
+                pinned = conn.execute(
+                    """SELECT account_id FROM session_accounts
+                       WHERE session_id = ?
+                       ORDER BY detected_at ASC LIMIT 1""",
+                    (session_id,),
+                ).fetchone()
+                if pinned is not None and pinned[0] is not None:
+                    account_id = pinned[0]
+
             # End any open records for this session under a DIFFERENT account
             # (account_id != ? doesn't match NULLs, so OR account_id IS NULL)
             if account_id is not None:
