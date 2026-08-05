@@ -5,72 +5,79 @@ import Link from "@tiptap/extension-link";
 import { TextStyle } from "@tiptap/extension-text-style";
 import { type Editor, EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
-import { type ReactElement, useEffect, useRef } from "react";
-import { Markdown, type MarkdownStorage } from "tiptap-markdown";
+import {
+	type ClipboardEvent,
+	type DragEvent,
+	type ReactElement,
+	useCallback,
+	useEffect,
+	useRef,
+} from "react";
+import { Markdown } from "tiptap-markdown";
 
-import { resolvePlanAssetUrl } from "@/components/plan-editor/plan-markdown-preview";
-
-const MARKDOWN_IMAGE_PATTERN = /!\[([^\]]*)\]\(([^)\s]+)\)/g;
-
-/** `tiptap-markdown` doesn't ship a `Storage` module augmentation, so read its slot explicitly. */
-function getMarkdownFromEditor(editor: Editor): string {
-	return (editor.storage as unknown as { markdown: MarkdownStorage }).markdown.getMarkdown();
-}
-
-/** Rewrite `![alt](relative/path.png)` to the `/api/plans/asset` URL so TipTap's Image node can load it. */
-function toEditorMarkdown(markdown: string, planId: string | null): string {
-	if (!planId) {
-		return markdown;
-	}
-	return markdown.replaceAll(MARKDOWN_IMAGE_PATTERN, (match, alt: string, src: string) => {
-		const resolved = resolvePlanAssetUrl(planId, src);
-		return resolved && resolved !== src ? `![${alt}](${resolved})` : match;
-	});
-}
-
-/** Reverse of {@link toEditorMarkdown} — restores the relative asset path before saving. */
-function fromEditorMarkdown(markdown: string, planId: string | null): string {
-	if (!planId) {
-		return markdown;
-	}
-	const prefix = `/api/plans/asset?planId=${encodeURIComponent(planId)}&path=`;
-	return markdown.replaceAll(MARKDOWN_IMAGE_PATTERN, (match, alt: string, src: string) => {
-		if (!src.startsWith(prefix)) {
-			return match;
-		}
-		const relativePath = decodeURIComponent(src.slice(prefix.length));
-		return `![${alt}](${relativePath})`;
-	});
-}
+import {
+	fromEditorMarkdown,
+	getMarkdownFromEditor,
+	toEditorMarkdown,
+} from "@/components/plan-editor/plan-rich-markdown";
+import { PlanRichToolbar } from "@/components/plan-editor/plan-rich-toolbar";
 
 export interface PlanRichEditorProps {
 	content: string;
 	onChange: (markdown: string) => void;
 	planId: string | null;
 	disabled?: boolean;
+	onInsertImage: (file: File) => void;
+	onPaste?: (event: ClipboardEvent) => void;
+	onDrop?: (event: DragEvent) => void;
+	onDragOver?: (event: DragEvent) => void;
+	/** Called when the TipTap editor instance is ready (and cleared on destroy). */
+	onEditorReady?: (editor: Editor | null) => void;
 }
 
-export default function PlanRichEditor({ content, onChange, planId, disabled }: PlanRichEditorProps): ReactElement | null {
+export default function PlanRichEditor({
+	content,
+	onChange,
+	planId,
+	disabled,
+	onInsertImage,
+	onPaste,
+	onDrop,
+	onDragOver,
+	onEditorReady,
+}: PlanRichEditorProps): ReactElement | null {
 	const skipNextSyncRef = useRef(false);
+	const onChangeRef = useRef(onChange);
+	onChangeRef.current = onChange;
 
-	const editor = useEditor({
-		extensions: [
-			StarterKit,
-			TextStyle,
-			Color,
-			Highlight,
-			Link.configure({ openOnClick: false }),
-			Image.configure({ inline: false }),
-			Markdown.configure({ html: true, transformPastedText: true }),
-		],
-		content: toEditorMarkdown(content, planId),
-		editable: !disabled,
-		onUpdate: ({ editor: updatedEditor }) => {
-			skipNextSyncRef.current = true;
-			const markdown = getMarkdownFromEditor(updatedEditor);
-			onChange(fromEditorMarkdown(markdown, planId));
+	const editor = useEditor(
+		{
+			extensions: [
+				StarterKit,
+				TextStyle,
+				Color,
+				Highlight,
+				Link.configure({ openOnClick: false }),
+				Image.configure({ inline: false }),
+				Markdown.configure({ html: true, transformPastedText: true }),
+			],
+			content: toEditorMarkdown(content, planId),
+			editable: !disabled,
+			onUpdate: ({ editor: updatedEditor }) => {
+				skipNextSyncRef.current = true;
+				const markdown = getMarkdownFromEditor(updatedEditor);
+				onChangeRef.current(fromEditorMarkdown(markdown, planId));
+			},
 		},
-	});
+		[planId],
+	);
+
+	useEffect(() => {
+		onEditorReady?.(editor ?? null);
+		return () => {
+			onEditorReady?.(null);
+		};
+	}, [editor, onEditorReady]);
 
 	useEffect(() => {
 		if (!editor) {
@@ -82,6 +89,8 @@ export default function PlanRichEditor({ content, onChange, planId, disabled }: 
 		}
 		const currentMarkdown = fromEditorMarkdown(getMarkdownFromEditor(editor), planId);
 		if (currentMarkdown !== content) {
+			// External load / plain→rich handoff — replace content without emitting onUpdate.
+			// This resets History, which is intentional for non-local changes.
 			editor.commands.setContent(toEditorMarkdown(content, planId), { emitUpdate: false });
 		}
 	}, [content, editor, planId]);
@@ -90,13 +99,29 @@ export default function PlanRichEditor({ content, onChange, planId, disabled }: 
 		editor?.setEditable(!disabled);
 	}, [disabled, editor]);
 
+	const handleInsertImageFile = useCallback(
+		(file: File) => {
+			onInsertImage(file);
+		},
+		[onInsertImage],
+	);
+
 	if (!editor) {
 		return null;
 	}
 
 	return (
-		<div className="kb-markdown min-h-0 flex-1 overflow-y-auto px-3 py-2" data-testid="plan-rich-editor">
-			<EditorContent editor={editor} />
+		<div
+			className="flex min-h-0 min-w-0 flex-1 flex-col"
+			data-testid="plan-rich-editor"
+			onPaste={onPaste}
+			onDrop={onDrop}
+			onDragOver={onDragOver}
+		>
+			<PlanRichToolbar editor={editor} disabled={disabled} onInsertImage={handleInsertImageFile} />
+			<div className="kb-markdown min-h-0 flex-1 overflow-y-auto px-3 py-2">
+				<EditorContent editor={editor} />
+			</div>
 		</div>
 	);
 }

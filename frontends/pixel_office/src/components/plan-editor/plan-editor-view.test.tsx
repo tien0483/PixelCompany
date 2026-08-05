@@ -20,6 +20,16 @@ vi.mock("@/runtime/trpc-client", () => ({
 	}),
 }));
 
+vi.mock("@/components/app-toaster", () => ({
+	showAppToast: vi.fn(),
+}));
+
+vi.mock("@/components/plan-editor/plan-rich-editor", () => ({
+	default: function MockPlanRichEditor() {
+		return <div data-testid="plan-rich-editor">rich editor</div>;
+	},
+}));
+
 const PLAN: RuntimeSavedPlan = {
 	id: "plan-1",
 	name: "roadmap",
@@ -32,6 +42,30 @@ function flush(): Promise<void> {
 		await Promise.resolve();
 		await Promise.resolve();
 	});
+}
+
+async function waitForSaved(container: HTMLDivElement): Promise<void> {
+	for (let attempt = 0; attempt < 40; attempt += 1) {
+		if (container.textContent?.includes("Saved")) {
+			return;
+		}
+		await act(async () => {
+			await new Promise((resolveWait) => setTimeout(resolveWait, 25));
+		});
+	}
+	throw new Error("plan editor never reached Saved status");
+}
+
+async function waitForRichEditor(container: HTMLDivElement): Promise<void> {
+	for (let attempt = 0; attempt < 40; attempt += 1) {
+		if (container.querySelector('[data-testid="plan-rich-editor"]')) {
+			return;
+		}
+		await act(async () => {
+			await new Promise((resolveWait) => setTimeout(resolveWait, 25));
+		});
+	}
+	throw new Error("plan rich editor never mounted");
 }
 
 function getTextarea(container: HTMLDivElement): HTMLTextAreaElement {
@@ -68,7 +102,7 @@ describe("PlanEditorView", () => {
 		container.remove();
 	});
 
-	it("loads plan content into the source pane and switches to preview-only mode", async () => {
+	it("defaults to the rich editor without source/preview mode tabs", async () => {
 		await act(async () => {
 			root.render(
 				<TooltipProvider>
@@ -77,22 +111,16 @@ describe("PlanEditorView", () => {
 			);
 		});
 		await flush();
+		await waitForRichEditor(container);
 
-		expect(getTextarea(container).value).toBe("# Roadmap\n");
-
-		const previewTab = Array.from(container.querySelectorAll("button")).find(
-			(button) => button.textContent === "Preview",
-		);
-		expect(previewTab).toBeDefined();
-		await act(async () => {
-			previewTab?.click();
-		});
-
+		expect(container.querySelector('[data-testid="plan-rich-editor"]')).not.toBeNull();
 		expect(container.querySelector('[data-testid="plan-editor-textarea"]')).toBeNull();
-		expect(container.textContent).toContain("Roadmap");
+		expect(container.querySelector('[aria-label="Split"]')).toBeNull();
+		expect(container.querySelector('[aria-label="Preview"]')).toBeNull();
+		expect(container.querySelector('[data-testid="plan-editor-switch-to-plain"]')).not.toBeNull();
 	});
 
-	it("autosaves edits after the debounce window", async () => {
+	it("switches to plain text editing and autosaves textarea edits", async () => {
 		await act(async () => {
 			root.render(
 				<TooltipProvider>
@@ -101,6 +129,17 @@ describe("PlanEditorView", () => {
 			);
 		});
 		await flush();
+		await waitForSaved(container);
+
+		const switchToPlain = container.querySelector('[data-testid="plan-editor-switch-to-plain"]');
+		expect(switchToPlain).toBeInstanceOf(HTMLButtonElement);
+		await act(async () => {
+			(switchToPlain as HTMLButtonElement).click();
+		});
+
+		expect(container.querySelector('[data-testid="plan-editor-textarea"]')).not.toBeNull();
+		expect(container.querySelector('[data-testid="plan-rich-editor"]')).toBeNull();
+		expect(getTextarea(container).value).toBe("# Roadmap\n");
 
 		const textarea = getTextarea(container);
 		await act(async () => {
@@ -116,7 +155,7 @@ describe("PlanEditorView", () => {
 		expect(mockWriteMutate).toHaveBeenCalledWith({ planId: "plan-1", content: "# Roadmap\n\nUpdated" });
 	});
 
-	it("wraps the selection in bold markers via the toolbar", async () => {
+	it("wraps the selection in bold markers via the plain-mode toolbar", async () => {
 		await act(async () => {
 			root.render(
 				<TooltipProvider>
@@ -125,8 +164,15 @@ describe("PlanEditorView", () => {
 			);
 		});
 		await flush();
+		await waitForSaved(container);
+
+		const switchToPlain = container.querySelector('[data-testid="plan-editor-switch-to-plain"]');
+		await act(async () => {
+			(switchToPlain as HTMLButtonElement).click();
+		});
 
 		const textarea = getTextarea(container);
+		expect(textarea.value).toBe("# Roadmap\n");
 		textarea.focus();
 		textarea.setSelectionRange(2, 9);
 
