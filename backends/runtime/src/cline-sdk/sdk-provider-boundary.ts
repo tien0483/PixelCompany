@@ -119,6 +119,15 @@ export interface UpdateSdkCustomProviderInput {
 	capabilities?: SdkCustomProviderCapability[];
 }
 
+export interface SdkCustomProviderSummary {
+	providerId: string;
+	name: string;
+	baseUrl: string;
+	defaultModelId: string | null;
+	modelsSourceUrl: string | null;
+	models: string[];
+}
+
 type LocalModelsFile = {
 	version: 1;
 	providers: Record<
@@ -548,6 +557,24 @@ export async function deleteSdkCustomProvider(providerId: string): Promise<void>
 		delete settingsState.lastUsedProvider;
 	}
 	providerManager.write(settingsState);
+}
+
+/**
+ * User-added OpenAI-compatible providers only — the models.json local registry is
+ * where addSdkCustomProvider/deleteSdkCustomProvider persist these, whereas
+ * listSdkProviderCatalog() merges them back in alongside built-in providers with no
+ * flag to tell them apart.
+ */
+export async function listSdkCustomProviders(): Promise<SdkCustomProviderSummary[]> {
+	const state = await readModelsRegistry();
+	return Object.entries(state.providers).map(([providerId, entry]) => ({
+		providerId,
+		name: entry.provider.name,
+		baseUrl: entry.provider.baseUrl,
+		defaultModelId: entry.provider.defaultModelId ?? null,
+		modelsSourceUrl: entry.provider.modelsSourceUrl ?? null,
+		models: Object.keys(entry.models ?? {}),
+	}));
 }
 
 export function getSdkProviderSettings(providerId: string): SdkProviderSettings | null {
