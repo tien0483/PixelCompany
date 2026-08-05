@@ -118,6 +118,17 @@ function updateTaskTimestamp(task: BoardCard): BoardCard {
 	};
 }
 
+function applyReviewColumnTimestamp(task: BoardCard, targetColumnId: BoardColumnId): BoardCard {
+	if (targetColumnId === "review") {
+		return { ...task, reviewEnteredAt: Date.now() };
+	}
+	if (task.reviewEnteredAt === undefined) {
+		return task;
+	}
+	const { reviewEnteredAt: _removed, ...rest } = task;
+	return rest;
+}
+
 function withUpdatedColumns(board: BoardData, columns: BoardColumn[]): BoardData {
 	return {
 		...board,
@@ -563,7 +574,11 @@ export function applyDragResult(
 
 	const destinationCards = Array.from(destinationColumn.cards);
 	const destinationInsertIndex = options?.programmaticCardMoveInFlight?.insertAtTop ? 0 : destination.index;
-	destinationCards.splice(destinationInsertIndex, 0, updateTaskTimestamp(movedCard));
+	destinationCards.splice(
+		destinationInsertIndex,
+		0,
+		applyReviewColumnTimestamp(updateTaskTimestamp(movedCard), destinationColumn.id),
+	);
 
 	const columns = Array.from(board.columns);
 	columns[sourceColumnIndex] = {
