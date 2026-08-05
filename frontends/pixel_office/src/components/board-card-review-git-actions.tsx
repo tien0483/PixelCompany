@@ -38,6 +38,7 @@ export function BoardCardReviewGitActions({
 	onCommit,
 	onSubmitBranched,
 	onCancelForm,
+	onOpenForm,
 	onRetryFollowOn,
 }: {
 	disabled: boolean;
@@ -50,6 +51,7 @@ export function BoardCardReviewGitActions({
 	onCommit: () => void;
 	onSubmitBranched: (input: ReviewGitBranchedSubmit) => void;
 	onCancelForm: () => void;
+	onOpenForm?: () => void;
 	onRetryFollowOn?: () => void;
 }): React.ReactElement {
 	const [menuOpen, setMenuOpen] = useState(false);
@@ -74,6 +76,7 @@ export function BoardCardReviewGitActions({
 		setFormMode(mode);
 		setOfficialBranch(baseRefHint);
 		setExistingMode(null);
+		onOpenForm?.();
 	};
 
 	const closeForm = (): void => {

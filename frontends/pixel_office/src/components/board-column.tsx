@@ -37,10 +37,11 @@ export function BoardColumn({
 	onOpenPrTask,
 	onSubmitReviewGit,
 	onCancelReviewGitForm,
+	onOpenReviewGitForm,
 	onRetryReviewGitFollowOn,
 	reviewGitStatusById,
 	canRetryReviewGitFollowOnById,
-	reviewBranchSuggestions,
+	reviewBranchSuggestionsByTaskId,
 	onMergeTask,
 	onCancelAutomaticTaskAction,
 	onMoveToTrashTask,
@@ -84,10 +85,11 @@ export function BoardColumn({
 	onOpenPrTask?: (taskId: string) => void;
 	onSubmitReviewGit?: (taskId: string, input: ReviewGitBranchedSubmit) => void;
 	onCancelReviewGitForm?: (taskId: string) => void;
+	onOpenReviewGitForm?: (taskId: string) => void;
 	onRetryReviewGitFollowOn?: (taskId: string) => void;
 	reviewGitStatusById?: Record<string, string>;
 	canRetryReviewGitFollowOnById?: Record<string, boolean>;
-	reviewBranchSuggestions?: readonly string[];
+	reviewBranchSuggestionsByTaskId?: Record<string, readonly string[]>;
 	onMergeTask?: (taskId: string) => void;
 	onCancelAutomaticTaskAction?: (taskId: string) => void;
 	onMoveToTrashTask?: (taskId: string) => void;
@@ -247,10 +249,11 @@ export function BoardColumn({
 										onOpenPr={onOpenPrTask}
 										onSubmitReviewGit={onSubmitReviewGit}
 										onCancelReviewGitForm={onCancelReviewGitForm}
+										onOpenReviewGitForm={onOpenReviewGitForm}
 										onRetryReviewGitFollowOn={onRetryReviewGitFollowOn}
 										reviewGitStatusMessage={reviewGitStatusById?.[card.id] ?? null}
 										canRetryReviewGitFollowOn={canRetryReviewGitFollowOnById?.[card.id] ?? false}
-										branchSuggestions={reviewBranchSuggestions}
+										branchSuggestions={reviewBranchSuggestionsByTaskId?.[card.id] ?? []}
 										onMerge={onMergeTask}
 										onCancelAutomaticAction={onCancelAutomaticTaskAction}
 										isCommitLoading={commitTaskLoadingById?.[card.id] ?? false}
