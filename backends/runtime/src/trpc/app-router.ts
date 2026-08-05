@@ -18,6 +18,9 @@ import type {
 	RuntimeClineAccountSwitchResponse,
 	RuntimeClineAddProviderRequest,
 	RuntimeClineAddProviderResponse,
+	RuntimeClineCustomProviderListResponse,
+	RuntimeClineDeleteProviderRequest,
+	RuntimeClineDeleteProviderResponse,
 	RuntimeClineDeviceAuthCompleteRequest,
 	RuntimeClineDeviceAuthCompleteResponse,
 	RuntimeClineDeviceAuthStartResponse,
@@ -211,6 +214,9 @@ import {
 	runtimeClineAccountSwitchResponseSchema,
 	runtimeClineAddProviderRequestSchema,
 	runtimeClineAddProviderResponseSchema,
+	runtimeClineCustomProviderListResponseSchema,
+	runtimeClineDeleteProviderRequestSchema,
+	runtimeClineDeleteProviderResponseSchema,
 	runtimeClineDeviceAuthCompleteRequestSchema,
 	runtimeClineDeviceAuthCompleteResponseSchema,
 	runtimeClineDeviceAuthStartResponseSchema,
@@ -368,6 +374,13 @@ export interface RuntimeTrpcContext {
 			scope: RuntimeTrpcWorkspaceScope | null,
 			input: RuntimeClineUpdateProviderRequest,
 		) => Promise<RuntimeClineUpdateProviderResponse>;
+		deleteClineProvider: (
+			scope: RuntimeTrpcWorkspaceScope | null,
+			input: RuntimeClineDeleteProviderRequest,
+		) => Promise<RuntimeClineDeleteProviderResponse>;
+		getClineCustomProviders: (
+			scope: RuntimeTrpcWorkspaceScope | null,
+		) => Promise<RuntimeClineCustomProviderListResponse>;
 		startTaskSession: (
 			scope: RuntimeTrpcWorkspaceScope,
 			input: RuntimeTaskSessionStartRequest,
@@ -727,6 +740,15 @@ export const runtimeAppRouter = t.router({
 			.mutation(async ({ ctx, input }) => {
 				return await ctx.runtimeApi.updateClineProvider(ctx.workspaceScope, input);
 			}),
+		deleteClineProvider: t.procedure
+			.input(runtimeClineDeleteProviderRequestSchema)
+			.output(runtimeClineDeleteProviderResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.runtimeApi.deleteClineProvider(ctx.workspaceScope, input);
+			}),
+		getClineCustomProviders: t.procedure.output(runtimeClineCustomProviderListResponseSchema).query(async ({ ctx }) => {
+			return await ctx.runtimeApi.getClineCustomProviders(ctx.workspaceScope);
+		}),
 		startTaskSession: workspaceProcedure
 			.input(runtimeTaskSessionStartRequestSchema)
 			.output(runtimeTaskSessionStartResponseSchema)

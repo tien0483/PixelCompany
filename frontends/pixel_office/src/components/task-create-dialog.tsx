@@ -27,6 +27,7 @@ import { TaskLaunchSettingsPicker } from "@/components/task-launch-settings";
 import { TaskPromptComposer } from "@/components/task-prompt-composer";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogBody, DialogFooter, DialogHeader } from "@/components/ui/dialog";
+import { ApiSeatQuickPick } from "@/manager/api-seat-quick-pick";
 import {
 	TaskAccountPicker,
 	filterManagerAccountsForAgent,
@@ -609,23 +610,36 @@ export function TaskCreateDialog({
 					</label>
 
 					{onAgentIdChange && onClineSettingsChange ? (
-						<TaskAgentModelPicker
-							agentId={agentId}
-							onAgentIdChange={onAgentIdChange}
-							clineSettings={clineSettings}
-							onClineSettingsChange={onClineSettingsChange}
-							agentOptions={agentOptions}
-							clineProviderOptions={clineProviderOptions}
-							clineModelOptions={clineModelOptions}
-							effectiveDefaultModelId={effectiveDefaultModelId}
-							providerModels={providerModels}
-							isLoadingProviders={isLoadingProviders}
-							isLoadingModels={isLoadingModels}
-							defaultAgentId={defaultAgentId}
-							defaultProviderId={defaultProviderId}
-							defaultReasoningEffort={defaultReasoningEffort}
-							providerDefaultModels={providerDefaultModels}
-						/>
+						<>
+							<TaskAgentModelPicker
+								agentId={agentId}
+								onAgentIdChange={onAgentIdChange}
+								clineSettings={clineSettings}
+								onClineSettingsChange={onClineSettingsChange}
+								agentOptions={agentOptions}
+								clineProviderOptions={clineProviderOptions}
+								clineModelOptions={clineModelOptions}
+								effectiveDefaultModelId={effectiveDefaultModelId}
+								providerModels={providerModels}
+								isLoadingProviders={isLoadingProviders}
+								isLoadingModels={isLoadingModels}
+								defaultAgentId={defaultAgentId}
+								defaultProviderId={defaultProviderId}
+								defaultReasoningEffort={defaultReasoningEffort}
+								providerDefaultModels={providerDefaultModels}
+							/>
+							<ApiSeatQuickPick
+								active={open}
+								workspaceId={workspaceId}
+								onSelect={(seat) => {
+									onAgentIdChange("cline");
+									onClineSettingsChange({
+										providerId: seat.providerId,
+										...(seat.defaultModelId ? { modelId: seat.defaultModelId } : {}),
+									});
+								}}
+							/>
+						</>
 					) : null}
 					{onManagerAccountIdChange && eligibleManagerAccounts.length > 0 ? (
 						<TaskAccountPicker

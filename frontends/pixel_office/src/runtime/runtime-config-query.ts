@@ -9,6 +9,8 @@ import type {
 	RuntimeClineAccountProfileResponse,
 	RuntimeClineAccountSwitchResponse,
 	RuntimeClineAddProviderResponse,
+	RuntimeClineCustomProvider,
+	RuntimeClineDeleteProviderResponse,
 	RuntimeClineDeviceAuthCompleteRequest,
 	RuntimeClineDeviceAuthCompleteResponse,
 	RuntimeClineDeviceAuthStartResponse,
@@ -132,11 +134,27 @@ export async function updateClineProvider(
 	return await trpcClient.runtime.updateClineProvider.mutate(input);
 }
 
+export async function deleteClineProvider(
+	workspaceId: string | null,
+	providerId: string,
+): Promise<RuntimeClineDeleteProviderResponse> {
+	const trpcClient = getRuntimeTrpcClient(workspaceId);
+	return await trpcClient.runtime.deleteClineProvider.mutate({ providerId });
+}
+
 export async function fetchClineProviderCatalog(
 	workspaceId: string | null,
 ): Promise<RuntimeClineProviderCatalogItem[]> {
 	const trpcClient = getRuntimeTrpcClient(workspaceId);
 	const response = await trpcClient.runtime.getClineProviderCatalog.query();
+	return response.providers;
+}
+
+export async function fetchClineCustomProviders(
+	workspaceId: string | null,
+): Promise<RuntimeClineCustomProvider[]> {
+	const trpcClient = getRuntimeTrpcClient(workspaceId);
+	const response = await trpcClient.runtime.getClineCustomProviders.query();
 	return response.providers;
 }
 

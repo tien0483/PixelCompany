@@ -8,12 +8,18 @@ import {
 	Play,
 	Plus,
 	RefreshCw,
+	Trash2,
 	X,
 } from "lucide-react";
 import type { ReactElement, ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
+import { ClineAddProviderDialog } from "@/components/shared/cline-add-provider-dialog";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
+import type {
+	AddClineProviderInput,
+	UpdateClineProviderInput,
+} from "@/hooks/use-runtime-settings-cline-controller";
 import { ManagerAccountActions } from "@/manager/manager-account-actions";
 import {
 	formatPercent,
@@ -36,8 +42,14 @@ import {
 	pollAuthCode,
 	VercelAuthSessionError,
 } from "@/manager/vercel-auth-session";
+import {
+	addClineProvider,
+	deleteClineProvider,
+	fetchClineCustomProviders,
+} from "@/runtime/runtime-config-query";
 import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
 import type {
+	RuntimeClineCustomProvider,
 	RuntimeManagerAccount,
 	RuntimeManagerSnapshot,
 	RuntimeManagerSwapLog,
@@ -467,6 +479,56 @@ function AccountRow({
 }
 
 /**
+ * A "seat" backed by an API key (Cline custom provider) rather than an OAuth
+ * account — no usage meters, donate cap, or fleet priority, since none of that
+ * applies to a flat key. Tasks pick these up via ApiSeatQuickPick, not this row.
+ */
+function ApiSeatRow({
+	seat,
+	busy,
+	online,
+	onDelete,
+}: {
+	seat: RuntimeClineCustomProvider;
+	busy: boolean;
+	online: boolean;
+	onDelete: () => void;
+}): ReactElement {
+	return (
+		<div
+			data-testid={`manager-api-seat-${seat.providerId}`}
+			className="rounded-md border border-border bg-surface-1 px-2 py-2"
+		>
+			<div className="flex items-start justify-between gap-2">
+				<div className="min-w-0 flex-1">
+					<div className="flex items-center gap-1.5">
+						<span className="truncate text-[12px] font-medium text-text-primary">
+							{seat.name}
+						</span>
+						<span className="shrink-0 rounded bg-surface-2 px-1 py-0.5 text-[9px] uppercase tracking-wide text-text-tertiary">
+							API key
+						</span>
+					</div>
+					<p className="truncate text-[10px] text-text-tertiary" title={seat.baseUrl}>
+						{seat.baseUrl}
+						{seat.defaultModelId ? ` · ${seat.defaultModelId}` : ""}
+					</p>
+				</div>
+				<Button
+					variant="ghost"
+					size="sm"
+					disabled={!online || busy}
+					onClick={onDelete}
+					icon={<Trash2 size={10} />}
+					className="h-6 px-2 text-[10px]"
+					aria-label={`Delete ${seat.name}`}
+				/>
+			</div>
+		</div>
+	);
+}
+
+/**
  * The Seats surface — Claude and Cursor accounts the office works under.
  *
  * Full accounts surface — account cards, meters, Use/Refresh, toolbar
@@ -486,6 +548,9 @@ export function ManagerAccountsView({
 	const [swapLog, setSwapLog] = useState<RuntimeManagerSwapLog | null>(null);
 	const [addAccountStep, setAddAccountStep] =
 		useState<AddAccountMenuStep>("provider");
+	const [apiKeyDialogOpen, setApiKeyDialogOpen] = useState(false);
+	const [apiSeats, setApiSeats] = useState<RuntimeClineCustomProvider[]>([]);
+	const [apiSeatBusyId, setApiSeatBusyId] = useState<string | null>(null);
 	const [oauthStatus, setOauthStatus] = useState<string | null>(null);
 	const [oauthAuthUrl, setOauthAuthUrl] = useState<string | null>(null);
 	const [oauthManual, setOauthManual] = useState(false);
@@ -544,6 +609,21 @@ export function ManagerAccountsView({
 		};
 	}, []);
 
+	const refreshApiSeats = async () => {
+		try {
+			setApiSeats(await fetchClineCustomProviders(null));
+		} catch {
+			setApiSeats([]);
+		}
+	};
+
+	useEffect(() => {
+		if (!online) {
+			return;
+		}
+		void refreshApiSeats();
+	}, [online]);
+
 	/** Best-effort message for a caught value that isn't guaranteed to be an Error. */
 	const describeThrown = (err: unknown): string => {
 		if (err instanceof Error) {
@@ -578,6 +658,47 @@ export function ManagerAccountsView({
 			setError(describeThrown(err));
 		} finally {
 			setBusyId(null);
+		}
+	};
+
+	const handleAddApiSeat = async (
+		input: AddClineProviderInput | UpdateClineProviderInput,
+	): Promise<{ ok: boolean; message?: string }> => {
+		// The dialog only renders in mode="add" below, so it only ever submits an add-shaped payload.
+		const addInput = input as AddClineProviderInput;
+		try {
+			await addClineProvider(null, {
+				providerId: addInput.providerId,
+				name: addInput.name,
+				baseUrl: addInput.baseUrl,
+				apiKey: addInput.apiKey,
+				headers: addInput.headers,
+				timeoutMs: addInput.timeoutMs,
+				models: addInput.models,
+				defaultModelId: addInput.defaultModelId,
+				modelsSourceUrl: addInput.modelsSourceUrl,
+				capabilities: addInput.capabilities,
+			});
+			await refreshApiSeats();
+			return { ok: true };
+		} catch (err) {
+			return { ok: false, message: describeThrown(err) };
+		}
+	};
+
+	const handleDeleteApiSeat = async (providerId: string) => {
+		setApiSeatBusyId(providerId);
+		setError(null);
+		setActionStatus(null);
+		setNotice(null);
+		try {
+			await deleteClineProvider(null, providerId);
+			await refreshApiSeats();
+			setActionStatus("API seat removed.");
+		} catch (err) {
+			setError(describeThrown(err));
+		} finally {
+			setApiSeatBusyId(null);
 		}
 	};
 
@@ -1180,6 +1301,20 @@ export function ManagerAccountsView({
 												aria-hidden
 											/>
 										</DropdownMenu.Item>
+										<DropdownMenu.Item
+											className="flex cursor-pointer items-center justify-between gap-2 rounded-sm px-2 py-1.5 text-[11px] text-text-primary outline-none data-[highlighted]:bg-surface-3"
+											data-testid="manager-add-account-provider-api-key"
+											onSelect={() => {
+												setApiKeyDialogOpen(true);
+											}}
+										>
+											<span>
+												<p className="font-medium">API Key</p>
+												<p className="text-[10px] text-text-tertiary">
+													Connect an LLM API key — runs on the Cline agent
+												</p>
+											</span>
+										</DropdownMenu.Item>
 									</>
 								) : null}
 								{addAccountStep === "claude" ? (
@@ -1274,6 +1409,13 @@ export function ManagerAccountsView({
 							</DropdownMenu.Content>
 						</DropdownMenu.Portal>
 					</DropdownMenu.Root>
+					<ClineAddProviderDialog
+						open={apiKeyDialogOpen}
+						onOpenChange={setApiKeyDialogOpen}
+						existingProviderIds={apiSeats.map((seat) => seat.providerId)}
+						mode="add"
+						onSubmit={handleAddApiSeat}
+					/>
 					{paused ? (
 						<Button
 							variant="ghost"
@@ -1643,6 +1785,23 @@ export function ManagerAccountsView({
 						})}
 					</div>
 				)}
+
+				{apiSeats.length > 0 ? (
+					<div className="mt-3 flex flex-col gap-1.5 border-t border-border pt-2">
+						<p className="text-[10px] font-medium uppercase tracking-wide text-text-tertiary">
+							API seats
+						</p>
+						{apiSeats.map((seat) => (
+							<ApiSeatRow
+								key={seat.providerId}
+								seat={seat}
+								busy={apiSeatBusyId === seat.providerId}
+								online={online}
+								onDelete={() => void handleDeleteApiSeat(seat.providerId)}
+							/>
+						))}
+					</div>
+				) : null}
 
 				<section
 					className="mt-3 border-t border-border pt-2"
