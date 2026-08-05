@@ -26,6 +26,22 @@ def db(tmp_path):
                VALUES (2, 'oauth@test.com', 'claude', 'at', 'rt', 1900000000,
                        100, 0, 1, 0, 'valid')"""
         )
+        conn.execute(
+            """INSERT INTO accounts
+               (id, email, provider, access_token, refresh_token, expires_at,
+                donate_limit_percent, donate_limit_locked, is_active, is_deleted, validation_status,
+                cached_usage_5h, cached_usage_7d)
+               VALUES (3, 'locked-over-cap@test.com', 'claude', 'at', 'rt', 1900000000,
+                       70, 1, 1, 0, 'valid', 95, 10)"""
+        )
+        conn.execute(
+            """INSERT INTO accounts
+               (id, email, provider, access_token, refresh_token, expires_at,
+                donate_limit_percent, donate_limit_locked, is_active, is_deleted, validation_status,
+                cached_usage_5h, cached_usage_7d)
+               VALUES (4, 'unlocked-over-cap@test.com', 'claude', 'at', 'rt', 1900000000,
+                       70, 0, 1, 0, 'valid', 95, 10)"""
+        )
     yield db
     db.close()
 
@@ -57,3 +73,15 @@ def test_list_accounts_includes_donate_limit_locked(client):
     by_id = {row["id"]: row for row in rows}
     assert by_id[1]["donate_limit_locked"] is True
     assert by_id[2]["donate_limit_locked"] is False
+
+
+def test_use_account_rejected_when_over_locked_cap(client):
+    resp = client.post("/api/auth/accounts/3/use")
+    assert resp.status_code == 400
+    assert resp.json()["error"]["code"] == "OVER_DONATE_CAP"
+
+
+def test_use_account_rejected_when_over_unlocked_cap(client):
+    resp = client.post("/api/auth/accounts/4/use")
+    assert resp.status_code == 400
+    assert resp.json()["error"]["code"] == "OVER_DONATE_CAP"
