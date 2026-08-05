@@ -13,6 +13,7 @@ const MIME_TYPES: Record<string, string> = {
 	".jpg": "image/jpeg",
 	".jpeg": "image/jpeg",
 	".gif": "image/gif",
+	".webp": "image/webp",
 	".ico": "image/x-icon",
 	".map": "application/json; charset=utf-8",
 	".txt": "text/plain; charset=utf-8",

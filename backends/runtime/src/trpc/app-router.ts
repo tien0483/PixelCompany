@@ -122,6 +122,8 @@ import type {
 	RuntimePlansReadResponse,
 	RuntimePlansRemoveRequest,
 	RuntimePlansRemoveResponse,
+	RuntimePlansWriteAssetRequest,
+	RuntimePlansWriteAssetResponse,
 	RuntimePlansWriteRequest,
 	RuntimePlansWriteResponse,
 	RuntimeProjectAddRequest,
@@ -288,6 +290,8 @@ import {
 	runtimePlansReadResponseSchema,
 	runtimePlansRemoveRequestSchema,
 	runtimePlansRemoveResponseSchema,
+	runtimePlansWriteAssetRequestSchema,
+	runtimePlansWriteAssetResponseSchema,
 	runtimePlansWriteRequestSchema,
 	runtimePlansWriteResponseSchema,
 	runtimeProjectAddRequestSchema,
@@ -592,6 +596,7 @@ export interface RuntimeTrpcContext {
 		remove: (input: RuntimePlansRemoveRequest) => Promise<RuntimePlansRemoveResponse>;
 		read: (input: RuntimePlansReadRequest) => Promise<RuntimePlansReadResponse>;
 		write: (input: RuntimePlansWriteRequest) => Promise<RuntimePlansWriteResponse>;
+		writeAsset: (input: RuntimePlansWriteAssetRequest) => Promise<RuntimePlansWriteAssetResponse>;
 	};
 	hooksApi: {
 		ingest: (input: RuntimeHookIngestRequest) => Promise<RuntimeHookIngestResponse>;
@@ -1147,6 +1152,12 @@ export const runtimeAppRouter = t.router({
 			.output(runtimePlansWriteResponseSchema)
 			.mutation(async ({ ctx, input }) => {
 				return await ctx.plansApi.write(input);
+			}),
+		writeAsset: t.procedure
+			.input(runtimePlansWriteAssetRequestSchema)
+			.output(runtimePlansWriteAssetResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.plansApi.writeAsset(input);
 			}),
 	}),
 	hooks: t.router({
