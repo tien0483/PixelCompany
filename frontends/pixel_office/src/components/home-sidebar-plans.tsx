@@ -109,6 +109,36 @@ export function HomeSidebarPlansPanel({
 		[refreshPlans, workspaceId],
 	);
 
+	const handleImportFile = useCallback(
+		async (filePath: string) => {
+			setIsImporting(true);
+			try {
+				const trpcClient = getRuntimeTrpcClient(workspaceId);
+				const response = await trpcClient.plans.importFile.mutate({ filePath });
+				if (!response.ok) {
+					showAppToast({
+						intent: "danger",
+						message: response.error ?? "Failed to import plan.",
+					});
+					return;
+				}
+				showAppToast({
+					intent: "success",
+					message: response.alreadyExists ? "Already in library." : "Added plan.",
+				});
+				await refreshPlans();
+			} catch (error) {
+				showAppToast({
+					intent: "danger",
+					message: error instanceof Error ? error.message : String(error),
+				});
+			} finally {
+				setIsImporting(false);
+			}
+		},
+		[refreshPlans, workspaceId],
+	);
+
 	const handleRemove = useCallback(
 		async (planId: string) => {
 			try {
@@ -210,9 +240,13 @@ export function HomeSidebarPlansPanel({
 				open={isBrowserOpen}
 				onOpenChange={setIsBrowserOpen}
 				workspaceId={workspaceId}
-				onSelect={(path) => {
+				onSelect={(path, type) => {
 					setIsBrowserOpen(false);
-					void handleImportFolder(path);
+					if (type === "file") {
+						void handleImportFile(path);
+					} else {
+						void handleImportFolder(path);
+					}
 				}}
 			/>
 		</div>

@@ -212,6 +212,7 @@ function AccountRow({
 	const donateExhausted = isDonateExhausted(account);
 	const isSeatDisabled = !account.isActive;
 	const donateLocked = account.donateLimitLocked;
+	const ccAuthRequired = !isCursorAccount && (!account.hasCcToken || account.ccNeedsAuth);
 	const seatControlsLocked = !online || busy || isSeatDisabled;
 	const [donateDraft, setDonateDraft] = useState(account.donateLimitPercent);
 	const donateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -403,7 +404,11 @@ function AccountRow({
 				>
 					<span className="text-[10px] text-text-tertiary">
 						Donate up to {donateDraft}%
-						{donateLocked ? " (locked from invite)" : ""}
+						{donateLocked
+							? " (locked from invite)"
+							: ccAuthRequired
+								? " (locked — needs CC auth)"
+								: ""}
 					</span>
 					<input
 						type="range"
@@ -411,11 +416,11 @@ function AccountRow({
 						max={100}
 						step={1}
 						value={donateDraft}
-						disabled={seatControlsLocked || donateLocked}
+						disabled={seatControlsLocked || donateLocked || ccAuthRequired}
 						aria-label={`Donate up to percent for ${account.email}`}
 						className="w-full accent-[var(--color-accent)] disabled:opacity-40"
 						onChange={(event) => {
-							if (donateLocked) {
+							if (donateLocked || ccAuthRequired) {
 								return;
 							}
 							scheduleDonatePatch(Number(event.target.value));
@@ -424,7 +429,9 @@ function AccountRow({
 					<span className="text-[9px] text-text-tertiary">
 						{donateLocked
 							? "Invite seats keep the donate cap agreed in email."
-							: "Auto skips this seat at the limit; pinned tasks still work."}
+							: ccAuthRequired
+								? "Authorize Claude Code tokens for this seat to set a donate cap."
+								: "Auto skips this seat at the limit; pinned tasks still work."}
 					</span>
 				</label>
 				{isCursorAccount ? (

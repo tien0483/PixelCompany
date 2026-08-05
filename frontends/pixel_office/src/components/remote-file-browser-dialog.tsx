@@ -1,4 +1,4 @@
-import { ArrowUp, ChevronRight, Folder, FolderOpen, GitBranch } from "lucide-react";
+import { ArrowUp, ChevronRight, FileText, Folder, FolderOpen, GitBranch } from "lucide-react";
 import { type FormEvent, type ReactElement, useCallback, useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -12,7 +12,7 @@ import { serverRootLabel, splitServerPath, toUiRelative } from "@/utils/server-p
 export interface RemoteFileBrowserDialogProps {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
-	onSelect: (path: string) => void;
+	onSelect: (path: string, type: "file" | "folder") => void;
 	initialPath?: string;
 	workspaceId?: string | null;
 }
@@ -31,6 +31,7 @@ export function RemoteFileBrowserDialog({
 	const [isLoading, setIsLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [pathInput, setPathInput] = useState("");
+	const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null);
 	const fetchIdRef = useRef(0);
 
 	const fetchContents = useCallback(
@@ -38,10 +39,11 @@ export function RemoteFileBrowserDialog({
 			const fetchId = ++fetchIdRef.current;
 			setIsLoading(true);
 			setError(null);
+			setSelectedFilePath(null);
 			try {
 				const trpcClient = getRuntimeTrpcClient(workspaceId);
 				const response: RuntimeDirectoryListResponse = await trpcClient.projects.listDirectoryContents.query(
-					path !== undefined ? { path } : {},
+					path !== undefined ? { path, includeFiles: true } : { includeFiles: true },
 				);
 				if (fetchId !== fetchIdRef.current) {
 					return;
@@ -106,9 +108,17 @@ export function RemoteFileBrowserDialog({
 		[pathInput, fetchContents],
 	);
 
+	const handleSelectFile = useCallback((path: string) => {
+		setSelectedFilePath(path);
+	}, []);
+
 	const handleSelect = useCallback(() => {
-		onSelect(currentPath);
-	}, [currentPath, onSelect]);
+		if (selectedFilePath) {
+			onSelect(selectedFilePath, "file");
+			return;
+		}
+		onSelect(currentPath, "folder");
+	}, [currentPath, selectedFilePath, onSelect]);
 
 	const breadcrumbSegments = buildBreadcrumbs(currentPath, rootPath);
 
@@ -133,13 +143,15 @@ export function RemoteFileBrowserDialog({
 					isLoading={isLoading}
 					error={error}
 					entries={entries}
+					selectedFilePath={selectedFilePath}
+					onSelectFile={handleSelectFile}
 				/>
 			</DialogBody>
 			<DialogFooter>
 				<Button variant="default" onClick={() => onOpenChange(false)}>
 					Cancel
 				</Button>
-				<Button variant="primary" onClick={handleSelect} disabled={isLoading || !currentPath}>
+				<Button variant="primary" onClick={handleSelect} disabled={isLoading || (!currentPath && !selectedFilePath)}>
 					Select
 				</Button>
 			</DialogFooter>
@@ -164,6 +176,8 @@ function RemoteFileBrowserContent({
 	isLoading,
 	error,
 	entries,
+	selectedFilePath,
+	onSelectFile,
 }: {
 	rootPath: string;
 	pathInput: string;
@@ -176,6 +190,8 @@ function RemoteFileBrowserContent({
 	isLoading: boolean;
 	error: string | null;
 	entries: RuntimeDirectoryListEntry[];
+	selectedFilePath: string | null;
+	onSelectFile: (path: string) => void;
 }): ReactElement {
 	return (
 		<>
@@ -232,7 +248,14 @@ function RemoteFileBrowserContent({
 			</div>
 
 			{/* Directory listing */}
-			<DirectoryEntryList isLoading={isLoading} error={error} entries={entries} onNavigate={onNavigate} />
+			<DirectoryEntryList
+				isLoading={isLoading}
+				error={error}
+				entries={entries}
+				onNavigate={onNavigate}
+				selectedFilePath={selectedFilePath}
+				onSelectFile={onSelectFile}
+			/>
 
 			{/* Hidden description for accessibility */}
 			<p id="remote-file-browser-description" className="sr-only">
@@ -247,11 +270,15 @@ function DirectoryEntryList({
 	error,
 	entries,
 	onNavigate,
+	selectedFilePath,
+	onSelectFile,
 }: {
 	isLoading: boolean;
 	error: string | null;
 	entries: RuntimeDirectoryListEntry[];
 	onNavigate: (path: string) => void;
+	selectedFilePath: string | null;
+	onSelectFile: (path: string) => void;
 }): ReactElement {
 	return (
 		<div
@@ -272,30 +299,48 @@ function DirectoryEntryList({
 				</div>
 			) : (
 				<div className="flex flex-col">
-					{entries.map((entry) => (
-						<button
-							key={entry.path}
-							type="button"
-							className={cn(
-								"flex items-center gap-2 px-4 py-2 text-left cursor-pointer bg-transparent border-none",
-								"hover:bg-surface-2 active:bg-surface-3",
-								"text-[13px] text-text-primary",
-							)}
-							onClick={() => onNavigate(entry.path)}
-							data-testid={`dir-entry-${entry.name}`}
-						>
-							{entry.isGitRepository ? (
-								<span className="flex items-center shrink-0 text-text-secondary" title="Git repository">
-									<Folder size={16} className="text-text-secondary" />
-									<GitBranch size={10} className="text-accent -ml-1.5 mb-1.5" />
-								</span>
-							) : (
-								<Folder size={16} className="text-text-secondary shrink-0" />
-							)}
-							<span className="truncate">{entry.name}</span>
-							<ChevronRight size={12} className="text-text-tertiary ml-auto shrink-0" />
-						</button>
-					))}
+					{entries.map((entry) =>
+						entry.isDirectory ? (
+							<button
+								key={entry.path}
+								type="button"
+								className={cn(
+									"flex items-center gap-2 px-4 py-2 text-left cursor-pointer bg-transparent border-none",
+									"hover:bg-surface-2 active:bg-surface-3",
+									"text-[13px] text-text-primary",
+								)}
+								onClick={() => onNavigate(entry.path)}
+								data-testid={`dir-entry-${entry.name}`}
+							>
+								{entry.isGitRepository ? (
+									<span className="flex items-center shrink-0 text-text-secondary" title="Git repository">
+										<Folder size={16} className="text-text-secondary" />
+										<GitBranch size={10} className="text-accent -ml-1.5 mb-1.5" />
+									</span>
+								) : (
+									<Folder size={16} className="text-text-secondary shrink-0" />
+								)}
+								<span className="truncate">{entry.name}</span>
+								<ChevronRight size={12} className="text-text-tertiary ml-auto shrink-0" />
+							</button>
+						) : (
+							<button
+								key={entry.path}
+								type="button"
+								className={cn(
+									"flex items-center gap-2 px-4 py-2 text-left cursor-pointer bg-transparent border-none",
+									"hover:bg-surface-2 active:bg-surface-3",
+									"text-[13px] text-text-primary",
+									selectedFilePath === entry.path && "bg-surface-3",
+								)}
+								onClick={() => onSelectFile(entry.path)}
+								data-testid={`file-entry-${entry.name}`}
+							>
+								<FileText size={16} className="text-text-secondary shrink-0" />
+								<span className="truncate">{entry.name}</span>
+							</button>
+						),
+					)}
 				</div>
 			)}
 		</div>

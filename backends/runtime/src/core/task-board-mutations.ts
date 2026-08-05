@@ -860,10 +860,16 @@ export function moveTaskToColumn(
 			fromColumnId: found.columnId,
 		};
 	}
-	const movedTask: RuntimeBoardCard = {
-		...task,
-		updatedAt: now,
-	};
+	const movedTask: RuntimeBoardCard = (() => {
+		if (targetColumnId === "review") {
+			return { ...task, updatedAt: now, reviewEnteredAt: now };
+		}
+		if (task.reviewEnteredAt === undefined) {
+			return { ...task, updatedAt: now };
+		}
+		const { reviewEnteredAt: _removed, ...rest } = task;
+		return { ...rest, updatedAt: now };
+	})();
 	const targetCards =
 		targetColumnId === "trash" ? [movedTask, ...targetColumn.cards] : [...targetColumn.cards, movedTask];
 

@@ -10,6 +10,7 @@ vi.mock("../../../src/state/workspace-state", () => ({
 }));
 
 import {
+	importPlanFile,
 	importPlansFromFolder,
 	listSavedPlans,
 	readSavedPlanAsset,
@@ -47,6 +48,47 @@ describe("saved-plans library", () => {
 		const listed = await listSavedPlans();
 		expect(listed.map((plan) => plan.name).sort()).toEqual(["alpha", "beta"]);
 		expect(listed.every((plan) => plan.missing === false)).toBe(true);
+	});
+
+	it("imports a single file via importPlanFile and dedupes on repeat", async () => {
+		const folder = join(runtimeHome.path, "plans");
+		await mkdir(folder, { recursive: true });
+		const filePath = join(folder, "solo.md");
+		await writeFile(filePath, "# Solo\n", "utf8");
+
+		const first = await importPlanFile(filePath);
+		expect(first.isNew).toBe(true);
+		expect(first.entry.name).toBe("solo");
+
+		const second = await importPlanFile(filePath);
+		expect(second.isNew).toBe(false);
+		expect(second.entry.id).toBe(first.entry.id);
+
+		const listed = await listSavedPlans();
+		expect(listed).toHaveLength(1);
+	});
+
+	it("rejects importing a file with an unsupported extension", async () => {
+		const folder = join(runtimeHome.path, "plans");
+		await mkdir(folder, { recursive: true });
+		const filePath = join(folder, "skip.bin");
+		await writeFile(filePath, "nope", "utf8");
+
+		await expect(importPlanFile(filePath)).rejects.toThrow(/not a supported plan file/i);
+	});
+
+	it("lists saved plans newest-added first", async () => {
+		const folder = join(runtimeHome.path, "plans");
+		await mkdir(folder, { recursive: true });
+		await writeFile(join(folder, "older.md"), "# Older\n", "utf8");
+		await writeFile(join(folder, "newer.md"), "# Newer\n", "utf8");
+
+		await importPlanFile(join(folder, "older.md"));
+		await new Promise((resolve) => setTimeout(resolve, 2));
+		await importPlanFile(join(folder, "newer.md"));
+
+		const listed = await listSavedPlans();
+		expect(listed.map((plan) => plan.name)).toEqual(["newer", "older"]);
 	});
 
 	it("reads and writes plan content and removes library entries", async () => {

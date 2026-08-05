@@ -31,8 +31,8 @@ function makeResponse(overrides: Record<string, unknown> = {}) {
 		parentPath: null,
 		rootPath: "/srv/projects",
 		entries: [
-			{ name: "app-a", path: "/srv/projects/app-a", isGitRepository: true },
-			{ name: "app-b", path: "/srv/projects/app-b", isGitRepository: false },
+			{ name: "app-a", path: "/srv/projects/app-a", isGitRepository: true, isDirectory: true },
+			{ name: "app-b", path: "/srv/projects/app-b", isGitRepository: false, isDirectory: true },
 		],
 		...overrides,
 	};
@@ -69,7 +69,11 @@ describe("RemoteFileBrowserDialog", () => {
 	});
 
 	function renderDialog(
-		overrides: { open?: boolean; onSelect?: (p: string) => void; onOpenChange?: (o: boolean) => void } = {},
+		overrides: {
+			open?: boolean;
+			onSelect?: (p: string, type: "file" | "folder") => void;
+			onOpenChange?: (o: boolean) => void;
+		} = {},
 	) {
 		const props = {
 			open: true,
@@ -141,7 +145,7 @@ describe("RemoteFileBrowserDialog", () => {
 			makeResponse({
 				currentPath: "/srv/projects/app-a",
 				parentPath: "/srv/projects",
-				entries: [{ name: "src", path: "/srv/projects/app-a/src", isGitRepository: false }],
+				entries: [{ name: "src", path: "/srv/projects/app-a/src", isGitRepository: false, isDirectory: true }],
 			}),
 		);
 
@@ -153,7 +157,7 @@ describe("RemoteFileBrowserDialog", () => {
 		await flushQuery();
 
 		expect(mockQuery).toHaveBeenCalledTimes(2);
-		expect(mockQuery).toHaveBeenLastCalledWith({ path: "/srv/projects/app-a" });
+		expect(mockQuery).toHaveBeenLastCalledWith({ path: "/srv/projects/app-a", includeFiles: true });
 		expect(bodyText()).toContain("src");
 	});
 
@@ -170,7 +174,38 @@ describe("RemoteFileBrowserDialog", () => {
 		act(() => {
 			selectBtn.click();
 		});
-		expect(onSelect).toHaveBeenCalledWith("/srv/projects");
+		expect(onSelect).toHaveBeenCalledWith("/srv/projects", "folder");
+	});
+
+	it("shows plan file entries and fires onSelect with the file path when selected", async () => {
+		mockQuery.mockResolvedValue(
+			makeResponse({
+				entries: [
+					{ name: "app-a", path: "/srv/projects/app-a", isGitRepository: false, isDirectory: true },
+					{ name: "notes.md", path: "/srv/projects/notes.md", isGitRepository: false, isDirectory: false },
+				],
+			}),
+		);
+		const onSelect = vi.fn();
+		renderDialog({ onSelect });
+		await flushQuery();
+
+		const fileEntry = q('[data-testid="file-entry-notes.md"]') as HTMLButtonElement;
+		expect(fileEntry).not.toBeNull();
+		act(() => {
+			fileEntry.click();
+		});
+
+		// Selecting a file must not trigger a directory-list refetch.
+		expect(mockQuery).toHaveBeenCalledTimes(1);
+
+		const selectBtn = Array.from(document.body.querySelectorAll("button")).find(
+			(b) => b.textContent?.trim() === "Select",
+		)!;
+		act(() => {
+			selectBtn.click();
+		});
+		expect(onSelect).toHaveBeenCalledWith("/srv/projects/notes.md", "file");
 	});
 
 	it("shows error message when API returns ok: false", async () => {
@@ -231,7 +266,7 @@ describe("RemoteFileBrowserDialog", () => {
 		});
 		await flushQuery();
 
-		expect(mockQuery).toHaveBeenLastCalledWith({ path: "/srv/projects" });
+		expect(mockQuery).toHaveBeenLastCalledWith({ path: "/srv/projects", includeFiles: true });
 	});
 
 	/* -------------------------------------------------------------- */
@@ -245,8 +280,8 @@ describe("RemoteFileBrowserDialog", () => {
 			parentPath: null,
 			rootPath: "C:\\workspace",
 			entries: [
-				{ name: "repo", path: "C:\\workspace\\repo", isGitRepository: true },
-				{ name: "docs", path: "C:\\workspace\\docs", isGitRepository: false },
+				{ name: "repo", path: "C:\\workspace\\repo", isGitRepository: true, isDirectory: true },
+				{ name: "docs", path: "C:\\workspace\\docs", isGitRepository: false, isDirectory: true },
 			],
 			...overrides,
 		};
@@ -289,7 +324,7 @@ describe("RemoteFileBrowserDialog", () => {
 			makeWindowsResponse({
 				currentPath: "C:\\workspace\\repo",
 				parentPath: "C:\\workspace",
-				entries: [{ name: "src", path: "C:\\workspace\\repo\\src", isGitRepository: false }],
+				entries: [{ name: "src", path: "C:\\workspace\\repo\\src", isGitRepository: false, isDirectory: true }],
 			}),
 		);
 
@@ -301,7 +336,7 @@ describe("RemoteFileBrowserDialog", () => {
 		await flushQuery();
 
 		expect(mockQuery).toHaveBeenCalledTimes(2);
-		expect(mockQuery).toHaveBeenLastCalledWith({ path: "C:\\workspace\\repo" });
+		expect(mockQuery).toHaveBeenLastCalledWith({ path: "C:\\workspace\\repo", includeFiles: true });
 		expect(bodyText()).toContain("src");
 	});
 
@@ -318,6 +353,6 @@ describe("RemoteFileBrowserDialog", () => {
 		act(() => {
 			selectBtn.click();
 		});
-		expect(onSelect).toHaveBeenCalledWith("C:\\workspace");
+		expect(onSelect).toHaveBeenCalledWith("C:\\workspace", "folder");
 	});
 });

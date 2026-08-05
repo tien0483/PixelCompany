@@ -35,7 +35,7 @@ function stemFromPath(pathValue: string): string {
 	return extension.length > 0 ? fileName.slice(0, -extension.length) : fileName;
 }
 
-function isPlanFileName(name: string): boolean {
+export function isPlanFileName(name: string): boolean {
 	return PLAN_FILE_EXTENSIONS.has(extname(name).toLowerCase());
 }
 
@@ -93,12 +93,32 @@ async function writeSavedPlans(entries: SavedPlanEntry[]): Promise<void> {
 
 export async function listSavedPlans(): Promise<SavedPlanListEntry[]> {
 	const entries = await loadSavedPlans();
-	return await Promise.all(
+	const listed = await Promise.all(
 		entries.map(async (entry) => ({
 			...entry,
 			missing: !(await pathExists(entry.path)),
 		})),
 	);
+	return listed.sort((a, b) => b.addedAt - a.addedAt);
+}
+
+function addOrReuseEntry(
+	byPath: Map<string, SavedPlanEntry>,
+	filePath: string,
+	now: number,
+): { entry: SavedPlanEntry; isNew: boolean } {
+	const existing = byPath.get(filePath);
+	if (existing) {
+		return { entry: existing, isNew: false };
+	}
+	const entry: SavedPlanEntry = {
+		id: randomUUID(),
+		name: stemFromPath(filePath),
+		path: filePath,
+		addedAt: now,
+	};
+	byPath.set(filePath, entry);
+	return { entry, isNew: true };
 }
 
 export async function importPlansFromFolder(folderPath: string): Promise<{
@@ -122,13 +142,7 @@ export async function importPlansFromFolder(folderPath: string): Promise<{
 			skipped += 1;
 			continue;
 		}
-		const entry: SavedPlanEntry = {
-			id: randomUUID(),
-			name: stemFromPath(filePath),
-			path: filePath,
-			addedAt: now,
-		};
-		byPath.set(filePath, entry);
+		const { entry } = addOrReuseEntry(byPath, filePath, now);
 		added.push(entry);
 	}
 
@@ -137,6 +151,25 @@ export async function importPlansFromFolder(folderPath: string): Promise<{
 	}
 
 	return { added, skipped };
+}
+
+export async function importPlanFile(filePath: string): Promise<{
+	entry: SavedPlanEntry;
+	isNew: boolean;
+}> {
+	const resolvedFilePath = normalizeAbsolutePath(filePath);
+	if (!isPlanFileName(resolvedFilePath)) {
+		throw new Error(`Not a supported plan file: ${resolvedFilePath}`);
+	}
+	const existing = await loadSavedPlans();
+	const byPath = new Map(existing.map((entry) => [entry.path, entry]));
+	const { entry, isNew } = addOrReuseEntry(byPath, resolvedFilePath, Date.now());
+
+	if (isNew) {
+		await writeSavedPlans([...existing, entry]);
+	}
+
+	return { entry, isNew };
 }
 
 export async function removeSavedPlan(planId: string): Promise<boolean> {

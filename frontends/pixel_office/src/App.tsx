@@ -63,6 +63,7 @@ import {
 } from "@/hooks/use-project-navigation";
 import { useProjectUiState } from "@/hooks/use-project-ui-state";
 import { useReviewReadyNotifications } from "@/hooks/use-review-ready-notifications";
+import { useReviewStalenessAlert } from "@/hooks/use-review-staleness-alert";
 import { useShortcutActions } from "@/hooks/use-shortcut-actions";
 import { useStartupOnboarding } from "@/hooks/use-startup-onboarding";
 import { useTaskBranchOptions } from "@/hooks/use-task-branch-options";
@@ -350,6 +351,8 @@ export default function App(): ReactElement {
 		readyForReviewNotificationsEnabled,
 		workspacePath,
 	});
+
+	useReviewStalenessAlert({ board });
 
 	const { createTaskBranchOptions, defaultTaskBranchRef } =
 		useTaskBranchOptions({ workspaceGit });
@@ -1258,7 +1261,13 @@ export default function App(): ReactElement {
 							aria-hidden={selectedCard ? true : undefined}
 							style={selectedCard ? { visibility: "hidden" } : undefined}
 						>
-							{shouldShowProjectLoadingState ? (
+							{editingPlan ? (
+								<PlanEditorView
+									plan={editingPlan}
+									workspaceId={currentProjectId}
+									onClose={() => setEditingPlan(null)}
+								/>
+							) : shouldShowProjectLoadingState ? (
 								<div className="flex flex-1 min-h-0 flex-col items-center justify-center gap-4 bg-surface-0">
 									<Spinner size={30} />
 									<Button
@@ -1292,13 +1301,7 @@ export default function App(): ReactElement {
 							) : (
 								<div className="flex flex-1 flex-col min-h-0 min-w-0">
 									<div className="flex flex-1 min-h-0 min-w-0">
-										{editingPlan ? (
-											<PlanEditorView
-												plan={editingPlan}
-												workspaceId={currentProjectId}
-												onClose={() => setEditingPlan(null)}
-											/>
-										) : isGitHistoryOpen ? (
+										{isGitHistoryOpen ? (
 											<GitHistoryView
 												workspaceId={currentProjectId}
 												gitHistory={gitHistory}
