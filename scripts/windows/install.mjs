@@ -199,17 +199,56 @@ function packageManagerSpec(appRoot) {
 }
 
 function run(cmd, args, cwd) {
-	const r = spawnSync(cmd, args, { cwd, stdio: "inherit", windowsHide: true, shell: false });
+	// On Windows, corepack/pnpm/npm are .cmd shims; spawn without shell yields status null (ENOENT).
+	const r = spawnSync(cmd, args, {
+		cwd,
+		stdio: "inherit",
+		windowsHide: true,
+		shell: process.platform === "win32",
+		env: process.env,
+	});
+	if (r.error) {
+		throw new Error(`${cmd} ${args.join(" ")} failed to start: ${r.error.message}`);
+	}
 	if (r.status !== 0) {
 		throw new Error(`${cmd} ${args.join(" ")} failed (exit ${r.status})`);
 	}
 }
 
+function ensurePnpm(pnpmSpec) {
+	console.log(`Enabling Corepack / pnpm (${pnpmSpec})...`);
+	const enable = spawnSync("corepack", ["enable"], {
+		stdio: "inherit",
+		windowsHide: true,
+		shell: process.platform === "win32",
+		env: process.env,
+	});
+	if (enable.error) {
+		console.warn(`corepack enable: ${enable.error.message}`);
+	}
+	const prepare = spawnSync("corepack", ["prepare", pnpmSpec, "--activate"], {
+		stdio: "inherit",
+		windowsHide: true,
+		shell: process.platform === "win32",
+		env: process.env,
+	});
+	if (!prepare.error && prepare.status === 0) {
+		return;
+	}
+	const prepareErr = prepare.error?.message || `exit ${prepare.status}`;
+	console.warn(`corepack prepare failed (${prepareErr}); falling back to npm install -g ${pnpmSpec}...`);
+	run("npm", ["install", "-g", pnpmSpec], undefined);
+	refreshPathFromMachine();
+	if (!commandExists("pnpm")) {
+		throw new Error(
+			`pnpm still not on PATH after corepack/npm fallback. Close this window, open a new terminal, and re-run Setup.`,
+		);
+	}
+}
+
 function installNodeDeps(appRoot) {
 	const pnpmSpec = packageManagerSpec(appRoot);
-	console.log(`Enabling Corepack / pnpm (${pnpmSpec})...`);
-	spawnSync("corepack", ["enable"], { stdio: "inherit", windowsHide: true });
-	run("corepack", ["prepare", pnpmSpec, "--activate"], appRoot);
+	ensurePnpm(pnpmSpec);
 	console.log(`Running pnpm install in ${appRoot} ...`);
 	run("pnpm", ["install"], appRoot);
 }
