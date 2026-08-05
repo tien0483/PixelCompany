@@ -1194,11 +1194,13 @@ export const runtimeDirectoryListEntrySchema = z.object({
 	name: z.string(),
 	path: z.string(),
 	isGitRepository: z.boolean(),
+	isDirectory: z.boolean(),
 });
 export type RuntimeDirectoryListEntry = z.infer<typeof runtimeDirectoryListEntrySchema>;
 
 export const runtimeDirectoryListRequestSchema = z.object({
 	path: z.string().optional(),
+	includeFiles: z.boolean().optional(),
 });
 export type RuntimeDirectoryListRequest = z.infer<typeof runtimeDirectoryListRequestSchema>;
 
@@ -1240,6 +1242,19 @@ export const runtimePlansImportFromFolderResponseSchema = z.object({
 	error: z.string().optional(),
 });
 export type RuntimePlansImportFromFolderResponse = z.infer<typeof runtimePlansImportFromFolderResponseSchema>;
+
+export const runtimePlansImportFileRequestSchema = z.object({
+	filePath: z.string(),
+});
+export type RuntimePlansImportFileRequest = z.infer<typeof runtimePlansImportFileRequestSchema>;
+
+export const runtimePlansImportFileResponseSchema = z.object({
+	ok: z.boolean(),
+	plan: runtimeSavedPlanSchema.nullable(),
+	alreadyExists: z.boolean(),
+	error: z.string().optional(),
+});
+export type RuntimePlansImportFileResponse = z.infer<typeof runtimePlansImportFileResponseSchema>;
 
 export const runtimePlansRemoveRequestSchema = z.object({
 	planId: z.string(),

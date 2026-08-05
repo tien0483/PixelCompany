@@ -2,6 +2,8 @@ import { resolve } from "node:path";
 import { stat } from "node:fs/promises";
 
 import type {
+	RuntimePlansImportFileRequest,
+	RuntimePlansImportFileResponse,
 	RuntimePlansImportFromFolderRequest,
 	RuntimePlansImportFromFolderResponse,
 	RuntimePlansListResponse,
@@ -15,6 +17,7 @@ import type {
 	RuntimePlansWriteResponse,
 } from "../core/api-contract";
 import {
+	importPlanFile,
 	importPlansFromFolder,
 	listSavedPlans,
 	readSavedPlanContent,
@@ -86,6 +89,41 @@ export function createPlansApi(deps: CreatePlansApiDependencies): RuntimeTrpcCon
 					skipped: 0,
 					error: toErrorMessage(error),
 				} satisfies RuntimePlansImportFromFolderResponse;
+			}
+		},
+		importFile: async (input: RuntimePlansImportFileRequest) => {
+			try {
+				const filePath = resolve(input.filePath.trim());
+				if (!isPathWithinRoot(rootPath, filePath)) {
+					return {
+						ok: false,
+						plan: null,
+						alreadyExists: false,
+						error: "Access denied: file is outside the server root directory.",
+					} satisfies RuntimePlansImportFileResponse;
+				}
+				const fileStat = await stat(filePath);
+				if (!fileStat.isFile()) {
+					return {
+						ok: false,
+						plan: null,
+						alreadyExists: false,
+						error: "The specified path is not a file.",
+					} satisfies RuntimePlansImportFileResponse;
+				}
+				const { entry, isNew } = await importPlanFile(filePath);
+				return {
+					ok: true,
+					plan: { ...entry, missing: false },
+					alreadyExists: !isNew,
+				} satisfies RuntimePlansImportFileResponse;
+			} catch (error) {
+				return {
+					ok: false,
+					plan: null,
+					alreadyExists: false,
+					error: toErrorMessage(error),
+				} satisfies RuntimePlansImportFileResponse;
 			}
 		},
 		remove: async (input: RuntimePlansRemoveRequest) => {
