@@ -12,8 +12,10 @@ vi.mock("../../../src/state/workspace-state", () => ({
 import {
 	importPlansFromFolder,
 	listSavedPlans,
+	readSavedPlanAsset,
 	readSavedPlanContent,
 	removeSavedPlan,
+	writeSavedPlanAsset,
 	writeSavedPlanContent,
 } from "../../../src/state/saved-plans";
 import { composePromptWithAttachedPlan } from "../../../src/prompts/compose-prompt-with-plan";
@@ -64,6 +66,88 @@ describe("saved-plans library", () => {
 		expect(await removeSavedPlan(planId)).toBe(true);
 		expect(await listSavedPlans()).toHaveLength(0);
 		expect(await readFile(planPath, "utf8")).toBe("v2\n");
+	});
+});
+
+const ONE_PIXEL_PNG_BASE64 =
+	"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+
+describe("plan assets", () => {
+	beforeEach(async () => {
+		runtimeHome.path = await mkdtemp(join(tmpdir(), "kanban-saved-plans-assets-"));
+	});
+
+	afterEach(() => {
+		runtimeHome.path = "";
+	});
+
+	it("writes a pasted image into a sibling <stem>.assets directory", async () => {
+		const folder = join(runtimeHome.path, "plans");
+		await mkdir(folder, { recursive: true });
+		await writeFile(join(folder, "roadmap.md"), "# Roadmap\n", "utf8");
+		const imported = await importPlansFromFolder(folder);
+		const planId = imported.added[0]!.id;
+
+		const relativePath = await writeSavedPlanAsset(planId, {
+			data: ONE_PIXEL_PNG_BASE64,
+			mimeType: "image/png",
+		});
+
+		expect(relativePath).toBe("roadmap.assets/pasted-1.png");
+		const bytes = await readFile(join(folder, "roadmap.assets", "pasted-1.png"));
+		expect(bytes).toEqual(Buffer.from(ONE_PIXEL_PNG_BASE64, "base64"));
+	});
+
+	it("suffixes the filename on collision instead of overwriting", async () => {
+		const folder = join(runtimeHome.path, "plans");
+		await mkdir(folder, { recursive: true });
+		await writeFile(join(folder, "roadmap.md"), "# Roadmap\n", "utf8");
+		const imported = await importPlansFromFolder(folder);
+		const planId = imported.added[0]!.id;
+
+		const first = await writeSavedPlanAsset(planId, { data: ONE_PIXEL_PNG_BASE64, mimeType: "image/png" });
+		const second = await writeSavedPlanAsset(planId, { data: ONE_PIXEL_PNG_BASE64, mimeType: "image/png" });
+
+		expect(first).toBe("roadmap.assets/pasted-1.png");
+		expect(second).toBe("roadmap.assets/pasted-2.png");
+	});
+
+	it("rejects unsupported mime types", async () => {
+		const folder = join(runtimeHome.path, "plans");
+		await mkdir(folder, { recursive: true });
+		await writeFile(join(folder, "roadmap.md"), "# Roadmap\n", "utf8");
+		const imported = await importPlansFromFolder(folder);
+		const planId = imported.added[0]!.id;
+
+		await expect(
+			writeSavedPlanAsset(planId, { data: ONE_PIXEL_PNG_BASE64, mimeType: "image/svg+xml" }),
+		).rejects.toThrow(/unsupported/i);
+	});
+
+	it("reads back a written asset with the correct content type", async () => {
+		const folder = join(runtimeHome.path, "plans");
+		await mkdir(folder, { recursive: true });
+		await writeFile(join(folder, "roadmap.md"), "# Roadmap\n", "utf8");
+		const imported = await importPlansFromFolder(folder);
+		const planId = imported.added[0]!.id;
+
+		const relativePath = await writeSavedPlanAsset(planId, { data: ONE_PIXEL_PNG_BASE64, mimeType: "image/png" });
+		const assetFileName = relativePath.split("/").pop()!;
+		const asset = await readSavedPlanAsset(planId, assetFileName);
+
+		expect(asset.contentType).toBe("image/png");
+		expect(asset.content).toEqual(Buffer.from(ONE_PIXEL_PNG_BASE64, "base64"));
+	});
+
+	it("refuses to read a path that escapes the assets directory", async () => {
+		const folder = join(runtimeHome.path, "plans");
+		await mkdir(folder, { recursive: true });
+		await writeFile(join(folder, "roadmap.md"), "# Roadmap\n", "utf8");
+		const imported = await importPlansFromFolder(folder);
+		const planId = imported.added[0]!.id;
+		await writeSavedPlanAsset(planId, { data: ONE_PIXEL_PNG_BASE64, mimeType: "image/png" });
+
+		await expect(readSavedPlanAsset(planId, "../../../etc/passwd")).rejects.toThrow(/access denied/i);
 	});
 });
 

@@ -50,6 +50,7 @@ import {
 	validatePasscode,
 	validateSession,
 } from "../security/passcode-manager";
+import { readSavedPlanAsset } from "../state/saved-plans";
 import { loadWorkspaceContextById, loadWorkspaceState } from "../state/workspace-state";
 import type { TerminalSessionManager } from "../terminal/session-manager";
 import { createTerminalWebSocketBridge } from "../terminal/ws-server";
@@ -568,6 +569,27 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 					"Cache-Control": "no-store",
 				});
 				res.end(proxied.body);
+				return;
+			}
+			if (pathname === "/api/plans/asset") {
+				const planId = requestUrl.searchParams.get("planId");
+				const relativePath = requestUrl.searchParams.get("path");
+				if (!planId || !relativePath) {
+					res.writeHead(400, { "Content-Type": "application/json; charset=utf-8" });
+					res.end('{"error":"Missing planId or path"}');
+					return;
+				}
+				try {
+					const asset = await readSavedPlanAsset(planId, relativePath);
+					res.writeHead(200, {
+						"Content-Type": asset.contentType,
+						"Cache-Control": "no-store",
+					});
+					res.end(asset.content);
+				} catch {
+					res.writeHead(404, { "Content-Type": "application/json; charset=utf-8" });
+					res.end('{"error":"Not found"}');
+				}
 				return;
 			}
 			if (pathname.startsWith("/api/")) {

@@ -77,7 +77,7 @@ function toCodeString(children: ReactNode): string {
 	return value.endsWith("\n") ? value.slice(0, -1) : value;
 }
 
-const markdownComponents: Components = {
+export const markdownComponents: Components = {
 	h1: ({ className, ...props }) => (
 		<h1 className={cn("mt-3 text-base font-semibold text-text-primary", className)} {...props} />
 	),

@@ -22,7 +22,13 @@ import { Kbd } from "@/components/ui/kbd";
 import { Spinner } from "@/components/ui/spinner";
 import type { FeaturebaseFeedbackState } from "@/hooks/use-featurebase-feedback-widget";
 import { useIsMobile } from "@/hooks/use-is-mobile";
-import type { RuntimeAgentId, RuntimeClineProviderSettings, RuntimeManagerSnapshot, RuntimeProjectSummary } from "@/runtime/types";
+import type {
+	RuntimeAgentId,
+	RuntimeClineProviderSettings,
+	RuntimeManagerSnapshot,
+	RuntimeProjectSummary,
+	RuntimeSavedPlan,
+} from "@/runtime/types";
 import { formatPathForDisplay } from "@/utils/path-display";
 import { isMacPlatform, modifierKeyLabel } from "@/utils/platform";
 import { useUnmount, useWindowEvent } from "@/utils/react-use";
@@ -61,6 +67,7 @@ export function ProjectNavigationPanel({
 	isCollapsed,
 	setSidebarCollapsed,
 	managerSettingsFocusToken = 0,
+	onOpenPlan,
 }: {
 	projects: RuntimeProjectSummary[];
 	isLoadingProjects?: boolean;
@@ -84,6 +91,7 @@ export function ProjectNavigationPanel({
 	setSidebarCollapsed: (collapsed: boolean, persist?: boolean) => void;
 	/** Incremented when Settings is requested so the Jacked panel focuses Settings. */
 	managerSettingsFocusToken?: number;
+	onOpenPlan: (plan: RuntimeSavedPlan) => void;
 }): React.ReactElement {
 	const sortedProjects = [...projects].sort((a, b) => a.path.localeCompare(b.path));
 	const shouldShowFeaturebaseFeedback = canShowFeaturebaseFeedbackButton({
@@ -402,7 +410,7 @@ export function ProjectNavigationPanel({
 					settingsFocusToken={managerSettingsFocusToken}
 				/>
 			) : (
-				<HomeSidebarPlansPanel workspaceId={currentProjectId} />
+				<HomeSidebarPlansPanel workspaceId={currentProjectId} onOpenPlan={onOpenPlan} />
 			)}
 			<AlertDialog
 				open={pendingProjectRemoval !== null}

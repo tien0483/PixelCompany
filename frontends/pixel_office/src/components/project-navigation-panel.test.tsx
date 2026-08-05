@@ -133,6 +133,7 @@ describe("ProjectNavigationPanel width persistence", () => {
 					onSelectProject={() => {}}
 					onRemoveProject={async () => true}
 					onAddProject={() => {}}
+					onOpenPlan={() => {}}
 					{...overrides}
 				/>,
 			);
