@@ -506,10 +506,11 @@ export default function App(): ReactElement {
 		handleOpenPrTask,
 		handleReviewCommitWithBranch,
 		handleCancelReviewGitForm,
+		handleOpenReviewGitForm,
 		handleRetryReviewGitFollowOn,
 		reviewGitStatusById,
 		canRetryReviewGitFollowOnById,
-		reviewBranchSuggestions,
+		reviewBranchSuggestionsByTaskId,
 		handleMergeTaskBranch,
 		handleAgentCommitTask,
 		handleAgentOpenPrTask,
@@ -1365,10 +1366,11 @@ export default function App(): ReactElement {
 														onOpenPrTask={handleOpenPrTask}
 														onSubmitReviewGit={handleReviewCommitWithBranch}
 														onCancelReviewGitForm={handleCancelReviewGitForm}
+														onOpenReviewGitForm={handleOpenReviewGitForm}
 														onRetryReviewGitFollowOn={handleRetryReviewGitFollowOn}
 														reviewGitStatusById={reviewGitStatusById}
 														canRetryReviewGitFollowOnById={canRetryReviewGitFollowOnById}
-														reviewBranchSuggestions={reviewBranchSuggestions}
+														reviewBranchSuggestionsByTaskId={reviewBranchSuggestionsByTaskId}
 														onMergeTask={handleMergeTaskBranch}
 														onCancelAutomaticTaskAction={
 															handleCancelAutomaticTaskAction

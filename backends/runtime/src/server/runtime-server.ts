@@ -27,7 +27,11 @@ import {
 	isKanbanRemoteHost,
 } from "../core/runtime-endpoint";
 import type { ManagerClient } from "../manager/manager-client";
-import { pickDefaultCursorAccountId, toManagerDonateAccount } from "../manager/manager-account-pin";
+import {
+	pickDefaultClaudeAccountId,
+	pickDefaultCursorAccountId,
+	toManagerDonateAccount,
+} from "../manager/manager-account-pin";
 import type { ManagerMonitor } from "../manager/manager-monitor";
 import {
 	createUsageResumeScheduler,
@@ -244,18 +248,10 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 			if (!snapshot) {
 				return null;
 			}
-			if (
-				snapshot.activeAccountId !== null &&
-				snapshot.accounts.some(
-					(account) =>
-						account.id === snapshot.activeAccountId &&
-						account.provider === "claude" &&
-						account.isActive,
-				)
-			) {
-				return snapshot.activeAccountId;
-			}
-			return snapshot.accounts.find((account) => account.provider === "claude" && account.isActive)?.id ?? null;
+			return pickDefaultClaudeAccountId({
+				accounts: snapshot.accounts,
+				activeAccountId: snapshot.activeAccountId,
+			});
 		},
 		getPinnedManagerAccount: async (accountId) => {
 			const snapshot = deps.manager.monitor.getState();

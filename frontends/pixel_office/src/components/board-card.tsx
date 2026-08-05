@@ -262,6 +262,7 @@ export function BoardCard({
 	onOpenPr: _onOpenPr,
 	onSubmitReviewGit,
 	onCancelReviewGitForm,
+	onOpenReviewGitForm,
 	onRetryReviewGitFollowOn,
 	reviewGitStatusMessage = null,
 	canRetryReviewGitFollowOn = false,
@@ -299,6 +300,7 @@ export function BoardCard({
 	onOpenPr?: (taskId: string) => void;
 	onSubmitReviewGit?: (taskId: string, input: ReviewGitBranchedSubmit) => void;
 	onCancelReviewGitForm?: (taskId: string) => void;
+	onOpenReviewGitForm?: (taskId: string) => void;
 	onRetryReviewGitFollowOn?: (taskId: string) => void;
 	reviewGitStatusMessage?: string | null;
 	canRetryReviewGitFollowOn?: boolean;
@@ -978,6 +980,7 @@ export function BoardCard({
 									onCommit={() => onCommit?.(card.id)}
 									onSubmitBranched={(input) => onSubmitReviewGit?.(card.id, input)}
 									onCancelForm={() => onCancelReviewGitForm?.(card.id)}
+									onOpenForm={() => onOpenReviewGitForm?.(card.id)}
 									onRetryFollowOn={
 										onRetryReviewGitFollowOn
 											? () => onRetryReviewGitFollowOn(card.id)

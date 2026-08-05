@@ -301,15 +301,7 @@ export function createProjectsApi(deps: CreateProjectsApiDependencies): RuntimeT
 				}
 
 				const dirEntries = await readdir(resolvedPath, { withFileTypes: true });
-				const directoryEntries = dirEntries.filter((entry) => {
-					if (!entry.isDirectory()) {
-						return false;
-					}
-					if (entry.name.startsWith(".")) {
-						return false;
-					}
-					return true;
-				});
+				const directoryEntries = dirEntries.filter((entry) => entry.isDirectory());
 
 				directoryEntries.sort((a, b) => a.name.localeCompare(b.name));
 

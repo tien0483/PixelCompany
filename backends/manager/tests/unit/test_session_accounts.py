@@ -172,7 +172,8 @@ def test_end_session_account_idempotent():
 
 
 def test_end_session_account_auth_reauth_flow():
-    """Simulate auth_success flow: end previous, record new, end again.
+    """auth_success with a mismatched (shared-token) account stays pinned to
+    the session's original (1st Auth) account — reauth must not switch accounts.
 
     >>> # Verified via unit test
     """
@@ -183,7 +184,7 @@ def test_end_session_account_auth_reauth_flow():
         "s1", account_id=1, email="old@b.com", detection_method="session_start"
     )
 
-    # Auth success — end old record, create new one
+    # Auth success resolves to a different shared account — must stay on 1
     db.end_session_account("s1")
     time.sleep(0.01)
     db.record_session_account(
@@ -193,11 +194,14 @@ def test_end_session_account_auth_reauth_flow():
     rows = db.get_session_accounts("s1")
     assert len(rows) == 2
 
-    # First record (most recent — ORDER BY detected_at DESC) is open
+    # Newest record (most recent — ORDER BY detected_at DESC) stays pinned
+    # to account 1, email refreshed, and is open
+    assert rows[0]["account_id"] == 1
     assert rows[0]["email"] == "new@b.com"
     assert rows[0]["ended_at"] is None
 
-    # Second record (older) is ended
+    # Older record also account 1, now ended
+    assert rows[1]["account_id"] == 1
     assert rows[1]["email"] == "old@b.com"
     assert rows[1]["ended_at"] is not None
 
@@ -205,6 +209,24 @@ def test_end_session_account_auth_reauth_flow():
     db.end_session_account("s1")
     rows = db.get_session_accounts("s1")
     assert all(r["ended_at"] is not None for r in rows)
+
+
+def test_reauth_same_account_updates_metadata_without_switch():
+    """Reauth resolving to the same account just refreshes metadata — no
+    spurious end/reopen of the session-account record."""
+    db = _make_db()
+
+    db.record_session_account(
+        "s1", account_id=1, email="old@b.com", detection_method="session_start"
+    )
+    db.record_session_account(
+        "s1", account_id=1, email="old@b.com", detection_method="auth_success"
+    )
+
+    rows = db.get_session_accounts("s1")
+    assert len(rows) == 1
+    assert rows[0]["account_id"] == 1
+    assert rows[0]["ended_at"] is None
 
 
 # ------------------------------------------------------------------

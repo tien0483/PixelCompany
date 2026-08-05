@@ -133,9 +133,10 @@ export interface UseGitActionsResult {
 	handleReviewCommitWithBranch: (taskId: string, input: ReviewGitBranchedSubmit) => void;
 	handleCancelReviewGitForm: (taskId: string) => void;
 	handleRetryReviewGitFollowOn: (taskId: string) => void;
+	handleOpenReviewGitForm: (taskId: string) => void;
 	reviewGitStatusById: Record<string, string>;
 	canRetryReviewGitFollowOnById: Record<string, boolean>;
-	reviewBranchSuggestions: readonly string[];
+	reviewBranchSuggestionsByTaskId: Record<string, readonly string[]>;
 	handleMergeTaskBranch: (taskId: string) => void;
 	handleAgentCommitTask: (taskId: string) => void;
 	handleAgentOpenPrTask: (taskId: string) => void;
@@ -180,6 +181,9 @@ export function useGitActions({
 	const [isRebasingHomeBranch, setIsRebasingHomeBranch] = useState(false);
 	const [mergeTaskLoadingById, setMergeTaskLoadingById] = useState<Record<string, boolean>>({});
 	const [reviewFollowOnById, setReviewFollowOnById] = useState<Record<string, ReviewFollowOnState>>(
+		{},
+	);
+	const [reviewGitRefsByTaskId, setReviewGitRefsByTaskId] = useState<Record<string, readonly string[]>>(
 		{},
 	);
 	const [isDiscardingHomeWorkingChanges, setIsDiscardingHomeWorkingChanges] =
@@ -656,6 +660,39 @@ export function useGitActions({
 		[board, currentProjectId, fetchTaskWorkspaceInfo, refreshWorkspaceState],
 	);
 
+	const fetchReviewGitRefs = useCallback(
+		async (taskId: string, baseRef: string): Promise<string[]> => {
+			if (!currentProjectId) {
+				return [];
+			}
+			let refNames: string[] = [];
+			try {
+				const trpcClient = getRuntimeTrpcClient(currentProjectId);
+				const refs = await trpcClient.workspace.getGitRefs.query({ taskId, baseRef });
+				refNames = (refs.refs ?? [])
+					.filter((ref) => ref.type === "branch")
+					.map((ref) => ref.name.replace(/^refs\/heads\//, ""))
+					.filter((name) => name.length > 0);
+			} catch {
+				refNames = [baseRef].filter(Boolean);
+			}
+			setReviewGitRefsByTaskId((current) => ({ ...current, [taskId]: refNames }));
+			return refNames;
+		},
+		[currentProjectId],
+	);
+
+	const handleOpenReviewGitForm = useCallback(
+		(taskId: string) => {
+			const selection = findCardSelection(board, taskId);
+			if (!selection) {
+				return;
+			}
+			void fetchReviewGitRefs(taskId, selection.card.baseRef);
+		},
+		[board, fetchReviewGitRefs],
+	);
+
 	const handleReviewCommitWithBranch = useCallback(
 		(taskId: string, input: ReviewGitBranchedSubmit) => {
 			void (async () => {
@@ -664,20 +701,9 @@ export function useGitActions({
 					return;
 				}
 
-				let refNames: string[] = [];
-				try {
-					const trpcClient = getRuntimeTrpcClient(currentProjectId);
-					const refs = await trpcClient.workspace.getGitRefs.query({
-						taskId: selection.card.id,
-						baseRef: selection.card.baseRef,
-					});
-					refNames = (refs.refs ?? [])
-						.filter((ref) => ref.type === "branch")
-						.map((ref) => ref.name.replace(/^refs\/heads\//, ""))
-						.filter((name) => name.length > 0);
-				} catch {
-					refNames = [selection.card.baseRef].filter(Boolean);
-				}
+				const refNames =
+					reviewGitRefsByTaskId[taskId] ??
+					(await fetchReviewGitRefs(taskId, selection.card.baseRef));
 
 				const derivedTaskBranch = deriveTaskBranchName(taskId);
 				const resolved = resolveReviewCommitPath({
@@ -730,7 +756,7 @@ export function useGitActions({
 				await runReviewFollowOn(taskId, followOn);
 			})();
 		},
-		[board, currentProjectId, runReviewFollowOn, runTaskGitAction],
+		[board, currentProjectId, fetchReviewGitRefs, reviewGitRefsByTaskId, runReviewFollowOn, runTaskGitAction],
 	);
 
 	const handleCancelReviewGitForm = useCallback((taskId: string) => {
@@ -774,16 +800,6 @@ export function useGitActions({
 		return next;
 	}, [reviewFollowOnById]);
 
-	const reviewBranchSuggestions = useMemo(() => {
-		const fromHistory = gitHistory.refs
-			.filter((ref) => ref.type === "branch")
-			.map((ref) => ref.name.replace(/^refs\/heads\//, ""))
-			.filter((name) => name.length > 0);
-		if (fromHistory.length > 0) {
-			return fromHistory;
-		}
-		return homeGitSummary?.currentBranch ? [homeGitSummary.currentBranch] : [];
-	}, [gitHistory.refs, homeGitSummary?.currentBranch]);
 
 	const mergeTaskBranch = useCallback(
 		async (taskId: string) => {
@@ -1576,9 +1592,10 @@ export function useGitActions({
 		handleReviewCommitWithBranch,
 		handleCancelReviewGitForm,
 		handleRetryReviewGitFollowOn,
+		handleOpenReviewGitForm,
 		reviewGitStatusById,
 		canRetryReviewGitFollowOnById,
-		reviewBranchSuggestions,
+		reviewBranchSuggestionsByTaskId: reviewGitRefsByTaskId,
 		handleMergeTaskBranch,
 		handleAgentCommitTask,
 		handleAgentOpenPrTask,

@@ -47,10 +47,11 @@ export function KanbanBoard({
 	onOpenPrTask,
 	onSubmitReviewGit,
 	onCancelReviewGitForm,
+	onOpenReviewGitForm,
 	onRetryReviewGitFollowOn,
 	reviewGitStatusById,
 	canRetryReviewGitFollowOnById,
-	reviewBranchSuggestions,
+	reviewBranchSuggestionsByTaskId,
 	onMergeTask,
 	onCancelAutomaticTaskAction,
 	onMoveToTrashTask,
@@ -92,10 +93,11 @@ export function KanbanBoard({
 		input: import("@/components/board-card-review-git-actions").ReviewGitBranchedSubmit,
 	) => void;
 	onCancelReviewGitForm?: (taskId: string) => void;
+	onOpenReviewGitForm?: (taskId: string) => void;
 	onRetryReviewGitFollowOn?: (taskId: string) => void;
 	reviewGitStatusById?: Record<string, string>;
 	canRetryReviewGitFollowOnById?: Record<string, boolean>;
-	reviewBranchSuggestions?: readonly string[];
+	reviewBranchSuggestionsByTaskId?: Record<string, readonly string[]>;
 	onMergeTask?: (taskId: string) => void;
 	onCancelAutomaticTaskAction?: (taskId: string) => void;
 	onMoveToTrashTask?: (taskId: string) => void;
@@ -441,12 +443,15 @@ export function KanbanBoard({
 						onOpenPrTask={column.id === "review" ? onOpenPrTask : undefined}
 						onSubmitReviewGit={column.id === "review" ? onSubmitReviewGit : undefined}
 						onCancelReviewGitForm={column.id === "review" ? onCancelReviewGitForm : undefined}
+						onOpenReviewGitForm={column.id === "review" ? onOpenReviewGitForm : undefined}
 						onRetryReviewGitFollowOn={column.id === "review" ? onRetryReviewGitFollowOn : undefined}
 						reviewGitStatusById={column.id === "review" ? reviewGitStatusById : undefined}
 						canRetryReviewGitFollowOnById={
 							column.id === "review" ? canRetryReviewGitFollowOnById : undefined
 						}
-						reviewBranchSuggestions={column.id === "review" ? reviewBranchSuggestions : undefined}
+						reviewBranchSuggestionsByTaskId={
+							column.id === "review" ? reviewBranchSuggestionsByTaskId : undefined
+						}
 						onMergeTask={column.id === "review" ? onMergeTask : undefined}
 						onCancelAutomaticTaskAction={onCancelAutomaticTaskAction}
 						onMoveToTrashTask={column.id === "review" ? onMoveToTrashTask : undefined}
