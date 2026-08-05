@@ -216,6 +216,16 @@ function run(cmd, args, cwd) {
 }
 
 function ensurePnpm(pnpmSpec) {
+	if (commandExists("pnpm")) {
+		const ver = spawnSync("pnpm", ["--version"], {
+			encoding: "utf8",
+			windowsHide: true,
+			shell: process.platform === "win32",
+		});
+		console.log(`pnpm OK (${String(ver.stdout ?? "").trim() || "on PATH"}); skipping corepack.`);
+		return;
+	}
+
 	console.log(`Enabling Corepack / pnpm (${pnpmSpec})...`);
 	const enable = spawnSync("corepack", ["enable"], {
 		stdio: "inherit",
@@ -226,13 +236,15 @@ function ensurePnpm(pnpmSpec) {
 	if (enable.error) {
 		console.warn(`corepack enable: ${enable.error.message}`);
 	}
+	// corepack prepare often needs to write under Program Files (EPERM without admin).
 	const prepare = spawnSync("corepack", ["prepare", pnpmSpec, "--activate"], {
 		stdio: "inherit",
 		windowsHide: true,
 		shell: process.platform === "win32",
 		env: process.env,
 	});
-	if (!prepare.error && prepare.status === 0) {
+	refreshPathFromMachine();
+	if (commandExists("pnpm") && !prepare.error && prepare.status === 0) {
 		return;
 	}
 	const prepareErr = prepare.error?.message || `exit ${prepare.status}`;
@@ -249,8 +261,24 @@ function ensurePnpm(pnpmSpec) {
 function installNodeDeps(appRoot) {
 	const pnpmSpec = packageManagerSpec(appRoot);
 	ensurePnpm(pnpmSpec);
-	console.log(`Running pnpm install in ${appRoot} ...`);
-	run("pnpm", ["install"], appRoot);
+	// Packaged app has no .git; root prepare uses `git … || true` which breaks on cmd.exe
+	// (`true` is not a command) and husky prepare is irrelevant for end-user installs.
+	// Install packages without lifecycle scripts, then rebuild native bindings.
+	console.log(`Running pnpm install --ignore-scripts in ${appRoot} ...`);
+	run("pnpm", ["install", "--ignore-scripts"], appRoot);
+	console.log("Rebuilding native / allowlisted packages...");
+	const rebuild = spawnSync("pnpm", ["rebuild"], {
+		cwd: appRoot,
+		stdio: "inherit",
+		windowsHide: true,
+		shell: process.platform === "win32",
+		env: process.env,
+	});
+	if (rebuild.error) {
+		console.warn(`pnpm rebuild: ${rebuild.error.message}`);
+	} else if (rebuild.status !== 0) {
+		console.warn(`pnpm rebuild exited ${rebuild.status} (continuing; solo may still build as needed).`);
+	}
 }
 
 function installManagerDeps(appRoot) {
