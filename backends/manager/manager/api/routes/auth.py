@@ -1668,6 +1668,23 @@ async def use_account(account_id: int, request: Request):
             },
         )
 
+    donate_limit = account.get("donate_limit_percent")
+    donate_limit_f = float(donate_limit) if donate_limit is not None else 100.0
+    pressure = max(
+        float(account.get("cached_usage_5h") or 0),
+        float(account.get("cached_usage_7d") or 0),
+    )
+    if pressure >= donate_limit_f:
+        return JSONResponse(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            content={
+                "error": {
+                    "message": "Account is at or over its donate cap — switch to a seat with headroom",
+                    "code": "OVER_DONATE_CAP",
+                }
+            },
+        )
+
     # Codex accounts switch by swapping ~/.codex/auth.json (guardrailed), not by
     # writing the Claude credential stores — and Codex has no CC tokens, so this
     # branches before the Claude-only checks below.

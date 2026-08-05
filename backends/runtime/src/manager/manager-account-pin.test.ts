@@ -107,7 +107,7 @@ describe("isManagerAccountDonatePinBlocked", () => {
 		).toBe(true);
 	});
 
-	it("does not block an unlocked seat that is over its donate cap (soft)", () => {
+	it("blocks an unlocked seat that is over its donate cap too (no manual override)", () => {
 		expect(
 			isManagerAccountDonatePinBlocked({
 				id: 1,
@@ -117,7 +117,7 @@ describe("isManagerAccountDonatePinBlocked", () => {
 				donateLimitPercent: 70,
 				donateLimitLocked: false,
 			}),
-		).toBe(false);
+		).toBe(true);
 	});
 
 	it("does not block a locked seat that is under its donate cap", () => {
@@ -362,12 +362,12 @@ describe("resolveManagerAccountPin", () => {
 		expect(pin.blocked).toBe(true);
 		expect(pin.accountId).toBeNull();
 		expect(pin.env).toEqual({});
-		expect(pin.warning).toContain("locked donate cap");
+		expect(pin.warning).toContain("donate cap");
 		expect(getPinnedAccount).toHaveBeenCalledWith(8);
 		expect(getAccountLaunchDir).not.toHaveBeenCalled();
 	});
 
-	it("allows an unpinned Claude launch when the active seat is over cap but unlocked (soft)", async () => {
+	it("hard-blocks an unpinned Claude launch when the active seat is over cap but unlocked too", async () => {
 		const resolveActiveClaudeAccountId = vi.fn().mockResolvedValue(9);
 		const getPinnedAccount = vi.fn().mockResolvedValue({
 			id: 9,
@@ -386,7 +386,7 @@ describe("resolveManagerAccountPin", () => {
 			getPinnedAccount,
 		});
 
-		expect(pin.blocked).toBeUndefined();
+		expect(pin.blocked).toBe(true);
 		expect(pin.env).toEqual({});
 		expect(pin.accountId).toBeNull();
 	});
@@ -439,11 +439,11 @@ describe("resolveManagerAccountPin", () => {
 		expect(pin.blocked).toBe(true);
 		expect(pin.accountId).toBeNull();
 		expect(pin.env).toEqual({});
-		expect(pin.warning).toContain("locked donate cap");
+		expect(pin.warning).toContain("donate cap");
 		expect(getAccountLaunchDir).not.toHaveBeenCalled();
 	});
 
-	it("allows a pin on an unlocked seat that is over its donate cap (soft)", async () => {
+	it("hard-blocks a pin on an unlocked seat that is over its donate cap too", async () => {
 		const getAccountLaunchDir = vi.fn().mockResolvedValue({ configDir: "/home/u/.claude/accounts/6" });
 		const getPinnedAccount = vi.fn().mockResolvedValue({
 			id: 6,
@@ -461,9 +461,9 @@ describe("resolveManagerAccountPin", () => {
 			getPinnedAccount,
 		});
 
-		expect(pin.blocked).toBeUndefined();
-		expect(pin.env).toEqual({ [CLAUDE_CONFIG_DIR_ENV]: "/home/u/.claude/accounts/6" });
-		expect(pin.accountId).toBe(6);
+		expect(pin.blocked).toBe(true);
+		expect(pin.env).toEqual({});
+		expect(pin.accountId).toBeNull();
 	});
 
 	it("hard-blocks a Claude pin on a seat disabled in Manager", async () => {

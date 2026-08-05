@@ -37,8 +37,8 @@ export interface ResolveManagerAccountPinInput {
 	/** True when this launch will rewrite CLAUDE_CONFIG_DIR for skill/MCP tags. */
 	needsClaudeConfigDirForLaunchTags?: boolean;
 	/**
-	 * Resolves the pinned account's donate state so a LOCKED + over-cap seat can
-	 * hard-block the launch. Unlocked over-cap seats stay soft (pin allowed).
+	 * Resolves the pinned account's donate state so an over-cap seat can
+	 * hard-block the launch, locked or unlocked.
 	 */
 	getPinnedAccount?: (accountId: number) => Promise<ManagerDonateAccountLike | null>;
 }
@@ -110,13 +110,12 @@ export function isManagerAccountDisabled(account: ManagerDonateAccountLike): boo
 }
 
 /**
- * True when the seat's donate cap is LOCKED (agreed in the invite) AND usage is
- * at/over that cap. Unlike the soft exhausted flag, this refuses explicit pins —
- * the owner committed to that ceiling, so we do not launch on the seat until
- * usage resets. Unlocked over-cap seats return false (soft Auto-skip only).
+ * True when the seat is over its donate cap. Refuses explicit pins and unpinned
+ * active-seat launches alike — no manual override, locked or unlocked. Only Auto
+ * selection had a "soft skip" distinction; direct/pinned use does not.
  */
 export function isManagerAccountDonatePinBlocked(account: ManagerDonateAccountLike): boolean {
-	return account.donateLimitLocked === true && isManagerAccountDonateExhausted(account);
+	return isManagerAccountDonateExhausted(account);
 }
 
 function expectedProviderForAgent(agentId: RuntimeAgentId): RuntimeManagerProvider | null {
@@ -268,9 +267,9 @@ export async function resolveManagerAccountPin(
 	if (managerAccountId === undefined) {
 		// Unpinned Claude launches follow jacked's global auto-swap, so the seat
 		// that actually runs is jacked's active Claude seat — not a pin. The pin
-		// gate below never sees it, so a locked-over-cap active seat would run in
+		// gate below never sees it, so an over-cap active seat would run in
 		// the Claude CLI ungated (the CLI `start` path passes no pin at all).
-		// Resolve that active seat and hard-block it with the same locked-donate-cap
+		// Resolve that active seat and hard-block it with the same donate-cap
 		// rule as an explicit pin. Cursor unpinned launches keep their `agent login`
 		// credential, which does not map 1:1 to a Seats row, so they are not gated.
 		if (input.agentId === "claude") {
@@ -282,7 +281,7 @@ export async function resolveManagerAccountPin(
 						env: {},
 						accountId: null,
 						blocked: true,
-						warning: `The active seat (account ${String(activeSeatId)}) is over its locked donate cap; refusing to launch until usage resets.`,
+						warning: `The active seat (account ${String(activeSeatId)}) is over its donate cap; refusing to launch until usage resets.`,
 					};
 				}
 			}
@@ -307,14 +306,14 @@ export async function resolveManagerAccountPin(
 		};
 	}
 
-	// Locked donate cap over limit: refuse the pin outright. The launch path aborts
-	// on `blocked`. Unlocked over-cap seats fall through and pin normally (soft).
+	// Donate cap over limit: refuse the pin outright, locked or unlocked. The
+	// launch path aborts on `blocked`. No manual override.
 	if (pinnedAccount && isManagerAccountDonatePinBlocked(pinnedAccount)) {
 		return {
 			env: {},
 			accountId: null,
 			blocked: true,
-			warning: `Account ${String(managerAccountId)} is over its locked donate cap; refusing to launch on this seat until usage resets.`,
+			warning: `Account ${String(managerAccountId)} is over its donate cap; refusing to launch on this seat until usage resets.`,
 		};
 	}
 

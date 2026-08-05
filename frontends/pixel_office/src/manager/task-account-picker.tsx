@@ -90,7 +90,11 @@ export function TaskAccountPicker({
 			>
 				<option value={AUTO_VALUE}>{autoLabel}</option>
 				{accounts.map((account) => (
-					<option key={account.id} value={String(account.id)}>
+					<option
+						key={account.id}
+						value={String(account.id)}
+						disabled={isDonateExhausted(account)}
+					>
 						{accountLabel(account)}
 					</option>
 				))}

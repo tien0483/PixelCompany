@@ -300,8 +300,8 @@ function AccountRow({
 									className="shrink-0 rounded bg-status-orange/15 px-1 py-0.5 text-[9px] uppercase tracking-wide text-status-orange"
 									title={
 										donateLocked
-											? "Usage is at or above your locked donate cap. This seat is blocked for Auto pick and for pinned tasks until usage resets."
-											: "Usage is at or above your donate cap. Auto pick skips this seat; pinned or direct use still works."
+											? "Usage is at or above your locked donate cap. This seat is blocked for Auto pick, pinned tasks, and direct use until usage resets."
+											: "Usage is at or above your donate cap. This seat is blocked for Auto pick, pinned tasks, and direct use until usage resets."
 									}
 								>
 									over donate cap
@@ -419,7 +419,7 @@ function AccountRow({
 							? "Invite seats keep the donate cap agreed in email."
 							: ccAuthRequired
 								? "Authorize Claude Code tokens for this seat to set a donate cap."
-								: "Auto skips this seat at the limit; pinned tasks still work."}
+								: "At the limit, this seat is blocked for Auto pick, pinned tasks, and direct use."}
 					</span>
 				</label>
 				{isCursorAccount ? (
@@ -445,13 +445,15 @@ function AccountRow({
 				<Button
 					variant="ghost"
 					size="sm"
-					disabled={seatControlsLocked || isSelected}
+					disabled={seatControlsLocked || isSelected || donateExhausted}
 					onClick={onUse}
 					className="h-6 px-2 text-[10px]"
 					title={
-						isCursorAccount
-							? "Use this Cursor seat in the IDE (writes state.vscdb — close Cursor first). Kanban tasks can pin instead."
-							: "Use this Claude Code seat as the active credential"
+						donateExhausted
+							? "Blocked — this seat is at or over its donate cap until usage resets"
+							: isCursorAccount
+								? "Use this Cursor seat in the IDE (writes state.vscdb — close Cursor first). Kanban tasks can pin instead."
+								: "Use this Claude Code seat as the active credential"
 					}
 				>
 					Use Account
