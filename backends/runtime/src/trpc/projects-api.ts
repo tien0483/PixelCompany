@@ -8,6 +8,7 @@ import type {
 	RuntimeProjectTaskCounts,
 } from "../core/api-contract";
 import { parseDirectoryListRequest, parseProjectAddRequest, parseProjectRemoveRequest } from "../core/api-validation";
+import { isPlanFileName } from "../state/saved-plans";
 import {
 	listWorkspaceIndexEntries,
 	loadWorkspaceContext,
@@ -302,10 +303,14 @@ export function createProjectsApi(deps: CreateProjectsApiDependencies): RuntimeT
 
 				const dirEntries = await readdir(resolvedPath, { withFileTypes: true });
 				const directoryEntries = dirEntries.filter((entry) => entry.isDirectory());
+				const planFileEntries = body.includeFiles
+					? dirEntries.filter((entry) => entry.isFile() && isPlanFileName(entry.name))
+					: [];
 
 				directoryEntries.sort((a, b) => a.name.localeCompare(b.name));
+				planFileEntries.sort((a, b) => a.name.localeCompare(b.name));
 
-				const entries = await Promise.all(
+				const directoryResults = await Promise.all(
 					directoryEntries.map(async (entry) => {
 						const entryPath = resolve(resolvedPath, entry.name);
 						let isGitRepository = false;
@@ -319,9 +324,18 @@ export function createProjectsApi(deps: CreateProjectsApiDependencies): RuntimeT
 							name: entry.name,
 							path: entryPath,
 							isGitRepository,
+							isDirectory: true,
 						};
 					}),
 				);
+				const fileResults = planFileEntries.map((entry) => ({
+					name: entry.name,
+					path: resolve(resolvedPath, entry.name),
+					isGitRepository: false,
+					isDirectory: false,
+				}));
+
+				const entries = [...directoryResults, ...fileResults];
 
 				const isAtRoot = resolvedPath === rootPath;
 				const rawParent = dirname(resolvedPath);

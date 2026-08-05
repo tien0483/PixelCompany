@@ -115,6 +115,8 @@ import type {
 	RuntimeMcpInventory,
 	RuntimeOpenFileRequest,
 	RuntimeOpenFileResponse,
+	RuntimePlansImportFileRequest,
+	RuntimePlansImportFileResponse,
 	RuntimePlansImportFromFolderRequest,
 	RuntimePlansImportFromFolderResponse,
 	RuntimePlansListResponse,
@@ -283,6 +285,8 @@ import {
 	runtimeMcpInventorySchema,
 	runtimeOpenFileRequestSchema,
 	runtimeOpenFileResponseSchema,
+	runtimePlansImportFileRequestSchema,
+	runtimePlansImportFileResponseSchema,
 	runtimePlansImportFromFolderRequestSchema,
 	runtimePlansImportFromFolderResponseSchema,
 	runtimePlansListResponseSchema,
@@ -593,6 +597,7 @@ export interface RuntimeTrpcContext {
 	plansApi: {
 		list: () => Promise<RuntimePlansListResponse>;
 		importFromFolder: (input: RuntimePlansImportFromFolderRequest) => Promise<RuntimePlansImportFromFolderResponse>;
+		importFile: (input: RuntimePlansImportFileRequest) => Promise<RuntimePlansImportFileResponse>;
 		remove: (input: RuntimePlansRemoveRequest) => Promise<RuntimePlansRemoveResponse>;
 		read: (input: RuntimePlansReadRequest) => Promise<RuntimePlansReadResponse>;
 		write: (input: RuntimePlansWriteRequest) => Promise<RuntimePlansWriteResponse>;
@@ -1134,6 +1139,12 @@ export const runtimeAppRouter = t.router({
 			.output(runtimePlansImportFromFolderResponseSchema)
 			.mutation(async ({ ctx, input }) => {
 				return await ctx.plansApi.importFromFolder(input);
+			}),
+		importFile: t.procedure
+			.input(runtimePlansImportFileRequestSchema)
+			.output(runtimePlansImportFileResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.plansApi.importFile(input);
 			}),
 		remove: t.procedure
 			.input(runtimePlansRemoveRequestSchema)
