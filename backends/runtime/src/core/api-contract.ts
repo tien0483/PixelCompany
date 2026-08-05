@@ -1543,6 +1543,29 @@ export type RuntimeClineUpdateProviderRequest = z.infer<typeof runtimeClineUpdat
 export const runtimeClineUpdateProviderResponseSchema = runtimeClineProviderSettingsSchema;
 export type RuntimeClineUpdateProviderResponse = z.infer<typeof runtimeClineUpdateProviderResponseSchema>;
 
+export const runtimeClineDeleteProviderRequestSchema = z.object({
+	providerId: z.string(),
+});
+export type RuntimeClineDeleteProviderRequest = z.infer<typeof runtimeClineDeleteProviderRequestSchema>;
+
+export const runtimeClineDeleteProviderResponseSchema = runtimeClineProviderSettingsSchema;
+export type RuntimeClineDeleteProviderResponse = z.infer<typeof runtimeClineDeleteProviderResponseSchema>;
+
+export const runtimeClineCustomProviderSchema = z.object({
+	providerId: z.string(),
+	name: z.string(),
+	baseUrl: z.string(),
+	defaultModelId: z.string().nullable(),
+	modelsSourceUrl: z.string().nullable(),
+	models: z.array(z.string()),
+});
+export type RuntimeClineCustomProvider = z.infer<typeof runtimeClineCustomProviderSchema>;
+
+export const runtimeClineCustomProviderListResponseSchema = z.object({
+	providers: z.array(runtimeClineCustomProviderSchema),
+});
+export type RuntimeClineCustomProviderListResponse = z.infer<typeof runtimeClineCustomProviderListResponseSchema>;
+
 export const runtimeClineOauthLoginRequestSchema = z.object({
 	provider: runtimeClineOauthProviderSchema,
 	baseUrl: z.string().nullable().optional(),

@@ -23,6 +23,7 @@ import type {
 import {
 	parseClineAccountSwitchRequest,
 	parseClineAddProviderRequest,
+	parseClineDeleteProviderRequest,
 	parseClineDeviceAuthCompleteRequest,
 	parseClineMcpOAuthRequest,
 	parseClineMcpSettingsSaveRequest,
@@ -201,6 +202,15 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 			const response = await clineProviderService.updateCustomProvider(body);
 			deps.bumpClineSessionContextVersion?.();
 			return response;
+		},
+		deleteClineProvider: async (_workspaceScope, input) => {
+			const body = parseClineDeleteProviderRequest(input);
+			const response = await clineProviderService.deleteCustomProvider(body);
+			deps.bumpClineSessionContextVersion?.();
+			return response;
+		},
+		getClineCustomProviders: async (_workspaceScope) => {
+			return await clineProviderService.listCustomProviders();
 		},
 		startTaskSession: async (workspaceScope, input) => {
 			try {

@@ -8,6 +8,7 @@ import type {
 	RuntimeClineAccountOrganizationsResponse,
 	RuntimeClineAccountProfileResponse,
 	RuntimeClineAccountSwitchResponse,
+	RuntimeClineCustomProviderListResponse,
 	RuntimeClineDeviceAuthCompleteResponse,
 	RuntimeClineDeviceAuthStartResponse,
 	RuntimeClineKanbanAccessResponse,
@@ -34,6 +35,7 @@ import {
 	fetchSdkOrgData,
 	getLastUsedSdkProviderSettings,
 	getSdkProviderSettings,
+	listSdkCustomProviders,
 	listSdkProviderCatalog,
 	listSdkProviderModels,
 	loginManagedOauthProvider,
@@ -977,6 +979,11 @@ export function createClineProviderService() {
 
 			await deleteSdkCustomProvider(providerId);
 			return getProviderSettingsSummary();
+		},
+
+		async listCustomProviders(): Promise<RuntimeClineCustomProviderListResponse> {
+			const providers = await listSdkCustomProviders();
+			return { providers };
 		},
 
 		saveProviderSettings(input: {
