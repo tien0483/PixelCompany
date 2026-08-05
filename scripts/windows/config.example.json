@@ -1,0 +1,8 @@
+{
+  "Runtime": "windows",
+  "Url": "http://127.0.0.1:3484",
+  "Browser": "auto",
+  "WslDistro": "",
+  "WslRepoPath": "/home/you/work/PixelOffice-v2",
+  "WindowsRepoPath": "C:\\Users\\you\\work\\PixelOffice-v2"
+}
