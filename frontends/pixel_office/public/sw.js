@@ -50,7 +50,8 @@ const FALLBACK_HTML = `<!doctype html>
     <line x1="12" x2="12.01" y1="16" y2="16"/>
   </svg>
   <h3>Waiting for PixelOffice</h3>
-  <p>Run <code style="background:#2D3339;padding:2px 6px;border-radius:4px;font-size:13px">npm run solo</code> in your project terminal to start the server.</p>
+  <p>Starting backend in WSL, then connecting…</p>
+  <p id="backend-status" style="font-size:13px;color:#8B949E;font-family:ui-monospace,SFMono-Regular,Menlo,monospace">Probing backend…</p>
   <div class="spinner"></div>
   <p id="cert-hint" style="display:none;margin-top:12px;color:#D29922;font-size:13px;line-height:1.5;max-width:420px">
     Unable to connect. If you are using HTTPS with a self-signed certificate,<br/>
@@ -59,9 +60,26 @@ const FALLBACK_HTML = `<!doctype html>
 </div>
 <script>
   (function poll(failures) {
+    var statusEl = document.getElementById("backend-status");
+    var attempt = failures + 1;
+    var msg = "[PixelOffice] backend probe #" + attempt + " → " + location.origin + "/";
+    console.log(msg);
+    if (statusEl) statusEl.textContent = "Backend probe #" + attempt + " — " + location.origin;
     fetch("/", { method: "HEAD", cache: "no-store" })
-      .then(function(r) { if (r.ok) location.reload(); else setTimeout(function() { poll(0); }, 2000); })
-      .catch(function() {
+      .then(function(r) {
+        if (r.ok) {
+          console.log("[PixelOffice] backend ready (HTTP " + r.status + ") — reloading");
+          if (statusEl) statusEl.textContent = "Backend ready — loading app…";
+          location.reload();
+          return;
+        }
+        console.warn("[PixelOffice] backend not ready (HTTP " + r.status + "), retry in 2s");
+        if (statusEl) statusEl.textContent = "Backend HTTP " + r.status + " — retrying…";
+        setTimeout(function() { poll(0); }, 2000);
+      })
+      .catch(function(err) {
+        console.warn("[PixelOffice] backend unreachable:", err && err.message ? err.message : err);
+        if (statusEl) statusEl.textContent = "Backend unreachable — attempt #" + attempt;
         if (failures >= 3 && location.protocol === "https:") {
           var hint = document.getElementById("cert-hint");
           if (hint) hint.style.display = "block";
