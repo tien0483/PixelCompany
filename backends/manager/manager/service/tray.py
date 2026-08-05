@@ -1027,33 +1027,24 @@ class ServiceRunner:
             icon.notify("Jacked failed to start", "Jacked Service")
 
     def _install_tray_file_logger(self) -> None:
-        """Route `jacked` logger output to ~/.claude/jacked-tray.log.
+        """Route `jacked`/`manager` logger output to ~/.claude/jacked-tray.log.
 
         Detached launchd/systemd services pipe stderr to /dev/null by default,
         so without a file handler any `logger.exception` during tray click
-        handling is lost.
+        handling is lost. Delegates to manager.logging_setup, a dependency-free
+        leaf module, so this cold-start path never imports the FastAPI app
+        graph (manager.api.main) — a failure there used to silently disable
+        tray file logging entirely, inside the except below.
         """
         try:
-            import logging as _logging
+            from manager.logging_setup import install_tray_file_handler
             from manager.service import CLAUDE_DIR
-            CLAUDE_DIR.mkdir(parents=True, exist_ok=True)
-            tray_log_path = CLAUDE_DIR / "jacked-tray.log"
-            handler = _logging.FileHandler(tray_log_path, encoding="utf-8")
-            handler.setFormatter(
-                _logging.Formatter("%(asctime)s %(name)s %(levelname)s %(message)s")
-            )
-            _logger = _logging.getLogger("jacked")
-            # Avoid double-adding if run() is called twice in tests.
-            already = any(
-                isinstance(h, _logging.FileHandler)
-                and getattr(h, "baseFilename", None) == str(tray_log_path)
-                for h in _logger.handlers
-            )
-            if not already:
-                _logger.addHandler(handler)
-                _logger.setLevel(_logging.INFO)
-        except Exception:
-            pass  # best-effort; fall back to stderr
+            install_tray_file_handler(CLAUDE_DIR / "jacked-tray.log")
+        except Exception as e:
+            # install_tray_file_handler already logs OSError internally
+            # (file/permission failures); this catches anything else (e.g.
+            # a bug in the leaf module itself) so it's never fully silent.
+            logger.warning("Tray file logging unavailable: %s", e)
 
     def _run_mac_menubar(self) -> None:
         """macOS path: rumps menu-bar agent on the main thread, uvicorn in a
