@@ -338,3 +338,280 @@ function Show-PixelOfficeMessage {
 		Write-Host "[$Title] $Message"
 	}
 }
+
+function Get-PixelOfficeAppDir {
+	param([string]$InstallDir = (Get-PixelOfficeInstallDir))
+	return (Join-Path $InstallDir "app")
+}
+
+function Update-PixelOfficeProcessPath {
+	$machine = [Environment]::GetEnvironmentVariable("Path", "Machine")
+	$user = [Environment]::GetEnvironmentVariable("Path", "User")
+	$parts = @()
+	if (-not [string]::IsNullOrWhiteSpace($machine)) { $parts += $machine }
+	if (-not [string]::IsNullOrWhiteSpace($user)) { $parts += $user }
+	$env:Path = ($parts -join ";")
+}
+
+function Test-PixelOfficeCommand {
+	param([Parameter(Mandatory = $true)][string]$Name)
+	$null -ne (Get-Command $Name -ErrorAction SilentlyContinue)
+}
+
+function Get-PixelOfficeNodeMajor {
+	if (-not (Test-PixelOfficeCommand -Name "node")) {
+		return 0
+	}
+	try {
+		$ver = (& node -v 2>$null | Out-String).Trim()
+		if ($ver -match "^v?(\d+)") {
+			return [int]$Matches[1]
+		}
+	}
+	catch {
+		return 0
+	}
+	return 0
+}
+
+function Assert-PixelOfficeWinget {
+	if (-not (Test-PixelOfficeCommand -Name "winget")) {
+		throw "winget was not found on PATH. Install App Installer from the Microsoft Store, then re-run Setup."
+	}
+}
+
+function Install-PixelOfficeWingetPackage {
+	param(
+		[Parameter(Mandatory = $true)][string]$Id,
+		[string]$DisplayName = $Id
+	)
+	Assert-PixelOfficeWinget
+	Write-Host "Installing $DisplayName via winget ($Id)..."
+	$args = @(
+		"install", "-e", "--id", $Id,
+		"--accept-package-agreements",
+		"--accept-source-agreements",
+		"--disable-interactivity"
+	)
+	& winget @args
+	$exit = 0
+	if (Test-Path variable:/LASTEXITCODE) { $exit = [int]$LASTEXITCODE }
+	# 0 = success, -1978335189 (0x8A15002B) = already installed
+	if ($exit -ne 0 -and $exit -ne -1978335189) {
+		throw "winget install failed for $Id (exit $exit)."
+	}
+	Update-PixelOfficeProcessPath
+}
+
+function Ensure-PixelOfficeNode {
+	param([int]$MinMajor = 22)
+	Update-PixelOfficeProcessPath
+	$major = Get-PixelOfficeNodeMajor
+	if ($major -ge $MinMajor) {
+		Write-Host "Node $(node -v) OK (>= $MinMajor)."
+		return
+	}
+	Install-PixelOfficeWingetPackage -Id "OpenJS.NodeJS.22" -DisplayName "Node.js 22"
+	Update-PixelOfficeProcessPath
+	$major = Get-PixelOfficeNodeMajor
+	if ($major -lt $MinMajor) {
+		# Fallback package id used by some winget catalogs.
+		Install-PixelOfficeWingetPackage -Id "OpenJS.NodeJS" -DisplayName "Node.js"
+		Update-PixelOfficeProcessPath
+		$major = Get-PixelOfficeNodeMajor
+	}
+	if ($major -lt $MinMajor) {
+		throw "Node.js >= $MinMajor is required after winget install (found major $major). Restart the shell and re-run Setup."
+	}
+	Write-Host "Node $(node -v) OK."
+}
+
+function Ensure-PixelOfficeUv {
+	Update-PixelOfficeProcessPath
+	if (Test-PixelOfficeCommand -Name "uv") {
+		Write-Host "uv OK ($(uv --version 2>$null))."
+		return
+	}
+	Install-PixelOfficeWingetPackage -Id "astral-sh.uv" -DisplayName "uv"
+	Update-PixelOfficeProcessPath
+	if (-not (Test-PixelOfficeCommand -Name "uv")) {
+		throw "uv was not found on PATH after winget install. Restart the shell and re-run Setup."
+	}
+	Write-Host "uv OK ($(uv --version 2>$null))."
+}
+
+function Resolve-PixelOfficeReleaseUrl {
+	param(
+		[string]$ReleaseUrl = "",
+		[string]$GitHubRepo = "",
+		[string]$AssetName = "",
+		[string]$ReleaseTag = "latest"
+	)
+	if (-not [string]::IsNullOrWhiteSpace($ReleaseUrl)) {
+		return $ReleaseUrl.Trim()
+	}
+	if ([string]::IsNullOrWhiteSpace($GitHubRepo)) {
+		throw "ReleaseUrl or GitHubRepo is required. Pass -ReleaseUrl, or -GitHubRepo owner/name with -AssetName."
+	}
+	if ([string]::IsNullOrWhiteSpace($AssetName)) {
+		throw "AssetName is required when resolving from GitHubRepo."
+	}
+	$repo = $GitHubRepo.Trim().TrimStart("/")
+	if ($ReleaseTag -eq "latest") {
+		$api = "https://api.github.com/repos/$repo/releases/latest"
+	}
+	else {
+		$api = "https://api.github.com/repos/$repo/releases/tags/$ReleaseTag"
+	}
+	Write-Host "Resolving release asset from $api ..."
+	$headers = @{
+		"User-Agent" = "PixelOffice-Setup"
+		"Accept"     = "application/vnd.github+json"
+	}
+	$release = Invoke-RestMethod -Uri $api -Headers $headers -UseBasicParsing
+	$asset = $release.assets | Where-Object { $_.name -eq $AssetName } | Select-Object -First 1
+	if ($null -eq $asset) {
+		$names = @($release.assets | ForEach-Object { $_.name }) -join ", "
+		throw "Asset '$AssetName' not found on release. Available: $names"
+	}
+	return [string]$asset.browser_download_url
+}
+
+function Expand-PixelOfficeReleaseZip {
+	param(
+		[Parameter(Mandatory = $true)][string]$Source,
+		[Parameter(Mandatory = $true)][string]$DestinationAppDir
+	)
+	$tempRoot = Join-Path $env:TEMP "PixelOffice-setup"
+	if (Test-Path -LiteralPath $tempRoot) {
+		Remove-Item -LiteralPath $tempRoot -Recurse -Force
+	}
+	New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
+	$zipPath = Join-Path $tempRoot "release.zip"
+	$extractDir = Join-Path $tempRoot "extract"
+	New-Item -ItemType Directory -Path $extractDir -Force | Out-Null
+
+	$src = $Source.Trim()
+	if ($src -match "^file:///" ) {
+		$src = [Uri]::UnescapeDataString(($src -replace "^file:///", "") -replace "/", "\")
+	}
+	if (Test-Path -LiteralPath $src) {
+		Write-Host "Using local zip: $src"
+		Copy-Item -LiteralPath $src -Destination $zipPath -Force
+	}
+	else {
+		Write-Host "Downloading release zip..."
+		Write-Host "  $src"
+		$prevProgress = $ProgressPreference
+		$ProgressPreference = "SilentlyContinue"
+		try {
+			Invoke-WebRequest -Uri $src -OutFile $zipPath -UseBasicParsing
+		}
+		finally {
+			$ProgressPreference = $prevProgress
+		}
+	}
+
+	Write-Host "Extracting..."
+	Expand-Archive -LiteralPath $zipPath -DestinationPath $extractDir -Force
+
+	# GitHub source zips wrap contents in a single top-level folder.
+	$root = $extractDir
+	$children = @(Get-ChildItem -LiteralPath $extractDir -Force)
+	if ($children.Count -eq 1 -and $children[0].PSIsContainer) {
+		$nestedPkg = Join-Path $children[0].FullName "package.json"
+		if (Test-Path -LiteralPath $nestedPkg) {
+			$root = $children[0].FullName
+		}
+	}
+	$pkg = Join-Path $root "package.json"
+	if (-not (Test-Path -LiteralPath $pkg)) {
+		throw "Extracted archive is not a PixelOffice repo root (missing package.json)."
+	}
+
+	$parent = Split-Path -Parent $DestinationAppDir
+	if (-not (Test-Path -LiteralPath $parent)) {
+		New-Item -ItemType Directory -Path $parent -Force | Out-Null
+	}
+	if (Test-Path -LiteralPath $DestinationAppDir) {
+		Remove-Item -LiteralPath $DestinationAppDir -Recurse -Force
+	}
+	New-Item -ItemType Directory -Path $DestinationAppDir -Force | Out-Null
+	Copy-Item -Path (Join-Path $root "*") -Destination $DestinationAppDir -Recurse -Force
+	Write-Host "App installed to: $DestinationAppDir"
+}
+
+function Get-PixelOfficePackageManagerSpec {
+	param([Parameter(Mandatory = $true)][string]$AppDir)
+	$pkgPath = Join-Path $AppDir "package.json"
+	$raw = Get-Content -LiteralPath $pkgPath -Raw -Encoding UTF8
+	$pkg = $raw | ConvertFrom-Json
+	if ($pkg.packageManager) {
+		return [string]$pkg.packageManager
+	}
+	return "pnpm@11.18.0"
+}
+
+function Install-PixelOfficeNodeDeps {
+	param([Parameter(Mandatory = $true)][string]$AppDir)
+	Update-PixelOfficeProcessPath
+	if (-not (Test-PixelOfficeCommand -Name "node")) {
+		throw "node not found on PATH."
+	}
+	$spec = Get-PixelOfficePackageManagerSpec -AppDir $AppDir
+	# packageManager is like "pnpm@11.18.0+sha512...."
+	$pnpmSpec = ($spec -split "\+")[0]
+	Write-Host "Enabling Corepack / pnpm ($pnpmSpec)..."
+	& corepack enable
+	$enableExit = 0
+	if (Test-Path variable:/LASTEXITCODE) { $enableExit = [int]$LASTEXITCODE }
+	if ($enableExit -ne 0) {
+		Write-Warning "corepack enable exited $enableExit — continuing."
+	}
+	& corepack prepare $pnpmSpec --activate
+	$prepareExit = 0
+	if (Test-Path variable:/LASTEXITCODE) { $prepareExit = [int]$LASTEXITCODE }
+	if ($prepareExit -ne 0) {
+		throw "corepack prepare failed for $pnpmSpec (exit $prepareExit)."
+	}
+	Update-PixelOfficeProcessPath
+	Write-Host "Running pnpm install in $AppDir ..."
+	Push-Location -LiteralPath $AppDir
+	try {
+		& pnpm install
+		$pnpmExit = 0
+		if (Test-Path variable:/LASTEXITCODE) { $pnpmExit = [int]$LASTEXITCODE }
+		if ($pnpmExit -ne 0) {
+			throw "pnpm install failed (exit $pnpmExit)."
+		}
+	}
+	finally {
+		Pop-Location
+	}
+}
+
+function Install-PixelOfficeManagerDeps {
+	param([Parameter(Mandatory = $true)][string]$AppDir)
+	Update-PixelOfficeProcessPath
+	$managerDir = Join-Path $AppDir "backends\manager"
+	if (-not (Test-Path -LiteralPath $managerDir)) {
+		Write-Warning "Manager directory not found ($managerDir); skipping uv sync."
+		return
+	}
+	if (-not (Test-PixelOfficeCommand -Name "uv")) {
+		throw "uv not found on PATH."
+	}
+	Write-Host "Running uv sync in $managerDir ..."
+	Push-Location -LiteralPath $managerDir
+	try {
+		& uv sync
+		$uvExit = 0
+		if (Test-Path variable:/LASTEXITCODE) { $uvExit = [int]$LASTEXITCODE }
+		if ($uvExit -ne 0) {
+			throw "uv sync failed (exit $uvExit)."
+		}
+	}
+	finally {
+		Pop-Location
+	}
+}
