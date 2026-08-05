@@ -5,10 +5,19 @@
  * copies files, not symlinks, so the default pnpm store-linked tree would
  * arrive broken on the target machine.
  *
+ * `--node-linker=hoisted` only flattens the TOP-LEVEL node_modules/<pkg>
+ * entries; pnpm's internal node_modules/.pnpm virtual store still exists and
+ * still symlinks nested/transitive deps to each other using absolute paths
+ * rooted in *this* build machine's working directory. Those would dangle the
+ * instant the tree is copied anywhere else (exactly what Inno Setup does on
+ * the end user's machine), so after the install/build steps we walk every
+ * node_modules tree and replace every remaining symlink (file or directory)
+ * with a real recursive copy of whatever it resolves to.
+ *
  *   node scripts/windows/installer/stage-app.mjs [--stage-dir path] [--repo-root path]
  */
 import { spawnSync } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, rmSync } from "node:fs";
+import { copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync, realpathSync, rmSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { collectAllowlist } from "../source-allowlist.mjs";
@@ -58,6 +67,116 @@ function copyAllowlist(repoRoot, stageDir) {
 	console.log(`  Copied ${files.length} files.`);
 }
 
+/**
+ * Recursively copy `src` into `dest`, dereferencing any symlink encountered
+ * at any depth (not just at `src` itself) so the result is 100% real files
+ * and directories. `visiting` is the set of realpaths currently being
+ * resolved on the active call chain — used to detect a *structural* symlink
+ * cycle (A -> symlink -> B -> ... -> symlink -> A) that a single
+ * `realpathSync` call can't catch on its own (it only resolves one symlink's
+ * own chain, not a cycle formed across several independent symlinks visited
+ * while walking a directory tree).
+ */
+function copyReal(src, dest, visiting) {
+	const st = lstatSync(src);
+	if (st.isSymbolicLink()) {
+		let real;
+		try {
+			real = realpathSync(src);
+		} catch (err) {
+			throw new Error(`Broken symlink while de-symlinking: ${src} (${err.message})`);
+		}
+		if (visiting.has(real)) {
+			throw new Error(`Symlink cycle detected while de-symlinking (would recurse forever): ${src} -> ${real}`);
+		}
+		visiting.add(real);
+		try {
+			copyReal(real, dest, visiting);
+		} finally {
+			visiting.delete(real);
+		}
+		return;
+	}
+	if (st.isDirectory()) {
+		mkdirSync(dest, { recursive: true });
+		for (const name of readdirSync(src)) {
+			copyReal(join(src, name), join(dest, name), visiting);
+		}
+		return;
+	}
+	mkdirSync(dirname(dest), { recursive: true });
+	copyFileSync(src, dest);
+}
+
+/** Recursively replace every symlink under `dir` (at any depth) with a real, dereferenced copy in place. */
+function deSymlinkTree(dir) {
+	let entries;
+	try {
+		entries = readdirSync(dir, { withFileTypes: true });
+	} catch {
+		return;
+	}
+	for (const ent of entries) {
+		const p = join(dir, ent.name);
+		if (ent.isSymbolicLink()) {
+			let real;
+			try {
+				real = realpathSync(p);
+			} catch (err) {
+				throw new Error(`Broken symlink while de-symlinking: ${p} (${err.message})`);
+			}
+			// `rm` on a path that is itself a symlink removes only the link, never the
+			// target it points to — but double-check, since silently destroying shared
+			// content other symlinks still point to would be far worse than leaving one
+			// symlink behind.
+			rmSync(p, { recursive: true, force: true });
+			if (!existsSync(real)) {
+				throw new Error(`De-symlinking ${p} appears to have deleted its target ${real} too — aborting.`);
+			}
+			copyReal(real, p, new Set([real]));
+		} else if (ent.isDirectory()) {
+			deSymlinkTree(p);
+		}
+	}
+}
+
+/** Recursively count symlinks under `dir`, at any depth. Used to verify de-symlinking left zero behind. */
+function countSymlinks(dir) {
+	let count = 0;
+	let entries;
+	try {
+		entries = readdirSync(dir, { withFileTypes: true });
+	} catch {
+		return count;
+	}
+	for (const ent of entries) {
+		const p = join(dir, ent.name);
+		if (ent.isSymbolicLink()) count++;
+		else if (ent.isDirectory()) count += countSymlinks(p);
+	}
+	return count;
+}
+
+/** Find every directory literally named `node_modules` under `root` (not descending into one once found — deSymlinkTree covers everything nested inside it, including further nested node_modules folders). */
+function findNodeModulesDirs(root, found = []) {
+	let entries;
+	try {
+		entries = readdirSync(root, { withFileTypes: true });
+	} catch {
+		return found;
+	}
+	for (const ent of entries) {
+		if (!ent.isDirectory()) continue;
+		const p = join(root, ent.name);
+		if (ent.name === "node_modules") {
+			found.push(p);
+			continue;
+		}
+		findNodeModulesDirs(p, found);
+	}
+	return found;
+}
+
 async function main() {
 	const opts = parseArgs(process.argv.slice(2));
 	if (opts.help) {
@@ -91,10 +210,23 @@ async function main() {
 	// produce more than one physical copy of the same zod version, so TypeScript
 	// sees `z.infer<>`-derived types (e.g. RuntimeManagerAccount) declared via one
 	// copy as nominally "unrelated" to the same type reached via the other copy —
-	// tripping `tsc --noEmit` in test-only files even though the app itself is fine
-	// (vite's own build never runs tsc; it only strips types). The installer only
-	// needs a working dist/, not a clean workspace-wide typecheck, so skip that guard here.
+	// tripping `tsc --noEmit` even though the app itself is fine (vite's own build
+	// never runs tsc; it only strips types). The installer only needs a working
+	// dist/, not a clean workspace-wide typecheck, so skip that guard here.
 	run("pnpm", ["--dir", join(stageDir, "frontends", "pixel_office"), "exec", "vite", "build"], stageDir);
+
+	// Run this last (not between install/rebuild/build) so no later pnpm
+	// invocation gets a chance to notice the altered .pnpm store and "fix" it
+	// back into symlinks, or get confused by state that no longer matches what
+	// it originally linked.
+	console.log("Flattening remaining symlinks under node_modules (pnpm's internal .pnpm store still uses them, even with --node-linker=hoisted)...");
+	const nodeModulesDirs = findNodeModulesDirs(stageDir);
+	for (const nm of nodeModulesDirs) deSymlinkTree(nm);
+	const remainingSymlinks = countSymlinks(stageDir);
+	if (remainingSymlinks > 0) {
+		throw new Error(`${remainingSymlinks} symlink(s) remain under the staged tree after de-symlinking.`);
+	}
+	console.log(`  De-symlinked ${nodeModulesDirs.length} node_modules tree(s); verified zero symlinks remain under ${stageDir}.`);
 
 	console.log(`Staged app: ${stageDir}`);
 }
