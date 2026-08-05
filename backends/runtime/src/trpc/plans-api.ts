@@ -9,6 +9,8 @@ import type {
 	RuntimePlansReadResponse,
 	RuntimePlansRemoveRequest,
 	RuntimePlansRemoveResponse,
+	RuntimePlansWriteAssetRequest,
+	RuntimePlansWriteAssetResponse,
 	RuntimePlansWriteRequest,
 	RuntimePlansWriteResponse,
 } from "../core/api-contract";
@@ -17,6 +19,7 @@ import {
 	listSavedPlans,
 	readSavedPlanContent,
 	removeSavedPlan,
+	writeSavedPlanAsset,
 	writeSavedPlanContent,
 } from "../state/saved-plans";
 import { isPathWithinRoot } from "../workspace/path-sandbox";
@@ -132,6 +135,25 @@ export function createPlansApi(deps: CreatePlansApiDependencies): RuntimeTrpcCon
 					plan: null,
 					error: toErrorMessage(error),
 				} satisfies RuntimePlansWriteResponse;
+			}
+		},
+		writeAsset: async (input: RuntimePlansWriteAssetRequest) => {
+			try {
+				const relativePath = await writeSavedPlanAsset(input.planId, {
+					data: input.data,
+					mimeType: input.mimeType,
+					name: input.name,
+				});
+				return {
+					ok: true,
+					relativePath,
+				} satisfies RuntimePlansWriteAssetResponse;
+			} catch (error) {
+				return {
+					ok: false,
+					relativePath: null,
+					error: toErrorMessage(error),
+				} satisfies RuntimePlansWriteAssetResponse;
 			}
 		},
 	};

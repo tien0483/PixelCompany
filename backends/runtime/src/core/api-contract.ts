@@ -1280,6 +1280,24 @@ export const runtimePlansWriteResponseSchema = z.object({
 });
 export type RuntimePlansWriteResponse = z.infer<typeof runtimePlansWriteResponseSchema>;
 
+/** ~10 MB of image bytes, expressed as a base64 character-count ceiling (4/3 expansion). */
+const PLAN_ASSET_MAX_BASE64_LENGTH = 14_000_000;
+
+export const runtimePlansWriteAssetRequestSchema = z.object({
+	planId: z.string(),
+	data: z.string().max(PLAN_ASSET_MAX_BASE64_LENGTH),
+	mimeType: z.string(),
+	name: z.string().optional(),
+});
+export type RuntimePlansWriteAssetRequest = z.infer<typeof runtimePlansWriteAssetRequestSchema>;
+
+export const runtimePlansWriteAssetResponseSchema = z.object({
+	ok: z.boolean(),
+	relativePath: z.string().nullable(),
+	error: z.string().optional(),
+});
+export type RuntimePlansWriteAssetResponse = z.infer<typeof runtimePlansWriteAssetResponseSchema>;
+
 export const runtimeProjectRemoveRequestSchema = z.object({
 	projectId: z.string(),
 });

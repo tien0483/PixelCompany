@@ -2,7 +2,6 @@ import { FileText, FolderOpen, Plus, Trash2 } from "lucide-react";
 import { type ReactElement, useCallback, useEffect, useState } from "react";
 
 import { showAppToast } from "@/components/app-toaster";
-import { PlanEditorDialog } from "@/components/plan-editor-dialog";
 import { RemoteFileBrowserDialog } from "@/components/remote-file-browser-dialog";
 import { cn } from "@/components/ui/cn";
 import { Spinner } from "@/components/ui/spinner";
@@ -35,14 +34,15 @@ export function HomeSidebarPlansTab({
 
 export function HomeSidebarPlansPanel({
 	workspaceId = null,
+	onOpenPlan,
 }: {
 	workspaceId?: string | null;
+	onOpenPlan: (plan: RuntimeSavedPlan) => void;
 }): ReactElement {
 	const [plans, setPlans] = useState<RuntimeSavedPlan[]>([]);
 	const [isLoading, setIsLoading] = useState(true);
 	const [isImporting, setIsImporting] = useState(false);
 	const [isBrowserOpen, setIsBrowserOpen] = useState(false);
-	const [editingPlan, setEditingPlan] = useState<RuntimeSavedPlan | null>(null);
 
 	const refreshPlans = useCallback(async () => {
 		setIsLoading(true);
@@ -163,11 +163,11 @@ export function HomeSidebarPlansPanel({
 							if (plan.missing) {
 								return;
 							}
-							setEditingPlan(plan);
+							onOpenPlan(plan);
 						}}
 						onKeyDown={(event) => {
 							if (event.key === "Enter" && !plan.missing) {
-								setEditingPlan(plan);
+								onOpenPlan(plan);
 							}
 						}}
 					>
@@ -213,17 +213,6 @@ export function HomeSidebarPlansPanel({
 				onSelect={(path) => {
 					setIsBrowserOpen(false);
 					void handleImportFolder(path);
-				}}
-			/>
-
-			<PlanEditorDialog
-				open={editingPlan !== null}
-				plan={editingPlan}
-				workspaceId={workspaceId}
-				onOpenChange={(open) => {
-					if (!open) {
-						setEditingPlan(null);
-					}
 				}}
 			/>
 		</div>

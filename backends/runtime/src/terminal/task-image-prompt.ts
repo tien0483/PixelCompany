@@ -4,7 +4,7 @@ import { basename, extname, join } from "node:path";
 
 import type { RuntimeTaskImage } from "../core/api-contract";
 
-const IMAGE_EXTENSION_BY_MIME_TYPE: Record<string, string> = {
+export const IMAGE_EXTENSION_BY_MIME_TYPE: Record<string, string> = {
 	"image/gif": ".gif",
 	"image/jpeg": ".jpg",
 	"image/png": ".png",
@@ -12,19 +12,23 @@ const IMAGE_EXTENSION_BY_MIME_TYPE: Record<string, string> = {
 	"image/webp": ".webp",
 };
 
-function sanitizeFileNameSegment(value: string): string {
+export function sanitizeFileNameSegment(value: string): string {
 	const normalized = value.normalize("NFKD").replaceAll(/[^A-Za-z0-9._-]+/g, "-");
 	const trimmed = normalized.replaceAll(/^-+|-+$/g, "");
 	return trimmed.length > 0 ? trimmed : "image";
 }
 
-function resolveTaskImageExtension(image: RuntimeTaskImage): string {
-	const name = image.name?.trim();
-	const nameExtension = name ? extname(name).toLowerCase() : "";
+export function resolveImageExtension(name: string | undefined, mimeType: string): string {
+	const trimmedName = name?.trim();
+	const nameExtension = trimmedName ? extname(trimmedName).toLowerCase() : "";
 	if (nameExtension) {
 		return nameExtension;
 	}
-	return IMAGE_EXTENSION_BY_MIME_TYPE[image.mimeType.toLowerCase()] ?? "";
+	return IMAGE_EXTENSION_BY_MIME_TYPE[mimeType.toLowerCase()] ?? "";
+}
+
+function resolveTaskImageExtension(image: RuntimeTaskImage): string {
+	return resolveImageExtension(image.name, image.mimeType);
 }
 
 function buildTaskImageFileName(image: RuntimeTaskImage, index: number): string {

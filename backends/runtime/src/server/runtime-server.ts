@@ -27,7 +27,11 @@ import {
 	isKanbanRemoteHost,
 } from "../core/runtime-endpoint";
 import type { ManagerClient } from "../manager/manager-client";
-import { pickDefaultCursorAccountId, toManagerDonateAccount } from "../manager/manager-account-pin";
+import {
+	pickDefaultClaudeAccountId,
+	pickDefaultCursorAccountId,
+	toManagerDonateAccount,
+} from "../manager/manager-account-pin";
 import type { ManagerMonitor } from "../manager/manager-monitor";
 import {
 	createUsageResumeScheduler,
@@ -46,6 +50,7 @@ import {
 	validatePasscode,
 	validateSession,
 } from "../security/passcode-manager";
+import { readSavedPlanAsset } from "../state/saved-plans";
 import { loadWorkspaceContextById, loadWorkspaceState } from "../state/workspace-state";
 import type { TerminalSessionManager } from "../terminal/session-manager";
 import { createTerminalWebSocketBridge } from "../terminal/ws-server";
@@ -243,18 +248,10 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 			if (!snapshot) {
 				return null;
 			}
-			if (
-				snapshot.activeAccountId !== null &&
-				snapshot.accounts.some(
-					(account) =>
-						account.id === snapshot.activeAccountId &&
-						account.provider === "claude" &&
-						account.isActive,
-				)
-			) {
-				return snapshot.activeAccountId;
-			}
-			return snapshot.accounts.find((account) => account.provider === "claude" && account.isActive)?.id ?? null;
+			return pickDefaultClaudeAccountId({
+				accounts: snapshot.accounts,
+				activeAccountId: snapshot.activeAccountId,
+			});
 		},
 		getPinnedManagerAccount: async (accountId) => {
 			const snapshot = deps.manager.monitor.getState();
@@ -572,6 +569,27 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 					"Cache-Control": "no-store",
 				});
 				res.end(proxied.body);
+				return;
+			}
+			if (pathname === "/api/plans/asset") {
+				const planId = requestUrl.searchParams.get("planId");
+				const relativePath = requestUrl.searchParams.get("path");
+				if (!planId || !relativePath) {
+					res.writeHead(400, { "Content-Type": "application/json; charset=utf-8" });
+					res.end('{"error":"Missing planId or path"}');
+					return;
+				}
+				try {
+					const asset = await readSavedPlanAsset(planId, relativePath);
+					res.writeHead(200, {
+						"Content-Type": asset.contentType,
+						"Cache-Control": "no-store",
+					});
+					res.end(asset.content);
+				} catch {
+					res.writeHead(404, { "Content-Type": "application/json; charset=utf-8" });
+					res.end('{"error":"Not found"}');
+				}
 				return;
 			}
 			if (pathname.startsWith("/api/")) {

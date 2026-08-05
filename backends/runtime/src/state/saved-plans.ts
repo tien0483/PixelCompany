@@ -1,11 +1,14 @@
 import { access, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
-import { basename, extname, join, resolve } from "node:path";
+import { basename, dirname, extname, join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 
+import { resolveImageExtension, sanitizeFileNameSegment } from "../terminal/task-image-prompt";
+import { isPathWithinRoot } from "../workspace/path-sandbox";
 import { getRuntimeHomePath } from "./workspace-state";
 
 export const SAVED_PLANS_FILENAME = "saved-plans.json";
 export const PLAN_FILE_EXTENSIONS = new Set([".md", ".txt"]);
+export const PLAN_ASSET_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
 
 export interface SavedPlanEntry {
 	id: string;
@@ -178,4 +181,73 @@ export async function writeSavedPlanContent(planId: string, content: string): Pr
 	}
 	await writeFile(entry.path, content, "utf8");
 	return entry;
+}
+
+export function getPlanAssetsDir(entry: SavedPlanEntry): string {
+	return join(dirname(entry.path), `${stemFromPath(entry.path)}.assets`);
+}
+
+async function resolveUniqueAssetFileName(assetsDir: string, baseName: string, extension: string): Promise<string> {
+	let attempt = 1;
+	while (true) {
+		const candidate = `${baseName}-${attempt}${extension}`;
+		if (!(await pathExists(join(assetsDir, candidate)))) {
+			return candidate;
+		}
+		attempt += 1;
+	}
+}
+
+export async function writeSavedPlanAsset(
+	planId: string,
+	input: { data: string; mimeType: string; name?: string },
+): Promise<string> {
+	const entry = await findSavedPlanById(planId);
+	if (!entry) {
+		throw new Error(`Plan "${planId}" was not found in the library.`);
+	}
+	const mimeType = input.mimeType.toLowerCase();
+	if (!PLAN_ASSET_MIME_TYPES.has(mimeType)) {
+		throw new Error(`Unsupported image type: ${input.mimeType}`);
+	}
+	const extension = resolveImageExtension(input.name, mimeType);
+	if (!extension) {
+		throw new Error(`Could not determine a file extension for ${input.mimeType}.`);
+	}
+	const baseName = sanitizeFileNameSegment(input.name?.trim() ? basename(input.name, extname(input.name)) : "pasted");
+
+	const assetsDir = getPlanAssetsDir(entry);
+	await mkdir(assetsDir, { recursive: true });
+	const fileName = await resolveUniqueAssetFileName(assetsDir, baseName, extension);
+	await writeFile(join(assetsDir, fileName), Buffer.from(input.data, "base64"));
+	return `${basename(assetsDir)}/${fileName}`;
+}
+
+export async function readSavedPlanAsset(
+	planId: string,
+	relativePath: string,
+): Promise<{ content: Buffer; contentType: string }> {
+	const entry = await findSavedPlanById(planId);
+	if (!entry) {
+		throw new Error(`Plan "${planId}" was not found in the library.`);
+	}
+	const assetsDir = getPlanAssetsDir(entry);
+	const resolvedPath = resolve(assetsDir, relativePath);
+	if (!isPathWithinRoot(assetsDir, resolvedPath)) {
+		throw new Error("Access denied: asset path is outside the plan's assets directory.");
+	}
+	if (!(await pathExists(resolvedPath))) {
+		throw new Error(`Plan asset is missing: ${relativePath}`);
+	}
+	const extension = extname(resolvedPath).toLowerCase();
+	const mimeTypeByExtension: Record<string, string> = {
+		".png": "image/png",
+		".jpg": "image/jpeg",
+		".jpeg": "image/jpeg",
+		".gif": "image/gif",
+		".webp": "image/webp",
+	};
+	const contentType = mimeTypeByExtension[extension] ?? "application/octet-stream";
+	const content = await readFile(resolvedPath);
+	return { content, contentType };
 }

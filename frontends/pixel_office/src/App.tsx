@@ -23,6 +23,7 @@ import {
 } from "@/components/git-inspector-dialogs";
 import { HomeTriplePane } from "@/components/home-triple-pane";
 import { KanbanBoard } from "@/components/kanban-board";
+import { PlanEditorView } from "@/components/plan-editor/plan-editor-view";
 import { ProjectNavigationPanel } from "@/components/project-navigation-panel";
 import {
 	RuntimeSettingsDialog,
@@ -89,6 +90,7 @@ import {
 import { fetchRuntimeBlame } from "@/runtime/runtime-config-query";
 import type {
 	RuntimeClineReasoningEffort,
+	RuntimeSavedPlan,
 	RuntimeTaskLaunchSettings,
 	RuntimeTaskSessionSummary,
 } from "@/runtime/types";
@@ -133,6 +135,7 @@ export default function App(): ReactElement {
 	const [managerSettingsFocusToken, setManagerSettingsFocusToken] = useState(0);
 	const [isClearTrashDialogOpen, setIsClearTrashDialogOpen] = useState(false);
 	const [isGitHistoryOpen, setIsGitHistoryOpen] = useState(false);
+	const [editingPlan, setEditingPlan] = useState<RuntimeSavedPlan | null>(null);
 	const [isCommitDialogOpen, setIsCommitDialogOpen] = useState(false);
 	const [isPullRequestDialogOpen, setIsPullRequestDialogOpen] = useState(false);
 	const [isWorktreesDialogOpen, setIsWorktreesDialogOpen] = useState(false);
@@ -145,6 +148,7 @@ export default function App(): ReactElement {
 	const handleProjectSwitchStart = useCallback(() => {
 		setCanPersistWorkspaceState(false);
 		setIsGitHistoryOpen(false);
+		setEditingPlan(null);
 		setPendingTaskStartAfterEditId(null);
 		taskEditorResetRef.current();
 	}, []);
@@ -302,6 +306,7 @@ export default function App(): ReactElement {
 			isWorkspaceMetadataPending,
 			onDetailClosed: () => {
 				setIsGitHistoryOpen(false);
+				setEditingPlan(null);
 			},
 		});
 
@@ -689,6 +694,7 @@ export default function App(): ReactElement {
 	}, []);
 	const onWillOpenOffice = useCallback(() => {
 		setIsGitHistoryOpen(false);
+		setEditingPlan(null);
 		// Office lives in the home layout, which stays visibility:hidden while a
 		// task detail is open — leave detail first or the toggle looks like a no-op.
 		if (selectedCard) {
@@ -1140,6 +1146,7 @@ export default function App(): ReactElement {
 						isCollapsed={sidebarLayout.isCollapsed}
 						setSidebarCollapsed={sidebarLayout.setSidebarCollapsed}
 						managerSettingsFocusToken={managerSettingsFocusToken}
+						onOpenPlan={setEditingPlan}
 					/>
 				) : null}
 				<div className="flex flex-col flex-1 min-w-0 overflow-hidden">
@@ -1288,7 +1295,13 @@ export default function App(): ReactElement {
 							) : (
 								<div className="flex flex-1 flex-col min-h-0 min-w-0">
 									<div className="flex flex-1 min-h-0 min-w-0">
-										{isGitHistoryOpen ? (
+										{editingPlan ? (
+											<PlanEditorView
+												plan={editingPlan}
+												workspaceId={currentProjectId}
+												onClose={() => setEditingPlan(null)}
+											/>
+										) : isGitHistoryOpen ? (
 											<GitHistoryView
 												workspaceId={currentProjectId}
 												gitHistory={gitHistory}
