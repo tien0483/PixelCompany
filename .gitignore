@@ -13,3 +13,7 @@ scripts/windows/dist/
 # Python
 __pycache__/
 *.pyc
+
+# Windows offline installer staging (rebuilt by installer/build-installer.mjs)
+scripts/windows/installer/.cache/
+scripts/windows/installer/stage/

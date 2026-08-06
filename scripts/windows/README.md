@@ -2,13 +2,37 @@
 
 Per-user install under `%LOCALAPPDATA%\PixelOffice` (no admin / Program Files).
 
-**Recommended path (private repos):** Node.js build packs an **allowlisted** source zip beside a `.cmd` setup. No public GitHub download. No PowerShell execution-policy for the maintainer build.
-
 Legacy PowerShell scripts (`Build-SetupExe.ps1`, `Install-PixelOffice.ps1`, shortcut `.ps1`) remain in this folder for older flows.
 
 ---
 
-## Full setup — Node bundle (recommended)
+## Offline one-file installer (recommended)
+
+Fully offline: no winget, pnpm, uv, or network access needed on the target machine.
+
+### Build (maintainers)
+
+Requires Node >= 22, pnpm, uv, and Inno Setup 6 (`winget install -e --id JRSoftware.InnoSetup`):
+
+```bat
+node scripts\windows\installer\build-installer.mjs
+```
+
+On long worktree paths (Windows MAX_PATH), stage via a short path:
+
+```bat
+node scripts\windows\installer\build-installer.mjs --stage-dir C:\po-stage
+```
+
+Output: `scripts\windows\dist\PixelOffice-Setup.exe` (single file, several hundred MB — bundles Node, Python, and the built UI).
+
+### Install (end users)
+
+Double-click `PixelOffice-Setup.exe`. Welcome → Install Location → Install → Finish. No terminal, no prerequisites, no network. Creates Desktop/Start Menu shortcuts and a Programs & Features uninstall entry.
+
+---
+
+## Full setup — Node bundle (fallback, requires network)
 
 ### Build (maintainers)
 
