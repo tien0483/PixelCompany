@@ -97,7 +97,7 @@ export function HomeSidebarPlansPanel({
 						addedCount === 0
 							? response.skipped > 0
 								? "No new plans (already in library)."
-								: "No .md or .txt plans found in that folder."
+								: "No .md, .txt, or .html plans found in that folder."
 							: `Added ${addedCount} plan${addedCount === 1 ? "" : "s"}.`,
 				});
 				await refreshPlans();

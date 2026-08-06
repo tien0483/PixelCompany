@@ -8,6 +8,7 @@ graphify-out/
 
 # Build output
 frontends/pixel_office/dist/
+backends/html_anything/next/.next/
 scripts/windows/dist/
 
 # Python

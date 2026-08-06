@@ -20,6 +20,7 @@ import {
 	removeSavedPlan,
 	writeSavedPlanAsset,
 	writeSavedPlanContent,
+	writeSavedPlanSibling,
 } from "../../../src/state/saved-plans";
 
 describe("saved-plans library", () => {
@@ -36,19 +37,33 @@ describe("saved-plans library", () => {
 		await mkdir(folder, { recursive: true });
 		await writeFile(join(folder, "alpha.md"), "# Alpha\n", "utf8");
 		await writeFile(join(folder, "beta.txt"), "Beta\n", "utf8");
+		await writeFile(join(folder, "gamma.html"), "<html></html>\n", "utf8");
 		await writeFile(join(folder, "skip.bin"), "nope", "utf8");
 
 		const first = await importPlansFromFolder(folder);
-		expect(first.added).toHaveLength(2);
+		expect(first.added).toHaveLength(3);
 		expect(first.skipped).toBe(0);
 
 		const second = await importPlansFromFolder(folder);
 		expect(second.added).toHaveLength(0);
-		expect(second.skipped).toBe(2);
+		expect(second.skipped).toBe(3);
 
 		const listed = await listSavedPlans();
-		expect(listed.map((plan) => plan.name).sort()).toEqual(["alpha", "beta"]);
+		expect(listed.map((plan) => plan.name).sort()).toEqual(["alpha", "beta", "gamma"]);
 		expect(listed.every((plan) => plan.missing === false)).toBe(true);
+	});
+
+	it("writes an html sibling beside a plan and sandboxes the path", async () => {
+		const created = await createSavedPlan({ name: "roadmap", content: "# Roadmap\n" });
+		const sibling = await writeSavedPlanSibling(created.entry.id, ".html", "<html><body>x</body></html>");
+		expect(sibling.isNew).toBe(true);
+		expect(sibling.entry.path.endsWith("roadmap-1.html") || sibling.entry.path.endsWith(".html")).toBe(true);
+		const disk = await readFile(sibling.entry.path, "utf8");
+		expect(disk).toContain("<html>");
+
+		await expect(writeSavedPlanSibling(created.entry.id, ".exe", "nope")).rejects.toThrow(
+			/unsupported plan sibling extension/i,
+		);
 	});
 
 	it("imports a single file via importPlanFile and dedupes on repeat", async () => {

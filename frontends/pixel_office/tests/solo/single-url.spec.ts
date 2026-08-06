@@ -45,10 +45,12 @@ test("the whole product is served from the single runtime origin", async ({ page
 	await expect(page.getByTestId("sidebar-jacked-tab")).toBeVisible();
 	await expect(page.getByTestId("open-settings-button")).toBeVisible();
 
-	// Neither the Vite dev server nor the raw jacked dashboard may be contacted.
+	// Neither the Vite dev server nor the raw companion dashboards may be contacted.
 	expect(crossOrigin.filter((url) => url.includes(":8321"))).toEqual([]);
+	expect(crossOrigin.filter((url) => url.includes(":8322"))).toEqual([]);
 	expect(crossOrigin.filter((url) => url.includes(":5173"))).toEqual([]);
 	await expect(page.locator('iframe[src*="8321"]')).toHaveCount(0);
+	await expect(page.locator('iframe[src*="8322"]')).toHaveCount(0);
 });
 
 test("the Jacked bridge answers on the same origin", async ({ page, baseURL }) => {
@@ -67,7 +69,7 @@ test("the Jacked bridge answers on the same origin", async ({ page, baseURL }) =
 	);
 	expect(sessions.status()).toBe(200);
 
-	const health = await page.request.get(`${baseURL}/api/jacked-proxy/api/health`);
+	const health = await page.request.get(`${baseURL}/api/manager-proxy/api/health`);
 	expect(health.status()).toBe(200);
 });
 
