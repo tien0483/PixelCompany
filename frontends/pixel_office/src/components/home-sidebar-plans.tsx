@@ -7,6 +7,7 @@ import { cn } from "@/components/ui/cn";
 import { Spinner } from "@/components/ui/spinner";
 import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
 import type { RuntimeSavedPlan } from "@/runtime/types";
+import { LocalStorageKey, readLocalStorageItem, writeLocalStorageItem } from "@/storage/local-storage-store";
 
 export function HomeSidebarPlansTab({
 	active,
@@ -43,6 +44,9 @@ export function HomeSidebarPlansPanel({
 	const [isLoading, setIsLoading] = useState(true);
 	const [isImporting, setIsImporting] = useState(false);
 	const [isBrowserOpen, setIsBrowserOpen] = useState(false);
+	const [lastImportFolder, setLastImportFolder] = useState<string | undefined>(
+		() => readLocalStorageItem(LocalStorageKey.PlansLastImportFolder) ?? undefined,
+	);
 
 	const refreshPlans = useCallback(async () => {
 		setIsLoading(true);
@@ -240,13 +244,16 @@ export function HomeSidebarPlansPanel({
 				open={isBrowserOpen}
 				onOpenChange={setIsBrowserOpen}
 				workspaceId={workspaceId}
+				initialPath={lastImportFolder}
 				onSelect={(path, type) => {
 					setIsBrowserOpen(false);
 					if (type === "file") {
 						void handleImportFile(path);
-					} else {
-						void handleImportFolder(path);
+						return;
 					}
+					writeLocalStorageItem(LocalStorageKey.PlansLastImportFolder, path);
+					setLastImportFolder(path);
+					void handleImportFolder(path);
 				}}
 			/>
 		</div>

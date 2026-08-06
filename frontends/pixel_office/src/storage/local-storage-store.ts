@@ -26,6 +26,7 @@ export enum LocalStorageKey {
 	Theme = "kanban.theme",
 	/** Max cards allowed to run concurrently; the backlog auto-run scheduler defers past this. */
 	MaxRunningTasks = "kanban.max-running-tasks",
+	PlansLastImportFolder = "kanban.plans-last-import-folder",
 }
 
 /** Default concurrent-running cap used by the backlog auto-run scheduler. */

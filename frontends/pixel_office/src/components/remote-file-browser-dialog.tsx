@@ -32,6 +32,7 @@ export function RemoteFileBrowserDialog({
 	const [error, setError] = useState<string | null>(null);
 	const [pathInput, setPathInput] = useState("");
 	const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null);
+	const [selectedFolderPath, setSelectedFolderPath] = useState<string | null>(null);
 	const fetchIdRef = useRef(0);
 
 	const fetchContents = useCallback(
@@ -40,6 +41,7 @@ export function RemoteFileBrowserDialog({
 			setIsLoading(true);
 			setError(null);
 			setSelectedFilePath(null);
+			setSelectedFolderPath(null);
 			try {
 				const trpcClient = getRuntimeTrpcClient(workspaceId);
 				const response: RuntimeDirectoryListResponse = await trpcClient.projects.listDirectoryContents.query(
@@ -110,6 +112,12 @@ export function RemoteFileBrowserDialog({
 
 	const handleSelectFile = useCallback((path: string) => {
 		setSelectedFilePath(path);
+		setSelectedFolderPath(null);
+	}, []);
+
+	const handleSelectFolder = useCallback((path: string) => {
+		setSelectedFolderPath(path);
+		setSelectedFilePath(null);
 	}, []);
 
 	const handleSelect = useCallback(() => {
@@ -117,8 +125,12 @@ export function RemoteFileBrowserDialog({
 			onSelect(selectedFilePath, "file");
 			return;
 		}
+		if (selectedFolderPath) {
+			onSelect(selectedFolderPath, "folder");
+			return;
+		}
 		onSelect(currentPath, "folder");
-	}, [currentPath, selectedFilePath, onSelect]);
+	}, [currentPath, selectedFilePath, selectedFolderPath, onSelect]);
 
 	const breadcrumbSegments = buildBreadcrumbs(currentPath, rootPath);
 
@@ -145,13 +157,19 @@ export function RemoteFileBrowserDialog({
 					entries={entries}
 					selectedFilePath={selectedFilePath}
 					onSelectFile={handleSelectFile}
+					selectedFolderPath={selectedFolderPath}
+					onSelectFolder={handleSelectFolder}
 				/>
 			</DialogBody>
 			<DialogFooter>
 				<Button variant="default" onClick={() => onOpenChange(false)}>
 					Cancel
 				</Button>
-				<Button variant="primary" onClick={handleSelect} disabled={isLoading || (!currentPath && !selectedFilePath)}>
+				<Button
+					variant="primary"
+					onClick={handleSelect}
+					disabled={isLoading || (!currentPath && !selectedFilePath && !selectedFolderPath)}
+				>
 					Select
 				</Button>
 			</DialogFooter>
@@ -178,6 +196,8 @@ function RemoteFileBrowserContent({
 	entries,
 	selectedFilePath,
 	onSelectFile,
+	selectedFolderPath,
+	onSelectFolder,
 }: {
 	rootPath: string;
 	pathInput: string;
@@ -192,6 +212,8 @@ function RemoteFileBrowserContent({
 	entries: RuntimeDirectoryListEntry[];
 	selectedFilePath: string | null;
 	onSelectFile: (path: string) => void;
+	selectedFolderPath: string | null;
+	onSelectFolder: (path: string) => void;
 }): ReactElement {
 	return (
 		<>
@@ -255,6 +277,8 @@ function RemoteFileBrowserContent({
 				onNavigate={onNavigate}
 				selectedFilePath={selectedFilePath}
 				onSelectFile={onSelectFile}
+				selectedFolderPath={selectedFolderPath}
+				onSelectFolder={onSelectFolder}
 			/>
 
 			{/* Hidden description for accessibility */}
@@ -272,6 +296,8 @@ function DirectoryEntryList({
 	onNavigate,
 	selectedFilePath,
 	onSelectFile,
+	selectedFolderPath,
+	onSelectFolder,
 }: {
 	isLoading: boolean;
 	error: string | null;
@@ -279,12 +305,11 @@ function DirectoryEntryList({
 	onNavigate: (path: string) => void;
 	selectedFilePath: string | null;
 	onSelectFile: (path: string) => void;
+	selectedFolderPath: string | null;
+	onSelectFolder: (path: string) => void;
 }): ReactElement {
 	return (
-		<div
-			className="flex-1 min-h-0 overflow-y-auto border-t border-b border-border"
-			style={{ minHeight: 200, maxHeight: 360 }}
-		>
+		<div className="flex-1 min-h-0 overflow-y-auto border-t border-b border-border min-h-[200px] max-h-[360px]">
 			{isLoading ? (
 				<div className="flex items-center justify-center py-12">
 					<Spinner size={20} />
@@ -301,35 +326,54 @@ function DirectoryEntryList({
 				<div className="flex flex-col">
 					{entries.map((entry) =>
 						entry.isDirectory ? (
-							<button
+							<div
 								key={entry.path}
-								type="button"
 								className={cn(
-									"flex items-center gap-2 px-4 py-2 text-left cursor-pointer bg-transparent border-none",
-									"hover:bg-surface-2 active:bg-surface-3",
+									"group flex items-center gap-2 px-4 py-2 text-left cursor-pointer",
+									"transition-colors hover:bg-surface-2 active:bg-surface-3",
 									"text-[13px] text-text-primary",
+									selectedFolderPath === entry.path && "bg-surface-3",
 								)}
-								onClick={() => onNavigate(entry.path)}
+								role="button"
+								tabIndex={0}
+								onClick={() => onSelectFolder(entry.path)}
+								onDoubleClick={() => onNavigate(entry.path)}
+								onKeyDown={(e) => {
+									if (e.key === "Enter") {
+										onSelectFolder(entry.path);
+									}
+								}}
 								data-testid={`dir-entry-${entry.name}`}
 							>
 								{entry.isGitRepository ? (
-									<span className="flex items-center shrink-0 text-text-secondary" title="Git repository">
+									<span className="relative flex items-center shrink-0 size-4 text-text-secondary" title="Git repository">
 										<Folder size={16} className="text-text-secondary" />
-										<GitBranch size={10} className="text-accent -ml-1.5 mb-1.5" />
+										<GitBranch size={9} className="absolute -bottom-0.5 -right-0.5 text-accent" />
 									</span>
 								) : (
 									<Folder size={16} className="text-text-secondary shrink-0" />
 								)}
 								<span className="truncate">{entry.name}</span>
-								<ChevronRight size={12} className="text-text-tertiary ml-auto shrink-0" />
-							</button>
+								<button
+									type="button"
+									className="ml-auto shrink-0 rounded-sm p-0.5 text-text-tertiary transition-colors hover:bg-surface-3 hover:text-text-primary cursor-pointer bg-transparent border-none"
+									aria-label={`Open ${entry.name}`}
+									onClick={(e) => {
+										e.stopPropagation();
+										onNavigate(entry.path);
+									}}
+									data-testid={`dir-entry-open-${entry.name}`}
+								>
+									<ChevronRight size={12} />
+								</button>
+							</div>
 						) : (
 							<button
 								key={entry.path}
 								type="button"
 								className={cn(
 									"flex items-center gap-2 px-4 py-2 text-left cursor-pointer bg-transparent border-none",
-									"hover:bg-surface-2 active:bg-surface-3",
+									"transition-colors hover:bg-surface-2 active:bg-surface-3",
 									"text-[13px] text-text-primary",
 									selectedFilePath === entry.path && "bg-surface-3",
 								)}
