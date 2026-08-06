@@ -19,6 +19,7 @@ import { TaskAgentModelPicker, useTaskAgentModelPicker } from "@/components/task
 import { TaskLaunchSettingsPicker } from "@/components/task-launch-settings";
 import { TaskPromptComposer } from "@/components/task-prompt-composer";
 import { Button } from "@/components/ui/button";
+import { Tooltip } from "@/components/ui/tooltip";
 import { ApiSeatQuickPick } from "@/manager/api-seat-quick-pick";
 import {
 	TaskAccountPicker,
@@ -83,6 +84,8 @@ export function TaskInlineCreateCard({
 	branchRef,
 	branchOptions,
 	onBranchRefChange,
+	branchSelectDisabled = false,
+	branchSelectDisabledReason,
 	enabled = true,
 	mode = "create",
 	idPrefix = "inline-task",
@@ -124,6 +127,8 @@ export function TaskInlineCreateCard({
 	branchRef: string;
 	branchOptions: TaskBranchOption[];
 	onBranchRefChange: (value: string) => void;
+	branchSelectDisabled?: boolean;
+	branchSelectDisabledReason?: string;
 	enabled?: boolean;
 	mode?: TaskInlineCardMode;
 	idPrefix?: string;
@@ -323,16 +328,35 @@ export function TaskInlineCreateCard({
 
 				<div>
 					<span className="text-[11px] text-text-secondary block mb-1">Worktree base ref</span>
-					<BranchSelectDropdown
-						id={branchSelectId}
-						options={branchOptions}
-						selectedValue={branchRef}
-						onSelect={onBranchRefChange}
-						onPopoverOpenChange={setIsBranchPopoverOpen}
-						fill
-						size="sm"
-						emptyText="No branches detected"
-					/>
+					{branchSelectDisabled && branchSelectDisabledReason ? (
+						<Tooltip content={branchSelectDisabledReason} side="top">
+							<span className="block w-full">
+								<BranchSelectDropdown
+									id={branchSelectId}
+									options={branchOptions}
+									selectedValue={branchRef}
+									onSelect={onBranchRefChange}
+									onPopoverOpenChange={setIsBranchPopoverOpen}
+									fill
+									size="sm"
+									emptyText="No branches detected"
+									disabled
+								/>
+							</span>
+						</Tooltip>
+					) : (
+						<BranchSelectDropdown
+							id={branchSelectId}
+							options={branchOptions}
+							selectedValue={branchRef}
+							onSelect={onBranchRefChange}
+							onPopoverOpenChange={setIsBranchPopoverOpen}
+							fill
+							size="sm"
+							emptyText="No branches detected"
+							disabled={branchSelectDisabled || !enabled}
+						/>
+					)}
 				</div>
 
 				{canShowAutoCommitOptIn ? (

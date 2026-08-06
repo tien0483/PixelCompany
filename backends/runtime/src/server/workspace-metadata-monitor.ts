@@ -187,6 +187,7 @@ async function loadHomeGitMetadata(entry: WorkspaceMetadataEntry): Promise<Cache
 }
 
 async function loadTaskWorkspaceMetadata(
+	workspaceId: string,
 	workspacePath: string,
 	task: TrackedTaskWorkspace,
 	current: CachedTaskWorkspaceMetadata | null,
@@ -196,6 +197,7 @@ async function loadTaskWorkspaceMetadata(
 	// card's own taskId so the frontend store still looks it up by card id.
 	const pathInfo = await getTaskWorkspacePathInfo({
 		cwd: workspacePath,
+		workspaceId,
 		taskId: task.worktreeTaskId,
 		baseRef: task.baseRef,
 	});
@@ -310,7 +312,12 @@ export function createWorkspaceMetadataMonitor(
 			const nextTaskEntries = await Promise.all(
 				entry.trackedTasks.map(async (task) => {
 					const current = entry.taskMetadataByTaskId.get(task.taskId) ?? null;
-					const next = await loadTaskWorkspaceMetadata(entry.workspacePath, task, current);
+					const next = await loadTaskWorkspaceMetadata(
+						workspaceId,
+						entry.workspacePath,
+						task,
+						current,
+					);
 					return next ? [task.taskId, next] : null;
 				}),
 			);

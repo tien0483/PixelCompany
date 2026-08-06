@@ -195,7 +195,6 @@ function GitBranchStatusControl({
 function TopBarGitStatusSection({
 	showHomeGitSummary,
 	selectedTaskId,
-	selectedTaskBaseRef,
 	onToggleGitHistory,
 	isGitHistoryOpen,
 	runningGitAction,
@@ -211,7 +210,6 @@ function TopBarGitStatusSection({
 }: {
 	showHomeGitSummary: boolean;
 	selectedTaskId: string | null;
-	selectedTaskBaseRef: string | null;
 	onToggleGitHistory?: () => void;
 	isGitHistoryOpen?: boolean;
 	runningGitAction?: RuntimeGitSyncAction | null;
@@ -226,10 +224,7 @@ function TopBarGitStatusSection({
 	onGitConflicts?: () => void;
 }): React.ReactElement | null {
 	const homeGitSummary = useHomeGitSummaryValue();
-	const taskWorkspaceInfo = useTaskWorkspaceInfoValue(
-		selectedTaskId,
-		selectedTaskBaseRef,
-	);
+	const taskWorkspaceInfo = useTaskWorkspaceInfoValue(selectedTaskId);
 	const taskWorkspaceSnapshot = useTaskWorkspaceSnapshotValue(selectedTaskId);
 
 	if (showHomeGitSummary && homeGitSummary) {
@@ -428,7 +423,6 @@ export function TopBar({
 	workspaceHint,
 	runtimeHint,
 	selectedTaskId,
-	selectedTaskBaseRef,
 	showHomeGitSummary,
 	runningGitAction,
 	onGitFetch,
@@ -474,7 +468,6 @@ export function TopBar({
 	workspaceHint?: string;
 	runtimeHint?: string;
 	selectedTaskId?: string | null;
-	selectedTaskBaseRef?: string | null;
 	showHomeGitSummary?: boolean;
 	runningGitAction?: RuntimeGitSyncAction | null;
 	onGitFetch?: () => void;
@@ -708,7 +701,6 @@ export function TopBar({
 								<TopBarGitStatusSection
 									showHomeGitSummary={showHomeGitSummary === true}
 									selectedTaskId={selectedTaskId ?? null}
-									selectedTaskBaseRef={selectedTaskBaseRef ?? null}
 									onToggleGitHistory={onToggleGitHistory}
 									isGitHistoryOpen={isGitHistoryOpen}
 									runningGitAction={runningGitAction}

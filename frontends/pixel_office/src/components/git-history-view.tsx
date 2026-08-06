@@ -79,6 +79,7 @@ interface GitHistoryViewProps {
 	isCreateBranchPending?: boolean;
 	onMergeIntoCurrent?: (branch: string) => void;
 	onRebaseCurrentOnto?: (branch: string) => void;
+	onPushBranch?: (branch: string) => void;
 	onDiscardWorkingChanges?: () => void;
 	isDiscardWorkingChangesPending?: boolean;
 	onCherryPickCommit?: (commitHash: string) => void;
@@ -94,6 +95,7 @@ export function GitHistoryView({
 	isCreateBranchPending = false,
 	onMergeIntoCurrent,
 	onRebaseCurrentOnto,
+	onPushBranch,
 	onDiscardWorkingChanges,
 	isDiscardWorkingChangesPending = false,
 	onCherryPickCommit,
@@ -215,6 +217,7 @@ export function GitHistoryView({
 				onCreateBranch={onCreateBranch}
 				onMergeIntoCurrent={onMergeIntoCurrent}
 				onRebaseCurrentOnto={onRebaseCurrentOnto}
+				onPush={onPushBranch}
 				isCreateBranchPending={isCreateBranchPending}
 				onRefresh={() => gitHistory.refresh()}
 				isRefreshing={gitHistory.isRefsLoading}

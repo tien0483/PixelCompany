@@ -35,7 +35,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { Tooltip } from "@/components/ui/tooltip";
 import { useCountdownMs, useElapsedMs } from "@/hooks/use-elapsed-timer";
 import type { RuntimeTaskSessionSummary } from "@/runtime/types";
-import { useTaskWorkspaceSnapshotValue } from "@/stores/workspace-metadata-store";
+import { useTaskWorkspaceInfoValue, useTaskWorkspaceSnapshotValue } from "@/stores/workspace-metadata-store";
 import type { BoardCard as BoardCardModel, BoardColumnId } from "@/types";
 import { getTaskAutoReviewCancelButtonLabel } from "@/types";
 import { formatElapsed } from "@/utils/format-elapsed";
@@ -415,6 +415,8 @@ export function BoardCard({
 	);
 	const [isDescriptionExpanded, setIsDescriptionExpanded] = useState(false);
 	const reviewWorkspaceSnapshot = useTaskWorkspaceSnapshotValue(card.id);
+	const taskWorkspaceInfo = useTaskWorkspaceInfoValue(card.id);
+	const baseRefHint = taskWorkspaceInfo?.baseRef ?? card.baseRef;
 	const isTrashCard = columnId === "trash";
 	const isCardInteractive = !isTrashCard;
 	const descriptionWidth =
@@ -1158,7 +1160,7 @@ export function BoardCard({
 									isCommitLoading={isCommitLoading}
 									statusMessage={reviewGitStatusMessage}
 									canRetryFollowOn={canRetryReviewGitFollowOn}
-									baseRefHint={card.baseRef}
+									baseRefHint={baseRefHint}
 									branchSuggestions={branchSuggestions ?? []}
 									onCommit={() => onCommit?.(card.id)}
 									onSubmitBranched={(input) =>

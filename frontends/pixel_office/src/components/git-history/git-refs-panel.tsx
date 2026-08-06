@@ -14,6 +14,7 @@ import {
 	RefreshCw,
 	Search,
 	Trash2,
+	UploadCloud,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
@@ -93,6 +94,7 @@ export function GitRefsPanel({
 	onCreateBranch,
 	onMergeIntoCurrent,
 	onRebaseCurrentOnto,
+	onPush,
 	isCreateBranchPending = false,
 	onRefresh,
 	isRefreshing,
@@ -111,6 +113,7 @@ export function GitRefsPanel({
 	onCreateBranch?: (newBranch: string, startPoint: string) => void;
 	onMergeIntoCurrent?: (branchName: string) => void;
 	onRebaseCurrentOnto?: (branchName: string) => void;
+	onPush?: (branchName: string) => void;
 	isCreateBranchPending?: boolean;
 	onRefresh?: () => void;
 	isRefreshing?: boolean;
@@ -157,7 +160,8 @@ export function GitRefsPanel({
 			!onDeleteRef &&
 			!onCreateBranch &&
 			!onMergeIntoCurrent &&
-			!onRebaseCurrentOnto
+			!onRebaseCurrentOnto &&
+			!onPush
 		) {
 			return;
 		}
@@ -166,7 +170,12 @@ export function GitRefsPanel({
 	};
 
 	const hasBranchContextActions = Boolean(
-		onCheckoutRef || onDeleteRef || onCreateBranch || onMergeIntoCurrent || onRebaseCurrentOnto,
+		onCheckoutRef ||
+			onDeleteRef ||
+			onCreateBranch ||
+			onMergeIntoCurrent ||
+			onRebaseCurrentOnto ||
+			onPush,
 	);
 	const hasRemoteContextActions = Boolean(onCheckoutRef || onCreateBranch);
 
@@ -260,7 +269,7 @@ export function GitRefsPanel({
 							<div style={{ fontWeight: 600, marginBottom: 4 }}>Git History</div>
 							<div>• Click a branch to inspect its commits.</div>
 							<div>• Double-click a branch to switch to it.</div>
-							<div>• Right-click a local branch to switch, branch from, or delete it.</div>
+							<div>• Right-click a local branch to switch, branch from, push, or delete it.</div>
 							<div>• Refresh reloads branches, commits, and working copy.</div>
 							<div style={{ marginTop: 4 }}>Press {closeShortcutLabel} or Escape to close.</div>
 						</div>
@@ -492,6 +501,14 @@ export function GitRefsPanel({
 								}
 							: undefined
 					}
+					onPush={
+						contextMenu.kind === "local" && onPush
+							? () => {
+									onPush(contextMenu.branch);
+									setContextMenu(null);
+								}
+							: undefined
+					}
 					onDelete={
 						contextMenu.kind === "local" && onDeleteRef
 							? () => {
@@ -576,6 +593,7 @@ function BranchContextMenu({
 	onCreateFrom,
 	onMergeIntoCurrent,
 	onRebaseCurrentOnto,
+	onPush,
 	onDelete,
 	onClose,
 }: {
@@ -586,6 +604,7 @@ function BranchContextMenu({
 	onCreateFrom?: () => void;
 	onMergeIntoCurrent?: () => void;
 	onRebaseCurrentOnto?: () => void;
+	onPush?: () => void;
 	onDelete?: () => void;
 	onClose: () => void;
 }): React.ReactElement {
@@ -646,6 +665,12 @@ function BranchContextMenu({
 					<button type="button" role="menuitem" className="kb-branch-context-menu-item" onClick={onRebaseCurrentOnto}>
 						<GitBranch size={13} aria-hidden />
 						<span>Rebase Current onto Selected</span>
+					</button>
+				) : null}
+				{onPush ? (
+					<button type="button" role="menuitem" className="kb-branch-context-menu-item" onClick={onPush}>
+						<UploadCloud size={13} aria-hidden />
+						<span>Push to remote</span>
 					</button>
 				) : null}
 				{onCreateFrom ? (

@@ -12,6 +12,7 @@ export interface BranchRegistryEntry {
 	taskId: string;
 	branch: string;
 	worktreePath: string;
+	baseRef?: string;
 	agentDisplayName?: string;
 	status: BranchRegistryEntryStatus;
 	lastTouchedAt: string;
@@ -36,6 +37,7 @@ const branchRegistryEntrySchema = z.object({
 	taskId: z.string().min(1),
 	branch: z.string().min(1),
 	worktreePath: z.string().min(1),
+	baseRef: z.string().min(1).optional(),
 	agentDisplayName: z.string().optional(),
 	status: branchRegistryEntryStatusSchema,
 	lastTouchedAt: z.string(),
@@ -120,6 +122,59 @@ export async function registerActiveBranch(
 			at: now,
 			taskId: entry.taskId,
 			op: "register",
+		});
+		await writeBranchRegistryFile(registryPath, file);
+	});
+}
+
+/**
+ * Persist the real base ref once at worktree creation / adopt-on-ensure.
+ * Never overwrites an already-set baseRef; preserves status and agentDisplayName.
+ */
+export async function recordTaskWorktreeBaseRef(
+	workspaceId: string,
+	entry: {
+		taskId: string;
+		branch: string;
+		worktreePath: string;
+		baseRef: string;
+	},
+): Promise<void> {
+	const normalizedBaseRef = entry.baseRef.trim();
+	if (!normalizedBaseRef) {
+		return;
+	}
+	const registryPath = getWorkspaceBranchRegistryPath(workspaceId);
+	await lockedFileSystem.withLock({ path: registryPath }, async () => {
+		const file = await readBranchRegistryFile(registryPath);
+		const existing = file.entries[entry.taskId];
+		if (existing?.baseRef) {
+			return;
+		}
+		const now = new Date().toISOString();
+		if (existing) {
+			file.entries[entry.taskId] = {
+				...existing,
+				branch: existing.branch || entry.branch,
+				worktreePath: existing.worktreePath || entry.worktreePath,
+				baseRef: normalizedBaseRef,
+				lastTouchedAt: now,
+			};
+		} else {
+			file.entries[entry.taskId] = {
+				taskId: entry.taskId,
+				branch: entry.branch,
+				worktreePath: entry.worktreePath,
+				baseRef: normalizedBaseRef,
+				status: "active",
+				lastTouchedAt: now,
+			};
+		}
+		file.statusLog.push({
+			at: now,
+			taskId: entry.taskId,
+			op: "record-base-ref",
+			detail: normalizedBaseRef,
 		});
 		await writeBranchRegistryFile(registryPath, file);
 	});

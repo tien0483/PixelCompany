@@ -16,6 +16,21 @@ interface UseTaskBranchOptionsResult {
 	defaultTaskBranchRef: string;
 }
 
+/** Ensure a value appears in the options list (e.g. a task's real base ref that is no longer listed). */
+export function ensureBranchOptionPresent(
+	options: readonly TaskBranchOption[],
+	value: string | null | undefined,
+): TaskBranchOption[] {
+	const trimmed = value?.trim() ?? "";
+	if (!trimmed) {
+		return [...options];
+	}
+	if (options.some((option) => option.value === trimmed)) {
+		return [...options];
+	}
+	return [...options, { value: trimmed, label: trimmed }];
+}
+
 export function useTaskBranchOptions({ workspaceGit }: UseTaskBranchOptionsInput): UseTaskBranchOptionsResult {
 	const createTaskBranchOptions = useMemo(() => {
 		if (!workspaceGit) {
