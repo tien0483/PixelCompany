@@ -1,7 +1,9 @@
-import { resolve } from "node:path";
 import { stat } from "node:fs/promises";
+import { resolve } from "node:path";
 
 import type {
+	RuntimePlansCreateRequest,
+	RuntimePlansCreateResponse,
 	RuntimePlansImportFileRequest,
 	RuntimePlansImportFileResponse,
 	RuntimePlansImportFromFolderRequest,
@@ -17,6 +19,7 @@ import type {
 	RuntimePlansWriteResponse,
 } from "../core/api-contract";
 import {
+	createSavedPlan,
 	importPlanFile,
 	importPlansFromFolder,
 	listSavedPlans,
@@ -124,6 +127,29 @@ export function createPlansApi(deps: CreatePlansApiDependencies): RuntimeTrpcCon
 					alreadyExists: false,
 					error: toErrorMessage(error),
 				} satisfies RuntimePlansImportFileResponse;
+			}
+		},
+		create: async (input: RuntimePlansCreateRequest) => {
+			try {
+				const name = input.name.trim();
+				if (!name) {
+					return {
+						ok: false,
+						plan: null,
+						error: "Plan name is required.",
+					} satisfies RuntimePlansCreateResponse;
+				}
+				const { entry } = await createSavedPlan({ name, content: input.content });
+				return {
+					ok: true,
+					plan: { ...entry, missing: false },
+				} satisfies RuntimePlansCreateResponse;
+			} catch (error) {
+				return {
+					ok: false,
+					plan: null,
+					error: toErrorMessage(error),
+				} satisfies RuntimePlansCreateResponse;
 			}
 		},
 		remove: async (input: RuntimePlansRemoveRequest) => {

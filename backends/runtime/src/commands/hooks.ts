@@ -287,7 +287,7 @@ export function inferHookSourceFromPayload(payload: Record<string, unknown> | nu
 	return null;
 }
 
-function normalizeHookMetadata(
+export function normalizeHookMetadata(
 	event: RuntimeHookEvent,
 	payload: Record<string, unknown> | null,
 	flagMetadata: Partial<RuntimeTaskHookActivity>,
@@ -344,6 +344,14 @@ function normalizeHookMetadata(
 		finalMessage: flagMetadata.finalMessage ?? (finalMessage ? normalizeWhitespace(finalMessage) : null),
 		activityText: flagMetadata.activityText ?? (activityText ? normalizeWhitespace(activityText) : null),
 	};
+
+	const resolvedToolName = merged.toolName;
+	if (resolvedToolName === "ExitPlanMode") {
+		const toolInput = payload ? extractToolInput(payload) : null;
+		const rawPlan = toolInput && typeof toolInput.plan === "string" ? toolInput.plan : null;
+		const trimmedPlan = rawPlan?.trim() ?? null;
+		merged.planText = flagMetadata.planText ?? (trimmedPlan && trimmedPlan.length > 0 ? trimmedPlan : null);
+	}
 
 	const hasValue = Object.values(merged).some((value) => typeof value === "string" && value.trim().length > 0);
 	if (!hasValue) {

@@ -21,20 +21,20 @@ import type { KeyboardEvent, MouseEvent } from "react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
+	BoardCardReviewGitActions,
+	type ReviewGitBranchedSubmit,
+} from "@/components/board-card-review-git-actions";
+import {
 	formatClineReasoningEffortLabel,
 	formatClineSelectedModelButtonText,
 	resolveClineModelDisplayName,
 } from "@/components/detail-panels/cline-model-picker-options";
-import {
-	BoardCardReviewGitActions,
-	type ReviewGitBranchedSubmit,
-} from "@/components/board-card-review-git-actions";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
 import { Spinner } from "@/components/ui/spinner";
 import { Tooltip } from "@/components/ui/tooltip";
-import type { RuntimeTaskSessionSummary } from "@/runtime/types";
 import { useCountdownMs, useElapsedMs } from "@/hooks/use-elapsed-timer";
+import type { RuntimeTaskSessionSummary } from "@/runtime/types";
 import { useTaskWorkspaceSnapshotValue } from "@/stores/workspace-metadata-store";
 import type { BoardCard as BoardCardModel, BoardColumnId } from "@/types";
 import { getTaskAutoReviewCancelButtonLabel } from "@/types";
@@ -47,7 +47,11 @@ import {
 	normalizePromptForDisplay,
 	truncateTaskPromptLabel,
 } from "@/utils/task-prompt";
-import { DEFAULT_TEXT_MEASURE_FONT, measureTextWidth, readElementFontShorthand } from "@/utils/text-measure";
+import {
+	DEFAULT_TEXT_MEASURE_FONT,
+	measureTextWidth,
+	readElementFontShorthand,
+} from "@/utils/text-measure";
 
 interface CardSessionActivity {
 	dotColor: string;
@@ -71,7 +75,10 @@ const DESCRIPTION_COLLAPSE_LABEL = "Less";
 const DESCRIPTION_COLLAPSE_SUFFIX = `… ${DESCRIPTION_EXPAND_LABEL}`;
 const DESCRIPTION_EXPANDED_SUFFIX = `… ${DESCRIPTION_COLLAPSE_LABEL}`;
 
-function reconstructTaskWorktreeDisplayPath(taskId: string, workspacePath: string | null | undefined): string | null {
+function reconstructTaskWorktreeDisplayPath(
+	taskId: string,
+	workspacePath: string | null | undefined,
+): string | null {
 	if (!workspacePath) {
 		return null;
 	}
@@ -82,10 +89,15 @@ function reconstructTaskWorktreeDisplayPath(taskId: string, workspacePath: strin
 	}
 }
 
-function extractToolInputSummaryFromActivityText(activityText: string, toolName: string): string | null {
+function extractToolInputSummaryFromActivityText(
+	activityText: string,
+	toolName: string,
+): string | null {
 	const escapedToolName = toolName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 	const match = activityText.match(
-		new RegExp(`^(?:Using|Completed|Failed|Calling)\\s+${escapedToolName}(?::\\s*(.+))?$`),
+		new RegExp(
+			`^(?:Using|Completed|Failed|Calling)\\s+${escapedToolName}(?::\\s*(.+))?$`,
+		),
 	);
 	if (!match) {
 		return null;
@@ -104,7 +116,9 @@ function extractToolInputSummaryFromActivityText(activityText: string, toolName:
 function parseToolCallFromActivityText(
 	activityText: string,
 ): { toolName: string; toolInputSummary: string | null } | null {
-	const match = activityText.match(/^(?:Using|Completed|Failed|Calling)\s+([^:()]+?)(?::\s*(.+))?$/);
+	const match = activityText.match(
+		/^(?:Using|Completed|Failed|Calling)\s+([^:()]+?)(?::\s*(.+))?$/,
+	);
 	if (!match?.[1]) {
 		return null;
 	}
@@ -135,11 +149,17 @@ function resolveToolCallLabel(
 	toolInputSummary: string | null,
 ): string | null {
 	if (toolName) {
-		const parsedSummary = extractToolInputSummaryFromActivityText(activityText ?? "", toolName);
+		const parsedSummary = extractToolInputSummaryFromActivityText(
+			activityText ?? "",
+			toolName,
+		);
 		if (!toolInputSummary && !parsedSummary) {
 			return null;
 		}
-		return formatClineToolCallLabel(toolName, toolInputSummary ?? parsedSummary);
+		return formatClineToolCallLabel(
+			toolName,
+			toolInputSummary ?? parsedSummary,
+		);
 	}
 	if (!activityText) {
 		return null;
@@ -151,14 +171,32 @@ function resolveToolCallLabel(
 	return formatClineToolCallLabel(parsed.toolName, parsed.toolInputSummary);
 }
 
-function isCardCreditLimitError(summary: RuntimeTaskSessionSummary | undefined): boolean {
+function isCardCreditLimitError(
+	summary: RuntimeTaskSessionSummary | undefined,
+): boolean {
 	if (!summary) {
 		return false;
 	}
-	if (summary.state !== "awaiting_review" && summary.state !== "failed" && summary.state !== "interrupted") {
+	if (
+		summary.state !== "awaiting_review" &&
+		summary.state !== "failed" &&
+		summary.state !== "interrupted"
+	) {
 		return false;
 	}
 	return summary.latestHookActivity?.notificationType === "credit_limit";
+}
+
+export function isPlanReadyForSave(
+	card: BoardCardModel,
+	summary: RuntimeTaskSessionSummary | undefined,
+): boolean {
+	return Boolean(
+		card.startInPlanMode &&
+			summary?.state === "awaiting_review" &&
+			summary.latestHookActivity?.toolName === "ExitPlanMode" &&
+			summary.latestHookActivity?.planText,
+	);
 }
 
 /** "Paused · resumes 5:00 PM" for a usage-limit-paused card; bare "Paused" when the reset is unknown. */
@@ -166,19 +204,40 @@ function formatUsagePausedLabel(resumeAt: number | null | undefined): string {
 	if (typeof resumeAt !== "number" || !Number.isFinite(resumeAt)) {
 		return "Paused — waiting for usage reset";
 	}
-	const resetTime = new Date(resumeAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+	const resetTime = new Date(resumeAt).toLocaleTimeString([], {
+		hour: "numeric",
+		minute: "2-digit",
+	});
 	return `Paused · resumes ${resetTime}`;
 }
 
-function getCardSessionActivity(summary: RuntimeTaskSessionSummary | undefined): CardSessionActivity | null {
+function getCardSessionActivity(
+	summary: RuntimeTaskSessionSummary | undefined,
+): CardSessionActivity | null {
 	if (!summary) {
 		return null;
 	}
-	if (summary.state === "awaiting_review" && summary.reviewReason === "usage_paused") {
-		return { dotColor: SESSION_ACTIVITY_COLOR.waiting, text: formatUsagePausedLabel(summary.resumeAt) };
+	if (
+		summary.state === "awaiting_review" &&
+		summary.reviewReason === "usage_paused"
+	) {
+		return {
+			dotColor: SESSION_ACTIVITY_COLOR.waiting,
+			text: formatUsagePausedLabel(summary.resumeAt),
+		};
 	}
 	if (isCardCreditLimitError(summary)) {
 		return { dotColor: SESSION_ACTIVITY_COLOR.warning, text: "Out of credits" };
+	}
+	if (
+		summary.state === "awaiting_review" &&
+		summary.latestHookActivity?.toolName === "ExitPlanMode" &&
+		summary.latestHookActivity?.planText
+	) {
+		return {
+			dotColor: SESSION_ACTIVITY_COLOR.success,
+			text: "Plan ready for review",
+		};
 	}
 	const hookActivity = summary.latestHookActivity;
 	const activityText = hookActivity?.activityText?.trim();
@@ -186,7 +245,10 @@ function getCardSessionActivity(summary: RuntimeTaskSessionSummary | undefined):
 	const toolInputSummary = hookActivity?.toolInputSummary?.trim() ?? null;
 	const finalMessage = hookActivity?.finalMessage?.trim();
 	const hookEventName = hookActivity?.hookEventName?.trim() ?? null;
-	if ((summary.state === "awaiting_review" && summary.reviewReason === "error") || summary.state === "failed") {
+	if (
+		(summary.state === "awaiting_review" && summary.reviewReason === "error") ||
+		summary.state === "failed"
+	) {
 		return {
 			dotColor: SESSION_ACTIVITY_COLOR.error,
 			text: finalMessage ?? summary.warningMessage?.trim() ?? "Agent failed",
@@ -198,17 +260,26 @@ function getCardSessionActivity(summary: RuntimeTaskSessionSummary | undefined):
 	if (
 		finalMessage &&
 		!toolName &&
-		(hookEventName === "assistant_delta" || hookEventName === "agent_end" || hookEventName === "turn_start")
+		(hookEventName === "assistant_delta" ||
+			hookEventName === "agent_end" ||
+			hookEventName === "turn_start")
 	) {
 		return {
-			dotColor: summary.state === "running" ? SESSION_ACTIVITY_COLOR.thinking : SESSION_ACTIVITY_COLOR.success,
+			dotColor:
+				summary.state === "running"
+					? SESSION_ACTIVITY_COLOR.thinking
+					: SESSION_ACTIVITY_COLOR.success,
 			text: finalMessage,
 		};
 	}
 	if (activityText) {
 		let dotColor: string = SESSION_ACTIVITY_COLOR.thinking;
 		let text = activityText;
-		const toolCallLabel = resolveToolCallLabel(activityText, toolName, toolInputSummary);
+		const toolCallLabel = resolveToolCallLabel(
+			activityText,
+			toolName,
+			toolInputSummary,
+		);
 		if (toolCallLabel) {
 			if (text.startsWith("Failed ")) {
 				dotColor = SESSION_ACTIVITY_COLOR.error;
@@ -229,13 +300,20 @@ function getCardSessionActivity(summary: RuntimeTaskSessionSummary | undefined):
 			dotColor = SESSION_ACTIVITY_COLOR.success;
 		} else if (text.startsWith("Failed ")) {
 			dotColor = SESSION_ACTIVITY_COLOR.error;
-		} else if (text === "Agent active" || text === "Working on task" || text.startsWith("Resumed")) {
+		} else if (
+			text === "Agent active" ||
+			text === "Working on task" ||
+			text.startsWith("Resumed")
+		) {
 			return { dotColor: SESSION_ACTIVITY_COLOR.thinking, text: "Thinking..." };
 		}
 		return { dotColor, text };
 	}
 	if (summary.state === "awaiting_review") {
-		return { dotColor: SESSION_ACTIVITY_COLOR.success, text: "Waiting for review" };
+		return {
+			dotColor: SESSION_ACTIVITY_COLOR.success,
+			text: "Waiting for review",
+		};
 	}
 	if (summary.state === "running") {
 		return { dotColor: SESSION_ACTIVITY_COLOR.thinking, text: "Thinking..." };
@@ -328,16 +406,25 @@ export function BoardCard({
 	const [draftTitle, setDraftTitle] = useState(card.title);
 	const titleInputRef = useRef<HTMLInputElement | null>(null);
 	const titleEditCancelledRef = useRef(false);
-	const [descriptionContainerRef, descriptionRect] = useMeasure<HTMLDivElement>();
+	const [descriptionContainerRef, descriptionRect] =
+		useMeasure<HTMLDivElement>();
 	const descriptionRef = useRef<HTMLParagraphElement | null>(null);
 	const [descriptionWidthFallback, setDescriptionWidthFallback] = useState(0);
-	const [descriptionFont, setDescriptionFont] = useState(DEFAULT_TEXT_MEASURE_FONT);
+	const [descriptionFont, setDescriptionFont] = useState(
+		DEFAULT_TEXT_MEASURE_FONT,
+	);
 	const [isDescriptionExpanded, setIsDescriptionExpanded] = useState(false);
 	const reviewWorkspaceSnapshot = useTaskWorkspaceSnapshotValue(card.id);
 	const isTrashCard = columnId === "trash";
 	const isCardInteractive = !isTrashCard;
-	const descriptionWidth = descriptionRect.width > 0 ? descriptionRect.width : descriptionWidthFallback;
-	const rawSessionActivity = useMemo(() => getCardSessionActivity(sessionSummary), [sessionSummary]);
+	const descriptionWidth =
+		descriptionRect.width > 0
+			? descriptionRect.width
+			: descriptionWidthFallback;
+	const rawSessionActivity = useMemo(
+		() => getCardSessionActivity(sessionSummary),
+		[sessionSummary],
+	);
 	const lastSessionActivityRef = useRef<CardSessionActivity | null>(null);
 	const lastSessionActivityCardIdRef = useRef<string | null>(null);
 	if (lastSessionActivityCardIdRef.current !== card.id) {
@@ -354,11 +441,18 @@ export function BoardCard({
 	const showElapsed =
 		columnId === "in_progress" &&
 		sessionSummary != null &&
-		(sessionSummary.runningSince != null || sessionSummary.activeRunMs > 0 || isPaused);
-	const autoRunRemainingMs = useCountdownMs(columnId === "backlog" ? card.autoRunAt : null);
-	const showAutoRunCountdown = columnId === "backlog" && autoRunRemainingMs != null;
+		(sessionSummary.runningSince != null ||
+			sessionSummary.activeRunMs > 0 ||
+			isPaused);
+	const autoRunRemainingMs = useCountdownMs(
+		columnId === "backlog" ? card.autoRunAt : null,
+	);
+	const showAutoRunCountdown =
+		columnId === "backlog" && autoRunRemainingMs != null;
 	const displayTitle = useMemo(
-		() => normalizePromptForDisplay(card.title) || truncateTaskPromptLabel(card.prompt),
+		() =>
+			normalizePromptForDisplay(card.title) ||
+			truncateTaskPromptLabel(card.prompt),
 		[card.prompt, card.title],
 	);
 	const displayDescription = useMemo(
@@ -370,14 +464,20 @@ export function BoardCard({
 		if (descriptionRect.width > 0 || !displayDescription) {
 			return;
 		}
-		const nextWidth = descriptionRef.current?.parentElement?.getBoundingClientRect().width ?? 0;
+		const nextWidth =
+			descriptionRef.current?.parentElement?.getBoundingClientRect().width ?? 0;
 		if (nextWidth > 0 && nextWidth !== descriptionWidthFallback) {
 			setDescriptionWidthFallback(nextWidth);
 		}
 	}, [descriptionRect.width, descriptionWidthFallback, displayDescription]);
 
 	useLayoutEffect(() => {
-		setDescriptionFont(readElementFontShorthand(descriptionRef.current, DEFAULT_TEXT_MEASURE_FONT));
+		setDescriptionFont(
+			readElementFontShorthand(
+				descriptionRef.current,
+				DEFAULT_TEXT_MEASURE_FONT,
+			),
+		);
 	}, [descriptionWidth, displayDescription]);
 
 	useEffect(() => {
@@ -483,13 +583,17 @@ export function BoardCard({
 		return null;
 	};
 	const statusMarker = renderStatusMarker();
-	const showWorkspaceStatus = columnId === "in_progress" || columnId === "review" || isTrashCard;
+	const showWorkspaceStatus =
+		columnId === "in_progress" || columnId === "review" || isTrashCard;
 	const reviewWorkspacePath = reviewWorkspaceSnapshot
 		? formatPathForDisplay(reviewWorkspaceSnapshot.path)
 		: isTrashCard
 			? reconstructTaskWorktreeDisplayPath(card.id, workspacePath)
 			: null;
-	const reviewRefLabel = reviewWorkspaceSnapshot?.branch ?? reviewWorkspaceSnapshot?.headCommit?.slice(0, 8) ?? "HEAD";
+	const reviewRefLabel =
+		reviewWorkspaceSnapshot?.branch ??
+		reviewWorkspaceSnapshot?.headCommit?.slice(0, 8) ??
+		"HEAD";
 	const reviewChangeSummary = reviewWorkspaceSnapshot
 		? reviewWorkspaceSnapshot.changedFiles == null
 			? null
@@ -499,15 +603,22 @@ export function BoardCard({
 					deletions: reviewWorkspaceSnapshot.deletions ?? 0,
 				}
 		: null;
-	const showReviewGitActions = columnId === "review" && (reviewWorkspaceSnapshot?.changedFiles ?? 0) > 0;
+	const showReviewGitActions =
+		columnId === "review" && (reviewWorkspaceSnapshot?.changedFiles ?? 0) > 0;
 	const canMergeToBase =
 		columnId === "review" &&
-		((reviewWorkspaceSnapshot?.changedFiles ?? 0) > 0 || (reviewWorkspaceSnapshot?.aheadOfBaseCount ?? 0) > 0);
+		((reviewWorkspaceSnapshot?.changedFiles ?? 0) > 0 ||
+			(reviewWorkspaceSnapshot?.aheadOfBaseCount ?? 0) > 0);
 	const isAnyGitActionLoading = isCommitLoading || isMergeLoading;
 	const cancelAutomaticActionLabel =
-		!isTrashCard && card.autoReviewEnabled ? getTaskAutoReviewCancelButtonLabel(card.autoReviewMode) : null;
+		!isTrashCard && card.autoReviewEnabled
+			? getTaskAutoReviewCancelButtonLabel(card.autoReviewMode)
+			: null;
 	const agentOverrideLabel = useMemo(
-		() => (card.agentId ? (getRuntimeAgentCatalogEntry(card.agentId)?.label ?? card.agentId) : null),
+		() =>
+			card.agentId
+				? (getRuntimeAgentCatalogEntry(card.agentId)?.label ?? card.agentId)
+				: null,
 		[card.agentId],
 	);
 	const modelOverrideLabel = useMemo(() => {
@@ -521,11 +632,15 @@ export function BoardCard({
 				: null;
 		if (card.clineSettings.providerId && !card.clineSettings.modelId) {
 			const providerLabel = `Provider: ${card.clineSettings.providerId}`;
-			return explicitReasoningLabel ? `${providerLabel} (${explicitReasoningLabel})` : providerLabel;
+			return explicitReasoningLabel
+				? `${providerLabel} (${explicitReasoningLabel})`
+				: providerLabel;
 		}
 		const effectiveModelId = card.clineSettings.modelId ?? defaultClineModelId;
 		if (!effectiveModelId) {
-			return explicitReasoningLabel ? `Default model (${explicitReasoningLabel})` : null;
+			return explicitReasoningLabel
+				? `Default model (${explicitReasoningLabel})`
+				: null;
 		}
 		const modelName = resolveClineModelDisplayName(effectiveModelId);
 		if (explicitReasoningLabel) {
@@ -539,11 +654,15 @@ export function BoardCard({
 		});
 	}, [card.clineSettings, defaultClineModelId]);
 	const taskAgentSettingsLabel = useMemo(() => {
-		const parts = [agentOverrideLabel, modelOverrideLabel].filter((value): value is string => Boolean(value));
+		const parts = [agentOverrideLabel, modelOverrideLabel].filter(
+			(value): value is string => Boolean(value),
+		);
 		return parts.length > 0 ? parts.join(" · ") : null;
 	}, [agentOverrideLabel, modelOverrideLabel]);
 
-	const activeDescriptionDisplay = isDescriptionExpanded ? descriptionDisplay.expanded : descriptionDisplay.collapsed;
+	const activeDescriptionDisplay = isDescriptionExpanded
+		? descriptionDisplay.expanded
+		: descriptionDisplay.collapsed;
 
 	return (
 		<Draggable draggableId={card.id} index={index} isDragDisabled={false}>
@@ -571,7 +690,11 @@ export function BoardCard({
 								return;
 							}
 							const target = event.target as HTMLElement | null;
-							if (target?.closest("button, a, input, textarea, [contenteditable='true']")) {
+							if (
+								target?.closest(
+									"button, a, input, textarea, [contenteditable='true']",
+								)
+							) {
 								return;
 							}
 							event.preventDefault();
@@ -591,7 +714,11 @@ export function BoardCard({
 								return;
 							}
 							const target = event.target as HTMLElement | null;
-							if (target?.closest("button, a, input, textarea, [contenteditable='true']")) {
+							if (
+								target?.closest(
+									"button, a, input, textarea, [contenteditable='true']",
+								)
+							) {
 								return;
 							}
 							if (!snapshot.isDragging && onClick) {
@@ -619,9 +746,12 @@ export function BoardCard({
 							title={card.prompt}
 							className={cn(
 								"relative rounded-md border border-border-bright bg-surface-2 p-2.5",
-								isCardInteractive && "cursor-pointer hover:bg-surface-3 hover:border-border-bright",
+								isCardInteractive &&
+									"cursor-pointer hover:bg-surface-3 hover:border-border-bright",
 								isDragging && "shadow-lg",
-								isHovered && isCardInteractive && "bg-surface-3 border-border-bright",
+								isHovered &&
+									isCardInteractive &&
+									"bg-surface-3 border-border-bright",
 								isDependencySource && "kb-board-card-dependency-source",
 								isDependencyTarget && "kb-board-card-dependency-target",
 							)}
@@ -633,24 +763,34 @@ export function BoardCard({
 									title="Drag onto another task to link. Two Backlog tasks form a chain (shared worktree)."
 									className={cn(
 										"kb-board-card-link-handle",
-										(isHovered || isDependencyLinking) && "kb-board-card-link-handle-visible",
+										(isHovered || isDependencyLinking) &&
+											"kb-board-card-link-handle-visible",
 									)}
 									onMouseDown={(event) => {
 										event.preventDefault();
 										event.stopPropagation();
-										onDependencyPointerDown(card.id, event, { viaHandle: true });
+										onDependencyPointerDown(card.id, event, {
+											viaHandle: true,
+										});
 									}}
 									onClick={stopEvent}
 								/>
 							) : null}
-							<div className="flex items-center gap-2" style={{ minHeight: 24 }}>
-								{statusMarker ? <div className="inline-flex items-center">{statusMarker}</div> : null}
+							<div
+								className="flex items-center gap-2"
+								style={{ minHeight: 24 }}
+							>
+								{statusMarker ? (
+									<div className="inline-flex items-center">{statusMarker}</div>
+								) : null}
 								<div className="flex-1 min-w-0">
 									{isEditingTitle ? (
 										<input
 											ref={titleInputRef}
 											value={draftTitle}
-											onChange={(event) => setDraftTitle(event.currentTarget.value)}
+											onChange={(event) =>
+												setDraftTitle(event.currentTarget.value)
+											}
 											onBlur={submitTitle}
 											onKeyDown={handleTitleKeyDown}
 											onMouseDown={(event) => {
@@ -724,7 +864,13 @@ export function BoardCard({
 									</>
 								) : columnId === "review" ? (
 									<Button
-										icon={isMoveToTrashLoading ? <Spinner size={13} /> : <Trash2 size={13} />}
+										icon={
+											isMoveToTrashLoading ? (
+												<Spinner size={13} />
+											) : (
+												<Trash2 size={13} />
+											)
+										}
 										variant="ghost"
 										size="sm"
 										disabled={isMoveToTrashLoading}
@@ -783,8 +929,12 @@ export function BoardCard({
 										ref={descriptionRef}
 										className={cn(
 											"text-sm leading-[1.4]",
-											isTrashCard ? "text-text-tertiary" : "text-text-secondary",
-											!isDescriptionMeasured && !isDescriptionExpanded && "line-clamp-3",
+											isTrashCard
+												? "text-text-tertiary"
+												: "text-text-secondary",
+											!isDescriptionMeasured &&
+												!isDescriptionExpanded &&
+												"line-clamp-3",
 										)}
 										style={{
 											margin: "2px 0 0",
@@ -811,10 +961,13 @@ export function BoardCard({
 														setIsDescriptionExpanded(!isDescriptionExpanded);
 													}}
 												>
-													{isDescriptionExpanded ? DESCRIPTION_COLLAPSE_LABEL : DESCRIPTION_EXPAND_LABEL}
+													{isDescriptionExpanded
+														? DESCRIPTION_COLLAPSE_LABEL
+														: DESCRIPTION_EXPAND_LABEL}
 												</button>
 											</>
-										) : isDescriptionExpanded && descriptionDisplay.collapsed.isTruncated ? (
+										) : isDescriptionExpanded &&
+											descriptionDisplay.collapsed.isTruncated ? (
 											<>
 												{" "}
 												<button
@@ -854,7 +1007,9 @@ export function BoardCard({
 								<div
 									className="flex gap-1.5 items-start mt-[6px]"
 									style={{
-										color: isTrashCard ? SESSION_ACTIVITY_COLOR.muted : undefined,
+										color: isTrashCard
+											? SESSION_ACTIVITY_COLOR.muted
+											: undefined,
 									}}
 								>
 									<span
@@ -862,12 +1017,17 @@ export function BoardCard({
 										style={{
 											width: 6,
 											height: 6,
-											backgroundColor: isTrashCard ? SESSION_ACTIVITY_COLOR.muted : sessionActivity.dotColor,
+											backgroundColor: isTrashCard
+												? SESSION_ACTIVITY_COLOR.muted
+												: sessionActivity.dotColor,
 											marginTop: 4,
 										}}
 									/>
 									<div className="min-w-0 flex-1">
-										<p className="m-0 font-mono truncate" style={{ fontSize: 12 }}>
+										<p
+											className="m-0 font-mono truncate"
+											style={{ fontSize: 12 }}
+										>
 											{sessionActivity.text}
 										</p>
 									</div>
@@ -880,9 +1040,15 @@ export function BoardCard({
 								>
 									<Clock
 										size={11}
-										className={isPaused ? "text-status-orange" : "text-text-tertiary"}
+										className={
+											isPaused ? "text-status-orange" : "text-text-tertiary"
+										}
 									/>
-									<span className={isPaused ? "text-status-orange" : "text-text-secondary"}>
+									<span
+										className={
+											isPaused ? "text-status-orange" : "text-text-secondary"
+										}
+									>
 										{formatElapsed(elapsedMs)}
 									</span>
 									{isPaused ? (
@@ -929,7 +1095,9 @@ export function BoardCard({
 										lineHeight: 1.4,
 										whiteSpace: "normal",
 										overflowWrap: "anywhere",
-										color: isTrashCard ? SESSION_ACTIVITY_COLOR.muted : undefined,
+										color: isTrashCard
+											? SESSION_ACTIVITY_COLOR.muted
+											: undefined,
 									}}
 								>
 									{isTrashCard ? (
@@ -943,7 +1111,9 @@ export function BoardCard({
 										</span>
 									) : reviewWorkspaceSnapshot ? (
 										<>
-											<span style={{ color: SESSION_ACTIVITY_COLOR.secondary }}>{reviewWorkspacePath}</span>
+											<span style={{ color: SESSION_ACTIVITY_COLOR.secondary }}>
+												{reviewWorkspacePath}
+											</span>
 											<GitBranch
 												size={10}
 												style={{
@@ -953,16 +1123,29 @@ export function BoardCard({
 													verticalAlign: "middle",
 												}}
 											/>
-											<span style={{ color: SESSION_ACTIVITY_COLOR.secondary }}>{reviewRefLabel}</span>
+											<span style={{ color: SESSION_ACTIVITY_COLOR.secondary }}>
+												{reviewRefLabel}
+											</span>
 											{reviewChangeSummary ? (
 												<>
-													<span style={{ color: SESSION_ACTIVITY_COLOR.muted }}> (</span>
+													<span style={{ color: SESSION_ACTIVITY_COLOR.muted }}>
+														{" "}
+														(
+													</span>
 													<span style={{ color: SESSION_ACTIVITY_COLOR.muted }}>
 														{reviewChangeSummary.filesLabel}
 													</span>
-													<span className="text-status-green"> +{reviewChangeSummary.additions}</span>
-													<span className="text-status-red"> -{reviewChangeSummary.deletions}</span>
-													<span style={{ color: SESSION_ACTIVITY_COLOR.muted }}>)</span>
+													<span className="text-status-green">
+														{" "}
+														+{reviewChangeSummary.additions}
+													</span>
+													<span className="text-status-red">
+														{" "}
+														-{reviewChangeSummary.deletions}
+													</span>
+													<span style={{ color: SESSION_ACTIVITY_COLOR.muted }}>
+														)
+													</span>
 												</>
 											) : null}
 										</>
@@ -978,7 +1161,9 @@ export function BoardCard({
 									baseRefHint={card.baseRef}
 									branchSuggestions={branchSuggestions ?? []}
 									onCommit={() => onCommit?.(card.id)}
-									onSubmitBranched={(input) => onSubmitReviewGit?.(card.id, input)}
+									onSubmitBranched={(input) =>
+										onSubmitReviewGit?.(card.id, input)
+									}
 									onCancelForm={() => onCancelReviewGitForm?.(card.id)}
 									onOpenForm={() => onOpenReviewGitForm?.(card.id)}
 									onRetryFollowOn={
@@ -993,7 +1178,13 @@ export function BoardCard({
 									<Button
 										size="sm"
 										fill
-										icon={isMergeLoading ? <Spinner size={12} /> : <GitMerge size={12} />}
+										icon={
+											isMergeLoading ? (
+												<Spinner size={12} />
+											) : (
+												<GitMerge size={12} />
+											)
+										}
 										disabled={isAnyGitActionLoading}
 										onMouseDown={stopEvent}
 										onClick={(event) => {

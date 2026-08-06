@@ -143,6 +143,7 @@ describe("reconcileOffice", () => {
 					hookEventName: null,
 					notificationType: null,
 					source: null,
+					planText: null,
 				},
 			}),
 		};

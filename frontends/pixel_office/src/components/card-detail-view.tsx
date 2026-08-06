@@ -10,6 +10,8 @@ import {
 import type { MouseEvent as ReactMouseEvent, ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
+import { showAppToast } from "@/components/app-toaster";
+import { isPlanReadyForSave } from "@/components/board-card";
 import { AgentTerminalPanel } from "@/components/detail-panels/agent-terminal-panel";
 import {
 	ClineAgentChatPanel,
@@ -21,12 +23,14 @@ import {
 	DiffViewerPanel,
 } from "@/components/detail-panels/diff-viewer-panel";
 import { FileTreePanel } from "@/components/detail-panels/file-tree-panel";
+import { PlanMarkdownPreview } from "@/components/plan-editor/plan-markdown-preview";
 import { TaskLaunchSettingsPicker } from "@/components/task-launch-settings";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
 import type { ClineChatActionResult } from "@/hooks/use-cline-chat-runtime-actions";
 import type { ClineChatMessage } from "@/hooks/use-cline-chat-session";
 import { useIsMobile } from "@/hooks/use-is-mobile";
+import { useSavePlanFromSession } from "@/hooks/use-save-plan-from-session";
 import {
 	filterManagerAccountsForAgent,
 	shouldClearManagerAccountPin,
@@ -43,6 +47,7 @@ import type {
 	RuntimeConfigResponse,
 	RuntimeGitBlameLine,
 	RuntimeManagerAccount,
+	RuntimeSavedPlan,
 	RuntimeTaskLaunchSettings,
 	RuntimeTaskSessionMode,
 	RuntimeTaskSessionSummary,
@@ -50,6 +55,7 @@ import type {
 } from "@/runtime/types";
 import { useRuntimeWorkspaceChanges } from "@/runtime/use-runtime-workspace-changes";
 import { useTaskWorkspaceStateVersionValue } from "@/stores/workspace-metadata-store";
+import { trackPlanSaved } from "@/telemetry/events";
 import { useTerminalThemeColors } from "@/terminal/theme-colors";
 import {
 	type BoardCard,
@@ -462,6 +468,7 @@ export function CardDetailView({
 	restartTaskLoadingById,
 	onTaskLaunchSettingsChanged,
 	onTaskAutoResumeOnUsageLimitChanged,
+	onSavePlan,
 }: {
 	selection: CardSelection;
 	currentProjectId: string | null;
@@ -557,6 +564,7 @@ export function CardDetailView({
 		taskId: string,
 		enabled: boolean,
 	) => void;
+	onSavePlan?: (plan: RuntimeSavedPlan) => void;
 }): React.ReactElement {
 	const isMobile = useIsMobile();
 	const [mobileTab, setMobileTab] = useState<MobileTab>("chat");
@@ -568,6 +576,16 @@ export function CardDetailView({
 	const [diffMode, setDiffMode] =
 		useState<RuntimeWorkspaceChangesMode>("working_copy");
 	const [isDiffExpanded, setIsDiffExpanded] = useState(false);
+	const [savedPlanTextKey, setSavedPlanTextKey] = useState<string | null>(null);
+	const { savePlan, isSaving: isSavingPlan } =
+		useSavePlanFromSession(currentProjectId);
+	const planReadyForSave = isPlanReadyForSave(
+		selection.card,
+		sessionSummary ?? undefined,
+	);
+	const planTextForSave = sessionSummary?.latestHookActivity?.planText ?? null;
+	const planAlreadySaved =
+		typeof planTextForSave === "string" && savedPlanTextKey === planTextForSave;
 	const {
 		taskCardsPanelRatio,
 		setTaskCardsPanelRatio,
@@ -1145,6 +1163,67 @@ export function CardDetailView({
 										);
 									}}
 								/>
+							</div>
+						) : null}
+						{planReadyForSave && planTextForSave ? (
+							<div
+								data-testid="save-plan-panel"
+								className="flex shrink-0 flex-col gap-2 border-b border-border bg-surface-1 px-3 py-2"
+							>
+								<div className="flex items-center justify-between gap-2">
+									<span className="text-[12px] font-medium text-text-primary">
+										Plan ready for review
+									</span>
+									<Button
+										type="button"
+										variant="primary"
+										size="sm"
+										data-testid="save-plan-button"
+										disabled={planAlreadySaved || isSavingPlan}
+										onClick={() => {
+											void (async () => {
+												try {
+													const plan = await savePlan({
+														name:
+															selection.card.title.trim() || "Untitled plan",
+														content: planTextForSave,
+													});
+													setSavedPlanTextKey(planTextForSave);
+													trackPlanSaved({
+														plan_id: plan.id,
+														name_character_count: plan.name.length,
+														content_character_count: planTextForSave.length,
+													});
+													showAppToast({
+														intent: "success",
+														message: `Saved plan "${plan.name}".`,
+													});
+													onSavePlan?.(plan);
+												} catch (error) {
+													showAppToast({
+														intent: "danger",
+														message:
+															error instanceof Error
+																? error.message
+																: "Failed to save plan.",
+													});
+												}
+											})();
+										}}
+									>
+										{planAlreadySaved
+											? "Plan Saved"
+											: isSavingPlan
+												? "Saving…"
+												: "Save Plan"}
+									</Button>
+								</div>
+								<div className="max-h-48 overflow-auto rounded-md border border-border bg-surface-0 px-3 py-2 text-[12px]">
+									<PlanMarkdownPreview
+										content={planTextForSave}
+										planId={null}
+									/>
+								</div>
 							</div>
 						) : null}
 						<div

@@ -4,12 +4,6 @@
 import type { inferRouterInputs, inferRouterOutputs } from "@trpc/server";
 import { initTRPC, TRPCError } from "@trpc/server";
 import { z } from "zod";
-
-import { resolveGitIdentity } from "../manager/git-identity.js";
-import {
-	createUsageAuthSession,
-	lookupUsageAuthCode,
-} from "../manager/vercel-auth-proxy.js";
 import type {
 	RuntimeAgentModelInventory,
 	RuntimeClineAccountBalanceResponse,
@@ -52,31 +46,31 @@ import type {
 	RuntimeGitBlameRequest,
 	RuntimeGitBlameResponse,
 	RuntimeGitCheckoutRequest,
-	RuntimeGitCreateBranchRequest,
-	RuntimeGitCreateBranchResponse,
-	RuntimeGitDeleteBranchRequest,
-	RuntimeGitDeleteBranchResponse,
-	RuntimeGitMergeBranchRequest,
-	RuntimeGitMergeBranchResponse,
-	RuntimeGitMergeIntoCurrentRequest,
-	RuntimeGitMergeIntoCurrentResponse,
-	RuntimeGitRebaseCurrentOntoRequest,
-	RuntimeGitRebaseCurrentOntoResponse,
+	RuntimeGitCheckoutResponse,
 	RuntimeGitCherryPickRequest,
 	RuntimeGitCherryPickResponse,
-	RuntimeGitPushBranchRequest,
-	RuntimeGitPushBranchResponse,
-	RuntimeGitCheckoutResponse,
 	RuntimeGitCommitDiffRequest,
 	RuntimeGitCommitDiffResponse,
 	RuntimeGitCommitRequest,
 	RuntimeGitCommitResponse,
 	RuntimeGitConflictsResponse,
+	RuntimeGitCreateBranchRequest,
+	RuntimeGitCreateBranchResponse,
+	RuntimeGitDeleteBranchRequest,
+	RuntimeGitDeleteBranchResponse,
 	RuntimeGitDiscardResponse,
 	RuntimeGitLogRequest,
 	RuntimeGitLogResponse,
+	RuntimeGitMergeBranchRequest,
+	RuntimeGitMergeBranchResponse,
+	RuntimeGitMergeIntoCurrentRequest,
+	RuntimeGitMergeIntoCurrentResponse,
 	RuntimeGitPullRequestRequest,
 	RuntimeGitPullRequestResponse,
+	RuntimeGitPushBranchRequest,
+	RuntimeGitPushBranchResponse,
+	RuntimeGitRebaseCurrentOntoRequest,
+	RuntimeGitRebaseCurrentOntoResponse,
 	RuntimeGitRefsResponse,
 	RuntimeGitResolveConflictRequest,
 	RuntimeGitResolveConflictResponse,
@@ -119,6 +113,8 @@ import type {
 	RuntimeMcpInventory,
 	RuntimeOpenFileRequest,
 	RuntimeOpenFileResponse,
+	RuntimePlansCreateRequest,
+	RuntimePlansCreateResponse,
 	RuntimePlansImportFileRequest,
 	RuntimePlansImportFileResponse,
 	RuntimePlansImportFromFolderRequest,
@@ -188,6 +184,7 @@ import {
 	RuntimeManagerAccountReorderRequestSchema,
 	RuntimeManagerAccountUpdateRequestSchema,
 	RuntimeManagerFeatureToggleRequestSchema,
+	RuntimeManagerGitIdentitySchema,
 	RuntimeManagerHookLogsSchema,
 	RuntimeManagerInstallationsOverviewSchema,
 	RuntimeManagerMutationResponseSchema,
@@ -196,11 +193,6 @@ import {
 	RuntimeManagerOAuthStartRequestSchema,
 	RuntimeManagerOAuthStartResponseSchema,
 	RuntimeManagerOAuthSubmitCodeRequestSchema,
-	RuntimeManagerGitIdentitySchema,
-	RuntimeManagerUsageAuthCodeRequestSchema,
-	RuntimeManagerUsageAuthCodeResponseSchema,
-	RuntimeManagerUsageAuthSessionCreateRequestSchema,
-	RuntimeManagerUsageAuthSessionCreateResponseSchema,
 	RuntimeManagerPacksSchema,
 	RuntimeManagerPackToggleRequestSchema,
 	RuntimeManagerProviderSchema,
@@ -209,6 +201,10 @@ import {
 	RuntimeManagerStateSchema,
 	RuntimeManagerSwapLogSchema,
 	RuntimeManagerSwapPauseRequestSchema,
+	RuntimeManagerUsageAuthCodeRequestSchema,
+	RuntimeManagerUsageAuthCodeResponseSchema,
+	RuntimeManagerUsageAuthSessionCreateRequestSchema,
+	RuntimeManagerUsageAuthSessionCreateResponseSchema,
 	RuntimeManagerUsageOverviewSchema,
 	runtimeAgentModelInventorySchema,
 	runtimeClineAccountBalanceResponseSchema,
@@ -252,30 +248,30 @@ import {
 	runtimeGitBlameResponseSchema,
 	runtimeGitCheckoutRequestSchema,
 	runtimeGitCheckoutResponseSchema,
-	runtimeGitCreateBranchRequestSchema,
-	runtimeGitCreateBranchResponseSchema,
-	runtimeGitDeleteBranchRequestSchema,
-	runtimeGitDeleteBranchResponseSchema,
-	runtimeGitMergeBranchRequestSchema,
-	runtimeGitMergeBranchResponseSchema,
-	runtimeGitMergeIntoCurrentRequestSchema,
-	runtimeGitMergeIntoCurrentResponseSchema,
-	runtimeGitRebaseCurrentOntoRequestSchema,
-	runtimeGitRebaseCurrentOntoResponseSchema,
 	runtimeGitCherryPickRequestSchema,
 	runtimeGitCherryPickResponseSchema,
-	runtimeGitPushBranchRequestSchema,
-	runtimeGitPushBranchResponseSchema,
 	runtimeGitCommitDiffRequestSchema,
 	runtimeGitCommitDiffResponseSchema,
 	runtimeGitCommitRequestSchema,
 	runtimeGitCommitResponseSchema,
 	runtimeGitConflictsResponseSchema,
+	runtimeGitCreateBranchRequestSchema,
+	runtimeGitCreateBranchResponseSchema,
+	runtimeGitDeleteBranchRequestSchema,
+	runtimeGitDeleteBranchResponseSchema,
 	runtimeGitDiscardResponseSchema,
 	runtimeGitLogRequestSchema,
 	runtimeGitLogResponseSchema,
+	runtimeGitMergeBranchRequestSchema,
+	runtimeGitMergeBranchResponseSchema,
+	runtimeGitMergeIntoCurrentRequestSchema,
+	runtimeGitMergeIntoCurrentResponseSchema,
 	runtimeGitPullRequestRequestSchema,
 	runtimeGitPullRequestResponseSchema,
+	runtimeGitPushBranchRequestSchema,
+	runtimeGitPushBranchResponseSchema,
+	runtimeGitRebaseCurrentOntoRequestSchema,
+	runtimeGitRebaseCurrentOntoResponseSchema,
 	runtimeGitRefsResponseSchema,
 	runtimeGitResolveConflictRequestSchema,
 	runtimeGitResolveConflictResponseSchema,
@@ -293,6 +289,8 @@ import {
 	runtimeMcpInventorySchema,
 	runtimeOpenFileRequestSchema,
 	runtimeOpenFileResponseSchema,
+	runtimePlansCreateRequestSchema,
+	runtimePlansCreateResponseSchema,
 	runtimePlansImportFileRequestSchema,
 	runtimePlansImportFileResponseSchema,
 	runtimePlansImportFromFolderRequestSchema,
@@ -353,6 +351,8 @@ import {
 	runtimeWorktreeEnsureRequestSchema,
 	runtimeWorktreeEnsureResponseSchema,
 } from "../core/api-contract";
+import { resolveGitIdentity } from "../manager/git-identity.js";
+import { createUsageAuthSession, lookupUsageAuthCode } from "../manager/vercel-auth-proxy.js";
 
 export interface RuntimeTrpcWorkspaceScope {
 	workspaceId: string;
@@ -613,6 +613,7 @@ export interface RuntimeTrpcContext {
 		list: () => Promise<RuntimePlansListResponse>;
 		importFromFolder: (input: RuntimePlansImportFromFolderRequest) => Promise<RuntimePlansImportFromFolderResponse>;
 		importFile: (input: RuntimePlansImportFileRequest) => Promise<RuntimePlansImportFileResponse>;
+		create: (input: RuntimePlansCreateRequest) => Promise<RuntimePlansCreateResponse>;
 		remove: (input: RuntimePlansRemoveRequest) => Promise<RuntimePlansRemoveResponse>;
 		read: (input: RuntimePlansReadRequest) => Promise<RuntimePlansReadResponse>;
 		write: (input: RuntimePlansWriteRequest) => Promise<RuntimePlansWriteResponse>;
@@ -753,9 +754,11 @@ export const runtimeAppRouter = t.router({
 			.mutation(async ({ ctx, input }) => {
 				return await ctx.runtimeApi.deleteClineProvider(ctx.workspaceScope, input);
 			}),
-		getClineCustomProviders: t.procedure.output(runtimeClineCustomProviderListResponseSchema).query(async ({ ctx }) => {
-			return await ctx.runtimeApi.getClineCustomProviders(ctx.workspaceScope);
-		}),
+		getClineCustomProviders: t.procedure
+			.output(runtimeClineCustomProviderListResponseSchema)
+			.query(async ({ ctx }) => {
+				return await ctx.runtimeApi.getClineCustomProviders(ctx.workspaceScope);
+			}),
 		startTaskSession: workspaceProcedure
 			.input(runtimeTaskSessionStartRequestSchema)
 			.output(runtimeTaskSessionStartResponseSchema)
@@ -1170,6 +1173,12 @@ export const runtimeAppRouter = t.router({
 			.mutation(async ({ ctx, input }) => {
 				return await ctx.plansApi.importFile(input);
 			}),
+		create: t.procedure
+			.input(runtimePlansCreateRequestSchema)
+			.output(runtimePlansCreateResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.plansApi.create(input);
+			}),
 		remove: t.procedure
 			.input(runtimePlansRemoveRequestSchema)
 			.output(runtimePlansRemoveResponseSchema)
@@ -1390,11 +1399,9 @@ export const runtimeAppRouter = t.router({
 			.mutation(async ({ ctx, input }) => {
 				return await ctx.managerApi.submitOAuthCode(input);
 			}),
-		gitIdentity: t.procedure
-			.output(RuntimeManagerGitIdentitySchema)
-			.query(async () => {
-				return await resolveGitIdentity();
-			}),
+		gitIdentity: t.procedure.output(RuntimeManagerGitIdentitySchema).query(async () => {
+			return await resolveGitIdentity();
+		}),
 		createUsageAuthSession: t.procedure
 			.input(RuntimeManagerUsageAuthSessionCreateRequestSchema)
 			.output(RuntimeManagerUsageAuthSessionCreateResponseSchema)
@@ -1410,10 +1417,7 @@ export const runtimeAppRouter = t.router({
 				} catch (err) {
 					throw new TRPCError({
 						code: "BAD_GATEWAY",
-						message:
-							err instanceof Error
-								? err.message
-								: "Could not create authorization form session",
+						message: err instanceof Error ? err.message : "Could not create authorization form session",
 					});
 				}
 			}),

@@ -489,6 +489,7 @@ describe("applyClineSessionEvent", () => {
 			hookEventName: "assistant_delta",
 			notificationType: null,
 			source: "cline-sdk",
+			planText: null,
 		};
 
 		const result = applyEvent({
@@ -603,6 +604,7 @@ describe("applyClineSessionEvent", () => {
 			hookEventName: "agent_error",
 			notificationType: "credit_limit",
 			source: "cline-sdk",
+			planText: null,
 		};
 
 		const result = applyEvent({

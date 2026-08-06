@@ -18,9 +18,16 @@ interface TelemetryEventMap {
 		started_task_count: number;
 	};
 	task_resumed_from_trash: Record<string, never>;
+	plan_saved: {
+		plan_id: string;
+		name_character_count: number;
+		content_character_count: number;
+	};
 }
 
-export function toTelemetrySelectedAgentId(agentId: RuntimeAgentId | null | undefined): TelemetrySelectedAgentId {
+export function toTelemetrySelectedAgentId(
+	agentId: RuntimeAgentId | null | undefined,
+): TelemetrySelectedAgentId {
 	return agentId ?? "unknown";
 }
 
@@ -39,7 +46,9 @@ function captureTelemetryEvent<EventName extends keyof TelemetryEventMap>(
 	}
 }
 
-export function trackTaskCreated(properties: TelemetryEventMap["task_created"]): void {
+export function trackTaskCreated(
+	properties: TelemetryEventMap["task_created"],
+): void {
 	captureTelemetryEvent("task_created", properties);
 }
 
@@ -47,7 +56,9 @@ export function trackTaskDependencyCreated(): void {
 	captureTelemetryEvent("task_dependency_created", {});
 }
 
-export function trackTasksAutoStartedFromDependency(startedTaskCount: number): void {
+export function trackTasksAutoStartedFromDependency(
+	startedTaskCount: number,
+): void {
 	captureTelemetryEvent("tasks_auto_started_from_dependency", {
 		started_task_count: startedTaskCount,
 	});
@@ -55,4 +66,10 @@ export function trackTasksAutoStartedFromDependency(startedTaskCount: number): v
 
 export function trackTaskResumedFromTrash(): void {
 	captureTelemetryEvent("task_resumed_from_trash", {});
+}
+
+export function trackPlanSaved(
+	properties: TelemetryEventMap["plan_saved"],
+): void {
+	captureTelemetryEvent("plan_saved", properties);
 }

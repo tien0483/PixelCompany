@@ -307,6 +307,7 @@ describe("ClineAgentChatPanel", () => {
 							hookEventName: "agent_error",
 							notificationType: "credit_limit",
 							source: "cline-sdk",
+							planText: null,
 						},
 						{ reviewReason: "error" },
 					)}
@@ -339,6 +340,7 @@ describe("ClineAgentChatPanel", () => {
 							hookEventName: "agent_end",
 							notificationType: "credit_limit",
 							source: "cline-sdk",
+							planText: null,
 						},
 						{ reviewReason: "interrupted" },
 					)}
@@ -542,6 +544,7 @@ describe("ClineAgentChatPanel", () => {
 						hookEventName: "assistant_delta",
 						notificationType: null,
 						source: "cline-sdk",
+						planText: null,
 					})}
 					onLoadMessages={async () => messages}
 				/>,
@@ -581,6 +584,7 @@ describe("ClineAgentChatPanel", () => {
 						hookEventName: "tool_call",
 						notificationType: null,
 						source: "cline-sdk",
+						planText: null,
 					})}
 					onLoadMessages={async () => messages}
 				/>,

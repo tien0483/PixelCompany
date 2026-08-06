@@ -178,6 +178,7 @@ function emitAssistantTextSummary(input: ApplyClineSessionEventInput, text: stri
 			hookEventName: "assistant_delta",
 			notificationType: null,
 			source: "cline-sdk",
+			planText: null,
 		},
 	});
 }
@@ -273,6 +274,7 @@ export function applyClineSessionEvent(input: ApplyClineSessionEventInput): void
 				hookEventName: "agent_error",
 				notificationType: creditLimitError ? "credit_limit" : null,
 				source: "cline-sdk",
+				planText: null,
 			},
 		});
 		return;
@@ -300,6 +302,7 @@ export function applyClineSessionEvent(input: ApplyClineSessionEventInput): void
 				hookEventName: "agent_error",
 				notificationType: input.isClineProvider && isCreditLimitError(errorMessage) ? "credit_limit" : null,
 				source: "cline-sdk",
+				planText: null,
 			},
 		});
 		return;
@@ -395,6 +398,7 @@ export function applyClineSessionEvent(input: ApplyClineSessionEventInput): void
 				hookEventName: "agent_end",
 				notificationType: previousHookActivity?.notificationType ?? null,
 				source: "cline-sdk",
+				planText: previousHookActivity?.planText ?? null,
 			},
 		};
 		if (status === "aborted") {
@@ -444,6 +448,7 @@ export function applyClineSessionEvent(input: ApplyClineSessionEventInput): void
 				hookEventName: "agent_end",
 				notificationType: previousHookActivity?.notificationType ?? null,
 				source: "cline-sdk",
+				planText: previousHookActivity?.planText ?? null,
 			},
 		};
 		if (doneReason === "aborted") {
@@ -552,6 +557,7 @@ export function applyClineSessionEvent(input: ApplyClineSessionEventInput): void
 				hookEventName: "tool_call",
 				notificationType: isUserAttentionTool ? "user_attention" : null,
 				source: "cline-sdk",
+				planText: null,
 			},
 		};
 		if (isUserAttentionTool && (entry.summary.state === "running" || entry.summary.state === "idle")) {
@@ -594,6 +600,7 @@ export function applyClineSessionEvent(input: ApplyClineSessionEventInput): void
 				hookEventName: "tool_result",
 				notificationType: null,
 				source: "cline-sdk",
+				planText: null,
 			},
 		};
 		if (isUserAttentionTool && canReturnToRunning(entry.summary.reviewReason)) {
@@ -629,6 +636,7 @@ export function applyClineSessionEvent(input: ApplyClineSessionEventInput): void
 				hookEventName: "tool_call",
 				notificationType: isUserAttentionTool ? "user_attention" : null,
 				source: "cline-sdk",
+				planText: null,
 			},
 		};
 		if (isUserAttentionTool && (entry.summary.state === "running" || entry.summary.state === "idle")) {
@@ -672,6 +680,7 @@ export function applyClineSessionEvent(input: ApplyClineSessionEventInput): void
 				hookEventName: "tool_result",
 				notificationType: null,
 				source: "cline-sdk",
+				planText: null,
 			},
 		};
 		if (isUserAttentionTool && canReturnToRunning(entry.summary.reviewReason)) {
@@ -719,6 +728,7 @@ export function applyClineSessionEvent(input: ApplyClineSessionEventInput): void
 				hookEventName: "assistant_delta",
 				notificationType: null,
 				source: "cline-sdk",
+				planText: null,
 			},
 		});
 		return;
@@ -739,6 +749,7 @@ export function applyClineSessionEvent(input: ApplyClineSessionEventInput): void
 				hookEventName,
 				notificationType: null,
 				source: "cline-sdk",
+				planText: null,
 			},
 		});
 		return;
@@ -795,6 +806,7 @@ function emitTurnCanceled(input: ApplyClineSessionEventInput): void {
 			hookEventName: "turn_canceled",
 			notificationType: null,
 			source: "cline-sdk",
+			planText: null,
 		},
 	});
 }

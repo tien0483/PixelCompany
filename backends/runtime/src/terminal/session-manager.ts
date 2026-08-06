@@ -183,12 +183,8 @@ function cloneStartTaskSessionRequest(request: StartTaskSessionRequest): StartTa
 		taskLaunchSettings: request.taskLaunchSettings
 			? {
 					...request.taskLaunchSettings,
-					skillIds: request.taskLaunchSettings.skillIds
-						? [...request.taskLaunchSettings.skillIds]
-						: undefined,
-					agentIds: request.taskLaunchSettings.agentIds
-						? [...request.taskLaunchSettings.agentIds]
-						: undefined,
+					skillIds: request.taskLaunchSettings.skillIds ? [...request.taskLaunchSettings.skillIds] : undefined,
+					agentIds: request.taskLaunchSettings.agentIds ? [...request.taskLaunchSettings.agentIds] : undefined,
 					commandIds: request.taskLaunchSettings.commandIds
 						? [...request.taskLaunchSettings.commandIds]
 						: undefined,
@@ -1033,7 +1029,8 @@ export class TerminalSessionManager implements TerminalSessionService {
 			typeof activity.finalMessage === "string" ||
 			typeof activity.hookEventName === "string" ||
 			typeof activity.notificationType === "string" ||
-			typeof activity.source === "string";
+			typeof activity.source === "string" ||
+			typeof activity.planText === "string";
 		if (!hasActivityUpdate) {
 			return cloneSummary(entry.summary);
 		}
@@ -1056,6 +1053,7 @@ export class TerminalSessionManager implements TerminalSessionService {
 					? activity.notificationType
 					: (previous?.notificationType ?? null),
 			source: typeof activity.source === "string" ? activity.source : (previous?.source ?? null),
+			planText: typeof activity.planText === "string" ? activity.planText : (previous?.planText ?? null),
 		};
 
 		const didChange =
@@ -1065,7 +1063,8 @@ export class TerminalSessionManager implements TerminalSessionService {
 			next.finalMessage !== (previous?.finalMessage ?? null) ||
 			next.hookEventName !== (previous?.hookEventName ?? null) ||
 			next.notificationType !== (previous?.notificationType ?? null) ||
-			next.source !== (previous?.source ?? null);
+			next.source !== (previous?.source ?? null) ||
+			next.planText !== (previous?.planText ?? null);
 		if (!didChange) {
 			return cloneSummary(entry.summary);
 		}
