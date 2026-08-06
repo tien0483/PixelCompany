@@ -1116,6 +1116,78 @@ export const RuntimeManagerOAuthSubmitCodeRequestSchema = z.object({
 });
 export type RuntimeManagerOAuthSubmitCodeRequest = z.infer<typeof RuntimeManagerOAuthSubmitCodeRequestSchema>;
 
+/** html-anything template metadata (sidecar SkillMeta, no prompt body). */
+export const RuntimeHtmlTemplateExampleMetaSchema = z.object({
+	id: z.string(),
+	name: z.string(),
+	format: z.string(),
+	tagline: z.string(),
+	desc: z.string(),
+	hasHtml: z.boolean(),
+	hasMd: z.boolean(),
+	source: z
+		.object({
+			url: z.string(),
+			label: z.string(),
+		})
+		.optional(),
+});
+
+export const RuntimeHtmlTemplateSchema = z.object({
+	id: z.string(),
+	zhName: z.string(),
+	enName: z.string(),
+	emoji: z.string(),
+	description: z.string(),
+	category: z.string(),
+	scenario: z.string(),
+	aspectHint: z.string(),
+	featured: z.number().optional(),
+	recommended: z.number().optional(),
+	tags: z.array(z.string()),
+	example: RuntimeHtmlTemplateExampleMetaSchema.optional(),
+});
+export type RuntimeHtmlTemplate = z.infer<typeof RuntimeHtmlTemplateSchema>;
+
+export const RuntimeHtmlTemplateListSchema = z.object({
+	templates: z.array(RuntimeHtmlTemplateSchema),
+});
+export type RuntimeHtmlTemplateList = z.infer<typeof RuntimeHtmlTemplateListSchema>;
+
+export const RuntimeHtmlStatusSchema = z.object({
+	online: z.boolean(),
+});
+export type RuntimeHtmlStatus = z.infer<typeof RuntimeHtmlStatusSchema>;
+
+export const RuntimeHtmlTemplateExampleSchema = z.object({
+	id: z.string(),
+	name: z.string().nullable(),
+	templateId: z.string(),
+	format: z.string(),
+	content: z.string(),
+	html: z.string(),
+});
+export type RuntimeHtmlTemplateExample = z.infer<typeof RuntimeHtmlTemplateExampleSchema>;
+
+export const RuntimeHtmlPromptResponseSchema = z.object({
+	prompt: z.string(),
+	template: RuntimeHtmlTemplateSchema,
+});
+export type RuntimeHtmlPromptResponse = z.infer<typeof RuntimeHtmlPromptResponseSchema>;
+
+export const RuntimeHtmlGenerateRequestSchema = z.object({
+	templateId: z.string().min(1),
+	content: z.string().min(1),
+	format: z.string().optional(),
+	model: z.string().optional(),
+	cwd: z.string().optional(),
+	planId: z.string().optional(),
+	editFromHtml: z.string().optional(),
+	editFromContent: z.string().optional(),
+	managerAccountId: z.number().int().positive().optional(),
+});
+export type RuntimeHtmlGenerateRequest = z.infer<typeof RuntimeHtmlGenerateRequestSchema>;
+
 /**
  * Which steps the colleague-facing usage form renders: `authorize` asks for a
  * usage-share percentage first, `cc` skips straight to authorize + paste code.
@@ -1339,6 +1411,21 @@ export const runtimePlansWriteResponseSchema = z.object({
 	error: z.string().optional(),
 });
 export type RuntimePlansWriteResponse = z.infer<typeof runtimePlansWriteResponseSchema>;
+
+export const runtimePlansWriteSiblingRequestSchema = z.object({
+	planId: z.string(),
+	ext: z.string().min(1),
+	content: z.string(),
+});
+export type RuntimePlansWriteSiblingRequest = z.infer<typeof runtimePlansWriteSiblingRequestSchema>;
+
+export const runtimePlansWriteSiblingResponseSchema = z.object({
+	ok: z.boolean(),
+	plan: runtimeSavedPlanSchema.nullable(),
+	isNew: z.boolean().optional(),
+	error: z.string().optional(),
+});
+export type RuntimePlansWriteSiblingResponse = z.infer<typeof runtimePlansWriteSiblingResponseSchema>;
 
 /** ~10 MB of image bytes, expressed as a base64 character-count ceiling (4/3 expansion). */
 const PLAN_ASSET_MAX_BASE64_LENGTH = 14_000_000;

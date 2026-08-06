@@ -400,6 +400,8 @@ async function startServer(): Promise<{
 		{ createManagerClient },
 		{ createManagerMonitor },
 		{ startManagerProcess },
+		{ createHtmlClient },
+		{ startHtmlProcess },
 		{ describeRuntimeHomeMigration, migrateRuntimeHome },
 	] = await Promise.all([
 		import("./projects/project-path.js"),
@@ -413,6 +415,8 @@ async function startServer(): Promise<{
 		import("./manager/manager-client.js"),
 		import("./manager/manager-monitor.js"),
 		import("./manager/manager-process.js"),
+		import("./html/html-client.js"),
+		import("./html/html-process.js"),
 		import("./state/runtime-home-migration.js"),
 	]);
 
@@ -456,6 +460,19 @@ async function startServer(): Promise<{
 			runtimeStateHub?.broadcastManagerStateUpdated(state);
 		},
 	});
+	const HtmlProcess = await startHtmlProcess({
+		warn: (message) => {
+			console.warn(`[kanban] ${message}`);
+		},
+		log: (message) => {
+			console.log(`[kanban] ${message}`);
+		},
+	});
+	const HtmlClient = createHtmlClient({
+		warn: (message) => {
+			console.warn(`[kanban] ${message}`);
+		},
+	});
 	runtimeStateHub = createRuntimeStateHub({
 		workspaceRegistry,
 		ManagerMonitor,
@@ -482,6 +499,7 @@ async function startServer(): Promise<{
 		workspaceRegistry,
 		runtimeStateHub: runtimeHub,
 		manager: { client: ManagerClient, monitor: ManagerMonitor },
+		html: { client: HtmlClient },
 		warn: (message) => {
 			console.warn(`[kanban] ${message}`);
 		},
@@ -543,6 +561,7 @@ async function startServer(): Promise<{
 		await runtimeServer.close();
 		// Only stops a Manager we spawned; an externally managed service is left alone.
 		await ManagerProcess.close();
+		await HtmlProcess.close();
 	};
 
 	const shutdown = async (options?: { skipSessionCleanup?: boolean }) => {

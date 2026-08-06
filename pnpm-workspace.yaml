@@ -1,6 +1,7 @@
 packages:
   - "frontends/pixel_office"
   - "backends/runtime"
+  - "backends/html_anything/next"
 
 allowBuilds:
   '@sentry/cli': true
@@ -8,6 +9,7 @@ allowBuilds:
   esbuild: true
   node-pty: true
   protobufjs: true
+  sharp: true
 
 overrides:
   zod: 4.4.3
