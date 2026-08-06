@@ -49,6 +49,7 @@ import { createIdleTaskSession } from "@/hooks/app-utils";
 import { KanbanAccessBlockedFallback } from "@/hooks/kanban-access-blocked-fallback";
 import { RuntimeDisconnectedFallback } from "@/hooks/runtime-disconnected-fallback";
 import { useAppHotkeys } from "@/hooks/use-app-hotkeys";
+import { useBacklogAutorunScheduler } from "@/hooks/use-backlog-autorun-scheduler";
 import { useBoardInteractions } from "@/hooks/use-board-interactions";
 import { useDebugTools } from "@/hooks/use-debug-tools";
 import { useDetailTaskNavigation } from "@/hooks/use-detail-task-navigation";
@@ -64,13 +65,12 @@ import {
 import { useProjectUiState } from "@/hooks/use-project-ui-state";
 import { useReviewReadyNotifications } from "@/hooks/use-review-ready-notifications";
 import { useReviewStalenessAlert } from "@/hooks/use-review-staleness-alert";
+import { useSavedPlans } from "@/hooks/use-saved-plans";
 import { useShortcutActions } from "@/hooks/use-shortcut-actions";
 import { useStartupOnboarding } from "@/hooks/use-startup-onboarding";
 import { useTaskBranchOptions } from "@/hooks/use-task-branch-options";
 import { useTaskEditor } from "@/hooks/use-task-editor";
-import { useSavedPlans } from "@/hooks/use-saved-plans";
 import { useTaskSessions } from "@/hooks/use-task-sessions";
-import { useBacklogAutorunScheduler } from "@/hooks/use-backlog-autorun-scheduler";
 import { useTaskStartActions } from "@/hooks/use-task-start-actions";
 import { useTerminalPanels } from "@/hooks/use-terminal-panels";
 import { useWorkspaceSync } from "@/hooks/use-workspace-sync";
@@ -107,13 +107,16 @@ import {
 } from "@/state/board-state";
 import { isTaskInChain } from "@/state/chain-groups";
 import {
+	DEFAULT_MAX_RUNNING_TASKS,
+	LocalStorageKey,
+} from "@/storage/local-storage-store";
+import {
 	getTaskWorkspaceInfo,
 	getTaskWorkspaceSnapshot,
 	replaceWorkspaceMetadata,
 	resetWorkspaceMetadataStore,
 	useHomeGitSummaryValue,
 } from "@/stores/workspace-metadata-store";
-import { DEFAULT_MAX_RUNNING_TASKS, LocalStorageKey } from "@/storage/local-storage-store";
 import { useTerminalThemeColors } from "@/terminal/theme-colors";
 import type { BoardData } from "@/types";
 import { useNumberLocalStorageValue } from "@/utils/react-use";
@@ -451,7 +454,16 @@ export default function App(): ReactElement {
 		setSelectedTaskId,
 		queueTaskStartAfterEdit,
 	});
-	const { plans: savedPlans, refresh: refreshSavedPlans } = useSavedPlans(currentProjectId);
+	const { plans: savedPlans, refresh: refreshSavedPlans } =
+		useSavedPlans(currentProjectId);
+
+	const handleSavePlan = useCallback(
+		(plan: RuntimeSavedPlan) => {
+			setEditingPlan(plan);
+			void refreshSavedPlans();
+		},
+		[refreshSavedPlans],
+	);
 
 	useEffect(() => {
 		if (!isInlineTaskCreateOpen && !editingTaskId) {
@@ -1311,21 +1323,14 @@ export default function App(): ReactElement {
 												onDeleteBranch={(branch) => {
 													void deleteHomeBranch(branch);
 												}}
-												isDeleteBranchPending={
-													isDeletingHomeBranch
-												}
-												onCreateBranch={(
-													newBranch,
-													startPoint,
-												) => {
+												isDeleteBranchPending={isDeletingHomeBranch}
+												onCreateBranch={(newBranch, startPoint) => {
 													void createHomeBranch({
 														newBranch,
 														startPoint,
 													});
 												}}
-												isCreateBranchPending={
-													isCreatingHomeBranch
-												}
+												isCreateBranchPending={isCreatingHomeBranch}
 												onMergeIntoCurrent={(branch) => {
 													void mergeHomeBranchIntoCurrent(branch);
 												}}
@@ -1370,10 +1375,16 @@ export default function App(): ReactElement {
 														onSubmitReviewGit={handleReviewCommitWithBranch}
 														onCancelReviewGitForm={handleCancelReviewGitForm}
 														onOpenReviewGitForm={handleOpenReviewGitForm}
-														onRetryReviewGitFollowOn={handleRetryReviewGitFollowOn}
+														onRetryReviewGitFollowOn={
+															handleRetryReviewGitFollowOn
+														}
 														reviewGitStatusById={reviewGitStatusById}
-														canRetryReviewGitFollowOnById={canRetryReviewGitFollowOnById}
-														reviewBranchSuggestionsByTaskId={reviewBranchSuggestionsByTaskId}
+														canRetryReviewGitFollowOnById={
+															canRetryReviewGitFollowOnById
+														}
+														reviewBranchSuggestionsByTaskId={
+															reviewBranchSuggestionsByTaskId
+														}
 														onMergeTask={handleMergeTaskBranch}
 														onCancelAutomaticTaskAction={
 															handleCancelAutomaticTaskAction
@@ -1496,6 +1507,7 @@ export default function App(): ReactElement {
 									}}
 									onSaveTaskTitle={handleSaveTaskTitle}
 									onCommitTask={handleCommitTask}
+									onSavePlan={handleSavePlan}
 									onOpenPrTask={handleOpenPrTask}
 									onAgentCommitTask={handleAgentCommitTask}
 									onAgentOpenPrTask={handleAgentOpenPrTask}

@@ -1,9 +1,8 @@
+import { KANBAN_TASK_WORKTREES_DISPLAY_ROOT } from "@runtime-task-worktree-path";
 import type { ReactNode } from "react";
 import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-
-import { KANBAN_TASK_WORKTREES_DISPLAY_ROOT } from "@runtime-task-worktree-path";
 import { BoardCard } from "@/components/board-card";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import type { RuntimeTaskSessionSummary } from "@/runtime/types";
@@ -26,7 +25,12 @@ vi.mock("@hello-pangea/dnd", () => ({
 			snapshot: { isDragging: boolean },
 		) => ReactNode;
 	}): React.ReactElement => (
-		<>{children({ innerRef: () => {}, draggableProps: {}, dragHandleProps: {} }, { isDragging: false })}</>
+		<>
+			{children(
+				{ innerRef: () => {}, draggableProps: {}, dragHandleProps: {} },
+				{ isDragging: false },
+			)}
+		</>
 	),
 }));
 
@@ -39,7 +43,10 @@ vi.mock("@/utils/react-use", () => ({
 	useInterval: () => {},
 	useMeasure: () => {
 		mockMeasureCallCount += 1;
-		const width = mockMeasureWidths[(mockMeasureCallCount - 1) % mockMeasureWidths.length] ?? 240;
+		const width =
+			mockMeasureWidths[
+				(mockMeasureCallCount - 1) % mockMeasureWidths.length
+			] ?? 240;
 		return [
 			() => {},
 			{
@@ -64,11 +71,15 @@ vi.mock("@/utils/text-measure", () => ({
 }));
 
 vi.mock("@/utils/task-prompt", async () => {
-	const actual = await vi.importActual<typeof import("@/utils/task-prompt")>("@/utils/task-prompt");
+	const actual = await vi.importActual<typeof import("@/utils/task-prompt")>(
+		"@/utils/task-prompt",
+	);
 	return {
 		...actual,
-		truncateTaskPromptLabel: (prompt: string) => prompt.split("||")[0]?.trim() ?? "",
-		normalizePromptForDisplay: (value: string) => value.split("||")[0]?.trim() ?? value.trim(),
+		truncateTaskPromptLabel: (prompt: string) =>
+			prompt.split("||")[0]?.trim() ?? "",
+		normalizePromptForDisplay: (value: string) =>
+			value.split("||")[0]?.trim() ?? value.trim(),
 		getTaskPromptDescription: (prompt: string, title: string) => {
 			const normalized = prompt.trim();
 			if (!normalized.startsWith(title)) {
@@ -79,7 +90,9 @@ vi.mock("@/utils/task-prompt", async () => {
 	};
 });
 
-function createCard(overrides?: Partial<Parameters<typeof BoardCard>[0]["card"]>) {
+function createCard(
+	overrides?: Partial<Parameters<typeof BoardCard>[0]["card"]>,
+) {
 	return {
 		id: "task-1",
 		title: "Review API changes",
@@ -153,23 +166,28 @@ describe("BoardCard", () => {
 		mockWorkspaceSnapshot = undefined;
 		mockMeasureWidths = [240, 240, 240];
 		mockMeasureCallCount = 0;
-		previousActEnvironment = (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean })
-			.IS_REACT_ACT_ENVIRONMENT;
-		(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+		previousActEnvironment = (
+			globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
+		).IS_REACT_ACT_ENVIRONMENT;
+		(
+			globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
+		).IS_REACT_ACT_ENVIRONMENT = true;
 		container = document.createElement("div");
 		document.body.appendChild(container);
 		root = createRoot(container);
-		vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(() => ({
-			x: 0,
-			y: 0,
-			left: 0,
-			top: 0,
-			width: 240,
-			height: 32,
-			right: 240,
-			bottom: 32,
-			toJSON: () => ({}),
-		}));
+		vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
+			() => ({
+				x: 0,
+				y: 0,
+				left: 0,
+				top: 0,
+				width: 240,
+				height: 32,
+				right: 240,
+				bottom: 32,
+				toJSON: () => ({}),
+			}),
+		);
 	});
 
 	afterEach(() => {
@@ -179,10 +197,13 @@ describe("BoardCard", () => {
 		vi.restoreAllMocks();
 		container.remove();
 		if (previousActEnvironment === undefined) {
-			delete (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT;
+			delete (
+				globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
+			).IS_REACT_ACT_ENVIRONMENT;
 		} else {
-			(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT =
-				previousActEnvironment;
+			(
+				globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
+			).IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
 		}
 	});
 
@@ -197,22 +218,33 @@ describe("BoardCard", () => {
 		expect(cancelButton).toBeDefined();
 
 		await act(async () => {
-			cancelButton?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+			cancelButton?.dispatchEvent(
+				new MouseEvent("mousedown", { bubbles: true }),
+			);
 			cancelButton?.click();
 		});
 
-		const nextCancelButton = Array.from(container.querySelectorAll("button")).find((button) =>
-			button.textContent?.includes("Cancel Auto-"),
-		);
+		const nextCancelButton = Array.from(
+			container.querySelectorAll("button"),
+		).find((button) => button.textContent?.includes("Cancel Auto-"));
 		expect(nextCancelButton).toBeUndefined();
 	});
 
 	it("shows a loading state on the review done button while moving to done", async () => {
 		await act(async () => {
-			root.render(<BoardCard card={createCard()} index={0} columnId="review" isMoveToTrashLoading />);
+			root.render(
+				<BoardCard
+					card={createCard()}
+					index={0}
+					columnId="review"
+					isMoveToTrashLoading
+				/>,
+			);
 		});
 
-		const trashButton = container.querySelector('button[aria-label="Move task to done"]');
+		const trashButton = container.querySelector(
+			'button[aria-label="Move task to done"]',
+		);
 		expect(trashButton).toBeInstanceOf(HTMLButtonElement);
 		expect((trashButton as HTMLButtonElement | null)?.disabled).toBe(true);
 		expect(trashButton?.querySelector("svg.animate-spin")).toBeTruthy();
@@ -224,19 +256,27 @@ describe("BoardCard", () => {
 
 		await act(async () => {
 			root.render(
-				<BoardCard card={createCard({ prompt: `Task title||${description}` })} index={0} columnId="backlog" />,
+				<BoardCard
+					card={createCard({ prompt: `Task title||${description}` })}
+					index={0}
+					columnId="backlog"
+				/>,
 			);
 		});
 
 		const findButton = (label: string) =>
-			Array.from(container.querySelectorAll("button")).find((button) => button.textContent?.trim() === label);
+			Array.from(container.querySelectorAll("button")).find(
+				(button) => button.textContent?.trim() === label,
+			);
 
 		const seeMoreButton = findButton("See more");
 		expect(seeMoreButton).toBeDefined();
 		expect(container.textContent).not.toContain("final hidden segment");
 
 		await act(async () => {
-			seeMoreButton?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+			seeMoreButton?.dispatchEvent(
+				new MouseEvent("mousedown", { bubbles: true }),
+			);
 			seeMoreButton?.click();
 		});
 
@@ -436,6 +476,7 @@ describe("BoardCard", () => {
 							hookEventName: "tool_call",
 							notificationType: null,
 							source: "cline-sdk",
+							planText: null,
 						},
 						latestTurnCheckpoint: null,
 						previousTurnCheckpoint: null,
@@ -465,6 +506,7 @@ describe("BoardCard", () => {
 							hookEventName: "tool_result",
 							notificationType: null,
 							source: "claude",
+							planText: null,
 						},
 					})}
 				/>,
@@ -492,6 +534,7 @@ describe("BoardCard", () => {
 							hookEventName: "preToolUse",
 							notificationType: null,
 							source: "kiro",
+							planText: null,
 						},
 					})}
 				/>,
@@ -518,6 +561,7 @@ describe("BoardCard", () => {
 							hookEventName: "raw_response_item",
 							notificationType: null,
 							source: "codex",
+							planText: null,
 						},
 					})}
 				/>,
@@ -545,6 +589,7 @@ describe("BoardCard", () => {
 							hookEventName: "stop",
 							notificationType: null,
 							source: "kiro",
+							planText: null,
 						},
 					})}
 				/>,
@@ -586,6 +631,7 @@ describe("BoardCard", () => {
 							hookEventName: "assistant_delta",
 							notificationType: null,
 							source: "cline-sdk",
+							planText: null,
 						},
 						latestTurnCheckpoint: null,
 						previousTurnCheckpoint: null,
@@ -604,7 +650,9 @@ describe("BoardCard", () => {
 		await act(async () => {
 			root.render(
 				<BoardCard
-					card={createCard({ prompt: "Task title||Freshly created task description" })}
+					card={createCard({
+						prompt: "Task title||Freshly created task description",
+					})}
 					index={0}
 					columnId="backlog"
 				/>,
@@ -634,6 +682,7 @@ describe("BoardCard", () => {
 								hookEventName: "assistant_delta",
 								notificationType: null,
 								source: "cline-sdk",
+								planText: null,
 							},
 						})}
 					/>
@@ -642,7 +691,9 @@ describe("BoardCard", () => {
 		});
 
 		const findButton = (label: string) =>
-			Array.from(container.querySelectorAll("button")).find((button) => button.textContent?.trim() === label);
+			Array.from(container.querySelectorAll("button")).find(
+				(button) => button.textContent?.trim() === label,
+			);
 
 		// Session activity uses CSS truncation with no See more / Less buttons
 		expect(findButton("See more")).toBeUndefined();
@@ -671,6 +722,7 @@ describe("BoardCard", () => {
 							hookEventName: "assistant_delta",
 							notificationType: null,
 							source: "cline-sdk",
+							planText: null,
 						},
 					})}
 				/>,
@@ -678,7 +730,9 @@ describe("BoardCard", () => {
 		});
 
 		const findButton = (label: string) =>
-			Array.from(container.querySelectorAll("button")).find((button) => button.textContent?.trim() === label);
+			Array.from(container.querySelectorAll("button")).find(
+				(button) => button.textContent?.trim() === label,
+			);
 
 		// Session activity uses CSS truncation with no See more / Less buttons
 		expect(findButton("See more")).toBeUndefined();
@@ -704,6 +758,7 @@ describe("BoardCard", () => {
 							hookEventName: "assistant_delta",
 							notificationType: null,
 							source: "cline-sdk",
+							planText: null,
 						},
 					})}
 				/>,
@@ -732,6 +787,7 @@ describe("BoardCard", () => {
 							hookEventName: "agent_error",
 							notificationType: null,
 							source: "cline-sdk",
+							planText: null,
 						},
 					})}
 				/>,
@@ -760,6 +816,7 @@ describe("BoardCard", () => {
 							hookEventName: "agent_end",
 							notificationType: null,
 							source: "cline-sdk",
+							planText: null,
 						},
 					})}
 				/>,
@@ -788,6 +845,7 @@ describe("BoardCard", () => {
 							hookEventName: "assistant_delta",
 							notificationType: null,
 							source: "cline-sdk",
+							planText: null,
 						},
 					})}
 				/>,
@@ -817,6 +875,7 @@ describe("BoardCard", () => {
 							hookEventName: "agent_message",
 							notificationType: null,
 							source: "codex",
+							planText: null,
 						},
 					})}
 				/>,
@@ -825,5 +884,33 @@ describe("BoardCard", () => {
 
 		expect(container.textContent).toContain("checking the next file");
 		expect(container.textContent).not.toContain("Agent:");
+	});
+
+	it("shows Plan ready for review when ExitPlanMode plan text is present", async () => {
+		await act(async () => {
+			root.render(
+				<BoardCard
+					card={createCard({ startInPlanMode: true })}
+					index={0}
+					columnId="review"
+					sessionSummary={createSummary("awaiting_review", {
+						agentId: "claude",
+						latestHookActivity: {
+							activityText: "Waiting for approval",
+							toolName: "ExitPlanMode",
+							toolInputSummary: null,
+							finalMessage: null,
+							hookEventName: "PermissionRequest",
+							notificationType: "permission_prompt",
+							source: "claude",
+							planText: "# Ready plan\n",
+						},
+					})}
+				/>,
+			);
+		});
+
+		expect(container.textContent).toContain("Plan ready for review");
+		expect(container.textContent).not.toContain("Waiting for approval");
 	});
 });

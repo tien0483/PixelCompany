@@ -491,6 +491,7 @@ export const runtimeTaskHookActivitySchema = z.object({
 	hookEventName: z.string().nullable().default(null),
 	notificationType: z.string().nullable().default(null),
 	source: z.string().nullable().default(null),
+	planText: z.string().nullable().default(null),
 });
 export type RuntimeTaskHookActivity = z.infer<typeof runtimeTaskHookActivitySchema>;
 
@@ -1288,6 +1289,19 @@ export const runtimePlansImportFileResponseSchema = z.object({
 	error: z.string().optional(),
 });
 export type RuntimePlansImportFileResponse = z.infer<typeof runtimePlansImportFileResponseSchema>;
+
+export const runtimePlansCreateRequestSchema = z.object({
+	name: z.string(),
+	content: z.string(),
+});
+export type RuntimePlansCreateRequest = z.infer<typeof runtimePlansCreateRequestSchema>;
+
+export const runtimePlansCreateResponseSchema = z.object({
+	ok: z.boolean(),
+	plan: runtimeSavedPlanSchema.nullable(),
+	error: z.string().optional(),
+});
+export type RuntimePlansCreateResponse = z.infer<typeof runtimePlansCreateResponseSchema>;
 
 export const runtimePlansRemoveRequestSchema = z.object({
 	planId: z.string(),

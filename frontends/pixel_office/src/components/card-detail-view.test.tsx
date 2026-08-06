@@ -15,7 +15,12 @@ const {
 	mockClineAppendToDraft,
 	mockClineSendText,
 } = vi.hoisted(() => ({
-	mockAgentTerminalPanel: vi.fn((_props: { panelBackgroundColor?: string; terminalBackgroundColor?: string }) => null),
+	mockAgentTerminalPanel: vi.fn(
+		(_props: {
+			panelBackgroundColor?: string;
+			terminalBackgroundColor?: string;
+		}) => null,
+	),
 	mockClineAgentChatPanel: vi.fn((..._args: unknown[]) => null),
 	mockDiffViewerPanel: vi.fn((..._args: unknown[]) => null),
 	mockClineAppendToDraft: vi.fn(),
@@ -61,11 +66,14 @@ vi.mock("@/components/detail-panels/file-tree-panel", () => ({
 }));
 
 vi.mock("@/resize/resizable-bottom-pane", () => ({
-	ResizableBottomPane: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+	ResizableBottomPane: ({ children }: { children: ReactNode }) => (
+		<div>{children}</div>
+	),
 }));
 
 vi.mock("@/runtime/use-runtime-workspace-changes", () => ({
-	useRuntimeWorkspaceChanges: (...args: unknown[]) => mockUseRuntimeWorkspaceChanges(...args),
+	useRuntimeWorkspaceChanges: (...args: unknown[]) =>
+		mockUseRuntimeWorkspaceChanges(...args),
 }));
 
 vi.mock("@/stores/workspace-metadata-store", () => ({
@@ -74,6 +82,36 @@ vi.mock("@/stores/workspace-metadata-store", () => ({
 
 vi.mock("@/resize/layout-customizations", () => ({
 	useLayoutResetEffect: () => {},
+}));
+
+const { mockSavePlan, mockShowAppToast, mockTrackPlanSaved } = vi.hoisted(
+	() => ({
+		mockSavePlan: vi.fn(),
+		mockShowAppToast: vi.fn(),
+		mockTrackPlanSaved: vi.fn(),
+	}),
+);
+
+vi.mock("@/hooks/use-save-plan-from-session", () => ({
+	useSavePlanFromSession: () => ({
+		savePlan: mockSavePlan,
+		isSaving: false,
+	}),
+}));
+
+vi.mock("@/components/app-toaster", () => ({
+	showAppToast: mockShowAppToast,
+	notifyError: vi.fn(),
+}));
+
+vi.mock("@/telemetry/events", () => ({
+	trackPlanSaved: mockTrackPlanSaved,
+}));
+
+vi.mock("@/components/plan-editor/plan-markdown-preview", () => ({
+	PlanMarkdownPreview: ({ content }: { content: string }) => (
+		<pre data-testid="plan-markdown-preview">{content}</pre>
+	),
 }));
 
 function createCard(id: string): BoardCard {
@@ -133,7 +171,9 @@ function getLastMockFirstArg<T>(mockFn: { mock: { calls: unknown[][] } }): T {
 }
 
 function requireResizeSeparator(container: HTMLElement): HTMLElement {
-	const separator = container.querySelector('[aria-label="Resize agent and diff panels"]');
+	const separator = container.querySelector(
+		'[aria-label="Resize agent and diff panels"]',
+	);
 	if (!(separator instanceof HTMLElement)) {
 		throw new Error("Expected a resize separator.");
 	}
@@ -150,7 +190,9 @@ function requireAgentPanel(container: HTMLElement): HTMLElement {
 }
 
 function requireDetailDiffSeparator(container: HTMLElement): HTMLElement {
-	const separator = container.querySelector('[aria-label="Resize detail diff panels"]');
+	const separator = container.querySelector(
+		'[aria-label="Resize detail diff panels"]',
+	);
 	if (!(separator instanceof HTMLElement)) {
 		throw new Error("Expected a detail diff resize separator.");
 	}
@@ -173,9 +215,12 @@ describe("CardDetailView", () => {
 
 	beforeEach(() => {
 		window.localStorage.clear();
-		previousActEnvironment = (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean })
-			.IS_REACT_ACT_ENVIRONMENT;
-		(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+		previousActEnvironment = (
+			globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
+		).IS_REACT_ACT_ENVIRONMENT;
+		(
+			globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
+		).IS_REACT_ACT_ENVIRONMENT = true;
 		container = document.createElement("div");
 		document.body.appendChild(container);
 		root = createRoot(container);
@@ -184,6 +229,9 @@ describe("CardDetailView", () => {
 		mockDiffViewerPanel.mockClear();
 		mockClineAppendToDraft.mockClear();
 		mockClineSendText.mockClear();
+		mockSavePlan.mockReset();
+		mockShowAppToast.mockReset();
+		mockTrackPlanSaved.mockReset();
 		mockUseRuntimeWorkspaceChanges.mockReturnValue({
 			changes: {
 				files: [
@@ -214,10 +262,13 @@ describe("CardDetailView", () => {
 		vi.restoreAllMocks();
 		container.remove();
 		if (previousActEnvironment === undefined) {
-			delete (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT;
+			delete (
+				globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
+			).IS_REACT_ACT_ENVIRONMENT;
 		} else {
-			(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT =
-				previousActEnvironment;
+			(
+				globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
+			).IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
 		}
 	});
 
@@ -241,29 +292,49 @@ describe("CardDetailView", () => {
 			);
 		});
 
-		const expandButton = container.querySelector('button[aria-label="Expand split diff view"]');
+		const expandButton = container.querySelector(
+			'button[aria-label="Expand split diff view"]',
+		);
 		expect(expandButton).toBeInstanceOf(HTMLButtonElement);
 		if (!(expandButton instanceof HTMLButtonElement)) {
 			throw new Error("Expected an expand diff button.");
 		}
 
 		await act(async () => {
-			expandButton.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+			expandButton.dispatchEvent(
+				new MouseEvent("mousedown", { bubbles: true }),
+			);
 			expandButton.click();
 		});
 
 		const toolbarButtons = Array.from(container.querySelectorAll("button"));
-		expect(toolbarButtons[0]?.getAttribute("aria-label")).toBe("Collapse expanded diff view");
+		expect(toolbarButtons[0]?.getAttribute("aria-label")).toBe(
+			"Collapse expanded diff view",
+		);
 		expect(toolbarButtons[1]?.textContent?.trim()).toBe("All Changes");
 		expect(toolbarButtons[2]?.textContent?.trim()).toBe("Last Turn");
-		expect(container.querySelector('button[aria-label="Expand split diff view"]')).toBeNull();
+		expect(
+			container.querySelector('button[aria-label="Expand split diff view"]'),
+		).toBeNull();
 
 		await act(async () => {
-			window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+			window.dispatchEvent(
+				new KeyboardEvent("keydown", {
+					key: "Escape",
+					bubbles: true,
+					cancelable: true,
+				}),
+			);
 		});
 
-		expect(container.querySelector('button[aria-label="Collapse expanded diff view"]')).toBeNull();
-		expect(container.querySelector('button[aria-label="Expand split diff view"]')).toBeInstanceOf(HTMLButtonElement);
+		expect(
+			container.querySelector(
+				'button[aria-label="Collapse expanded diff view"]',
+			),
+		).toBeNull();
+		expect(
+			container.querySelector('button[aria-label="Expand split diff view"]'),
+		).toBeInstanceOf(HTMLButtonElement);
 	});
 
 	it("clears stale diff content when switching from all changes to last turn", async () => {
@@ -286,16 +357,18 @@ describe("CardDetailView", () => {
 			);
 		});
 
-		const lastTurnButton = Array.from(container.querySelectorAll("button")).find(
-			(button) => button.textContent?.trim() === "Last Turn",
-		);
+		const lastTurnButton = Array.from(
+			container.querySelectorAll("button"),
+		).find((button) => button.textContent?.trim() === "Last Turn");
 		expect(lastTurnButton).toBeInstanceOf(HTMLButtonElement);
 		if (!(lastTurnButton instanceof HTMLButtonElement)) {
 			throw new Error("Expected a Last Turn button.");
 		}
 
 		await act(async () => {
-			lastTurnButton.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+			lastTurnButton.dispatchEvent(
+				new MouseEvent("mousedown", { bubbles: true }),
+			);
 			lastTurnButton.click();
 		});
 
@@ -345,13 +418,19 @@ describe("CardDetailView", () => {
 		expect(lastTurnButton.style.backgroundColor).toBe("");
 
 		await act(async () => {
-			lastTurnButton.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+			lastTurnButton.dispatchEvent(
+				new MouseEvent("mousedown", { bubbles: true }),
+			);
 			lastTurnButton.click();
 		});
 
-		expect(getDiffModeButton("All Changes").getAttribute("aria-pressed")).toBe("false");
+		expect(getDiffModeButton("All Changes").getAttribute("aria-pressed")).toBe(
+			"false",
+		);
 		expect(getDiffModeButton("All Changes").style.backgroundColor).toBe("");
-		expect(getDiffModeButton("Last Turn").getAttribute("aria-pressed")).toBe("true");
+		expect(getDiffModeButton("Last Turn").getAttribute("aria-pressed")).toBe(
+			"true",
+		);
 		expect(getDiffModeButton("Last Turn").getAttribute("style")).toContain(
 			"background-color: color-mix(in srgb, var(--color-surface-3) 80%, var(--color-text-primary))",
 		);
@@ -371,7 +450,9 @@ describe("CardDetailView", () => {
 					onCardSelect={() => {}}
 					onTaskDragEnd={() => {}}
 					onMoveToTrash={() => {}}
-					gitHistoryPanel={<div data-testid="git-history-panel">Git history</div>}
+					gitHistoryPanel={
+						<div data-testid="git-history-panel">Git history</div>
+					}
 					onCloseGitHistory={onCloseGitHistory}
 					bottomTerminalOpen={false}
 					bottomTerminalTaskId={null}
@@ -386,7 +467,13 @@ describe("CardDetailView", () => {
 		input.focus();
 
 		await act(async () => {
-			input.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+			input.dispatchEvent(
+				new KeyboardEvent("keydown", {
+					key: "Escape",
+					bubbles: true,
+					cancelable: true,
+				}),
+			);
 		});
 
 		expect(onCloseGitHistory).toHaveBeenCalledTimes(1);
@@ -413,8 +500,12 @@ describe("CardDetailView", () => {
 			);
 		});
 
-		expect(container.querySelector('[data-testid="cline-agent-chat-panel"]')).toBeInstanceOf(HTMLDivElement);
-		expect(container.querySelector('[data-testid="agent-terminal-panel"]')).toBeNull();
+		expect(
+			container.querySelector('[data-testid="cline-agent-chat-panel"]'),
+		).toBeInstanceOf(HTMLDivElement);
+		expect(
+			container.querySelector('[data-testid="agent-terminal-panel"]'),
+		).toBeNull();
 	});
 
 	it("does not render native chat panel when the task explicitly uses a non-cline agent", async () => {
@@ -441,7 +532,9 @@ describe("CardDetailView", () => {
 			);
 		});
 
-		expect(container.querySelector('[data-testid="cline-agent-chat-panel"]')).toBeNull();
+		expect(
+			container.querySelector('[data-testid="cline-agent-chat-panel"]'),
+		).toBeNull();
 	});
 
 	it("shows cline chat panel when task session agentId is cline even if global agent is claude", async () => {
@@ -483,7 +576,9 @@ describe("CardDetailView", () => {
 			);
 		});
 
-		expect(container.querySelector('[data-testid="cline-agent-chat-panel"]')).toBeInstanceOf(HTMLDivElement);
+		expect(
+			container.querySelector('[data-testid="cline-agent-chat-panel"]'),
+		).toBeInstanceOf(HTMLDivElement);
 	});
 
 	it("shows terminal panel when task session agentId is claude even if global agent is cline", async () => {
@@ -525,7 +620,9 @@ describe("CardDetailView", () => {
 			);
 		});
 
-		expect(container.querySelector('[data-testid="cline-agent-chat-panel"]')).toBeNull();
+		expect(
+			container.querySelector('[data-testid="cline-agent-chat-panel"]'),
+		).toBeNull();
 		expect(mockAgentTerminalPanel).toHaveBeenCalled();
 	});
 
@@ -581,7 +678,8 @@ describe("CardDetailView", () => {
 			);
 		});
 
-		const diffProps = getLastMockFirstArg<MockedDiffViewerProps>(mockDiffViewerPanel);
+		const diffProps =
+			getLastMockFirstArg<MockedDiffViewerProps>(mockDiffViewerPanel);
 		expect(diffProps.onAddToTerminal).toBeTypeOf("function");
 
 		await act(async () => {
@@ -589,7 +687,9 @@ describe("CardDetailView", () => {
 		});
 
 		expect(onAddReviewComments).not.toHaveBeenCalled();
-		expect(mockClineAppendToDraft).toHaveBeenCalledWith("src/example.ts:4 | value\n> Add tests");
+		expect(mockClineAppendToDraft).toHaveBeenCalledWith(
+			"src/example.ts:4 | value\n> Add tests",
+		);
 	});
 
 	it("routes Send diff comments through the mounted cline panel", async () => {
@@ -616,7 +716,8 @@ describe("CardDetailView", () => {
 			);
 		});
 
-		const diffProps = getLastMockFirstArg<MockedDiffViewerProps>(mockDiffViewerPanel);
+		const diffProps =
+			getLastMockFirstArg<MockedDiffViewerProps>(mockDiffViewerPanel);
 		expect(diffProps.onSendToTerminal).toBeTypeOf("function");
 
 		await act(async () => {
@@ -625,7 +726,9 @@ describe("CardDetailView", () => {
 		});
 
 		expect(onSendReviewComments).not.toHaveBeenCalled();
-		expect(mockClineSendText).toHaveBeenCalledWith("src/example.ts:8 | done\n> Ship this");
+		expect(mockClineSendText).toHaveBeenCalledWith(
+			"src/example.ts:8 | done\n> Ship this",
+		);
 	});
 
 	it("loads the saved agent-to-diff panel ratio from local storage", async () => {
@@ -681,14 +784,18 @@ describe("CardDetailView", () => {
 		}
 
 		await act(async () => {
-			dragHandle.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, clientX: 160 }));
+			dragHandle.dispatchEvent(
+				new MouseEvent("mousedown", { bubbles: true, clientX: 160 }),
+			);
 		});
 		await act(async () => {
 			window.dispatchEvent(new MouseEvent("mousemove", { clientX: 320 }));
 			window.dispatchEvent(new MouseEvent("mouseup", { clientX: 320 }));
 		});
 
-		const savedRatioRaw = window.localStorage.getItem(LocalStorageKey.DetailAgentPanelRatio);
+		const savedRatioRaw = window.localStorage.getItem(
+			LocalStorageKey.DetailAgentPanelRatio,
+		);
 		expect(savedRatioRaw).not.toBeNull();
 		const savedRatio = Number(savedRatioRaw);
 		expect(savedRatio).toBeGreaterThan(0.4);
@@ -728,11 +835,15 @@ describe("CardDetailView", () => {
 		}
 
 		await act(async () => {
-			dragHandle.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, clientX: 200 }));
+			dragHandle.dispatchEvent(
+				new MouseEvent("mousedown", { bubbles: true, clientX: 200 }),
+			);
 			window.dispatchEvent(new MouseEvent("mouseup", { clientX: 420 }));
 		});
 
-		const expectedRatio = window.localStorage.getItem(LocalStorageKey.DetailAgentPanelRatio);
+		const expectedRatio = window.localStorage.getItem(
+			LocalStorageKey.DetailAgentPanelRatio,
+		);
 		expect(expectedRatio).not.toBeNull();
 
 		await act(async () => {
@@ -748,8 +859,14 @@ describe("CardDetailView", () => {
 	});
 
 	it("uses separate file-tree ratios for collapsed and expanded diff layouts", async () => {
-		window.localStorage.setItem(LocalStorageKey.DetailDiffFileTreePanelRatio, "0.42");
-		window.localStorage.setItem(LocalStorageKey.DetailExpandedDiffFileTreePanelRatio, "0.18");
+		window.localStorage.setItem(
+			LocalStorageKey.DetailDiffFileTreePanelRatio,
+			"0.42",
+		);
+		window.localStorage.setItem(
+			LocalStorageKey.DetailExpandedDiffFileTreePanelRatio,
+			"0.18",
+		);
 
 		await act(async () => {
 			root.render(
@@ -770,9 +887,13 @@ describe("CardDetailView", () => {
 			);
 		});
 
-		expect(requireDetailDiffFileTreePanel(container).style.flex).toBe("0 0 42%");
+		expect(requireDetailDiffFileTreePanel(container).style.flex).toBe(
+			"0 0 42%",
+		);
 
-		const expandButton = container.querySelector('button[aria-label="Expand split diff view"]');
+		const expandButton = container.querySelector(
+			'button[aria-label="Expand split diff view"]',
+		);
 		expect(expandButton).toBeInstanceOf(HTMLButtonElement);
 		if (!(expandButton instanceof HTMLButtonElement)) {
 			throw new Error("Expected an expand diff button.");
@@ -782,6 +903,155 @@ describe("CardDetailView", () => {
 			expandButton.click();
 		});
 
-		expect(requireDetailDiffFileTreePanel(container).style.flex).toBe("0 0 18%");
+		expect(requireDetailDiffFileTreePanel(container).style.flex).toBe(
+			"0 0 18%",
+		);
+	});
+
+	it("shows Save Plan only when plan mode review has ExitPlanMode plan text", async () => {
+		const selection = createSelection();
+		selection.card.startInPlanMode = true;
+		const onSavePlan = vi.fn();
+		mockSavePlan.mockResolvedValue({
+			id: "plan-1",
+			name: "Task-task-1-1",
+			path: "/tmp/plan.md",
+			addedAt: 1,
+			missing: false,
+		});
+
+		await act(async () => {
+			root.render(
+				<CardDetailView
+					selection={selection}
+					currentProjectId="workspace-1"
+					sessionSummary={{
+						taskId: "task-1",
+						state: "awaiting_review",
+						agentId: "claude",
+						workspacePath: "/tmp/worktree",
+						pid: null,
+						startedAt: 1,
+						activeRunMs: 0,
+						runningSince: null,
+						pausedAt: null,
+						pauseReason: null,
+						updatedAt: 1,
+						lastOutputAt: 1,
+						reviewReason: "hook",
+						exitCode: null,
+						lastHookAt: 1,
+						latestHookActivity: {
+							activityText: "Waiting for approval",
+							toolName: "ExitPlanMode",
+							toolInputSummary: null,
+							finalMessage: null,
+							hookEventName: "PermissionRequest",
+							notificationType: "permission_prompt",
+							source: "claude",
+							planText: "# Captured\n\nDo the work.",
+						},
+						latestTurnCheckpoint: null,
+						previousTurnCheckpoint: null,
+					}}
+					taskSessions={{}}
+					onSessionSummary={() => {}}
+					onCardSelect={() => {}}
+					onTaskDragEnd={() => {}}
+					onMoveToTrash={() => {}}
+					onSavePlan={onSavePlan}
+					bottomTerminalOpen={false}
+					bottomTerminalTaskId={null}
+					bottomTerminalSummary={null}
+					onBottomTerminalClose={() => {}}
+				/>,
+			);
+		});
+
+		expect(
+			container.querySelector('[data-testid="save-plan-panel"]'),
+		).not.toBeNull();
+		const saveButton = container.querySelector(
+			'[data-testid="save-plan-button"]',
+		);
+		expect(saveButton).toBeInstanceOf(HTMLButtonElement);
+		expect(saveButton?.textContent).toContain("Save Plan");
+		expect(
+			container.querySelector('[data-testid="plan-markdown-preview"]')
+				?.textContent,
+		).toContain("# Captured");
+
+		await act(async () => {
+			(saveButton as HTMLButtonElement).click();
+		});
+
+		expect(mockSavePlan).toHaveBeenCalledWith({
+			name: "Task task-1",
+			content: "# Captured\n\nDo the work.",
+		});
+		expect(onSavePlan).toHaveBeenCalledWith(
+			expect.objectContaining({
+				id: "plan-1",
+			}),
+		);
+		expect(mockTrackPlanSaved).toHaveBeenCalled();
+		expect(mockShowAppToast).toHaveBeenCalledWith(
+			expect.objectContaining({
+				intent: "success",
+			}),
+		);
+	});
+
+	it("does not show Save Plan without plan mode ExitPlanMode text", async () => {
+		await act(async () => {
+			root.render(
+				<CardDetailView
+					selection={createSelection()}
+					currentProjectId="workspace-1"
+					sessionSummary={{
+						taskId: "task-1",
+						state: "awaiting_review",
+						agentId: "claude",
+						workspacePath: "/tmp/worktree",
+						pid: null,
+						startedAt: 1,
+						activeRunMs: 0,
+						runningSince: null,
+						pausedAt: null,
+						pauseReason: null,
+						updatedAt: 1,
+						lastOutputAt: 1,
+						reviewReason: "hook",
+						exitCode: null,
+						lastHookAt: 1,
+						latestHookActivity: {
+							activityText: "Waiting for approval",
+							toolName: "Bash",
+							toolInputSummary: null,
+							finalMessage: null,
+							hookEventName: "PermissionRequest",
+							notificationType: "permission_prompt",
+							source: "claude",
+							planText: null,
+						},
+						latestTurnCheckpoint: null,
+						previousTurnCheckpoint: null,
+					}}
+					taskSessions={{}}
+					onSessionSummary={() => {}}
+					onCardSelect={() => {}}
+					onTaskDragEnd={() => {}}
+					onMoveToTrash={() => {}}
+					bottomTerminalOpen={false}
+					bottomTerminalTaskId={null}
+					bottomTerminalSummary={null}
+					onBottomTerminalClose={() => {}}
+				/>,
+			);
+		});
+
+		expect(
+			container.querySelector('[data-testid="save-plan-panel"]'),
+		).toBeNull();
 	});
 });

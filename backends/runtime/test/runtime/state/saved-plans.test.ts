@@ -9,7 +9,9 @@ vi.mock("../../../src/state/workspace-state", () => ({
 	getRuntimeHomePath: () => runtimeHome.path,
 }));
 
+import { composePromptWithAttachedPlan } from "../../../src/prompts/compose-prompt-with-plan";
 import {
+	createSavedPlan,
 	importPlanFile,
 	importPlansFromFolder,
 	listSavedPlans,
@@ -19,7 +21,6 @@ import {
 	writeSavedPlanAsset,
 	writeSavedPlanContent,
 } from "../../../src/state/saved-plans";
-import { composePromptWithAttachedPlan } from "../../../src/prompts/compose-prompt-with-plan";
 
 describe("saved-plans library", () => {
 	beforeEach(async () => {
@@ -108,6 +109,28 @@ describe("saved-plans library", () => {
 		expect(await removeSavedPlan(planId)).toBe(true);
 		expect(await listSavedPlans()).toHaveLength(0);
 		expect(await readFile(planPath, "utf8")).toBe("v2\n");
+	});
+
+	it("creates a saved plan from content and avoids clobbering existing files", async () => {
+		const first = await createSavedPlan({
+			name: "Ship Feature",
+			content: "# First plan\n",
+		});
+		expect(first.isNew).toBe(true);
+		expect(first.entry.name).toBe("Ship-Feature-1");
+		expect(await readFile(first.entry.path, "utf8")).toBe("# First plan\n");
+
+		const second = await createSavedPlan({
+			name: "Ship Feature",
+			content: "# Second plan\n",
+		});
+		expect(second.isNew).toBe(true);
+		expect(second.entry.path).not.toBe(first.entry.path);
+		expect(second.entry.name).toBe("Ship-Feature-2");
+
+		const listed = await listSavedPlans();
+		expect(listed).toHaveLength(2);
+		expect(listed.every((plan) => plan.missing === false)).toBe(true);
 	});
 });
 

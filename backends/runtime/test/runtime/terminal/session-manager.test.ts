@@ -73,6 +73,31 @@ describe("TerminalSessionManager", () => {
 		expect(typeof updated?.lastHookAt).toBe("number");
 	});
 
+	it("preserves planText across a later to_review activity patch", () => {
+		const manager = new TerminalSessionManager();
+		manager.hydrateFromRecord({
+			"task-1": createSummary({ state: "running" }),
+		});
+
+		manager.applyHookActivity("task-1", {
+			source: "claude",
+			activityText: "Using ExitPlanMode",
+			toolName: "ExitPlanMode",
+			planText: "# Plan\n\nShip it.",
+		});
+
+		const afterReviewHook = manager.applyHookActivity("task-1", {
+			source: "claude",
+			activityText: "Waiting for approval",
+			hookEventName: "PermissionRequest",
+			notificationType: "permission_prompt",
+		});
+
+		expect(afterReviewHook?.latestHookActivity?.toolName).toBe("ExitPlanMode");
+		expect(afterReviewHook?.latestHookActivity?.planText).toBe("# Plan\n\nShip it.");
+		expect(afterReviewHook?.latestHookActivity?.activityText).toBe("Waiting for approval");
+	});
+
 	it("resets stale running sessions without active processes", () => {
 		const manager = new TerminalSessionManager();
 		manager.hydrateFromRecord({

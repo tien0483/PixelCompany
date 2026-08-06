@@ -61,6 +61,7 @@ function createHookActivity(hookEventName: string): RuntimeTaskHookActivity {
 		hookEventName,
 		notificationType: null,
 		source: "cline-sdk",
+		planText: null,
 	};
 }
 
@@ -455,6 +456,7 @@ describe("useClineChatPanelController", () => {
 							hookEventName: "turn_start",
 							notificationType: null,
 							source: "cline-sdk",
+							planText: null,
 						},
 					})}
 					onSnapshot={(snapshot) => {

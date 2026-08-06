@@ -1,6 +1,6 @@
-import { access, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
-import { basename, dirname, extname, join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
+import { access, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { basename, dirname, extname, join, resolve } from "node:path";
 
 import { resolveImageExtension, sanitizeFileNameSegment } from "../terminal/task-image-prompt";
 import { isPathWithinRoot } from "../workspace/path-sandbox";
@@ -170,6 +170,35 @@ export async function importPlanFile(filePath: string): Promise<{
 	}
 
 	return { entry, isNew };
+}
+
+async function resolveUniquePlanFileName(plansDir: string, baseName: string): Promise<string> {
+	let attempt = 1;
+	while (true) {
+		const candidate = `${baseName}-${attempt}.md`;
+		if (!(await pathExists(join(plansDir, candidate)))) {
+			return candidate;
+		}
+		attempt += 1;
+	}
+}
+
+export async function createSavedPlan(input: {
+	name: string;
+	content: string;
+}): Promise<{ entry: SavedPlanEntry; isNew: true }> {
+	const plansDir = join(getRuntimeHomePath(), "plans");
+	await mkdir(plansDir, { recursive: true });
+	const baseName = sanitizeFileNameSegment(input.name.trim() || "plan");
+	const fileName = await resolveUniquePlanFileName(plansDir, baseName);
+	const filePath = normalizeAbsolutePath(join(plansDir, fileName));
+	await writeFile(filePath, input.content, "utf8");
+
+	const existing = await loadSavedPlans();
+	const byPath = new Map(existing.map((entry) => [entry.path, entry]));
+	const { entry } = addOrReuseEntry(byPath, filePath, Date.now());
+	await writeSavedPlans([...existing, entry]);
+	return { entry, isNew: true };
 }
 
 export async function removeSavedPlan(planId: string): Promise<boolean> {

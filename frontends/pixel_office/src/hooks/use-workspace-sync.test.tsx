@@ -86,6 +86,7 @@ function createSessionSummary(
 					hookEventName: "agent_end",
 					notificationType: null,
 					source: "cline-sdk",
+					planText: null,
 				}
 			: null,
 		latestTurnCheckpoint: null,

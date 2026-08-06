@@ -115,6 +115,7 @@ function buildFixtureSessions(): Record<string, RuntimeTaskSessionSummary> {
 				hookEventName: null,
 				notificationType: null,
 				source: null,
+				planText: null,
 			},
 		},
 		"e2e-task-cursor": {
@@ -141,6 +142,7 @@ function buildFixtureSessions(): Record<string, RuntimeTaskSessionSummary> {
 				hookEventName: null,
 				notificationType: null,
 				source: null,
+				planText: null,
 			},
 		},
 		"e2e-task-review": {
@@ -167,6 +169,7 @@ function buildFixtureSessions(): Record<string, RuntimeTaskSessionSummary> {
 				hookEventName: null,
 				notificationType: null,
 				source: null,
+				planText: null,
 			},
 		},
 	};

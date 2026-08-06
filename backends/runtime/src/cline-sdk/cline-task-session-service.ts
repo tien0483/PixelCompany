@@ -245,6 +245,7 @@ export class InMemoryClineTaskSessionService implements ClineTaskSessionService 
 				hookEventName: "agent_error",
 				notificationType: creditLimitError ? "credit_limit" : null,
 				source: "cline-sdk",
+				planText: null,
 			},
 		});
 		this.emitSummary(errorSummary);
@@ -404,6 +405,7 @@ export class InMemoryClineTaskSessionService implements ClineTaskSessionService 
 					hookEventName: "turn_start",
 					notificationType: null,
 					source: "cline-sdk",
+					planText: null,
 				},
 			});
 			this.emitSummary(runningSummary);
@@ -545,6 +547,7 @@ export class InMemoryClineTaskSessionService implements ClineTaskSessionService 
 				hookEventName: "turn_canceled",
 				notificationType: null,
 				source: "cline-sdk",
+				planText: null,
 			},
 		});
 		this.emitSummary(summary);
@@ -602,6 +605,7 @@ export class InMemoryClineTaskSessionService implements ClineTaskSessionService 
 					hookEventName: "turn_start",
 					notificationType: null,
 					source: "cline-sdk",
+					planText: null,
 				},
 			});
 			this.emitSummary(waitingSummary);
