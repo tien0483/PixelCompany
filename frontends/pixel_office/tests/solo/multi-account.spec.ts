@@ -181,9 +181,17 @@ test("a pending paste-code flow can be dismissed and leaves the pane usable", as
 			mode: "manual",
 			authUrl: "https://claude.com/cai/oauth/authorize?example=1",
 		}),
+		"manager.gitIdentity": () => ({
+			name: "Machine Owner",
+			email: "owner@akselos.com",
+			label: "Machine Owner <owner@akselos.com>",
+		}),
 		"manager.createUsageAuthSession": () => ({
 			sessionId: "e2e-session-1",
 			formUrl: "https://example.vercel.app/?sessionId=e2e-session-1",
+			authType: "authorize",
+			sender: "colleague@akselos.com",
+			receiver: null,
 		}),
 		"manager.getUsageAuthCode": () => ({
 			status: "pending",
@@ -191,6 +199,10 @@ test("a pending paste-code flow can be dismissed and leaves the pane usable", as
 			percentage: null,
 			submittedAt: null,
 			error: null,
+			authType: null,
+			accountName: null,
+			sender: null,
+			receiver: null,
 		}),
 		"manager.oauthFlowStatus": () => ({
 			status: "pending",
@@ -216,6 +228,9 @@ test("a pending paste-code flow can be dismissed and leaves the pane usable", as
 	await expect(page.getByTestId("manager-oauth-invite-donate")).toHaveCount(0);
 	await expect(page.getByPlaceholder("Paste authorization code")).toHaveCount(0);
 
+	// The form session is only minted once a sender has been named.
+	await expect(page.getByTestId("manager-oauth-copy-email")).toBeDisabled();
+
 	// The rest of the pane must not be frozen while the flow waits for the form.
 	await expect(page.getByRole("button", { name: "Refresh all usage" })).toBeEnabled();
 	await page.getByRole("button", { name: "Refresh all usage" }).click();
@@ -224,6 +239,78 @@ test("a pending paste-code flow can be dismissed and leaves the pane usable", as
 	await page.getByTestId("manager-oauth-dismiss").click();
 	await expect(page.getByTestId("manager-oauth-status")).toHaveCount(0);
 	await expect(page.getByTestId("manager-add-account-trigger")).toBeEnabled();
+});
+
+test("the invite email carries the sender the operator typed", async ({ page }) => {
+	const stub = await stubTrpc(page, {
+		"manager.startClaudeOAuth": () => ({
+			ok: true,
+			flowId: "flow-1",
+			mode: "manual",
+			authUrl: "https://claude.com/cai/oauth/authorize?example=1",
+		}),
+		"manager.gitIdentity": () => ({
+			name: "Machine Owner",
+			email: "owner@akselos.com",
+			label: "Machine Owner <owner@akselos.com>",
+		}),
+		"manager.createUsageAuthSession": () => ({
+			sessionId: "e2e-session-2",
+			formUrl: "https://example.vercel.app/?sessionId=e2e-session-2",
+			authType: "authorize",
+			sender: "colleague@akselos.com",
+			receiver: "Machine Owner <owner@akselos.com>",
+		}),
+		"manager.getUsageAuthCode": () => ({
+			status: "pending",
+			authCode: null,
+			percentage: null,
+			submittedAt: null,
+			error: null,
+			authType: null,
+			accountName: null,
+			sender: null,
+			receiver: null,
+		}),
+		"manager.oauthFlowStatus": () => ({
+			status: "pending",
+			flowId: "flow-1",
+			accountId: null,
+			email: null,
+			error: null,
+			authUrl: "https://claude.com/cai/oauth/authorize?example=1",
+			mode: "manual",
+			submitError: null,
+		}),
+		"manager.activeSessions": () => ({ sessions: [] }),
+		"manager.swapLog": () => ({ swaps: [] }),
+	});
+	await openAccountsPane(page);
+
+	await page.getByTestId("manager-add-account-trigger").click();
+	await page.getByTestId("manager-add-account-provider-claude").click();
+	await page.getByTestId("manager-add-account-paste-code").click();
+
+	// The borrower comes from git config, not from a field.
+	await expect(page.getByTestId("manager-oauth-receiver")).toContainText(
+		"Machine Owner <owner@akselos.com>",
+	);
+
+	await page.getByTestId("manager-oauth-sender-name").fill("Colleague");
+	await page.getByTestId("manager-oauth-sender-email").fill("colleague@akselos.com");
+	await expect(page.getByTestId("manager-oauth-copy-email")).toBeEnabled();
+	await page.getByTestId("manager-oauth-copy-email").click();
+
+	// Add Account is the only flow that asks the colleague for a usage percentage.
+	expect((await stub.waitForCall("manager.createUsageAuthSession")).input).toMatchObject({
+		authType: "authorize",
+		sender: "colleague@akselos.com",
+		accountName: "Colleague",
+		receiver: "Machine Owner <owner@akselos.com>",
+	});
+
+	// The sender is immutable server-side once the session exists.
+	await expect(page.getByTestId("manager-oauth-sender-email")).toBeDisabled();
 });
 
 test("auto-swap can be paused and resumed from the pane", async ({ page }) => {

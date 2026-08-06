@@ -29,6 +29,24 @@ describe("buildClaudeOAuthInviteEmail", () => {
 		expect(email.clipboardHtml).toContain("&quot;1&quot;");
 		expect(email.clipboardHtml).not.toContain('x="1"');
 	});
+
+	it("greets the sender by name when one is given", () => {
+		const formUrl = "https://example.vercel.app/?sessionId=abc";
+		expect(buildClaudeOAuthInviteEmail(formUrl).body).toContain("Hi,");
+		const named = buildClaudeOAuthInviteEmail(formUrl, {
+			senderName: "Alice",
+		});
+		expect(named.body).toContain("Hi Alice,");
+		expect(named.clipboardHtml).toContain("Hi Alice,");
+	});
+
+	it("escapes HTML in the sender name", () => {
+		const email = buildClaudeOAuthInviteEmail("https://example.vercel.app/", {
+			senderName: "<script>x</script>",
+		});
+		expect(email.clipboardHtml).not.toContain("<script>");
+		expect(email.clipboardHtml).toContain("&lt;script&gt;");
+	});
 });
 
 describe("buildClaudeReauthInviteEmail", () => {

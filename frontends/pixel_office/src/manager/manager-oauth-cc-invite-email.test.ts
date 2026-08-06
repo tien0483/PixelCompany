@@ -28,6 +28,15 @@ describe("buildClaudeCcOAuthInviteEmail", () => {
 		expect(email.clipboardHtml).toContain("dev@example.com");
 	});
 
+	it("greets the sender by name when one is given", () => {
+		const email = buildClaudeCcOAuthInviteEmail(
+			"https://example.vercel.app/?sessionId=cc-1",
+			{ senderName: "Alice" },
+		);
+		expect(email.body).toContain("Hi Alice,");
+		expect(email.clipboardHtml).toContain("Hi Alice,");
+	});
+
 	it("escapes HTML in the form URL", () => {
 		const email = buildClaudeCcOAuthInviteEmail('https://example.vercel.app/?x="1"');
 		expect(email.clipboardHtml).toContain("&quot;1&quot;");

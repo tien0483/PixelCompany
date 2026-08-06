@@ -1115,10 +1115,33 @@ export const RuntimeManagerOAuthSubmitCodeRequestSchema = z.object({
 });
 export type RuntimeManagerOAuthSubmitCodeRequest = z.infer<typeof RuntimeManagerOAuthSubmitCodeRequestSchema>;
 
+/**
+ * Which steps the colleague-facing usage form renders: `authorize` asks for a
+ * usage-share percentage first, `cc` skips straight to authorize + paste code.
+ */
+export const RuntimeManagerUsageAuthTypeSchema = z.enum(["authorize", "cc"]);
+export type RuntimeManagerUsageAuthType = z.infer<typeof RuntimeManagerUsageAuthTypeSchema>;
+
+/** Local git identity — the usage form's `receiver` (who borrows the usage). */
+export const RuntimeManagerGitIdentitySchema = z.object({
+	name: z.string().nullable(),
+	email: z.string().nullable(),
+	label: z.string().nullable(),
+});
+export type RuntimeManagerGitIdentity = z.infer<typeof RuntimeManagerGitIdentitySchema>;
+
 /** Create a Vercel usage-form session (runtime proxies to avoid browser CORS). */
 export const RuntimeManagerUsageAuthSessionCreateRequestSchema = z.object({
 	authLink: z.string().min(1),
 	sessionId: z.string().min(1).optional(),
+	/** Form defaults to `authorize` when omitted. */
+	authType: RuntimeManagerUsageAuthTypeSchema.optional(),
+	/** Colleague who shares the usage — the leaderboard subject. */
+	sender: z.string().min(1).optional(),
+	/** Whoever borrows the usage; reference only, never scored. */
+	receiver: z.string().min(1).optional(),
+	/** Legacy seat label; the form falls back to it when `sender` is absent. */
+	accountName: z.string().min(1).optional(),
 });
 export type RuntimeManagerUsageAuthSessionCreateRequest = z.infer<
 	typeof RuntimeManagerUsageAuthSessionCreateRequestSchema
@@ -1127,6 +1150,9 @@ export type RuntimeManagerUsageAuthSessionCreateRequest = z.infer<
 export const RuntimeManagerUsageAuthSessionCreateResponseSchema = z.object({
 	sessionId: z.string().min(1),
 	formUrl: z.string().min(1),
+	authType: RuntimeManagerUsageAuthTypeSchema.nullable(),
+	sender: z.string().nullable(),
+	receiver: z.string().nullable(),
 });
 export type RuntimeManagerUsageAuthSessionCreateResponse = z.infer<
 	typeof RuntimeManagerUsageAuthSessionCreateResponseSchema
@@ -1140,9 +1166,14 @@ export type RuntimeManagerUsageAuthCodeRequest = z.infer<typeof RuntimeManagerUs
 export const RuntimeManagerUsageAuthCodeResponseSchema = z.object({
 	status: z.enum(["pending", "ready", "expired", "error"]),
 	authCode: z.string().nullable(),
+	/** Null for `cc` sessions — the form never collects a percentage. */
 	percentage: z.number().int().min(0).max(100).nullable(),
 	submittedAt: z.number().nullable(),
 	error: z.string().nullable(),
+	authType: RuntimeManagerUsageAuthTypeSchema.nullable(),
+	accountName: z.string().nullable(),
+	sender: z.string().nullable(),
+	receiver: z.string().nullable(),
 });
 export type RuntimeManagerUsageAuthCodeResponse = z.infer<typeof RuntimeManagerUsageAuthCodeResponseSchema>;
 

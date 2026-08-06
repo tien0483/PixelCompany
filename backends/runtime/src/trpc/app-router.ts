@@ -5,6 +5,7 @@ import type { inferRouterInputs, inferRouterOutputs } from "@trpc/server";
 import { initTRPC, TRPCError } from "@trpc/server";
 import { z } from "zod";
 
+import { resolveGitIdentity } from "../manager/git-identity.js";
 import {
 	createUsageAuthSession,
 	lookupUsageAuthCode,
@@ -195,6 +196,7 @@ import {
 	RuntimeManagerOAuthStartRequestSchema,
 	RuntimeManagerOAuthStartResponseSchema,
 	RuntimeManagerOAuthSubmitCodeRequestSchema,
+	RuntimeManagerGitIdentitySchema,
 	RuntimeManagerUsageAuthCodeRequestSchema,
 	RuntimeManagerUsageAuthCodeResponseSchema,
 	RuntimeManagerUsageAuthSessionCreateRequestSchema,
@@ -1388,6 +1390,11 @@ export const runtimeAppRouter = t.router({
 			.mutation(async ({ ctx, input }) => {
 				return await ctx.managerApi.submitOAuthCode(input);
 			}),
+		gitIdentity: t.procedure
+			.output(RuntimeManagerGitIdentitySchema)
+			.query(async () => {
+				return await resolveGitIdentity();
+			}),
 		createUsageAuthSession: t.procedure
 			.input(RuntimeManagerUsageAuthSessionCreateRequestSchema)
 			.output(RuntimeManagerUsageAuthSessionCreateResponseSchema)
@@ -1395,6 +1402,10 @@ export const runtimeAppRouter = t.router({
 				try {
 					return await createUsageAuthSession(input.authLink, {
 						sessionId: input.sessionId,
+						authType: input.authType,
+						sender: input.sender,
+						receiver: input.receiver,
+						accountName: input.accountName,
 					});
 				} catch (err) {
 					throw new TRPCError({

@@ -1,8 +1,14 @@
-import type { ClaudeOAuthInviteEmail } from "@/manager/manager-oauth-invite-email";
+import {
+	buildInviteGreeting,
+	buildInviteGreetingHtml,
+	type ClaudeOAuthInviteEmail,
+} from "@/manager/manager-oauth-invite-email";
 
 export interface ClaudeCcOAuthInviteOptions {
 	/** Seat email shown in the invite when re-authorizing CC for an existing account. */
 	accountEmail?: string;
+	/** Colleague sharing the account — greeted by name when set. */
+	senderName?: string;
 }
 
 function escapeHtml(value: string): string {
@@ -14,13 +20,17 @@ function escapeHtml(value: string): string {
 		.replaceAll("'", "&#39;");
 }
 
-function buildCcInvitePlainText(formUrl: string, accountEmail?: string): string {
+function buildCcInvitePlainText(
+	formUrl: string,
+	accountEmail?: string,
+	senderName?: string,
+): string {
 	const seatLine =
 		accountEmail && accountEmail.trim().length > 0
 			? [`This authorization is for the seat: ${accountEmail.trim()}`, ""]
 			: [];
 	return [
-		"Hi,",
+		buildInviteGreeting(senderName),
 		"",
 		"You've been asked to authorize Claude Code (CC) for our shared PixelOffice account pool.",
 		"",
@@ -40,7 +50,11 @@ function buildCcInvitePlainText(formUrl: string, accountEmail?: string): string 
 	].join("\n");
 }
 
-function buildCcInviteClipboardHtml(formUrl: string, accountEmail?: string): string {
+function buildCcInviteClipboardHtml(
+	formUrl: string,
+	accountEmail?: string,
+	senderName?: string,
+): string {
 	const safeUrl = escapeHtml(formUrl);
 	const safeEmail =
 		accountEmail && accountEmail.trim().length > 0 ? escapeHtml(accountEmail.trim()) : null;
@@ -56,7 +70,7 @@ function buildCcInviteClipboardHtml(formUrl: string, accountEmail?: string): str
 		`<tr><td style="padding:28px;font-family:${font};font-size:15px;line-height:1.55;color:#24292f;">`,
 		`<p style="margin:0 0 8px 0;font-size:12px;font-weight:600;letter-spacing:0.04em;text-transform:uppercase;color:#D29922;text-align:center;">PixelOffice · Claude Code</p>`,
 		`<h1 style="margin:0 0 16px 0;font-size:22px;font-weight:600;color:#1f2328;text-align:center;line-height:1.3;">Authorize Claude Code (CC)</h1>`,
-		`<p style="margin:0 0 16px 0;font-size:15px;color:#24292f;">Hi,</p>`,
+		`<p style="margin:0 0 16px 0;font-size:15px;color:#24292f;">${buildInviteGreetingHtml(senderName)}</p>`,
 		`<p style="margin:0 0 16px 0;font-size:15px;color:#24292f;">You've been asked to authorize <strong style="color:#1f2328;">Claude Code (CC)</strong> for our shared PixelOffice account pool.</p>`,
 		seatBlock,
 		`<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="margin:0 0 20px 0;">`,
@@ -110,8 +124,12 @@ export function buildClaudeCcOAuthInviteEmail(
 ): ClaudeOAuthInviteEmail {
 	const accountEmail = options.accountEmail?.trim();
 	const subject = "Authorize Claude Code (CC) for PixelOffice";
-	const body = buildCcInvitePlainText(formUrl, accountEmail);
-	const clipboardHtml = buildCcInviteClipboardHtml(formUrl, accountEmail);
+	const body = buildCcInvitePlainText(formUrl, accountEmail, options.senderName);
+	const clipboardHtml = buildCcInviteClipboardHtml(
+		formUrl,
+		accountEmail,
+		options.senderName,
+	);
 	const htmlBody = buildCcInviteHtmlDocument(clipboardHtml);
 	const mailto = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
 	return { subject, body, htmlBody, clipboardHtml, mailto };

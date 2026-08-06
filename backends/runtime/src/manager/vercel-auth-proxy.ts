@@ -41,40 +41,68 @@ function usageAuthHeaders(
 	};
 }
 
+/**
+ * Which steps the colleague-facing form renders.
+ * - `authorize`: usage-share percentage, authorize, paste code (all three steps).
+ * - `cc`: authorize + paste code only; no percentage is collected.
+ */
+export type UsageAuthType = "authorize" | "cc";
+
 export interface UsageAuthSessionCreated {
 	sessionId: string;
 	formUrl: string;
+	authType: UsageAuthType | null;
+	/** Who shares the usage — the leaderboard subject. */
+	sender: string | null;
+	/** Who borrows the usage — stored for reference only. */
+	receiver: string | null;
 }
 
+/** Identity fields the form echoes back alongside the code. */
+interface UsageAuthIdentity {
+	authType: UsageAuthType | null;
+	accountName: string | null;
+	sender: string | null;
+	receiver: string | null;
+}
+
+const EMPTY_IDENTITY: UsageAuthIdentity = {
+	authType: null,
+	accountName: null,
+	sender: null,
+	receiver: null,
+};
+
 export type UsageAuthCodeLookup =
-	| {
+	| ({
 			status: "pending";
 			authCode: null;
 			percentage: null;
 			submittedAt: null;
 			error: null;
-	  }
-	| {
+	  } & UsageAuthIdentity)
+	| ({
 			status: "ready";
 			authCode: string;
+			/** Absent for `cc` sessions — the form never asks. */
 			percentage: number | null;
 			submittedAt: number | null;
 			error: null;
-	  }
-	| {
+	  } & UsageAuthIdentity)
+	| ({
 			status: "expired";
 			authCode: null;
 			percentage: null;
 			submittedAt: null;
 			error: string;
-	  }
-	| {
+	  } & UsageAuthIdentity)
+	| ({
 			status: "error";
 			authCode: null;
 			percentage: null;
 			submittedAt: null;
 			error: string;
-	  };
+	  } & UsageAuthIdentity);
 
 function parsePercentage(raw: unknown): number | null {
 	if (typeof raw === "number" && Number.isFinite(raw)) {
@@ -87,6 +115,23 @@ function parsePercentage(raw: unknown): number | null {
 		}
 	}
 	return null;
+}
+
+function parseAuthType(raw: unknown): UsageAuthType | null {
+	return raw === "authorize" || raw === "cc" ? raw : null;
+}
+
+function parseIdentityField(raw: unknown): string | null {
+	return typeof raw === "string" && raw.trim().length > 0 ? raw.trim() : null;
+}
+
+/** Drop blank optionals so the form falls back to its own defaults. */
+function optionalField(
+	key: string,
+	value: string | undefined,
+): Record<string, string> {
+	const trimmed = typeof value === "string" ? value.trim() : "";
+	return trimmed.length > 0 ? { [key]: trimmed } : {};
 }
 
 function describeHttpFailure(status: number, action: string): string {
@@ -107,6 +152,14 @@ export async function createUsageAuthSession(
 		sessionId?: string;
 		bypassSecret?: string | null;
 		fetchImpl?: typeof fetch;
+		/** Defaults to `authorize` on the form when omitted. */
+		authType?: UsageAuthType;
+		/** Colleague who shares the usage — required for leaderboard scoring. */
+		sender?: string;
+		/** Whoever borrows the usage; reference only. */
+		receiver?: string;
+		/** Legacy seat label; the form falls back to it when `sender` is absent. */
+		accountName?: string;
 	},
 ): Promise<UsageAuthSessionCreated> {
 	const baseUrl = options?.baseUrl ?? resolveUsageAuthBaseUrl();
@@ -122,7 +175,14 @@ export async function createUsageAuthSession(
 			{ "Content-Type": "application/json", Accept: "application/json" },
 			bypassSecret,
 		),
-		body: JSON.stringify({ sessionId, authLink }),
+		body: JSON.stringify({
+			sessionId,
+			authLink,
+			...optionalField("authType", options?.authType),
+			...optionalField("sender", options?.sender),
+			...optionalField("receiver", options?.receiver),
+			...optionalField("accountName", options?.accountName),
+		}),
 		redirect: "follow",
 	});
 	if (!response.ok) {
@@ -131,6 +191,9 @@ export async function createUsageAuthSession(
 	const data = (await response.json()) as {
 		formUrl?: string;
 		sessionId?: string;
+		authType?: unknown;
+		sender?: unknown;
+		receiver?: unknown;
 	};
 	if (typeof data.formUrl !== "string" || data.formUrl.trim().length === 0) {
 		throw new Error("Authorization session response missing formUrl");
@@ -138,6 +201,9 @@ export async function createUsageAuthSession(
 	return {
 		sessionId: typeof data.sessionId === "string" ? data.sessionId : sessionId,
 		formUrl: normalizeFormUrl(data.formUrl.trim(), baseUrl, sessionId),
+		authType: parseAuthType(data.authType),
+		sender: parseIdentityField(data.sender),
+		receiver: parseIdentityField(data.receiver),
 	};
 }
 
@@ -196,6 +262,7 @@ export async function lookupUsageAuthCode(
 			percentage: null,
 			submittedAt: null,
 			error: err instanceof Error ? err.message : "Failed to reach authorization form",
+			...EMPTY_IDENTITY,
 		};
 	}
 	if (response.status === 202) {
@@ -205,6 +272,7 @@ export async function lookupUsageAuthCode(
 			percentage: null,
 			submittedAt: null,
 			error: null,
+			...EMPTY_IDENTITY,
 		};
 	}
 	if (response.status === 404) {
@@ -214,6 +282,7 @@ export async function lookupUsageAuthCode(
 			percentage: null,
 			submittedAt: null,
 			error: "Authorization form session expired. Try Paste code again.",
+			...EMPTY_IDENTITY,
 		};
 	}
 	if (!response.ok) {
@@ -223,12 +292,17 @@ export async function lookupUsageAuthCode(
 			percentage: null,
 			submittedAt: null,
 			error: describeHttpFailure(response.status, "Authorization form poll failed"),
+			...EMPTY_IDENTITY,
 		};
 	}
 	const data = (await response.json()) as {
 		authCode?: string;
 		percentage?: unknown;
 		submittedAt?: number;
+		authType?: unknown;
+		accountName?: unknown;
+		sender?: unknown;
+		receiver?: unknown;
 	};
 	if (typeof data.authCode !== "string" || data.authCode.trim().length === 0) {
 		return {
@@ -237,13 +311,19 @@ export async function lookupUsageAuthCode(
 			percentage: null,
 			submittedAt: null,
 			error: null,
+			...EMPTY_IDENTITY,
 		};
 	}
 	return {
 		status: "ready",
 		authCode: data.authCode.trim(),
+		// `cc` sessions omit `percentage` entirely; parsePercentage answers null.
 		percentage: parsePercentage(data.percentage),
 		submittedAt: typeof data.submittedAt === "number" ? data.submittedAt : null,
 		error: null,
+		authType: parseAuthType(data.authType),
+		accountName: parseIdentityField(data.accountName),
+		sender: parseIdentityField(data.sender),
+		receiver: parseIdentityField(data.receiver),
 	};
 }

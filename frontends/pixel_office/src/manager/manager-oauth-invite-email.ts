@@ -9,6 +9,13 @@ export interface ClaudeOAuthInviteEmail {
 	mailto: string;
 }
 
+export interface ClaudeOAuthInviteOptions {
+	/** Seat email shown in the invite when re-authorizing an existing account. */
+	accountEmail?: string;
+	/** Colleague sharing the account — greeted by name when set. */
+	senderName?: string;
+}
+
 function escapeHtml(value: string): string {
 	return value
 		.replaceAll("&", "&amp;")
@@ -18,9 +25,20 @@ function escapeHtml(value: string): string {
 		.replaceAll("'", "&#39;");
 }
 
-function buildInvitePlainText(formUrl: string): string {
+/** `Hi Alice,` when the operator named the sender, plain `Hi,` otherwise. */
+export function buildInviteGreeting(senderName?: string): string {
+	const trimmed = senderName?.trim() ?? "";
+	return trimmed.length > 0 ? `Hi ${trimmed},` : "Hi,";
+}
+
+/** HTML-escaped greeting for the clipboard fragments. */
+export function buildInviteGreetingHtml(senderName?: string): string {
+	return escapeHtml(buildInviteGreeting(senderName));
+}
+
+function buildInvitePlainText(formUrl: string, senderName?: string): string {
 	return [
-		"Hi,",
+		buildInviteGreeting(senderName),
 		"",
 		"You've been invited to add your Claude account to our shared PixelOffice account pool.",
 		"",
@@ -44,8 +62,9 @@ function buildInvitePlainText(formUrl: string): string {
  * ignore full `<!doctype>` documents — only inline-styled table fragments paste
  * as rich content reliably.
  */
-function buildInviteClipboardHtml(formUrl: string): string {
+function buildInviteClipboardHtml(formUrl: string, senderName?: string): string {
 	const safeUrl = escapeHtml(formUrl);
+	const greeting = buildInviteGreetingHtml(senderName);
 	const font =
 		"-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif";
 	return [
@@ -55,7 +74,7 @@ function buildInviteClipboardHtml(formUrl: string): string {
 		`<tr><td style="padding:28px;font-family:${font};font-size:15px;line-height:1.55;color:#24292f;">`,
 		`<p style="margin:0 0 8px 0;font-size:12px;font-weight:600;letter-spacing:0.04em;text-transform:uppercase;color:#0084FF;text-align:center;">PixelOffice</p>`,
 		`<h1 style="margin:0 0 16px 0;font-size:22px;font-weight:600;color:#1f2328;text-align:center;line-height:1.3;">Join our shared Claude account pool</h1>`,
-		`<p style="margin:0 0 16px 0;font-size:15px;color:#24292f;">Hi,</p>`,
+		`<p style="margin:0 0 16px 0;font-size:15px;color:#24292f;">${greeting}</p>`,
 		`<p style="margin:0 0 16px 0;font-size:15px;color:#24292f;">You've been invited to add your Claude account to our shared PixelOffice account pool.</p>`,
 		`<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="margin:0 0 20px 0;">`,
 		`<tr><td style="background-color:#f6f8fa;border-left:4px solid #0084FF;border-radius:8px;padding:14px 16px;font-size:14px;color:#424a53;">`,
@@ -130,10 +149,13 @@ function buildCfHtmlEnvelope(fragment: string): string {
  * Invite a colleague to authorize Claude for the shared pool (paste-code OAuth).
  * `formUrl` is the Vercel authorization form (not the raw Anthropic auth URL).
  */
-export function buildClaudeOAuthInviteEmail(formUrl: string): ClaudeOAuthInviteEmail {
+export function buildClaudeOAuthInviteEmail(
+	formUrl: string,
+	options: ClaudeOAuthInviteOptions = {},
+): ClaudeOAuthInviteEmail {
 	const subject = "Authorize your Claude account for PixelOffice";
-	const body = buildInvitePlainText(formUrl);
-	const clipboardHtml = buildInviteClipboardHtml(formUrl);
+	const body = buildInvitePlainText(formUrl, options.senderName);
+	const clipboardHtml = buildInviteClipboardHtml(formUrl, options.senderName);
 	const htmlBody = buildInviteHtmlDocument(clipboardHtml);
 	const mailto = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
 	return { subject, body, htmlBody, clipboardHtml, mailto };
@@ -144,7 +166,7 @@ export function buildClaudeOAuthInviteEmail(formUrl: string): ClaudeOAuthInviteE
  */
 export function buildClaudeReauthInviteEmail(
 	formUrl: string,
-	options: { accountEmail?: string } = {},
+	options: ClaudeOAuthInviteOptions = {},
 ): ClaudeOAuthInviteEmail {
 	const accountEmail = options.accountEmail?.trim();
 	const seatLine =
@@ -153,7 +175,7 @@ export function buildClaudeReauthInviteEmail(
 			: [];
 	const subject = "Re-authorize your Claude account for PixelOffice";
 	const body = [
-		"Hi,",
+		buildInviteGreeting(options.senderName),
 		"",
 		"You've been asked to re-authorize a Claude account in our shared PixelOffice pool.",
 		"",
@@ -181,7 +203,7 @@ export function buildClaudeReauthInviteEmail(
 		`<tr><td style="padding:28px;font-family:${font};font-size:15px;line-height:1.55;color:#24292f;">`,
 		`<p style="margin:0 0 8px 0;font-size:12px;font-weight:600;letter-spacing:0.04em;text-transform:uppercase;color:#0084FF;text-align:center;">PixelOffice</p>`,
 		`<h1 style="margin:0 0 16px 0;font-size:22px;font-weight:600;color:#1f2328;text-align:center;line-height:1.3;">Re-authorize Claude account</h1>`,
-		`<p style="margin:0 0 16px 0;font-size:15px;color:#24292f;">Hi,</p>`,
+		`<p style="margin:0 0 16px 0;font-size:15px;color:#24292f;">${buildInviteGreetingHtml(options.senderName)}</p>`,
 		`<p style="margin:0 0 16px 0;font-size:15px;color:#24292f;">You've been asked to re-authorize a Claude account in our shared PixelOffice pool.</p>`,
 		seatBlock,
 		`<table role="presentation" border="0" cellpadding="0" cellspacing="0" style="margin:8px auto 20px auto;">`,

@@ -38,6 +38,30 @@ describe("createAuthSession", () => {
 			sessionId: "sess-1",
 		});
 	});
+
+	it("forwards authType and the sender identity, dropping blanks", async () => {
+		mutate.mockResolvedValue({
+			sessionId: "sess-1",
+			formUrl: "https://example.vercel.app/?sessionId=sess-1",
+			authType: "cc",
+			sender: "alice@akselos.com",
+			receiver: null,
+		});
+		await createAuthSession("https://claude.ai/oauth", {
+			sessionId: "sess-1",
+			authType: "cc",
+			sender: " alice@akselos.com ",
+			receiver: "   ",
+			accountName: "Alice",
+		});
+		expect(mutate).toHaveBeenCalledWith({
+			authLink: "https://claude.ai/oauth",
+			sessionId: "sess-1",
+			authType: "cc",
+			sender: "alice@akselos.com",
+			accountName: "Alice",
+		});
+	});
 });
 
 describe("pollAuthCode", () => {
@@ -61,6 +85,10 @@ describe("pollAuthCode", () => {
 				percentage: 40,
 				submittedAt: 1,
 				error: null,
+				authType: "authorize",
+				accountName: "Alice",
+				sender: "alice@akselos.com",
+				receiver: "bob@akselos.com",
 			});
 		const result = await pollAuthCode("sess-1", {
 			pollMs: 1,
@@ -70,7 +98,31 @@ describe("pollAuthCode", () => {
 			authCode: "abc#xyz",
 			percentage: 40,
 			submittedAt: 1,
+			authType: "authorize",
+			accountName: "Alice",
+			sender: "alice@akselos.com",
+			receiver: "bob@akselos.com",
 		});
+	});
+
+	it("tolerates a cc submission with no percentage", async () => {
+		query.mockResolvedValueOnce({
+			status: "ready",
+			authCode: "abc#xyz",
+			percentage: null,
+			submittedAt: 1,
+			error: null,
+			authType: "cc",
+			accountName: null,
+			sender: "alice@akselos.com",
+			receiver: null,
+		});
+		const result = await pollAuthCode("sess-1", {
+			pollMs: 1,
+			sleep: async () => undefined,
+		});
+		expect(result?.percentage).toBeNull();
+		expect(result?.authType).toBe("cc");
 	});
 
 	it("returns null when cancelled", async () => {
