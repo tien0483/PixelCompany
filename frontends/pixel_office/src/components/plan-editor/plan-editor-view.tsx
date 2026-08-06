@@ -1,17 +1,21 @@
+import type { Editor } from "@tiptap/react";
 import { X } from "lucide-react";
 import {
+	lazy,
 	type ReactElement,
 	Suspense,
-	lazy,
 	useCallback,
 	useEffect,
 	useRef,
 	useState,
 } from "react";
-import type { Editor } from "@tiptap/react";
 
 import { showAppToast } from "@/components/app-toaster";
-import { insertAtCursor, type TextSelectionState } from "@/components/plan-editor/markdown-selection-commands";
+import {
+	insertAtCursor,
+	type TextSelectionState,
+} from "@/components/plan-editor/markdown-selection-commands";
+import { PlanEditorErrorBoundary } from "@/components/plan-editor/plan-editor-error-boundary";
 import { PlanMarkdownToolbar } from "@/components/plan-editor/plan-markdown-toolbar";
 import { insertMarkdownImage } from "@/components/plan-editor/plan-rich-markdown";
 import { usePlanEditorDocument } from "@/components/plan-editor/use-plan-editor-document";
@@ -20,7 +24,9 @@ import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import type { RuntimeSavedPlan } from "@/runtime/types";
 
-const PlanRichEditor = lazy(() => import("@/components/plan-editor/plan-rich-editor"));
+const PlanRichEditor = lazy(
+	() => import("@/components/plan-editor/plan-rich-editor"),
+);
 
 type PlanEditorMode = "rich" | "plain";
 
@@ -30,8 +36,13 @@ export interface PlanEditorViewProps {
 	onClose: () => void;
 }
 
-export function PlanEditorView({ plan, workspaceId, onClose }: PlanEditorViewProps): ReactElement {
-	const { content, updateContent, statusLabel, status, flush } = usePlanEditorDocument(plan, workspaceId);
+export function PlanEditorView({
+	plan,
+	workspaceId,
+	onClose,
+}: PlanEditorViewProps): ReactElement {
+	const { content, updateContent, statusLabel, status, flush } =
+		usePlanEditorDocument(plan, workspaceId);
 	const [mode, setMode] = useState<PlanEditorMode>("rich");
 	const hasWarnedAboutRichModeRef = useRef(false);
 	const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -63,11 +74,13 @@ export function PlanEditorView({ plan, workspaceId, onClose }: PlanEditorViewPro
 		[applyTextCommand, mode, plan.id],
 	);
 
-	const { isUploading, uploadImageFile, handlePaste, handleDrop, handleDragOver } = usePlanImagePaste(
-		plan.id,
-		workspaceId,
-		insertMarkdownAtCursor,
-	);
+	const {
+		isUploading,
+		uploadImageFile,
+		handlePaste,
+		handleDrop,
+		handleDragOver,
+	} = usePlanImagePaste(plan.id, workspaceId, insertMarkdownAtCursor);
 
 	const handleEditorReady = useCallback((editor: Editor | null) => {
 		richEditorRef.current = editor;
@@ -82,10 +95,20 @@ export function PlanEditorView({ plan, workspaceId, onClose }: PlanEditorViewPro
 			hasWarnedAboutRichModeRef.current = true;
 			showAppToast({
 				intent: "warning",
-				message: "Rich mode may reformat parts of the markdown file when you save.",
+				message:
+					"Rich mode may reformat parts of the markdown file when you save.",
 			});
 		}
 		setMode("rich");
+	}, []);
+
+	const handleRichEditorError = useCallback((error: Error) => {
+		setMode("plain");
+		showAppToast({
+			intent: "danger",
+			message:
+				error.message || "Rich editor failed. Switched to plain text editing.",
+		});
 	}, []);
 
 	// First open is already rich — warn once after mount so users know about possible reformatting.
@@ -96,7 +119,8 @@ export function PlanEditorView({ plan, workspaceId, onClose }: PlanEditorViewPro
 		hasWarnedAboutRichModeRef.current = true;
 		showAppToast({
 			intent: "warning",
-			message: "Rich mode may reformat parts of the markdown file when you save.",
+			message:
+				"Rich mode may reformat parts of the markdown file when you save.",
 		});
 	}, []);
 
@@ -117,17 +141,30 @@ export function PlanEditorView({ plan, workspaceId, onClose }: PlanEditorViewPro
 		>
 			<div className="flex items-center justify-between gap-3 border-b border-border bg-surface-1 px-3 py-2 shrink-0">
 				<div className="flex min-w-0 flex-col gap-0.5">
-					<span className="truncate text-sm font-semibold text-text-primary">{plan.name}</span>
-					<span className="truncate text-[11px] text-text-tertiary" title={plan.path}>
+					<span className="truncate text-sm font-semibold text-text-primary">
+						{plan.name}
+					</span>
+					<span
+						className="truncate text-[11px] text-text-tertiary"
+						title={plan.path}
+					>
 						{plan.path}
 					</span>
 				</div>
 				<div className="flex items-center gap-3">
 					<div className="flex items-center gap-1.5 text-[11px] text-text-secondary min-w-[80px] justify-end">
-						{status === "loading" || status === "saving" || isUploading ? <Spinner size={12} /> : null}
+						{status === "loading" || status === "saving" || isUploading ? (
+							<Spinner size={12} />
+						) : null}
 						<span>{isUploading ? "Uploading…" : statusLabel}</span>
 					</div>
-					<Button variant="ghost" size="sm" icon={<X size={14} />} aria-label="Close plan editor" onClick={handleClose} />
+					<Button
+						variant="ghost"
+						size="sm"
+						icon={<X size={14} />}
+						aria-label="Close plan editor"
+						onClick={handleClose}
+					/>
 				</div>
 			</div>
 
@@ -154,25 +191,27 @@ export function PlanEditorView({ plan, workspaceId, onClose }: PlanEditorViewPro
 						data-testid="plan-editor-textarea"
 					/>
 				) : (
-					<Suspense
-						fallback={
-							<div className="flex flex-1 items-center justify-center">
-								<Spinner size={20} />
-							</div>
-						}
-					>
-						<PlanRichEditor
-							content={content}
-							onChange={updateContent}
-							planId={plan.id}
-							disabled={status === "loading"}
-							onInsertImage={(file) => void uploadImageFile(file)}
-							onPaste={handlePaste}
-							onDrop={handleDrop}
-							onDragOver={handleDragOver}
-							onEditorReady={handleEditorReady}
-						/>
-					</Suspense>
+					<PlanEditorErrorBoundary onError={handleRichEditorError}>
+						<Suspense
+							fallback={
+								<div className="flex flex-1 items-center justify-center">
+									<Spinner size={20} />
+								</div>
+							}
+						>
+							<PlanRichEditor
+								content={content}
+								onChange={updateContent}
+								planId={plan.id}
+								disabled={status === "loading"}
+								onInsertImage={(file) => void uploadImageFile(file)}
+								onPaste={handlePaste}
+								onDrop={handleDrop}
+								onDragOver={handleDragOver}
+								onEditorReady={handleEditorReady}
+							/>
+						</Suspense>
+					</PlanEditorErrorBoundary>
 				)}
 			</div>
 
