@@ -182,20 +182,12 @@ export function clearHomeGitSummary(): void {
 
 export function getTaskWorkspaceInfo(
 	taskId: string | null | undefined,
-	baseRef?: string | null,
 ): RuntimeTaskWorkspaceInfoResponse | null {
 	const normalizedTaskId = taskId?.trim();
 	if (!normalizedTaskId) {
 		return null;
 	}
-	const value = workspaceMetadataState.taskWorkspaceInfoByTaskId[normalizedTaskId] ?? null;
-	if (!value) {
-		return null;
-	}
-	if (baseRef && value.baseRef !== baseRef) {
-		return null;
-	}
-	return value;
+	return workspaceMetadataState.taskWorkspaceInfoByTaskId[normalizedTaskId] ?? null;
 }
 
 export function setTaskWorkspaceInfo(info: RuntimeTaskWorkspaceInfoResponse | null): boolean {
@@ -391,7 +383,6 @@ export function useHomeGitStateVersionValue(): number {
 
 export function useTaskWorkspaceInfoValue(
 	taskId: string | null | undefined,
-	baseRef?: string | null,
 ): RuntimeTaskWorkspaceInfoResponse | null {
 	const normalizedTaskId = taskId?.trim() ?? "";
 	return useSyncExternalStore(
@@ -401,7 +392,7 @@ export function useTaskWorkspaceInfoValue(
 			}
 			return subscribeToTaskId(normalizedTaskId, listener);
 		},
-		() => getTaskWorkspaceInfo(normalizedTaskId, baseRef),
+		() => getTaskWorkspaceInfo(normalizedTaskId),
 		() => null,
 	);
 }

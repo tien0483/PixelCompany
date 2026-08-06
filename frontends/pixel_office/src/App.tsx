@@ -68,7 +68,7 @@ import { useReviewStalenessAlert } from "@/hooks/use-review-staleness-alert";
 import { useSavedPlans } from "@/hooks/use-saved-plans";
 import { useShortcutActions } from "@/hooks/use-shortcut-actions";
 import { useStartupOnboarding } from "@/hooks/use-startup-onboarding";
-import { useTaskBranchOptions } from "@/hooks/use-task-branch-options";
+import { ensureBranchOptionPresent, useTaskBranchOptions } from "@/hooks/use-task-branch-options";
 import { useTaskEditor } from "@/hooks/use-task-editor";
 import { useTaskSessions } from "@/hooks/use-task-sessions";
 import { useTaskStartActions } from "@/hooks/use-task-start-actions";
@@ -428,6 +428,7 @@ export default function App(): ReactElement {
 		isEditTaskStartInPlanModeDisabled,
 		editTaskBranchRef,
 		setEditTaskBranchRef,
+		isEditTaskBaseRefLocked,
 		editTaskAgentId,
 		setEditTaskAgentId,
 		editTaskClineSettings,
@@ -453,6 +454,7 @@ export default function App(): ReactElement {
 		selectedAgentId: createTaskDefaultAgentId,
 		setSelectedTaskId,
 		queueTaskStartAfterEdit,
+		fetchTaskWorkspaceInfo,
 	});
 	const { plans: savedPlans, refresh: refreshSavedPlans } =
 		useSavedPlans(currentProjectId);
@@ -512,6 +514,8 @@ export default function App(): ReactElement {
 		cherryPickOntoHomeHead,
 		mergeHomeBranchIntoCurrent,
 		rebaseHomeCurrentOnto,
+		pushHomeBranch,
+		pushTaskBranch,
 		discardHomeWorkingChanges,
 		revertTaskFile,
 		revertTaskHunk,
@@ -848,8 +852,7 @@ export default function App(): ReactElement {
 			return null;
 		}
 		return (
-			getTaskWorkspaceInfo(selectedCard.card.id, selectedCard.card.baseRef)
-				?.path ??
+			getTaskWorkspaceInfo(selectedCard.card.id)?.path ??
 			getTaskWorkspaceSnapshot(selectedCard.card.id)?.path ??
 			null
 		);
@@ -862,8 +865,7 @@ export default function App(): ReactElement {
 	}, [runtimeProjectConfig, shouldUseNavigationPath]);
 
 	const activeWorkspacePath = selectedCard
-		? (getTaskWorkspaceInfo(selectedCard.card.id, selectedCard.card.baseRef)
-				?.path ??
+		? (getTaskWorkspaceInfo(selectedCard.card.id)?.path ??
 			getTaskWorkspaceSnapshot(selectedCard.card.id)?.path ??
 			workspacePath ??
 			undefined)
@@ -875,10 +877,7 @@ export default function App(): ReactElement {
 		if (!selectedCard) {
 			return undefined;
 		}
-		const activeSelectedTaskWorkspaceInfo = getTaskWorkspaceInfo(
-			selectedCard.card.id,
-			selectedCard.card.baseRef,
-		);
+		const activeSelectedTaskWorkspaceInfo = getTaskWorkspaceInfo(selectedCard.card.id);
 		if (!activeSelectedTaskWorkspaceInfo) {
 			return undefined;
 		}
@@ -1092,8 +1091,10 @@ export default function App(): ReactElement {
 			}}
 			workspaceId={currentProjectId}
 			branchRef={editTaskBranchRef}
-			branchOptions={createTaskBranchOptions}
+			branchOptions={ensureBranchOptionPresent(createTaskBranchOptions, editTaskBranchRef)}
 			onBranchRefChange={setEditTaskBranchRef}
+			branchSelectDisabled={isEditTaskBaseRefLocked}
+			branchSelectDisabledReason="Base ref is fixed once the task has started."
 			agentId={editTaskAgentId}
 			onAgentIdChange={setEditTaskAgentId}
 			clineSettings={editTaskClineSettings}
@@ -1170,7 +1171,6 @@ export default function App(): ReactElement {
 						workspaceHint={navbarWorkspaceHint}
 						runtimeHint={navbarRuntimeHint}
 						selectedTaskId={selectedCard?.card.id ?? null}
-						selectedTaskBaseRef={selectedCard?.card.baseRef ?? null}
 						showHomeGitSummary={!hasNoProjects && !selectedCard}
 						runningGitAction={
 							selectedCard || hasNoProjects ? null : runningGitAction
@@ -1336,6 +1336,9 @@ export default function App(): ReactElement {
 												}}
 												onRebaseCurrentOnto={(branch) => {
 													void rebaseHomeCurrentOnto(branch);
+												}}
+												onPushBranch={(branch) => {
+													void pushHomeBranch(branch);
 												}}
 												onCherryPickCommit={(commitHash) => {
 													void cherryPickOntoHomeHead(commitHash);
@@ -1564,6 +1567,13 @@ export default function App(): ReactElement {
 											<GitHistoryView
 												workspaceId={currentProjectId}
 												gitHistory={gitHistory}
+												onPushBranch={(branch) => {
+													void pushTaskBranch(
+														selectedCard.card.id,
+														selectedCard.card.baseRef,
+														branch,
+													);
+												}}
 											/>
 										) : undefined
 									}

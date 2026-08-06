@@ -23,6 +23,13 @@ const workspaceStateMocks = vi.hoisted(() => ({
 	loadWorkspaceContext: vi.fn(),
 }));
 
+const branchRegistryMocks = vi.hoisted(() => ({
+	deregisterActiveBranch: vi.fn(),
+	getActiveBranchEntry: vi.fn(),
+	recordTaskWorktreeBaseRef: vi.fn(),
+	registerActiveBranch: vi.fn(),
+}));
+
 const taskWorktreePathMocks = vi.hoisted(() => ({
 	getWorkspaceFolderLabelForWorktreePath: vi.fn(),
 	normalizeTaskIdForWorktreePath: vi.fn(),
@@ -46,6 +53,13 @@ vi.mock("../../src/state/workspace-state.js", () => ({
 	getTaskWorktreesHomePath: workspaceStateMocks.getTaskWorktreesHomePath,
 	getLegacyTaskWorktreesHomePath: workspaceStateMocks.getLegacyTaskWorktreesHomePath,
 	loadWorkspaceContext: workspaceStateMocks.loadWorkspaceContext,
+}));
+
+vi.mock("../../src/workspace/branch-registry.js", () => ({
+	deregisterActiveBranch: branchRegistryMocks.deregisterActiveBranch,
+	getActiveBranchEntry: branchRegistryMocks.getActiveBranchEntry,
+	recordTaskWorktreeBaseRef: branchRegistryMocks.recordTaskWorktreeBaseRef,
+	registerActiveBranch: branchRegistryMocks.registerActiveBranch,
 }));
 
 vi.mock("../../src/workspace/task-worktree-path.js", () => ({
@@ -112,6 +126,10 @@ describe.sequential("task-worktree serialization", () => {
 		workspaceStateMocks.getTaskWorktreesHomePath.mockReset();
 		workspaceStateMocks.getLegacyTaskWorktreesHomePath.mockReset();
 		workspaceStateMocks.loadWorkspaceContext.mockReset();
+		branchRegistryMocks.deregisterActiveBranch.mockReset();
+		branchRegistryMocks.getActiveBranchEntry.mockReset();
+		branchRegistryMocks.recordTaskWorktreeBaseRef.mockReset();
+		branchRegistryMocks.registerActiveBranch.mockReset();
 		taskWorktreePathMocks.getWorkspaceFolderLabelForWorktreePath.mockReset();
 		taskWorktreePathMocks.normalizeTaskIdForWorktreePath.mockReset();
 
@@ -132,6 +150,10 @@ describe.sequential("task-worktree serialization", () => {
 			},
 		);
 		lockedFileSystemMocks.writeTextFileAtomic.mockResolvedValue(undefined);
+		branchRegistryMocks.getActiveBranchEntry.mockResolvedValue(undefined);
+		branchRegistryMocks.recordTaskWorktreeBaseRef.mockResolvedValue(undefined);
+		branchRegistryMocks.registerActiveBranch.mockResolvedValue(undefined);
+		branchRegistryMocks.deregisterActiveBranch.mockResolvedValue(undefined);
 	});
 
 	afterEach(() => {
@@ -153,6 +175,7 @@ describe.sequential("task-worktree serialization", () => {
 			workspaceStateMocks.getLegacyTaskWorktreesHomePath.mockReturnValue(join(sandboxRoot, "legacy-worktrees-home"));
 			workspaceStateMocks.loadWorkspaceContext.mockResolvedValue({
 				repoPath,
+				workspaceId: "workspace-test",
 			});
 			taskWorktreePathMocks.getWorkspaceFolderLabelForWorktreePath.mockReturnValue("repo");
 			taskWorktreePathMocks.normalizeTaskIdForWorktreePath.mockImplementation((taskId: string) => taskId);

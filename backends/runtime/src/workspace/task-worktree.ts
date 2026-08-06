@@ -14,7 +14,7 @@ import {
 	getTaskWorktreesHomePath,
 	loadWorkspaceContext,
 } from "../state/workspace-state";
-import { deregisterActiveBranch, registerActiveBranch } from "./branch-registry";
+import { deregisterActiveBranch, getActiveBranchEntry, recordTaskWorktreeBaseRef, registerActiveBranch } from "./branch-registry";
 import { getGitCommandErrorMessage, getGitStdout, readGitHeadInfo, runGit } from "./git-utils";
 import { getWorkspaceFolderLabelForWorktreePath, normalizeTaskIdForWorktreePath } from "./task-worktree-path";
 import { listTurbopackNodeModulesSymlinkSkipPaths } from "./task-worktree-turbopack";
@@ -128,6 +128,32 @@ function deriveTaskBranchName(taskId: string): string {
 		.replace(/[^A-Za-z0-9._/-]+/g, "-")
 		.replace(/^[-/]+|[-/]+$/g, "");
 	return `kanban/task-${normalized || "task"}`;
+}
+
+async function resolveExistingWorktreeBaseRef(options: {
+	workspaceId: string;
+	taskId: string;
+	worktreePath: string;
+	requestedBaseRef: string;
+}): Promise<string> {
+	const fallback = options.requestedBaseRef.trim();
+	try {
+		const entry = await getActiveBranchEntry(options.workspaceId, options.taskId);
+		if (entry?.baseRef) {
+			return entry.baseRef;
+		}
+		if (fallback) {
+			await recordTaskWorktreeBaseRef(options.workspaceId, {
+				taskId: options.taskId,
+				branch: entry?.branch || deriveTaskBranchName(options.taskId),
+				worktreePath: entry?.worktreePath || options.worktreePath,
+				baseRef: fallback,
+			});
+		}
+		return fallback;
+	} catch {
+		return fallback;
+	}
 }
 
 async function deregisterActiveBranchForRepo(repoPath: string, taskId: string): Promise<void> {
@@ -485,10 +511,16 @@ export async function ensureTaskWorktreeIfDoesntExist(options: {
 		const existingResult = await runGit(worktreePath, ["rev-parse", "HEAD"]);
 		if (existingResult.ok && existingResult.stdout) {
 			await syncIgnoredPathsIntoWorktree(context.repoPath, worktreePath);
+			const baseRef = await resolveExistingWorktreeBaseRef({
+				workspaceId: context.workspaceId,
+				taskId,
+				worktreePath,
+				requestedBaseRef: options.baseRef,
+			});
 			return {
 				ok: true,
 				path: worktreePath,
-				baseRef: options.baseRef.trim(),
+				baseRef,
 				baseCommit: existingResult.stdout,
 			};
 		}
@@ -497,10 +529,16 @@ export async function ensureTaskWorktreeIfDoesntExist(options: {
 			const lockedExistingCommit = await tryRunGit(worktreePath, ["rev-parse", "HEAD"]);
 			if (lockedExistingCommit) {
 				await syncIgnoredPathsIntoWorktree(context.repoPath, worktreePath);
+				const baseRef = await resolveExistingWorktreeBaseRef({
+					workspaceId: context.workspaceId,
+					taskId,
+					worktreePath,
+					requestedBaseRef: options.baseRef,
+				});
 				return {
 					ok: true,
 					path: worktreePath,
-					baseRef: options.baseRef.trim(),
+					baseRef,
 					baseCommit: lockedExistingCommit,
 				};
 			}
@@ -571,6 +609,7 @@ export async function ensureTaskWorktreeIfDoesntExist(options: {
 				taskId,
 				branch: deriveTaskBranchName(taskId),
 				worktreePath,
+				baseRef: requestedBaseRef,
 			});
 
 			if (storedPatch && baseCommit === storedPatch.commit) {
@@ -686,15 +725,21 @@ export async function resolveTaskCwd(options: {
 
 export async function getTaskWorkspacePathInfo(options: {
 	cwd: string;
+	workspaceId: string;
 	taskId: string;
 	baseRef: string;
 }): Promise<Pick<RuntimeTaskWorkspaceInfoResponse, "taskId" | "path" | "exists" | "baseRef">> {
 	const taskId = normalizeTaskIdForWorktreePath(options.taskId);
 	const normalizedBaseRef = options.baseRef.trim();
 	const repoPath = options.cwd.trim();
+	const workspaceId = options.workspaceId.trim();
 
 	if (!repoPath) {
 		throw new Error("Task workspace root is required for task workspace info.");
+	}
+
+	if (!workspaceId) {
+		throw new Error("Workspace id is required for task workspace info.");
 	}
 
 	if (!normalizedBaseRef) {
@@ -702,16 +747,29 @@ export async function getTaskWorkspacePathInfo(options: {
 	}
 
 	const worktreePath = getTaskWorktreePath(repoPath, taskId);
+	const exists = await pathExists(worktreePath);
+	let baseRef = normalizedBaseRef;
+	if (exists) {
+		try {
+			const entry = await getActiveBranchEntry(workspaceId, taskId);
+			if (entry?.baseRef) {
+				baseRef = entry.baseRef;
+			}
+		} catch {
+			// Registry read must never be fatal on the metadata poll path.
+		}
+	}
 	return {
 		taskId,
 		path: worktreePath,
-		exists: await pathExists(worktreePath),
-		baseRef: normalizedBaseRef,
+		exists,
+		baseRef,
 	};
 }
 
 export async function getTaskWorkspaceInfo(options: {
 	cwd: string;
+	workspaceId: string;
 	taskId: string;
 	baseRef: string;
 }): Promise<RuntimeTaskWorkspaceInfoResponse> {

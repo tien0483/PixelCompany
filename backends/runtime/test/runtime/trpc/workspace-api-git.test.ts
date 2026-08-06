@@ -13,6 +13,7 @@ const gitSyncMocks = vi.hoisted(() => ({
 	runGitCheckoutAction: vi.fn(),
 	runGitCherryPickAction: vi.fn(),
 	runGitMergeIntoCurrentAction: vi.fn(),
+	runGitMergeBranchAction: vi.fn(),
 	runGitPushBranchAction: vi.fn(),
 	runGitRebaseCurrentOntoAction: vi.fn(),
 	runGitSyncAction: vi.fn(),
@@ -72,6 +73,7 @@ beforeEach(() => {
 	historyMocks.getBlame.mockReset();
 	worktreeInventoryMocks.listGitWorktrees.mockReset();
 	taskWorktreeMocks.resolveTaskCwd.mockReset();
+	taskWorktreeMocks.getTaskWorkspaceInfo.mockReset();
 	taskWorktreeMocks.resolveTaskCwd.mockResolvedValue("/repo/.worktrees/task-1");
 });
 
@@ -410,6 +412,54 @@ describe("workspaceApi.rebaseCurrentOnto", () => {
 		expect(gitSyncMocks.runGitRebaseCurrentOntoAction).toHaveBeenCalledWith({
 			cwd: "/repo",
 			branch: "main",
+		});
+		expect(broadcast).toHaveBeenCalledWith("ws-1", "/repo");
+		expect(res.ok).toBe(true);
+	});
+});
+
+describe("workspaceApi.mergeTaskBranch", () => {
+	it("merges into the authoritative workspace info baseRef, not the request body baseRef", async () => {
+		taskWorktreeMocks.getTaskWorkspaceInfo.mockResolvedValue({
+			taskId: "task-1",
+			path: "/repo/.worktrees/task-1",
+			exists: true,
+			baseRef: "release",
+			branch: "kanban/task-1",
+			isDetached: false,
+			headCommit: "abc123",
+		});
+		worktreeInventoryMocks.listGitWorktrees.mockResolvedValue({
+			ok: true,
+			worktrees: [
+				{ path: "/repo", branch: "main" },
+				{ path: "/repo-release", branch: "release" },
+			],
+		});
+		gitSyncMocks.runGitMergeBranchAction.mockResolvedValue({
+			ok: true,
+			branch: "kanban/task-1",
+			baseRef: "release",
+			summary: SUMMARY,
+			output: "",
+		});
+		const { api, broadcast } = makeApi();
+
+		const res = await api.mergeTaskBranch(SCOPE, {
+			taskId: "task-1",
+			baseRef: "main",
+		});
+
+		expect(taskWorktreeMocks.getTaskWorkspaceInfo).toHaveBeenCalledWith({
+			cwd: "/repo",
+			workspaceId: "ws-1",
+			taskId: "task-1",
+			baseRef: "main",
+		});
+		expect(gitSyncMocks.runGitMergeBranchAction).toHaveBeenCalledWith({
+			cwd: "/repo-release",
+			branch: "kanban/task-1",
+			baseRef: "release",
 		});
 		expect(broadcast).toHaveBeenCalledWith("ws-1", "/repo");
 		expect(res.ok).toBe(true);

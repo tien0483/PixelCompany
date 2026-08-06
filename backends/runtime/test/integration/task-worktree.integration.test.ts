@@ -4,12 +4,13 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { deleteTaskWorktree, ensureTaskWorktreeIfDoesntExist } from "../../src/workspace/task-worktree";
+import { deleteTaskWorktree, ensureTaskWorktreeIfDoesntExist, getTaskWorkspaceInfo } from "../../src/workspace/task-worktree";
 import {
 	KANBAN_RUNTIME_HOME_DIR_NAME,
 	KANBAN_TASK_WORKTREES_HOME_DIR_NAME,
 	LEGACY_KANBAN_TASK_WORKTREES_HOME_DIR_NAME,
 } from "../../src/workspace/task-worktree-path";
+import { loadWorkspaceContext } from "../../src/state/workspace-state";
 import { createGitTestEnv } from "../utilities/git-env";
 import { createTempDir } from "../utilities/temp-dir";
 
@@ -484,6 +485,55 @@ describe.sequential("task-worktree integration", () => {
 				expect(ensured.ok).toBe(true);
 				expect(ensured.path).toBe(legacyWorktreePath);
 				expect(existsSync(currentWorktreePath)).toBe(false);
+			} finally {
+				cleanup();
+			}
+		});
+	});
+
+	it("keeps the persisted worktree baseRef authoritative after creation", async () => {
+		await withTemporaryHome(async () => {
+			const { path: sandboxRoot, cleanup } = createTempDir("kanban-task-worktree-base-ref-");
+			try {
+				const repoPath = join(sandboxRoot, "repo");
+				mkdirSync(repoPath, { recursive: true });
+
+				runGit(repoPath, ["init"]);
+				runGit(repoPath, ["config", "user.name", "Kanban Test"]);
+				runGit(repoPath, ["config", "user.email", "kanban-test@example.com"]);
+				writeFileSync(join(repoPath, "README.md"), "hello\n", "utf8");
+				runGit(repoPath, ["add", "README.md"]);
+				runGit(repoPath, ["commit", "-m", "init"]);
+				const baseBranch = runGit(repoPath, ["symbolic-ref", "--short", "HEAD"]);
+				runGit(repoPath, ["branch", "release"]);
+
+				const taskId = `task-base-ref-${Date.now()}`;
+				const ensured = await ensureTaskWorktreeIfDoesntExist({
+					cwd: repoPath,
+					taskId,
+					baseRef: baseBranch,
+				});
+				expect(ensured.ok).toBe(true);
+				expect(ensured.baseRef).toBe(baseBranch);
+
+				const context = await loadWorkspaceContext(repoPath);
+				const infoWithDriftedCard = await getTaskWorkspaceInfo({
+					cwd: repoPath,
+					workspaceId: context.workspaceId,
+					taskId,
+					baseRef: "release",
+				});
+				expect(infoWithDriftedCard.exists).toBe(true);
+				expect(infoWithDriftedCard.baseRef).toBe(baseBranch);
+
+				await deleteTaskWorktree({ repoPath, taskId });
+				const recreated = await ensureTaskWorktreeIfDoesntExist({
+					cwd: repoPath,
+					taskId,
+					baseRef: "release",
+				});
+				expect(recreated.ok).toBe(true);
+				expect(recreated.baseRef).toBe("release");
 			} finally {
 				cleanup();
 			}

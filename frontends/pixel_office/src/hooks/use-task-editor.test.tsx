@@ -45,6 +45,7 @@ interface HookSnapshot {
 	newTaskManagerAccountId: number | undefined;
 	editingTaskId: string | null;
 	editTaskPrompt: string;
+	editTaskBranchRef: string;
 	editTaskStartInPlanMode: boolean;
 	isEditTaskStartInPlanModeDisabled: boolean;
 	handleOpenCreateTask: () => void;
@@ -74,10 +75,14 @@ function HookHarness({
 	initialBoard,
 	onSnapshot,
 	queueTaskStartAfterEdit,
+	createTaskBranchOptions = [{ value: "main", label: "main" }],
+	defaultTaskBranchRef = "main",
 }: {
 	initialBoard: BoardData;
 	onSnapshot: (snapshot: HookSnapshot) => void;
 	queueTaskStartAfterEdit?: (taskId: string) => void;
+	createTaskBranchOptions?: Array<{ value: string; label: string }>;
+	defaultTaskBranchRef?: string;
 }): null {
 	const [board, setBoard] = useState<BoardData>(initialBoard);
 	const [, setSelectedTaskId] = useState<string | null>(null);
@@ -85,8 +90,8 @@ function HookHarness({
 		board,
 		setBoard,
 		currentProjectId: "project-1",
-		createTaskBranchOptions: [{ value: "main", label: "main" }],
-		defaultTaskBranchRef: "main",
+		createTaskBranchOptions,
+		defaultTaskBranchRef,
 		selectedAgentId: null,
 		setSelectedTaskId,
 		queueTaskStartAfterEdit,
@@ -104,6 +109,7 @@ function HookHarness({
 			newTaskManagerAccountId: editor.newTaskManagerAccountId,
 			editingTaskId: editor.editingTaskId,
 			editTaskPrompt: editor.editTaskPrompt,
+			editTaskBranchRef: editor.editTaskBranchRef,
 			editTaskStartInPlanMode: editor.editTaskStartInPlanMode,
 			isEditTaskStartInPlanModeDisabled: editor.isEditTaskStartInPlanModeDisabled,
 			handleOpenCreateTask: editor.handleOpenCreateTask,
@@ -127,6 +133,7 @@ function HookHarness({
 		editor.handleCreateTasks,
 		editor.handleOpenCreateTask,
 		editor.editTaskPrompt,
+		editor.editTaskBranchRef,
 		editor.editTaskStartInPlanMode,
 		editor.editingTaskId,
 		editor.handleOpenEditTask,
@@ -256,6 +263,40 @@ describe("useTaskEditor", () => {
 		});
 
 		expect(requireSnapshot(latestSnapshot).isEditTaskStartInPlanModeDisabled).toBe(false);
+	});
+
+	it("keeps the stored baseRef when branch options do not include it", async () => {
+		let latestSnapshot: HookSnapshot | null = null;
+		const initialBoard = createBoard([
+			createTask("task-1", "Initial prompt", 1, {
+				baseRef: "release/1.0",
+			}),
+		]);
+
+		await act(async () => {
+			root.render(
+				<HookHarness
+					initialBoard={initialBoard}
+					createTaskBranchOptions={[{ value: "main", label: "main" }]}
+					defaultTaskBranchRef="main"
+					onSnapshot={(snapshot) => {
+						latestSnapshot = snapshot;
+					}}
+				/>,
+			);
+		});
+
+		const initialSnapshot = requireSnapshot(latestSnapshot);
+		const task = initialSnapshot.board.columns[0]?.cards[0];
+		if (!task) {
+			throw new Error("Expected a backlog task.");
+		}
+
+		await act(async () => {
+			initialSnapshot.handleOpenEditTask(task);
+		});
+
+		expect(requireSnapshot(latestSnapshot).editTaskBranchRef).toBe("release/1.0");
 	});
 
 	it("queues the saved task id when saving and starting an edited task", async () => {

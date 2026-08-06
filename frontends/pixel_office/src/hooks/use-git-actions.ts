@@ -91,6 +91,7 @@ export interface UseGitActionsResult {
 	isCreatingHomeBranch: boolean;
 	isMergingHomeBranch: boolean;
 	isRebasingHomeBranch: boolean;
+	isPushingHomeBranch: boolean;
 	isDiscardingHomeWorkingChanges: boolean;
 	gitActionError: {
 		action: RuntimeGitSyncAction;
@@ -110,6 +111,12 @@ export interface UseGitActionsResult {
 	cherryPickOntoHomeHead: (commitHash: string) => Promise<void>;
 	mergeHomeBranchIntoCurrent: (branch: string) => Promise<void>;
 	rebaseHomeCurrentOnto: (branch: string) => Promise<void>;
+	pushHomeBranch: (branch: string) => Promise<void>;
+	pushTaskBranch: (
+		taskId: string,
+		baseRef: string,
+		branch: string,
+	) => Promise<void>;
 	discardHomeWorkingChanges: () => Promise<void>;
 	revertTaskFile: (
 		taskId: string,
@@ -154,9 +161,7 @@ function matchesWorkspaceInfoSelection(
 	if (!workspaceInfo || !card) {
 		return false;
 	}
-	return (
-		workspaceInfo.taskId === card.id && workspaceInfo.baseRef === card.baseRef
-	);
+	return workspaceInfo.taskId === card.id;
 }
 
 export function useGitActions({
@@ -179,6 +184,7 @@ export function useGitActions({
 	const [isCreatingHomeBranch, setIsCreatingHomeBranch] = useState(false);
 	const [isMergingHomeBranch, setIsMergingHomeBranch] = useState(false);
 	const [isRebasingHomeBranch, setIsRebasingHomeBranch] = useState(false);
+	const [isPushingHomeBranch, setIsPushingHomeBranch] = useState(false);
 	const [mergeTaskLoadingById, setMergeTaskLoadingById] = useState<Record<string, boolean>>({});
 	const [reviewFollowOnById, setReviewFollowOnById] = useState<Record<string, ReviewFollowOnState>>(
 		{},
@@ -365,21 +371,18 @@ export function useGitActions({
 				}
 
 				const snapshot = getTaskWorkspaceSnapshot(taskId);
+				const storedWorkspaceInfo = getTaskWorkspaceInfo(selection.card.id);
 				const snapshotWorkspaceInfo = snapshot
 					? {
 							taskId,
 							path: snapshot.path,
 							exists: true,
-							baseRef: selection.card.baseRef,
+							baseRef: storedWorkspaceInfo?.baseRef ?? selection.card.baseRef,
 							branch: snapshot.branch,
 							isDetached: snapshot.isDetached,
 							headCommit: snapshot.headCommit,
 						}
 					: null;
-				const storedWorkspaceInfo = getTaskWorkspaceInfo(
-					selection.card.id,
-					selection.card.baseRef,
-				);
 				const workspaceInfo = matchesWorkspaceInfoSelection(
 					storedWorkspaceInfo,
 					selection.card,
@@ -1299,6 +1302,106 @@ export function useGitActions({
 		],
 	);
 
+	const pushHomeBranch = useCallback(
+		async (branch: string) => {
+			const normalizedBranch = branch.trim();
+			if (!currentProjectId || isPushingHomeBranch || !normalizedBranch) {
+				return;
+			}
+			setIsPushingHomeBranch(true);
+			try {
+				const trpcClient = getRuntimeTrpcClient(currentProjectId);
+				const payload = await trpcClient.workspace.pushGitBranch.mutate({
+					branch: normalizedBranch,
+				});
+				if (!payload.ok) {
+					const errorMessage = payload.error ?? "Push failed.";
+					showAppToast({
+						intent: "danger",
+						icon: "warning-sign",
+						message: `Could not push ${normalizedBranch}. ${errorMessage}`,
+						timeout: 7000,
+					});
+					return;
+				}
+				refreshGitHistory();
+				await refreshWorkspaceState();
+				showAppToast({
+					intent: "success",
+					icon: "tick",
+					message: `Pushed ${normalizedBranch} to remote.`,
+					timeout: 4000,
+				});
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error);
+				showAppToast({
+					intent: "danger",
+					icon: "warning-sign",
+					message: `Could not push ${normalizedBranch}. ${message}`,
+					timeout: 7000,
+				});
+			} finally {
+				setIsPushingHomeBranch(false);
+			}
+		},
+		[currentProjectId, isPushingHomeBranch, refreshGitHistory, refreshWorkspaceState],
+	);
+
+	const pushTaskBranch = useCallback(
+		async (taskId: string, baseRef: string, branch: string) => {
+			const normalizedBranch = branch.trim();
+			const normalizedTaskId = taskId.trim();
+			const normalizedBaseRef = baseRef.trim();
+			if (
+				!currentProjectId ||
+				isPushingHomeBranch ||
+				!normalizedBranch ||
+				!normalizedTaskId ||
+				!normalizedBaseRef
+			) {
+				return;
+			}
+			setIsPushingHomeBranch(true);
+			try {
+				const trpcClient = getRuntimeTrpcClient(currentProjectId);
+				const payload = await trpcClient.workspace.pushGitBranch.mutate({
+					taskId: normalizedTaskId,
+					baseRef: normalizedBaseRef,
+					branch: normalizedBranch,
+				});
+				if (!payload.ok) {
+					const errorMessage = payload.error ?? "Push failed.";
+					showAppToast({
+						intent: "danger",
+						icon: "warning-sign",
+						message: `Could not push ${normalizedBranch}. ${errorMessage}`,
+						timeout: 7000,
+					});
+					return;
+				}
+				refreshGitHistory();
+				await refreshWorkspaceState();
+				showAppToast({
+					intent: "success",
+					icon: "tick",
+					message: `Pushed ${normalizedBranch} to remote.`,
+					timeout: 4000,
+				});
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error);
+				showAppToast({
+					intent: "danger",
+					icon: "warning-sign",
+					message: `Could not push ${normalizedBranch}. ${message}`,
+					timeout: 7000,
+				});
+			} finally {
+				setIsPushingHomeBranch(false);
+			}
+		},
+		[currentProjectId, isPushingHomeBranch, refreshGitHistory, refreshWorkspaceState],
+	);
+
 	const discardHomeWorkingChanges = useCallback(async () => {
 		if (!currentProjectId || isDiscardingHomeWorkingChanges) {
 			return;
@@ -1568,6 +1671,7 @@ export function useGitActions({
 		isCreatingHomeBranch,
 		isMergingHomeBranch,
 		isRebasingHomeBranch,
+		isPushingHomeBranch,
 		isDiscardingHomeWorkingChanges,
 		gitActionError,
 		gitActionErrorTitle,
@@ -1582,6 +1686,8 @@ export function useGitActions({
 		cherryPickOntoHomeHead,
 		mergeHomeBranchIntoCurrent,
 		rebaseHomeCurrentOnto,
+		pushHomeBranch,
+		pushTaskBranch,
 		discardHomeWorkingChanges,
 		revertTaskFile,
 		revertTaskHunk,

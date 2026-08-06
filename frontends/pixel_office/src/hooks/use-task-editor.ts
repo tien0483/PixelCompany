@@ -3,7 +3,12 @@ import type { Dispatch, SetStateAction } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { TASK_START_IN_PLAN_MODE_STORAGE_KEY } from "@/hooks/app-utils";
-import type { RuntimeAgentId, RuntimeTaskClineSettings, RuntimeTaskLaunchSettings } from "@/runtime/types";
+import type {
+	RuntimeAgentId,
+	RuntimeTaskClineSettings,
+	RuntimeTaskLaunchSettings,
+	RuntimeTaskWorkspaceInfoResponse,
+} from "@/runtime/types";
 import { addTaskToColumnWithResult, findCardSelection, updateTask, updateTaskTitle } from "@/state/board-state";
 import { isTaskInChain } from "@/state/chain-groups";
 import { toTelemetrySelectedAgentId, trackTaskCreated } from "@/telemetry/events";
@@ -20,6 +25,9 @@ interface UseTaskEditorInput {
 	selectedAgentId: RuntimeAgentId | null;
 	setSelectedTaskId: Dispatch<SetStateAction<string | null>>;
 	queueTaskStartAfterEdit?: (taskId: string) => void;
+	fetchTaskWorkspaceInfo?: (
+		task: BoardCard,
+	) => Promise<RuntimeTaskWorkspaceInfoResponse | null>;
 }
 
 interface OpenEditTaskOptions {
@@ -72,6 +80,7 @@ export interface UseTaskEditorResult {
 	isEditTaskStartInPlanModeDisabled: boolean;
 	editTaskBranchRef: string;
 	setEditTaskBranchRef: Dispatch<SetStateAction<string>>;
+	isEditTaskBaseRefLocked: boolean;
 	editTaskAgentId: RuntimeAgentId | undefined;
 	setEditTaskAgentId: Dispatch<SetStateAction<RuntimeAgentId | undefined>>;
 	editTaskClineSettings: RuntimeTaskClineSettings | undefined;
@@ -99,6 +108,7 @@ export function useTaskEditor({
 	selectedAgentId,
 	setSelectedTaskId,
 	queueTaskStartAfterEdit,
+	fetchTaskWorkspaceInfo,
 }: UseTaskEditorInput): UseTaskEditorResult {
 	const [isInlineTaskCreateOpen, setIsInlineTaskCreateOpen] = useState(false);
 	const [newTaskPrompt, setNewTaskPrompt] = useState("");
@@ -121,6 +131,7 @@ export function useTaskEditor({
 	const [editTaskAutoReviewMode, setEditTaskAutoReviewMode] = useState<TaskAutoReviewMode>("commit");
 	const isEditTaskStartInPlanModeDisabled = false;
 	const [editTaskBranchRef, setEditTaskBranchRef] = useState("");
+	const [isEditTaskBaseRefLocked, setIsEditTaskBaseRefLocked] = useState(false);
 
 	const [newTaskAgentId, setNewTaskAgentId] = useState<RuntimeAgentId | undefined>(undefined);
 	const [newTaskClineSettings, setNewTaskClineSettings] = useState<RuntimeTaskClineSettings | undefined>(undefined);
@@ -184,8 +195,9 @@ export function useTaskEditor({
 		if (!editingTaskId) {
 			return;
 		}
-		const isCurrentValid = createTaskBranchOptions.some((option) => option.value === editTaskBranchRef);
-		if (isCurrentValid) {
+		// Never clobber a non-empty edit base ref just because it's momentarily absent
+		// from branch options (that used to silently drift the stored base ref).
+		if (editTaskBranchRef.trim()) {
 			return;
 		}
 		setEditTaskBranchRef(resolvedDefaultTaskBranchRef);
@@ -253,11 +265,24 @@ export function useTaskEditor({
 			setEditTaskAutoReviewMode(resolveTaskAutoReviewMode(task.autoReviewMode));
 			const fallbackBranch = task.baseRef || resolvedDefaultTaskBranchRef;
 			setEditTaskBranchRef(fallbackBranch);
+			setIsEditTaskBaseRefLocked(false);
 			setEditTaskAgentId(task.agentId);
 			setEditTaskClineSettings(task.clineSettings);
 			setEditTaskLaunchSettings(task.taskLaunchSettings);
+
+			if (fetchTaskWorkspaceInfo) {
+				void fetchTaskWorkspaceInfo(task).then((info) => {
+					if (!info || info.taskId !== task.id) {
+						return;
+					}
+					if (info.baseRef.trim()) {
+						setEditTaskBranchRef(info.baseRef);
+					}
+					setIsEditTaskBaseRefLocked(info.exists === true);
+				});
+			}
 		},
-		[resolvedDefaultTaskBranchRef, setSelectedTaskId],
+		[fetchTaskWorkspaceInfo, resolvedDefaultTaskBranchRef, setSelectedTaskId],
 	);
 
 	const handleCancelEditTask = useCallback(() => {
@@ -270,6 +295,7 @@ export function useTaskEditor({
 		setEditTaskAutoReviewMode("commit");
 		setEditTaskImages([]);
 		setEditTaskBranchRef("");
+		setIsEditTaskBaseRefLocked(false);
 	}, []);
 
 	const handleSaveEditedTask = useCallback((): string | null => {
@@ -529,6 +555,7 @@ export function useTaskEditor({
 		setEditTaskAutoReviewMode("commit");
 		setEditTaskImages([]);
 		setEditTaskBranchRef("");
+		setIsEditTaskBaseRefLocked(false);
 		setEditTaskAgentId(undefined);
 		setEditTaskClineSettings(undefined);
 		setEditTaskLaunchSettings(undefined);
@@ -579,6 +606,7 @@ export function useTaskEditor({
 		isEditTaskStartInPlanModeDisabled,
 		editTaskBranchRef,
 		setEditTaskBranchRef,
+		isEditTaskBaseRefLocked,
 		editTaskAgentId,
 		setEditTaskAgentId,
 		editTaskClineSettings,

@@ -409,6 +409,7 @@ export function createWorkspaceApi(deps: CreateWorkspaceApiDependencies): Runtim
 				const body = parseGitMergeBranchRequest(input);
 				const info = await getTaskWorkspaceInfo({
 					cwd: workspaceScope.workspacePath,
+					workspaceId: workspaceScope.workspaceId,
 					taskId: body.taskId,
 					baseRef: body.baseRef,
 				});
@@ -422,14 +423,14 @@ export function createWorkspaceApi(deps: CreateWorkspaceApiDependencies): Runtim
 				if (!inventory.ok) {
 					throw new Error(inventory.error ?? "Could not list git worktrees.");
 				}
-				const baseWorktree = inventory.worktrees.find((entry) => entry.branch === body.baseRef);
+				const baseWorktree = inventory.worktrees.find((entry) => entry.branch === info.baseRef);
 				if (!baseWorktree) {
-					throw new Error(`Check out '${body.baseRef}' in a worktree before merging.`);
+					throw new Error(`Check out '${info.baseRef}' in a worktree before merging.`);
 				}
 				const response = await runGitMergeBranchAction({
 					cwd: baseWorktree.path,
 					branch: info.branch,
-					baseRef: body.baseRef,
+					baseRef: info.baseRef,
 				});
 				if (response.ok) {
 					void deps.broadcastRuntimeWorkspaceStateUpdated(
@@ -770,6 +771,7 @@ export function createWorkspaceApi(deps: CreateWorkspaceApiDependencies): Runtim
 			const worktreeTaskId = input.worktreeTaskId?.trim() || normalizedInput.taskId;
 			const info = await getTaskWorkspaceInfo({
 				cwd: workspaceScope.workspacePath,
+				workspaceId: workspaceScope.workspaceId,
 				taskId: worktreeTaskId,
 				baseRef: normalizedInput.baseRef,
 			});
