@@ -73,6 +73,7 @@ describe("RemoteFileBrowserDialog", () => {
 			open?: boolean;
 			onSelect?: (p: string, type: "file" | "folder") => void;
 			onOpenChange?: (o: boolean) => void;
+			initialPath?: string;
 		} = {},
 	) {
 		const props = {
@@ -136,7 +137,23 @@ describe("RemoteFileBrowserDialog", () => {
 		expect(btn.disabled).toBe(false);
 	});
 
-	it("navigates into a directory on click", async () => {
+	it("highlights a directory row on click without navigating", async () => {
+		mockQuery.mockResolvedValue(makeResponse());
+		renderDialog();
+		await flushQuery();
+
+		const entry = q('[data-testid="dir-entry-app-a"]') as HTMLDivElement;
+		expect(entry).not.toBeNull();
+		act(() => {
+			entry.click();
+		});
+
+		// Selecting a folder must not trigger a directory-list refetch.
+		expect(mockQuery).toHaveBeenCalledTimes(1);
+		expect(entry.className).toContain("bg-surface-3");
+	});
+
+	it("navigates into a directory on double-click", async () => {
 		mockQuery.mockResolvedValueOnce(makeResponse());
 		renderDialog();
 		await flushQuery();
@@ -149,16 +166,71 @@ describe("RemoteFileBrowserDialog", () => {
 			}),
 		);
 
-		const entry = q('[data-testid="dir-entry-app-a"]') as HTMLButtonElement;
+		const entry = q('[data-testid="dir-entry-app-a"]') as HTMLDivElement;
 		expect(entry).not.toBeNull();
 		act(() => {
-			entry.click();
+			entry.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
 		});
 		await flushQuery();
 
 		expect(mockQuery).toHaveBeenCalledTimes(2);
 		expect(mockQuery).toHaveBeenLastCalledWith({ path: "/srv/projects/app-a", includeFiles: true });
 		expect(bodyText()).toContain("src");
+	});
+
+	it("navigates into a directory via the chevron open button", async () => {
+		mockQuery.mockResolvedValueOnce(makeResponse());
+		renderDialog();
+		await flushQuery();
+
+		mockQuery.mockResolvedValueOnce(
+			makeResponse({
+				currentPath: "/srv/projects/app-a",
+				parentPath: "/srv/projects",
+				entries: [{ name: "src", path: "/srv/projects/app-a/src", isGitRepository: false, isDirectory: true }],
+			}),
+		);
+
+		const openBtn = q('[data-testid="dir-entry-open-app-a"]') as HTMLButtonElement;
+		expect(openBtn).not.toBeNull();
+		act(() => {
+			openBtn.click();
+		});
+		await flushQuery();
+
+		expect(mockQuery).toHaveBeenCalledTimes(2);
+		expect(mockQuery).toHaveBeenLastCalledWith({ path: "/srv/projects/app-a", includeFiles: true });
+		expect(bodyText()).toContain("src");
+	});
+
+	it("fires onSelect with a highlighted (but not navigated-into) folder path", async () => {
+		mockQuery.mockResolvedValue(makeResponse());
+		const onSelect = vi.fn();
+		renderDialog({ onSelect });
+		await flushQuery();
+
+		const entry = q('[data-testid="dir-entry-app-b"]') as HTMLDivElement;
+		act(() => {
+			entry.click();
+		});
+
+		const selectBtn = Array.from(document.body.querySelectorAll("button")).find(
+			(b) => b.textContent?.trim() === "Select",
+		)!;
+		act(() => {
+			selectBtn.click();
+		});
+		expect(onSelect).toHaveBeenCalledWith("/srv/projects/app-b", "folder");
+	});
+
+	it("opens at initialPath when provided", async () => {
+		mockQuery.mockResolvedValue(
+			makeResponse({ currentPath: "/srv/projects/app-a", parentPath: "/srv/projects" }),
+		);
+		renderDialog({ initialPath: "/srv/projects/app-a" });
+		await flushQuery();
+
+		expect(mockQuery).toHaveBeenCalledWith({ path: "/srv/projects/app-a", includeFiles: true });
 	});
 
 	it("fires onSelect with the current path", async () => {
@@ -315,7 +387,7 @@ describe("RemoteFileBrowserDialog", () => {
 		expect(bc!.textContent).toContain("src");
 	});
 
-	it("navigates into a Windows directory on click", async () => {
+	it("navigates into a Windows directory on double-click", async () => {
 		mockQuery.mockResolvedValueOnce(makeWindowsResponse());
 		renderDialog();
 		await flushQuery();
@@ -328,10 +400,10 @@ describe("RemoteFileBrowserDialog", () => {
 			}),
 		);
 
-		const entry = q('[data-testid="dir-entry-repo"]') as HTMLButtonElement;
+		const entry = q('[data-testid="dir-entry-repo"]') as HTMLDivElement;
 		expect(entry).not.toBeNull();
 		act(() => {
-			entry.click();
+			entry.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
 		});
 		await flushQuery();
 
