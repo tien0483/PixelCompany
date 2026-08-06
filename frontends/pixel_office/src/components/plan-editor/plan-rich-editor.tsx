@@ -1,10 +1,4 @@
-import { Color } from "@tiptap/extension-color";
-import { Highlight } from "@tiptap/extension-highlight";
-import Image from "@tiptap/extension-image";
-import Link from "@tiptap/extension-link";
-import { TextStyle } from "@tiptap/extension-text-style";
 import { type Editor, EditorContent, useEditor } from "@tiptap/react";
-import StarterKit from "@tiptap/starter-kit";
 import {
 	type ClipboardEvent,
 	type DragEvent,
@@ -12,10 +6,12 @@ import {
 	useCallback,
 	useEffect,
 	useRef,
+	useState,
 } from "react";
-import { Markdown } from "tiptap-markdown";
 
+import { createPlanEditorExtensions } from "@/components/plan-editor/plan-rich-extensions";
 import {
+	captureMarkdownSerializer,
 	fromEditorMarkdown,
 	getMarkdownFromEditor,
 	toEditorMarkdown,
@@ -45,32 +41,63 @@ export default function PlanRichEditor({
 	onDrop,
 	onDragOver,
 	onEditorReady,
-}: PlanRichEditorProps): ReactElement | null {
+}: PlanRichEditorProps): ReactElement {
 	const skipNextSyncRef = useRef(false);
 	const onChangeRef = useRef(onChange);
 	onChangeRef.current = onChange;
+	const readMarkdownRef = useRef<(() => string) | null>(null);
+	const [bridgeError, setBridgeError] = useState<Error | null>(null);
+
+	const readMarkdown = useCallback((editorInstance: Editor): string => {
+		if (readMarkdownRef.current) {
+			return readMarkdownRef.current();
+		}
+		return getMarkdownFromEditor(editorInstance);
+	}, []);
 
 	const editor = useEditor(
 		{
-			extensions: [
-				StarterKit.configure({ link: false }),
-				TextStyle,
-				Color,
-				Highlight,
-				Link.configure({ openOnClick: false }),
-				Image.configure({ inline: false }),
-				Markdown.configure({ html: true, transformPastedText: true }),
-			],
+			extensions: createPlanEditorExtensions(),
 			content: toEditorMarkdown(content, planId),
 			editable: !disabled,
 			onUpdate: ({ editor: updatedEditor }) => {
-				skipNextSyncRef.current = true;
-				const markdown = getMarkdownFromEditor(updatedEditor);
-				onChangeRef.current(fromEditorMarkdown(markdown, planId));
+				try {
+					skipNextSyncRef.current = true;
+					const markdown = readMarkdown(updatedEditor);
+					onChangeRef.current(fromEditorMarkdown(markdown, planId));
+				} catch (error) {
+					setBridgeError(
+						error instanceof Error
+							? error
+							: new Error("Rich editor failed while serializing markdown."),
+					);
+				}
+			},
+			onDestroy: () => {
+				readMarkdownRef.current = null;
 			},
 		},
 		[planId],
 	);
+
+	useEffect(() => {
+		if (!editor) {
+			return;
+		}
+		try {
+			readMarkdownRef.current = captureMarkdownSerializer(editor);
+			setBridgeError(null);
+		} catch (error) {
+			readMarkdownRef.current = null;
+			setBridgeError(
+				error instanceof Error
+					? error
+					: new Error(
+							"Rich editor failed to initialize markdown serialization.",
+						),
+			);
+		}
+	}, [editor]);
 
 	useEffect(() => {
 		onEditorReady?.(editor ?? null);
@@ -80,20 +107,30 @@ export default function PlanRichEditor({
 	}, [editor, onEditorReady]);
 
 	useEffect(() => {
-		if (!editor) {
+		if (!editor || bridgeError) {
 			return;
 		}
 		if (skipNextSyncRef.current) {
 			skipNextSyncRef.current = false;
 			return;
 		}
-		const currentMarkdown = fromEditorMarkdown(getMarkdownFromEditor(editor), planId);
-		if (currentMarkdown !== content) {
-			// External load / plain→rich handoff — replace content without emitting onUpdate.
-			// This resets History, which is intentional for non-local changes.
-			editor.commands.setContent(toEditorMarkdown(content, planId), { emitUpdate: false });
+		try {
+			const currentMarkdown = fromEditorMarkdown(readMarkdown(editor), planId);
+			if (currentMarkdown !== content) {
+				// External load / plain→rich handoff — replace content without emitting onUpdate.
+				// This resets History, which is intentional for non-local changes.
+				editor.commands.setContent(toEditorMarkdown(content, planId), {
+					emitUpdate: false,
+				});
+			}
+		} catch (error) {
+			setBridgeError(
+				error instanceof Error
+					? error
+					: new Error("Rich editor failed while syncing markdown content."),
+			);
 		}
-	}, [content, editor, planId]);
+	}, [bridgeError, content, editor, planId, readMarkdown]);
 
 	useEffect(() => {
 		editor?.setEditable(!disabled);
@@ -106,8 +143,19 @@ export default function PlanRichEditor({
 		[onInsertImage],
 	);
 
+	if (bridgeError) {
+		throw bridgeError;
+	}
+
 	if (!editor) {
-		return null;
+		return (
+			<div
+				className="flex min-h-0 min-w-0 flex-1 items-center justify-center px-3 text-sm text-text-secondary"
+				data-testid="plan-rich-editor-loading"
+			>
+				Starting rich editor…
+			</div>
+		);
 	}
 
 	return (
@@ -118,7 +166,11 @@ export default function PlanRichEditor({
 			onDrop={onDrop}
 			onDragOver={onDragOver}
 		>
-			<PlanRichToolbar editor={editor} disabled={disabled} onInsertImage={handleInsertImageFile} />
+			<PlanRichToolbar
+				editor={editor}
+				disabled={disabled}
+				onInsertImage={handleInsertImageFile}
+			/>
 			<div className="kb-markdown min-h-0 flex-1 overflow-y-auto px-3 py-2">
 				<EditorContent editor={editor} />
 			</div>
