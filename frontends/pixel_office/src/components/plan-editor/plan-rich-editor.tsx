@@ -53,7 +53,7 @@ export default function PlanRichEditor({
 	const editor = useEditor(
 		{
 			extensions: [
-				StarterKit,
+				StarterKit.configure({ link: false }),
 				TextStyle,
 				Color,
 				Highlight,
