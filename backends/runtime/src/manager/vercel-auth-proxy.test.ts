@@ -36,6 +36,9 @@ describe("createUsageAuthSession", () => {
 		expect(result).toEqual({
 			sessionId: "sess-1",
 			formUrl: "https://example.vercel.app/?sessionId=sess-1",
+			authType: null,
+			sender: null,
+			receiver: null,
 		});
 		expect(fetchImpl).toHaveBeenCalledWith(
 			"https://example.vercel.app/api/session/create",
@@ -44,6 +47,62 @@ describe("createUsageAuthSession", () => {
 				redirect: "follow",
 			}),
 		);
+	});
+
+	it("posts authType, sender, receiver and accountName when supplied", async () => {
+		let body: Record<string, unknown> | null = null;
+		const fetchImpl = vi.fn(async (_url: string, init: RequestInit) => {
+			body = JSON.parse(String(init.body)) as Record<string, unknown>;
+			return Response.json({
+				sessionId: "sess-1",
+				formUrl: "https://example.vercel.app/?sessionId=sess-1",
+				authType: "cc",
+				sender: "alice@akselos.com",
+				receiver: "bob@akselos.com",
+			});
+		});
+		const result = await createUsageAuthSession("https://claude.ai/oauth", {
+			baseUrl: "https://example.vercel.app",
+			sessionId: "sess-1",
+			authType: "cc",
+			sender: "  alice@akselos.com  ",
+			receiver: "bob@akselos.com",
+			accountName: "Alice",
+			fetchImpl: fetchImpl as unknown as typeof fetch,
+		});
+		expect(body).toEqual({
+			sessionId: "sess-1",
+			authLink: "https://claude.ai/oauth",
+			authType: "cc",
+			sender: "alice@akselos.com",
+			receiver: "bob@akselos.com",
+			accountName: "Alice",
+		});
+		expect(result.authType).toBe("cc");
+		expect(result.sender).toBe("alice@akselos.com");
+		expect(result.receiver).toBe("bob@akselos.com");
+	});
+
+	it("omits blank identity fields so the form keeps its own defaults", async () => {
+		let body: Record<string, unknown> | null = null;
+		const fetchImpl = vi.fn(async (_url: string, init: RequestInit) => {
+			body = JSON.parse(String(init.body)) as Record<string, unknown>;
+			return Response.json({
+				sessionId: "sess-1",
+				formUrl: "https://example.vercel.app/?sessionId=sess-1",
+			});
+		});
+		await createUsageAuthSession("https://claude.ai/oauth", {
+			baseUrl: "https://example.vercel.app",
+			sessionId: "sess-1",
+			sender: "   ",
+			receiver: "",
+			fetchImpl: fetchImpl as unknown as typeof fetch,
+		});
+		expect(body).toEqual({
+			sessionId: "sess-1",
+			authLink: "https://claude.ai/oauth",
+		});
 	});
 
 	it("rewrites localhost formUrl to the public base URL", async () => {
@@ -112,6 +171,10 @@ describe("lookupUsageAuthCode", () => {
 					authCode: "abc#xyz",
 					percentage: "40",
 					submittedAt: 1,
+					authType: "authorize",
+					accountName: "Alice",
+					sender: "alice@akselos.com",
+					receiver: "bob@akselos.com",
 				}),
 			) as unknown as typeof fetch,
 		});
@@ -121,6 +184,35 @@ describe("lookupUsageAuthCode", () => {
 			percentage: 40,
 			submittedAt: 1,
 			error: null,
+			authType: "authorize",
+			accountName: "Alice",
+			sender: "alice@akselos.com",
+			receiver: "bob@akselos.com",
+		});
+	});
+
+	it("reports a cc submission with no percentage", async () => {
+		const result = await lookupUsageAuthCode("sess-1", {
+			baseUrl: "https://example.vercel.app",
+			fetchImpl: vi.fn(async () =>
+				Response.json({
+					authCode: "abc#xyz",
+					submittedAt: 1,
+					authType: "cc",
+					sender: "alice@akselos.com",
+				}),
+			) as unknown as typeof fetch,
+		});
+		expect(result).toEqual({
+			status: "ready",
+			authCode: "abc#xyz",
+			percentage: null,
+			submittedAt: 1,
+			error: null,
+			authType: "cc",
+			accountName: null,
+			sender: "alice@akselos.com",
+			receiver: null,
 		});
 	});
 

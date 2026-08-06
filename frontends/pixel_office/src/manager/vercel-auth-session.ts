@@ -9,15 +9,41 @@ const AUTH_CODE_POLL_MS = 5000;
 /** Match Manager remote OAuth window (~10 minutes). */
 const AUTH_CODE_MAX_POLLS = 120;
 
+/**
+ * Which steps the colleague-facing form renders.
+ * - `authorize`: usage-share percentage, authorize, paste code.
+ * - `cc`: authorize + paste code only; no percentage is collected.
+ */
+export type UsageAuthType = "authorize" | "cc";
+
+/** Who the session is for — the form scores its leaderboard per `sender`. */
+export interface AuthSessionIdentity {
+	authType?: UsageAuthType;
+	/** Colleague who shares the usage. */
+	sender?: string;
+	/** Whoever borrows the usage; reference only. */
+	receiver?: string;
+	/** Legacy seat label; the form falls back to it when `sender` is absent. */
+	accountName?: string;
+}
+
 export interface CreatedAuthSession {
 	sessionId: string;
 	formUrl: string;
+	authType: UsageAuthType | null;
+	sender: string | null;
+	receiver: string | null;
 }
 
 export interface AuthCodeResult {
 	authCode: string;
+	/** Null for `cc` sessions — the form never asks for a percentage. */
 	percentage: number | null;
 	submittedAt: number | null;
+	authType: UsageAuthType | null;
+	accountName: string | null;
+	sender: string | null;
+	receiver: string | null;
 }
 
 export class VercelAuthSessionError extends Error {
@@ -30,9 +56,18 @@ export class VercelAuthSessionError extends Error {
 	}
 }
 
+/** The contract rejects empty strings, so blank identity fields are dropped. */
+function optionalField(
+	key: string,
+	value: string | undefined,
+): Record<string, string> {
+	const trimmed = value?.trim() ?? "";
+	return trimmed.length > 0 ? { [key]: trimmed } : {};
+}
+
 export async function createAuthSession(
 	authLink: string,
-	options?: {
+	options?: AuthSessionIdentity & {
 		sessionId?: string;
 	},
 ): Promise<CreatedAuthSession> {
@@ -40,6 +75,10 @@ export async function createAuthSession(
 		return await getRuntimeTrpcClient(null).manager.createUsageAuthSession.mutate({
 			authLink,
 			...(options?.sessionId === undefined ? {} : { sessionId: options.sessionId }),
+			...(options?.authType === undefined ? {} : { authType: options.authType }),
+			...optionalField("sender", options?.sender),
+			...optionalField("receiver", options?.receiver),
+			...optionalField("accountName", options?.accountName),
 		});
 	} catch (err) {
 		throw new VercelAuthSessionError(
@@ -89,6 +128,10 @@ export async function pollAuthCode(
 			percentage: number | null;
 			submittedAt: number | null;
 			error: string | null;
+			authType: UsageAuthType | null;
+			accountName: string | null;
+			sender: string | null;
+			receiver: string | null;
 		};
 		try {
 			lookup = await getRuntimeTrpcClient(null).manager.getUsageAuthCode.query({
@@ -121,6 +164,10 @@ export async function pollAuthCode(
 			authCode: lookup.authCode.trim(),
 			percentage: lookup.percentage,
 			submittedAt: lookup.submittedAt,
+			authType: lookup.authType,
+			accountName: lookup.accountName,
+			sender: lookup.sender,
+			receiver: lookup.receiver,
 		};
 	}
 	if (!shouldContinue()) {

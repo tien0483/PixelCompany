@@ -29,19 +29,12 @@ import {
 	pressureBarColor,
 } from "@/manager/manager-format";
 import { MANAGER_LABELS } from "@/manager/manager-labels";
-import { buildClaudeCcOAuthInviteEmail } from "@/manager/manager-oauth-cc-invite-email";
 import {
-	buildClaudeOAuthInviteEmail,
-	buildClaudeReauthInviteEmail,
-	type ClaudeOAuthInviteEmail,
-	copyClaudeOAuthInviteEmail,
-} from "@/manager/manager-oauth-invite-email";
+	type OauthFlowKind,
+	useClaudeInviteSession,
+} from "@/manager/use-claude-invite-session";
 import { useManagerSessions } from "@/manager/use-manager-sessions";
-import {
-	createAuthSession,
-	pollAuthCode,
-	VercelAuthSessionError,
-} from "@/manager/vercel-auth-session";
+import { pollAuthCode, VercelAuthSessionError } from "@/manager/vercel-auth-session";
 import {
 	addClineProvider,
 	deleteClineProvider,
@@ -98,8 +91,6 @@ function UsageWindowBar({
 }
 
 type AddAccountMenuStep = "provider" | "claude" | "cursor";
-
-type OauthFlowKind = "account" | "cc";
 
 /** Claude + Cursor accounts managed from PixelOffice. */
 function managedAccounts(
@@ -568,9 +559,6 @@ export function ManagerAccountsView({
 	const [oauthFlowId, setOauthFlowId] = useState<string | null>(null);
 	const [oauthCode, setOauthCode] = useState("");
 	const [oauthSubmitError, setOauthSubmitError] = useState<string | null>(null);
-	const [oauthInviteEmail, setOauthInviteEmail] =
-		useState<ClaudeOAuthInviteEmail | null>(null);
-	const [oauthEmailCopied, setOauthEmailCopied] = useState(false);
 	const [oauthFlowKind, setOauthFlowKind] = useState<OauthFlowKind>("account");
 	const [inviteDonatePercent, setInviteDonatePercent] = useState(
 		DEFAULT_INVITE_DONATE_PERCENT,
@@ -579,6 +567,21 @@ export function ManagerAccountsView({
 	const oauthFlowKindRef = useRef<OauthFlowKind>("account");
 	/** True when remote flow is Add Account (apply donate % from the Vercel form). */
 	const oauthApplyFormDonateRef = useRef(false);
+	const invite = useClaudeInviteSession({
+		isCurrent: (generation) => oauthGenerationRef.current === generation,
+		onStatus: (status) => {
+			setOauthStatus(status);
+		},
+		onError: (message) => {
+			setError(message);
+			clearOauthUi();
+			setBusyId(null);
+		},
+		onSessionStarted: (sessionId, flow) => {
+			void pollOauthFlow(flow.flowId, true, flow.generation, flow.flowKind);
+			void pollVercelFormAndSubmit(sessionId, flow.flowId, flow.generation);
+		},
+	});
 	// Proves concurrent multi-account work: each pinned task reports a session under
 	// its own account instead of all of them sharing the active credential.
 	const sessions = useManagerSessions(online);
@@ -750,8 +753,7 @@ export function ManagerAccountsView({
 		setOauthFlowId(null);
 		setOauthCode("");
 		setOauthSubmitError(null);
-		setOauthInviteEmail(null);
-		setOauthEmailCopied(false);
+		invite.reset();
 		oauthFlowKindRef.current = "account";
 		oauthApplyFormDonateRef.current = false;
 		setOauthFlowKind("account");
@@ -775,7 +777,7 @@ export function ManagerAccountsView({
 		setOauthFlowId(null);
 		setOauthManual(false);
 		setOauthRemoteForm(false);
-		setOauthInviteEmail(null);
+		invite.reset();
 		setOauthCode("");
 		oauthFlowKindRef.current = "account";
 		oauthApplyFormDonateRef.current = false;
@@ -974,8 +976,7 @@ export function ManagerAccountsView({
 		setOauthRemoteForm(false);
 		setOauthFlowId(null);
 		setOauthCode("");
-		setOauthInviteEmail(null);
-		setOauthEmailCopied(false);
+		invite.reset();
 		try {
 			const start = await startFlow();
 			if (oauthGenerationRef.current !== generation) {
@@ -999,57 +1000,29 @@ export function ManagerAccountsView({
 					setBusyId(null);
 					return;
 				}
-				try {
-					const session = await createAuthSession(start.authUrl);
-					if (oauthGenerationRef.current !== generation) {
-						return;
-					}
-					const invite =
-						flowKind === "cc"
-							? buildClaudeCcOAuthInviteEmail(session.formUrl, {
-									accountEmail: inviteContext?.accountEmail,
-								})
-							: applyFormDonate
-								? buildClaudeOAuthInviteEmail(session.formUrl)
-								: buildClaudeReauthInviteEmail(session.formUrl, {
-										accountEmail: inviteContext?.accountEmail,
-									});
-					setOauthInviteEmail(invite);
-					setOauthRemoteForm(true);
-					setOauthStatus(
-						flowKind === "cc"
-							? inviteContext?.accountEmail
-								? `Copy the CC invite email for ${inviteContext.accountEmail}, send it, then wait for the form.`
-								: "Copy the CC invite email below, send it, then wait for the form."
-							: applyFormDonate
-								? "Copy the invite email below, send it, then wait for your colleague to submit the form."
-								: inviteContext?.accountEmail
-									? `Copy the re-auth invite for ${inviteContext.accountEmail}, send it, then wait for the form.`
-									: "Copy the re-auth invite email below, send it, then wait for the form.",
-					);
-					setBusyId(null);
-					void pollOauthFlow(start.flowId, true, generation, flowKind);
-					void pollVercelFormAndSubmit(
-						session.sessionId,
-						start.flowId,
-						generation,
-					);
-					return;
-				} catch (err) {
-					if (oauthGenerationRef.current !== generation) {
-						return;
-					}
-					const message =
-						err instanceof VercelAuthSessionError
-							? err.message
-							: err instanceof Error
-								? err.message
-								: "Could not create authorization form session";
-					setError(message);
-					clearOauthUi();
-					setBusyId(null);
-					return;
-				}
+				// The form session is minted on the Copy click instead of here, so the
+				// operator can name the sender first and the 1h expiry starts when the
+				// email actually goes out. Pollers start from the same click.
+				setOauthRemoteForm(true);
+				invite.begin({
+					authUrl: start.authUrl,
+					flowId: start.flowId,
+					generation,
+					flowKind,
+					applyFormDonate,
+					...(inviteContext?.accountEmail === undefined
+						? {}
+						: { accountEmail: inviteContext.accountEmail }),
+				});
+				setOauthStatus(
+					flowKind === "cc"
+						? "Enter who is sharing this account, then copy the CC invite email."
+						: applyFormDonate
+							? "Enter who is sharing this account, then copy the invite email."
+							: "Enter who is sharing this seat, then copy the re-auth invite email.",
+				);
+				setBusyId(null);
+				return;
 			}
 
 			if (manual && start.authUrl) {
@@ -1091,15 +1064,7 @@ export function ManagerAccountsView({
 	};
 
 	const copyInviteEmail = async () => {
-		if (!oauthInviteEmail) {
-			return;
-		}
-		try {
-			await copyClaudeOAuthInviteEmail(oauthInviteEmail);
-			setOauthEmailCopied(true);
-		} catch {
-			setOauthSubmitError("Could not copy email to clipboard.");
-		}
+		await invite.copyEmail();
 	};
 
 	const startAccountReauth = async (
@@ -1520,31 +1485,88 @@ export function ManagerAccountsView({
 							onClick={cancelOauthFlow}
 						/>
 					</div>
-					{oauthInviteEmail ? (
+					{invite.pending ? (
 						<div
-							className="mt-1.5 rounded border border-border bg-surface-2 p-2"
+							className="mt-1.5 flex flex-col gap-1.5 rounded border border-border bg-surface-2 p-2"
 							data-testid="manager-oauth-invite-email"
 						>
+							<label className="flex flex-col gap-0.5">
+								<span className="text-[10px] text-text-tertiary">
+									Sender name
+								</span>
+								<input
+									type="text"
+									value={invite.senderName}
+									onChange={(event) => {
+										invite.setSenderName(event.target.value);
+									}}
+									disabled={invite.sessionStarted}
+									placeholder="Who is sharing this account"
+									className="min-w-0 rounded border border-border bg-surface-2 px-1.5 py-1 text-[10px] text-text-primary disabled:opacity-60"
+									autoComplete="off"
+									spellCheck={false}
+									data-testid="manager-oauth-sender-name"
+									aria-label="Sender name"
+								/>
+							</label>
+							<label className="flex flex-col gap-0.5">
+								<span className="text-[10px] text-text-tertiary">
+									Sender email
+								</span>
+								<input
+									type="email"
+									value={invite.senderEmail}
+									onChange={(event) => {
+										invite.setSenderEmail(event.target.value);
+									}}
+									disabled={invite.sessionStarted}
+									placeholder="colleague@akselos.com"
+									className="min-w-0 rounded border border-border bg-surface-2 px-1.5 py-1 text-[10px] text-text-primary disabled:opacity-60"
+									autoComplete="off"
+									spellCheck={false}
+									data-testid="manager-oauth-sender-email"
+									aria-label="Sender email"
+								/>
+							</label>
 							<Button
 								variant="primary"
 								size="sm"
 								className="h-7 w-full text-[10px]"
 								data-testid="manager-oauth-copy-email"
+								disabled={!invite.canCopy || invite.busy}
 								onClick={() => {
 									void copyInviteEmail();
 								}}
 							>
-								{oauthEmailCopied
+								{invite.copied
 									? "Copied — paste into mail compose (Ctrl+V)"
 									: oauthFlowKind === "cc"
 										? "Copy CC invite email"
 										: "Copy invite email"}
 							</Button>
-							<p className="mt-1.5 text-[10px] text-text-tertiary">
-								{oauthFlowKind === "cc"
-									? "Includes the Vercel form link and the ~8h refresh-token explanation. Waiting for form submission…"
-									: "Includes the Vercel form link. Waiting for your colleague to submit the form…"}
+							{invite.receiver ? (
+								<p
+									className="text-[10px] text-text-tertiary"
+									data-testid="manager-oauth-receiver"
+								>
+									Usage goes to {invite.receiver} (from git config).
+								</p>
+							) : null}
+							<p className="text-[10px] text-text-tertiary">
+								{!invite.sessionStarted
+									? "Fill in who you are asking for usage — the form ranks shared usage by sender."
+									: oauthFlowKind === "cc"
+										? "Includes the Vercel form link and the ~8h refresh-token explanation. Waiting for form submission…"
+										: "Includes the Vercel form link. Waiting for your colleague to submit the form…"}
 							</p>
+							{invite.copyError ? (
+								<p
+									className="text-[10px] text-status-red"
+									data-testid="manager-oauth-invite-error"
+								>
+									{invite.copyError}
+								</p>
+							) : null}
 						</div>
 					) : null}
 					{!oauthRemoteForm &&
@@ -1574,7 +1596,7 @@ export function ManagerAccountsView({
 							</label>
 						</div>
 					) : null}
-					{oauthInviteEmail ? null : oauthAuthUrl ? (
+					{invite.pending ? null : oauthAuthUrl ? (
 						<a
 							href={oauthAuthUrl}
 							target="_blank"
