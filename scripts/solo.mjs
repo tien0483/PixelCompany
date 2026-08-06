@@ -92,6 +92,8 @@ const repoRoot = join(__dirname, "..");
 const runtimeRoot = join(repoRoot, "backends", "runtime");
 const webUiRoot = join(repoRoot, "frontends", "pixel_office");
 const webUiDist = join(webUiRoot, "dist");
+const htmlNextRoot = join(repoRoot, "backends", "html_anything", "next");
+const htmlNextDist = join(htmlNextRoot, ".next");
 
 /**
  * What counts as a UI source change. Mirrors WATCH_PATHS in
@@ -102,6 +104,12 @@ const WATCHED_UI_PATHS = [
 	join(webUiRoot, "index.html"),
 	join(webUiRoot, "vite.config.ts"),
 	join(webUiRoot, "package.json"),
+];
+
+const WATCHED_HTML_PATHS = [
+	join(htmlNextRoot, "src"),
+	join(htmlNextRoot, "package.json"),
+	join(htmlNextRoot, "next.config.ts"),
 ];
 
 /**
@@ -123,6 +131,7 @@ const viteCli = resolveDependencyEntry(webUiRoot, "vite", "bin", "vite.js");
 
 const RUNTIME_PORT = Number(process.env.PIXELOFFICE_PORT ?? 3484);
 const MANAGER_PORT = Number(process.env.MANAGER_PORT ?? process.env.JACKED_PORT ?? 8321);
+const HTML_PORT = Number(process.env.PIXELOFFICE_HTML_PORT ?? 8322);
 
 const args = process.argv.slice(2);
 const restart = args.includes("--restart");
@@ -237,6 +246,36 @@ async function checkUiDistFreshness() {
 	return { state: sourceStamp <= distStamp ? "fresh" : "stale", distStamp };
 }
 
+async function hasBuiltHtmlSidecar() {
+	return await pathExists(join(htmlNextDist, "BUILD_ID"));
+}
+
+async function checkHtmlSidecarFreshness() {
+	if (!(await hasBuiltHtmlSidecar())) {
+		return { state: "missing", distStamp: 0 };
+	}
+	const distStamp = (await newestMtimeMs([htmlNextDist]));
+	const sourceStamp = await newestMtimeMs(WATCHED_HTML_PATHS);
+	return { state: sourceStamp <= distStamp ? "fresh" : "stale", distStamp };
+}
+
+function buildHtmlSidecar() {
+	console.log("  Building the HTML sidecar (backends/html_anything/next)...");
+	const nextBin = resolveDependencyEntry(htmlNextRoot, "next", "dist", "bin", "next");
+	if (!nextBin) {
+		console.warn("  next binary not found for HTML sidecar — skipping build.");
+		return;
+	}
+	const result = spawnSync(process.execPath, [nextBin, "build"], {
+		cwd: htmlNextRoot,
+		stdio: "inherit",
+		env: { ...process.env, NODE_ENV: "production" },
+	});
+	if (result.status !== 0) {
+		console.warn("  HTML sidecar build failed — templates will stay offline.");
+	}
+}
+
 /**
  * Task worktrees get `frontends/pixel_office/dist` symlinked in by the runtime
  * (see backends/runtime/AGENTS.md, worktree-hooks-fire-before-symlinks), so a
@@ -272,9 +311,10 @@ function buildUi() {
 
 async function main() {
 	if (restart) {
-		console.log(`Freeing ports ${RUNTIME_PORT}, ${MANAGER_PORT}...`);
+		console.log(`Freeing ports ${RUNTIME_PORT}, ${MANAGER_PORT}, ${HTML_PORT}...`);
 		freePort(RUNTIME_PORT);
 		freePort(MANAGER_PORT);
+		freePort(HTML_PORT);
 		await new Promise((resolve) => setTimeout(resolve, 500));
 	} else if (await portIsListening(RUNTIME_PORT)) {
 		console.error(`Port ${RUNTIME_PORT} is already in use. Run: npm run solo -- --restart`);
@@ -315,10 +355,21 @@ async function main() {
 		buildUi();
 	}
 
+	const htmlFreshness = await checkHtmlSidecarFreshness();
+	if (htmlFreshness.state !== "fresh" && !skipBuild) {
+		if (htmlFreshness.state === "stale") {
+			console.log("  HTML sidecar build is older than its sources — rebuilding.");
+		}
+		buildHtmlSidecar();
+	} else if (htmlFreshness.state === "missing" && skipBuild) {
+		console.warn("  HTML sidecar .next missing — templates stay offline (--skip-build).");
+	}
+
 	console.log("");
 	console.log("  Pixel Office (solo) — one process, one URL");
 	console.log(`  App:     http://127.0.0.1:${RUNTIME_PORT}`);
 	console.log(`  Manager:  http://127.0.0.1:${MANAGER_PORT} (headless child of the runtime)`);
+	console.log(`  HTML:     http://127.0.0.1:${HTML_PORT} (template sidecar, headless)`);
 	console.log("");
 
 	// The runtime serves frontends/pixel_office/dist through server/assets.ts and

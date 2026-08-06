@@ -30,10 +30,27 @@ vi.mock("@/components/plan-editor/plan-rich-editor", () => ({
 	},
 }));
 
+vi.mock("@/components/plan-editor/plan-markdown-preview", () => ({
+	PlanMarkdownPreview: ({ content }: { content: string }) => (
+		<pre data-testid="plan-markdown-preview">{content}</pre>
+	),
+}));
+
+vi.mock("@/html/html-generate-dialog", () => ({
+	HtmlGenerateDialog: () => null,
+}));
+
 const PLAN: RuntimeSavedPlan = {
 	id: "plan-1",
 	name: "roadmap",
 	path: "/tmp/roadmap.md",
+	addedAt: 0,
+};
+
+const HTML_PLAN: RuntimeSavedPlan = {
+	id: "plan-html",
+	name: "roadmap",
+	path: "/tmp/roadmap.html",
 	addedAt: 0,
 };
 
@@ -116,8 +133,29 @@ describe("PlanEditorView", () => {
 		expect(container.querySelector('[data-testid="plan-rich-editor"]')).not.toBeNull();
 		expect(container.querySelector('[data-testid="plan-editor-textarea"]')).toBeNull();
 		expect(container.querySelector('[aria-label="Split"]')).toBeNull();
-		expect(container.querySelector('[aria-label="Preview"]')).toBeNull();
 		expect(container.querySelector('[data-testid="plan-editor-switch-to-plain"]')).not.toBeNull();
+		expect(container.querySelector('[data-testid="plan-editor-generate-html"]')).not.toBeNull();
+	});
+
+	it("opens html plans in sandboxed preview and never mounts TipTap", async () => {
+		mockReadQuery.mockResolvedValue({
+			ok: true,
+			plan: HTML_PLAN,
+			content: "<html><body><h1>Hi</h1></body></html>",
+		});
+		await act(async () => {
+			root.render(
+				<TooltipProvider>
+					<PlanEditorView plan={HTML_PLAN} workspaceId="workspace-1" onClose={() => {}} />
+				</TooltipProvider>,
+			);
+		});
+		await flush();
+
+		expect(container.querySelector('[data-testid="plan-editor-html-preview"]')).not.toBeNull();
+		expect(container.querySelector('[data-testid="plan-rich-editor"]')).toBeNull();
+		expect(container.querySelector('[data-testid="plan-editor-generate-html"]')).toBeNull();
+		expect(container.textContent).toContain("HTML");
 	});
 
 	it("switches to plain text editing and autosaves textarea edits", async () => {

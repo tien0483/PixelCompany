@@ -18,6 +18,7 @@ import type {
 	RuntimeUpdateStatusResponse,
 	RuntimeWorkspaceStateResponse,
 } from "../core/api-contract";
+import { RuntimeHtmlGenerateRequestSchema } from "../core/api-contract";
 import {
 	buildKanbanRuntimeUrl,
 	getKanbanRuntimeHost,
@@ -26,6 +27,12 @@ import {
 	getKanbanRuntimeTls,
 	isKanbanRemoteHost,
 } from "../core/runtime-endpoint";
+import type { HtmlClient } from "../html/html-client";
+import {
+	createUsageResumeScheduler,
+	isUsageResumeCandidate,
+	type PausableSession,
+} from "../jacked/usage-resume-scheduler";
 import type { ManagerClient } from "../manager/manager-client";
 import {
 	pickDefaultClaudeAccountId,
@@ -33,11 +40,6 @@ import {
 	toManagerDonateAccount,
 } from "../manager/manager-account-pin";
 import type { ManagerMonitor } from "../manager/manager-monitor";
-import {
-	createUsageResumeScheduler,
-	isUsageResumeCandidate,
-	type PausableSession,
-} from "../jacked/usage-resume-scheduler";
 import {
 	checkRateLimit,
 	clearRateLimit,
@@ -52,10 +54,12 @@ import {
 } from "../security/passcode-manager";
 import { readSavedPlanAsset } from "../state/saved-plans";
 import { loadWorkspaceContextById, loadWorkspaceState } from "../state/workspace-state";
+import { runAgentOneShot } from "../terminal/agent-oneshot";
 import type { TerminalSessionManager } from "../terminal/session-manager";
 import { createTerminalWebSocketBridge } from "../terminal/ws-server";
 import { type RuntimeTrpcContext, type RuntimeTrpcWorkspaceScope, runtimeAppRouter } from "../trpc/app-router";
 import { createHooksApi } from "../trpc/hooks-api";
+import { createHtmlApi } from "../trpc/html-api";
 import { createManagerApi } from "../trpc/manager-api";
 import { createPlansApi } from "../trpc/plans-api";
 import { createProjectsApi } from "../trpc/projects-api";
@@ -75,6 +79,7 @@ export interface CreateRuntimeServerDependencies {
 	workspaceRegistry: WorkspaceRegistry;
 	runtimeStateHub: RuntimeStateHub;
 	manager: { client: ManagerClient; monitor: ManagerMonitor };
+	html: { client: HtmlClient };
 	warn: (message: string) => void;
 	ensureTerminalManagerForWorkspace: (workspaceId: string, repoPath: string) => Promise<TerminalSessionManager>;
 	resolveInteractiveShellCommand: () => { binary: string; args: string[] };
@@ -215,6 +220,9 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 	const managerApi = createManagerApi({
 		client: deps.manager.client,
 		monitor: deps.manager.monitor,
+	});
+	const htmlApi = createHtmlApi({
+		client: deps.html.client,
 	});
 
 	const runtimeApiDeps: Parameters<typeof createRuntimeApi>[0] = {
@@ -386,6 +394,7 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 				broadcastTaskReadyForReview: deps.runtimeStateHub.broadcastTaskReadyForReview,
 			}),
 			managerApi,
+			htmlApi,
 		};
 	};
 
@@ -569,6 +578,120 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 					"Cache-Control": "no-store",
 				});
 				res.end(proxied.body);
+				return;
+			}
+			if (pathname.startsWith("/api/html-proxy/")) {
+				const htmlPath = pathname.slice("/api/html-proxy".length) || "/";
+				const query = requestUrl.search;
+				const method = (req.method ?? "GET").toUpperCase();
+				let body: string | null = null;
+				if (method !== "GET" && method !== "HEAD") {
+					try {
+						body = await readRequestBody(req, 1024 * 1024);
+					} catch {
+						res.writeHead(413, { "Content-Type": "application/json; charset=utf-8" });
+						res.end(JSON.stringify({ error: "Request body too large" }));
+						return;
+					}
+				}
+				const contentType =
+					typeof req.headers["content-type"] === "string" ? req.headers["content-type"] : null;
+				const proxied = await deps.html.client.proxyRequest(
+					method,
+					`${htmlPath}${query}`,
+					body,
+					contentType,
+				);
+				res.writeHead(proxied.status, {
+					"Content-Type": proxied.contentType,
+					"Cache-Control": "no-store",
+				});
+				res.end(proxied.body);
+				return;
+			}
+			if (pathname === "/api/html/generate" && (req.method ?? "GET").toUpperCase() === "POST") {
+				let rawBody: string;
+				try {
+					rawBody = await readRequestBody(req, 2 * 1024 * 1024);
+				} catch {
+					res.writeHead(413, { "Content-Type": "application/json; charset=utf-8" });
+					res.end(JSON.stringify({ error: "Request body too large" }));
+					return;
+				}
+				let parsedBody: unknown;
+				try {
+					parsedBody = JSON.parse(rawBody);
+				} catch {
+					res.writeHead(400, { "Content-Type": "application/json; charset=utf-8" });
+					res.end(JSON.stringify({ error: "invalid JSON body" }));
+					return;
+				}
+				const parsed = RuntimeHtmlGenerateRequestSchema.safeParse(parsedBody);
+				if (!parsed.success) {
+					res.writeHead(400, { "Content-Type": "application/json; charset=utf-8" });
+					res.end(JSON.stringify({ error: parsed.error.message }));
+					return;
+				}
+				const input = parsed.data;
+				const promptResult = await deps.html.client.fetchPrompt({
+					templateId: input.templateId,
+					content: input.content,
+					format: input.format,
+					editFromHtml: input.editFromHtml,
+					editFromContent: input.editFromContent,
+				});
+				if (!promptResult) {
+					res.writeHead(502, { "Content-Type": "application/json; charset=utf-8" });
+					res.end(JSON.stringify({ error: "HTML sidecar unreachable or unknown template" }));
+					return;
+				}
+
+				res.writeHead(200, {
+					"Content-Type": "text/event-stream; charset=utf-8",
+					"Cache-Control": "no-cache, no-transform",
+					Connection: "keep-alive",
+					"X-Accel-Buffering": "no",
+				});
+
+				const abortCtl = new AbortController();
+				req.on("close", () => abortCtl.abort());
+				const send = (event: string, data: unknown) => {
+					if (res.writableEnded) return;
+					res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+				};
+
+				await runAgentOneShot({
+					agentId: "claude",
+					prompt: promptResult.prompt,
+					cwd: input.cwd,
+					model: input.model,
+					signal: abortCtl.signal,
+					onEvent: (event) => {
+						send(event.type, event);
+					},
+					pinInput: {
+						managerAccountId: input.managerAccountId,
+						getAccountLaunchDir: async (accountId) =>
+							(await managerApi.getAccountLaunchDir({ accountId })) ?? null,
+						getAccountProvider: async (accountId) => await managerApi.getAccountProvider(accountId),
+						resolveActiveClaudeAccountId: async () => {
+							const snapshot = deps.manager.monitor.getState();
+							if (!snapshot) return null;
+							return pickDefaultClaudeAccountId({
+								accounts: snapshot.accounts,
+								activeAccountId: snapshot.activeAccountId,
+							});
+						},
+						getPinnedAccount: async (accountId) => {
+							const snapshot = deps.manager.monitor.getState();
+							const account = snapshot?.accounts.find((entry) => entry.id === accountId);
+							return account ? toManagerDonateAccount(account) : null;
+						},
+					},
+				});
+				if (!res.writableEnded) {
+					res.end();
+				}
 				return;
 			}
 			if (pathname === "/api/plans/asset") {

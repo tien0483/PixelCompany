@@ -128,6 +128,8 @@ import type {
 	RuntimePlansWriteAssetResponse,
 	RuntimePlansWriteRequest,
 	RuntimePlansWriteResponse,
+	RuntimePlansWriteSiblingRequest,
+	RuntimePlansWriteSiblingResponse,
 	RuntimeProjectAddRequest,
 	RuntimeProjectAddResponse,
 	RuntimeProjectDirectoryPickerResponse,
@@ -206,6 +208,12 @@ import {
 	RuntimeManagerUsageAuthSessionCreateRequestSchema,
 	RuntimeManagerUsageAuthSessionCreateResponseSchema,
 	RuntimeManagerUsageOverviewSchema,
+	RuntimeHtmlStatusSchema,
+	RuntimeHtmlTemplateSchema,
+	RuntimeHtmlTemplateExampleSchema,
+	type RuntimeHtmlStatus,
+	type RuntimeHtmlTemplate,
+	type RuntimeHtmlTemplateExample,
 	runtimeAgentModelInventorySchema,
 	runtimeClineAccountBalanceResponseSchema,
 	runtimeClineAccountOrganizationsResponseSchema,
@@ -304,6 +312,8 @@ import {
 	runtimePlansWriteAssetResponseSchema,
 	runtimePlansWriteRequestSchema,
 	runtimePlansWriteResponseSchema,
+	runtimePlansWriteSiblingRequestSchema,
+	runtimePlansWriteSiblingResponseSchema,
 	runtimeProjectAddRequestSchema,
 	runtimeProjectAddResponseSchema,
 	runtimeProjectDirectoryPickerResponseSchema,
@@ -617,6 +627,7 @@ export interface RuntimeTrpcContext {
 		remove: (input: RuntimePlansRemoveRequest) => Promise<RuntimePlansRemoveResponse>;
 		read: (input: RuntimePlansReadRequest) => Promise<RuntimePlansReadResponse>;
 		write: (input: RuntimePlansWriteRequest) => Promise<RuntimePlansWriteResponse>;
+		writeSibling: (input: RuntimePlansWriteSiblingRequest) => Promise<RuntimePlansWriteSiblingResponse>;
 		writeAsset: (input: RuntimePlansWriteAssetRequest) => Promise<RuntimePlansWriteAssetResponse>;
 	};
 	hooksApi: {
@@ -662,6 +673,11 @@ export interface RuntimeTrpcContext {
 			input: RuntimeManagerOAuthFlowStatusRequest,
 		) => Promise<RuntimeManagerOAuthFlowStatus | null>;
 		submitOAuthCode: (input: RuntimeManagerOAuthSubmitCodeRequest) => Promise<RuntimeManagerOAuthFlowStatus | null>;
+	};
+	htmlApi: {
+		status: () => Promise<RuntimeHtmlStatus>;
+		templates: () => Promise<RuntimeHtmlTemplate[]>;
+		templateExample: (id: string) => Promise<RuntimeHtmlTemplateExample | null>;
 	};
 }
 
@@ -1197,6 +1213,12 @@ export const runtimeAppRouter = t.router({
 			.mutation(async ({ ctx, input }) => {
 				return await ctx.plansApi.write(input);
 			}),
+		writeSibling: t.procedure
+			.input(runtimePlansWriteSiblingRequestSchema)
+			.output(runtimePlansWriteSiblingResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.plansApi.writeSibling(input);
+			}),
 		writeAsset: t.procedure
 			.input(runtimePlansWriteAssetRequestSchema)
 			.output(runtimePlansWriteAssetResponseSchema)
@@ -1421,11 +1443,25 @@ export const runtimeAppRouter = t.router({
 					});
 				}
 			}),
-		getUsageAuthCode: t.procedure
+			getUsageAuthCode: t.procedure
 			.input(RuntimeManagerUsageAuthCodeRequestSchema)
 			.output(RuntimeManagerUsageAuthCodeResponseSchema)
 			.query(async ({ input }) => {
 				return await lookupUsageAuthCode(input.sessionId);
+			}),
+	}),
+	html: t.router({
+		status: t.procedure.output(RuntimeHtmlStatusSchema).query(async ({ ctx }) => {
+			return await ctx.htmlApi.status();
+		}),
+		templates: t.procedure.output(RuntimeHtmlTemplateSchema.array()).query(async ({ ctx }) => {
+			return await ctx.htmlApi.templates();
+		}),
+		templateExample: t.procedure
+			.input(z.object({ id: z.string().min(1) }))
+			.output(RuntimeHtmlTemplateExampleSchema.nullable())
+			.query(async ({ ctx, input }) => {
+				return await ctx.htmlApi.templateExample(input.id);
 			}),
 	}),
 });

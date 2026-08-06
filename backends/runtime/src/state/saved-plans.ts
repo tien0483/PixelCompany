@@ -7,7 +7,7 @@ import { isPathWithinRoot } from "../workspace/path-sandbox";
 import { getRuntimeHomePath } from "./workspace-state";
 
 export const SAVED_PLANS_FILENAME = "saved-plans.json";
-export const PLAN_FILE_EXTENSIONS = new Set([".md", ".txt"]);
+export const PLAN_FILE_EXTENSIONS = new Set([".md", ".txt", ".html", ".htm"]);
 export const PLAN_ASSET_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
 
 export interface SavedPlanEntry {
@@ -170,6 +170,32 @@ export async function importPlanFile(filePath: string): Promise<{
 	}
 
 	return { entry, isNew };
+}
+
+/**
+ * Write `<stem>.<ext>` beside an existing saved plan and register it via importPlanFile.
+ * Sandboxed to the source plan's parent directory.
+ */
+export async function writeSavedPlanSibling(
+	planId: string,
+	ext: string,
+	content: string,
+): Promise<{ entry: SavedPlanEntry; isNew: boolean }> {
+	const entry = await findSavedPlanById(planId);
+	if (!entry) {
+		throw new Error(`Plan "${planId}" was not found in the library.`);
+	}
+	const normalizedExt = ext.startsWith(".") ? ext.toLowerCase() : `.${ext.toLowerCase()}`;
+	if (!PLAN_FILE_EXTENSIONS.has(normalizedExt)) {
+		throw new Error(`Unsupported plan sibling extension: ${normalizedExt}`);
+	}
+	const parentDir = dirname(entry.path);
+	const siblingPath = normalizeAbsolutePath(join(parentDir, `${stemFromPath(entry.path)}${normalizedExt}`));
+	if (!isPathWithinRoot(parentDir, siblingPath)) {
+		throw new Error("Access denied: sibling path is outside the plan directory.");
+	}
+	await writeFile(siblingPath, content, "utf8");
+	return await importPlanFile(siblingPath);
 }
 
 async function resolveUniquePlanFileName(plansDir: string, baseName: string): Promise<string> {

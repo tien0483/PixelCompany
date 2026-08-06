@@ -1,11 +1,12 @@
 import type { Editor } from "@tiptap/react";
-import { X } from "lucide-react";
+import { FileCode2, X } from "lucide-react";
 import {
 	lazy,
 	type ReactElement,
 	Suspense,
 	useCallback,
 	useEffect,
+	useMemo,
 	useRef,
 	useState,
 } from "react";
@@ -16,19 +17,40 @@ import {
 	type TextSelectionState,
 } from "@/components/plan-editor/markdown-selection-commands";
 import { PlanEditorErrorBoundary } from "@/components/plan-editor/plan-editor-error-boundary";
+import { PlanMarkdownPreview } from "@/components/plan-editor/plan-markdown-preview";
 import { PlanMarkdownToolbar } from "@/components/plan-editor/plan-markdown-toolbar";
 import { insertMarkdownImage } from "@/components/plan-editor/plan-rich-markdown";
 import { usePlanEditorDocument } from "@/components/plan-editor/use-plan-editor-document";
 import { usePlanImagePaste } from "@/components/plan-editor/use-plan-image-paste";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
+import { HtmlGenerateDialog } from "@/html/html-generate-dialog";
+import { HTML_LABELS } from "@/html/html-labels";
 import type { RuntimeSavedPlan } from "@/runtime/types";
 
 const PlanRichEditor = lazy(
 	() => import("@/components/plan-editor/plan-rich-editor"),
 );
 
-type PlanEditorMode = "rich" | "plain";
+type PlanEditorMode = "rich" | "plain" | "preview";
+type PlanFileKind = "markdown" | "html" | "text";
+
+function planFileKind(path: string): PlanFileKind {
+	const lower = path.toLowerCase();
+	if (lower.endsWith(".html") || lower.endsWith(".htm")) {
+		return "html";
+	}
+	if (lower.endsWith(".txt")) {
+		return "text";
+	}
+	return "markdown";
+}
+
+function fileTypeLabel(kind: PlanFileKind): string {
+	if (kind === "html") return "HTML";
+	if (kind === "text") return "Text";
+	return "Markdown";
+}
 
 export interface PlanEditorViewProps {
 	plan: RuntimeSavedPlan;
@@ -41,12 +63,18 @@ export function PlanEditorView({
 	workspaceId,
 	onClose,
 }: PlanEditorViewProps): ReactElement {
+	const kind = useMemo(() => planFileKind(plan.path), [plan.path]);
 	const { content, updateContent, statusLabel, status, flush } =
 		usePlanEditorDocument(plan, workspaceId);
-	const [mode, setMode] = useState<PlanEditorMode>("rich");
+	const [mode, setMode] = useState<PlanEditorMode>(kind === "html" ? "preview" : "rich");
+	const [generateOpen, setGenerateOpen] = useState(false);
 	const hasWarnedAboutRichModeRef = useRef(false);
 	const textareaRef = useRef<HTMLTextAreaElement>(null);
 	const richEditorRef = useRef<Editor | null>(null);
+
+	useEffect(() => {
+		setMode(kind === "html" ? "preview" : "rich");
+	}, [kind, plan.id]);
 
 	const applyTextCommand = useCallback(
 		(transform: (state: TextSelectionState) => TextSelectionState) => {
@@ -90,7 +118,14 @@ export function PlanEditorView({
 		setMode("plain");
 	}, []);
 
+	const handleSwitchToPreview = useCallback(() => {
+		setMode("preview");
+	}, []);
+
 	const handleSwitchToRich = useCallback(() => {
+		if (kind === "html") {
+			return;
+		}
 		if (!hasWarnedAboutRichModeRef.current) {
 			hasWarnedAboutRichModeRef.current = true;
 			showAppToast({
@@ -100,7 +135,7 @@ export function PlanEditorView({
 			});
 		}
 		setMode("rich");
-	}, []);
+	}, [kind]);
 
 	const handleRichEditorError = useCallback((error: Error) => {
 		setMode("plain");
@@ -111,9 +146,8 @@ export function PlanEditorView({
 		});
 	}, []);
 
-	// First open is already rich — warn once after mount so users know about possible reformatting.
 	useEffect(() => {
-		if (hasWarnedAboutRichModeRef.current) {
+		if (kind === "html" || hasWarnedAboutRichModeRef.current) {
 			return;
 		}
 		hasWarnedAboutRichModeRef.current = true;
@@ -122,11 +156,15 @@ export function PlanEditorView({
 			message:
 				"Rich mode may reformat parts of the markdown file when you save.",
 		});
-	}, []);
+	}, [kind]);
 
 	const handleClose = useCallback(() => {
 		void flush().then(onClose);
 	}, [flush, onClose]);
+
+	const showRich = kind !== "html" && mode === "rich";
+	const showPreview = mode === "preview";
+	const showPlain = mode === "plain" || (kind === "html" && mode !== "preview" && !showRich);
 
 	return (
 		<div
@@ -152,6 +190,17 @@ export function PlanEditorView({
 					</span>
 				</div>
 				<div className="flex items-center gap-3">
+					{kind !== "html" ? (
+						<Button
+							variant="ghost"
+							size="sm"
+							icon={<FileCode2 size={14} />}
+							onClick={() => setGenerateOpen(true)}
+							data-testid="plan-editor-generate-html"
+						>
+							{HTML_LABELS.generate}
+						</Button>
+					) : null}
 					<div className="flex items-center gap-1.5 text-[11px] text-text-secondary min-w-[80px] justify-end">
 						{status === "loading" || status === "saving" || isUploading ? (
 							<Spinner size={12} />
@@ -168,7 +217,7 @@ export function PlanEditorView({
 				</div>
 			</div>
 
-			{mode === "plain" ? (
+			{showPlain && kind !== "html" ? (
 				<PlanMarkdownToolbar
 					disabled={status === "loading"}
 					onCommand={applyTextCommand}
@@ -177,7 +226,22 @@ export function PlanEditorView({
 			) : null}
 
 			<div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-				{mode === "plain" ? (
+				{showPreview && kind === "html" ? (
+					<iframe
+						title={HTML_LABELS.preview}
+						sandbox="allow-scripts"
+						srcDoc={content}
+						className="min-h-0 flex-1 w-full border-0 bg-white"
+						data-testid="plan-editor-html-preview"
+					/>
+				) : showPreview ? (
+					<div
+						className="min-h-0 flex-1 overflow-auto bg-surface-1 px-4 py-3"
+						data-testid="plan-editor-markdown-preview"
+					>
+						<PlanMarkdownPreview content={content} planId={plan.id} />
+					</div>
+				) : showPlain ? (
 					<textarea
 						ref={textareaRef}
 						value={content}
@@ -216,27 +280,49 @@ export function PlanEditorView({
 			</div>
 
 			<div className="flex items-center justify-between gap-3 border-t border-border bg-surface-1 px-3 py-1.5 shrink-0">
-				{mode === "rich" ? (
-					<button
-						type="button"
-						className="text-[12px] text-accent hover:underline cursor-pointer bg-transparent border-0 p-0"
-						onClick={handleSwitchToPlain}
-						data-testid="plan-editor-switch-to-plain"
-					>
-						Switch to plain text editing
-					</button>
-				) : (
-					<button
-						type="button"
-						className="text-[12px] text-accent hover:underline cursor-pointer bg-transparent border-0 p-0"
-						onClick={handleSwitchToRich}
-						data-testid="plan-editor-switch-to-rich"
-					>
-						Switch to rich text editing
-					</button>
-				)}
-				<span className="text-[11px] text-text-tertiary">Markdown</span>
+				<div className="flex items-center gap-3">
+					{mode !== "plain" ? (
+						<button
+							type="button"
+							className="text-[12px] text-accent hover:underline cursor-pointer bg-transparent border-0 p-0"
+							onClick={handleSwitchToPlain}
+							data-testid="plan-editor-switch-to-plain"
+						>
+							{kind === "html" ? "Edit source" : "Switch to plain text editing"}
+						</button>
+					) : null}
+					{mode !== "preview" ? (
+						<button
+							type="button"
+							className="text-[12px] text-accent hover:underline cursor-pointer bg-transparent border-0 p-0"
+							onClick={handleSwitchToPreview}
+							data-testid="plan-editor-switch-to-preview"
+						>
+							{HTML_LABELS.preview}
+						</button>
+					) : null}
+					{kind !== "html" && mode !== "rich" ? (
+						<button
+							type="button"
+							className="text-[12px] text-accent hover:underline cursor-pointer bg-transparent border-0 p-0"
+							onClick={handleSwitchToRich}
+							data-testid="plan-editor-switch-to-rich"
+						>
+							Switch to rich text editing
+						</button>
+					) : null}
+				</div>
+				<span className="text-[11px] text-text-tertiary">{fileTypeLabel(kind)}</span>
 			</div>
+
+			<HtmlGenerateDialog
+				open={generateOpen}
+				onOpenChange={setGenerateOpen}
+				planId={plan.id}
+				content={content}
+				format={kind === "text" ? "text" : "markdown"}
+				workspaceId={workspaceId}
+			/>
 		</div>
 	);
 }

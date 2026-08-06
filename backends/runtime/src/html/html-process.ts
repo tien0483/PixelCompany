@@ -1,0 +1,223 @@
+// Supervises the html-anything Next.js sidecar so a single Kanban launch brings
+// up the template + prompt service on loopback. Optional by construction: if the
+// package or its build is missing, the board and office keep running and the
+// HTML surface reports offline.
+import { type ChildProcess, spawn } from "node:child_process";
+import { existsSync } from "node:fs";
+import { connect } from "node:net";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+import { terminateProcessForTimeout } from "../server/process-termination";
+
+const DEFAULT_HTML_HOST = "127.0.0.1";
+const DEFAULT_HTML_PORT = 8322;
+const PORT_PROBE_TIMEOUT_MS = 1_000;
+const STARTUP_TIMEOUT_MS = 20_000;
+const PORT_POLL_INTERVAL_MS = 250;
+
+export interface HtmlProcess {
+	/** Null when the sidecar was already listening or could not be started. */
+	pid: number | null;
+	/** True when this runtime spawned the service (and therefore owns shutdown). */
+	spawned: boolean;
+	/** Resolves true once the port answers; never rejects. Callers need not await it. */
+	ready: Promise<boolean>;
+	close: () => Promise<void>;
+}
+
+export interface StartHtmlProcessDependencies {
+	warn: (message: string) => void;
+	log?: (message: string) => void;
+	/** Overrides `backends/html_anything` discovery; mainly for tests. */
+	htmlRoot?: string | null;
+	host?: string;
+	port?: number;
+}
+
+/**
+ * Locates the `backends/html_anything` package next to the runtime.
+ *
+ * Mirrors `findManagerRoot()`'s candidate walk so the bundled `dist/cli.js`
+ * layout and the monorepo source layout both resolve.
+ */
+export function findHtmlRoot(): string | null {
+	const here = dirname(fileURLToPath(import.meta.url));
+	const candidates = [
+		// Dev / monorepo: backends/runtime/src/html → backends/html_anything
+		resolve(here, "../../../html_anything"),
+		// tsc output: backends/runtime/dist/html → backends/html_anything
+		resolve(here, "../../../../html_anything"),
+		// Bundled dist/cli.js sitting in backends/runtime/dist
+		resolve(here, "../../html_anything"),
+	];
+	for (const candidate of candidates) {
+		if (existsSync(join(candidate, "next", "package.json"))) {
+			return candidate;
+		}
+	}
+	return null;
+}
+
+function resolveHtmlPort(configured: number | undefined): number {
+	if (configured !== undefined) {
+		return configured;
+	}
+	const fromUrl = process.env.PIXELOFFICE_HTML_URL?.trim();
+	if (fromUrl) {
+		try {
+			const parsed = new URL(fromUrl);
+			if (parsed.port) {
+				return Number(parsed.port);
+			}
+		} catch {
+			// Fall through.
+		}
+	}
+	const fromPort = process.env.PIXELOFFICE_HTML_PORT?.trim();
+	if (fromPort && /^\d+$/.test(fromPort)) {
+		return Number(fromPort);
+	}
+	return DEFAULT_HTML_PORT;
+}
+
+function probePort(host: string, port: number, timeoutMs = PORT_PROBE_TIMEOUT_MS): Promise<boolean> {
+	return new Promise((resolvePromise) => {
+		const socket = connect({ host, port });
+		const finish = (isOpen: boolean) => {
+			socket.destroy();
+			resolvePromise(isOpen);
+		};
+		socket.setTimeout(timeoutMs);
+		socket.once("connect", () => finish(true));
+		socket.once("timeout", () => finish(false));
+		socket.once("error", () => finish(false));
+	});
+}
+
+async function waitForPort(
+	host: string,
+	port: number,
+	timeoutMs: number,
+	shouldKeepWaiting: () => boolean,
+): Promise<boolean> {
+	const deadline = Date.now() + timeoutMs;
+	while (Date.now() < deadline && shouldKeepWaiting()) {
+		if (await probePort(host, port)) {
+			return true;
+		}
+		await new Promise((resolvePromise) => setTimeout(resolvePromise, PORT_POLL_INTERVAL_MS));
+	}
+	return false;
+}
+
+function createNoopProcess(isAlreadyUp: boolean): HtmlProcess {
+	return {
+		pid: null,
+		spawned: false,
+		ready: Promise.resolve(isAlreadyUp),
+		close: async () => {},
+	};
+}
+
+/**
+ * Starts the html-anything sidecar unless it is already listening.
+ */
+export async function startHtmlProcess(deps: StartHtmlProcessDependencies): Promise<HtmlProcess> {
+	const host = deps.host ?? DEFAULT_HTML_HOST;
+	const port = resolveHtmlPort(deps.port);
+	const log = deps.log ?? (() => {});
+
+	if (await probePort(host, port)) {
+		log(`HTML sidecar already listening on ${host}:${port} — using the running service.`);
+		return createNoopProcess(true);
+	}
+
+	const htmlRoot = deps.htmlRoot === undefined ? findHtmlRoot() : deps.htmlRoot;
+	if (!htmlRoot) {
+		deps.warn("HTML package not found next to the runtime — HTML templates stay offline.");
+		return createNoopProcess(false);
+	}
+
+	const nextPkg = join(htmlRoot, "next");
+	const nextBin = join(nextPkg, "node_modules", "next", "dist", "bin", "next");
+	if (!existsSync(nextBin)) {
+		deps.warn(`HTML sidecar next binary missing at ${nextBin}.`);
+		deps.warn("  Install deps: pnpm install  (workspace includes backends/html_anything/next)");
+		deps.warn("  Then build:   pnpm --filter @html-anything/next build");
+		return createNoopProcess(false);
+	}
+	if (!existsSync(join(nextPkg, ".next"))) {
+		deps.warn(`HTML sidecar build missing at ${join(nextPkg, ".next")}.`);
+		deps.warn("  Build with: pnpm --filter @html-anything/next build");
+		deps.warn("  Board and office keep running; HTML templates stay offline until built.");
+		return createNoopProcess(false);
+	}
+
+	log(`Starting HTML sidecar with ${process.execPath} ${nextBin}`);
+	let child: ChildProcess;
+	try {
+		child = spawn(process.execPath, [nextBin, "start", "--port", String(port), "--hostname", host], {
+			// loader.ts resolves skills via process.cwd()/src/lib/templates/skills
+			cwd: nextPkg,
+			env: {
+				...process.env,
+				NODE_ENV: "production",
+				HTML_ANYTHING_ALLOWED_HOSTS: host,
+			},
+			stdio: "ignore",
+			shell: false,
+			windowsHide: true,
+			detached: process.platform !== "win32",
+		});
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		deps.warn(`Could not launch HTML sidecar: ${message}`);
+		return createNoopProcess(false);
+	}
+
+	let exited = false;
+	child.once("exit", (code) => {
+		exited = true;
+		if (code !== 0 && code !== null) {
+			deps.warn(`HTML sidecar exited (code ${code}) — HTML templates stay offline until restarted.`);
+		}
+	});
+	child.once("error", (error) => {
+		exited = true;
+		deps.warn(`Could not launch HTML sidecar: ${error.message}`);
+	});
+
+	const ready = waitForPort(host, port, STARTUP_TIMEOUT_MS, () => !exited).then((isUp) => {
+		if (isUp) {
+			log(`HTML sidecar listening on ${host}:${port}.`);
+			return true;
+		}
+		deps.warn(`HTML sidecar did not open ${host}:${port}.`);
+		deps.warn("  Install: pnpm install && pnpm --filter @html-anything/next build");
+		deps.warn("  Board and office keep running; HTML templates stay offline until the sidecar is up.");
+		return false;
+	});
+
+	return {
+		pid: child.pid ?? null,
+		spawned: true,
+		ready,
+		close: async () => {
+			const pid = child.pid;
+			if (exited || pid === undefined) {
+				return;
+			}
+			if (process.platform === "win32") {
+				terminateProcessForTimeout(child);
+			} else {
+				try {
+					process.kill(-pid, "SIGTERM");
+				} catch {
+					child.kill("SIGTERM");
+				}
+			}
+			await new Promise((resolvePromise) => setTimeout(resolvePromise, 250));
+		},
+	};
+}
