@@ -33,11 +33,11 @@ describe("TerminalStateMirror", () => {
 	it("preserves alternate-screen state when the active buffer is alternate", async () => {
 		const mirror = createMirror();
 
-		mirror.applyOutput(Buffer.from("[?1049h[Hfullscreen", "utf8"));
+		mirror.applyOutput(Buffer.from("\u001b[?1049h\u001b[Hfullscreen", "utf8"));
 
 		const snapshot = await mirror.getSnapshot();
 
-		expect(snapshot.snapshot).toContain("[?1049h");
+		expect(snapshot.snapshot).toContain("\u001b[?1049h");
 		expect(snapshot.snapshot).toContain("fullscreen");
 	});
 
@@ -62,10 +62,10 @@ describe("TerminalStateMirror", () => {
 		});
 		mirrors.push(mirror);
 
-		mirror.applyOutput(Buffer.from("[6n", "utf8"));
+		mirror.applyOutput(Buffer.from("\u001b[6n", "utf8"));
 		await mirror.getSnapshot();
 
-		expect(onInputResponse).toHaveBeenCalledWith("[1;1R");
+		expect(onInputResponse).toHaveBeenCalledWith("\u001b[1;1R");
 	});
 
 	it("serializes the full scrollback by default", async () => {
