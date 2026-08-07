@@ -200,6 +200,19 @@ describe("autoFallbackAccount", () => {
 		const active = account(2, "claude", "on@example.com");
 		expect(autoFallbackAccount([disabled, active], 1, "claude")?.id).toBe(2);
 	});
+
+	it("skips a seat that needs re-auth for Auto pick", () => {
+		const broken = account(1, "claude", "broken@example.com");
+		broken.ccNeedsAuth = true;
+		const healthy = account(2, "claude", "healthy@example.com");
+		expect(autoFallbackAccount([broken, healthy], 1, "claude")?.id).toBe(2);
+	});
+
+	it("falls back to a broken seat when every seat needs re-auth", () => {
+		const broken = account(1, "claude", "broken@example.com");
+		broken.validationStatus = "invalid";
+		expect(autoFallbackAccount([broken], 1, "claude")?.id).toBe(1);
+	});
 });
 
 describe("resolveActiveManagerSeat", () => {
@@ -320,5 +333,17 @@ describe("TaskAccountPicker", () => {
 		});
 		const select = container.querySelector('[data-testid="task-account-picker"]');
 		expect(select?.getAttribute("aria-label")).toBe("Claude account for this task");
+	});
+
+	it("labels a seat that needs re-auth", () => {
+		const broken = account(1, "claude", "broken@example.com");
+		broken.ccNeedsAuth = true;
+		const container = renderPicker({
+			accounts: [broken],
+			agentId: "claude",
+			activeAccountId: 1,
+		});
+		const option = container.querySelector('option[value="1"]');
+		expect(option?.textContent).toContain("needs re-auth");
 	});
 });

@@ -261,6 +261,7 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 				activeAccountId: snapshot.activeAccountId,
 			});
 		},
+		resolveLiveActiveClaudemanagerAccountId: async () => deps.manager.monitor.getState()?.activeAccountId ?? null,
 		getPinnedManagerAccount: async (accountId) => {
 			const snapshot = deps.manager.monitor.getState();
 			const account = snapshot?.accounts.find((candidate) => candidate.id === accountId);
@@ -682,6 +683,7 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 								activeAccountId: snapshot.activeAccountId,
 							});
 						},
+						resolveLiveActiveClaudeAccountId: async () => deps.manager.monitor.getState()?.activeAccountId ?? null,
 						getPinnedAccount: async (accountId) => {
 							const snapshot = deps.manager.monitor.getState();
 							const account = snapshot?.accounts.find((entry) => entry.id === accountId);

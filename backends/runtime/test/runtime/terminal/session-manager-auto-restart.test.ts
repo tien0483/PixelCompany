@@ -235,6 +235,116 @@ describe("TerminalSessionManager auto-restart", () => {
 		expect(session.write).toHaveBeenCalledTimes(1);
 	});
 
+	it("reports an agent auth failure once when detected mid-stream, and not again on exit", async () => {
+		const spawnedSessions: Array<ReturnType<typeof createMockPtySession>> = [];
+		ptySessionSpawnMock.mockImplementation((request: MockSpawnRequest) => {
+			const session = createMockPtySession(111, request);
+			spawnedSessions.push(session);
+			return session;
+		});
+
+		const manager = new TerminalSessionManager();
+		const reporter = vi.fn();
+		manager.setAgentAuthFailureReporter(reporter);
+
+		await manager.startTaskSession({
+			taskId: "task-claude",
+			agentId: "claude",
+			binary: "claude",
+			args: [],
+			cwd: "/tmp/task-claude",
+			prompt: "Fix the bug",
+			managerAccountId: 7,
+		});
+
+		spawnedSessions[0]?.triggerData("Not logged in. Please run /login to continue.\n");
+		spawnedSessions[0]?.triggerData("Not logged in. Please run /login to continue.\n");
+		spawnedSessions[0]?.triggerExit(1);
+		await Promise.resolve();
+		await Promise.resolve();
+
+		expect(reporter).toHaveBeenCalledTimes(1);
+		expect(reporter).toHaveBeenCalledWith({
+			taskId: "task-claude",
+			agentId: "claude",
+			managerAccountId: 7,
+			message: expect.stringMatching(/Claude Code needs login/i),
+		});
+	});
+
+	it("reports an agent auth failure detected only at process exit", async () => {
+		const spawnedSessions: Array<ReturnType<typeof createMockPtySession>> = [];
+		ptySessionSpawnMock.mockImplementation((request: MockSpawnRequest) => {
+			const session = createMockPtySession(111, request);
+			spawnedSessions.push(session);
+			return session;
+		});
+
+		const manager = new TerminalSessionManager();
+		const reporter = vi.fn();
+		manager.setAgentAuthFailureReporter(reporter);
+
+		await manager.startTaskSession({
+			taskId: "task-cursor",
+			agentId: "cursor",
+			binary: "agent",
+			args: [],
+			cwd: "/tmp/task-cursor",
+			prompt: "Fix the bug",
+			managerAccountId: 9,
+		});
+
+		// Auth text arrives in the same chunk the process exits with — the mock
+		// fires onExit without a prior onData call, so detection only happens
+		// via the onExit fallback's own recentOutputText read.
+		const active = (
+			manager as unknown as {
+				entries: Map<string, { active: { recentOutputText: string } | null }>;
+			}
+		).entries.get("task-cursor")?.active;
+		if (active) {
+			active.recentOutputText = "Error: The provided API key is invalid.\n";
+		}
+		spawnedSessions[0]?.triggerExit(1);
+		await Promise.resolve();
+		await Promise.resolve();
+
+		expect(reporter).toHaveBeenCalledTimes(1);
+		expect(reporter).toHaveBeenCalledWith({
+			taskId: "task-cursor",
+			agentId: "cursor",
+			managerAccountId: 9,
+			message: expect.stringMatching(/Cursor authentication failed/i),
+		});
+	});
+
+	it("never throws when the reporter itself rejects", async () => {
+		const spawnedSessions: Array<ReturnType<typeof createMockPtySession>> = [];
+		ptySessionSpawnMock.mockImplementation((request: MockSpawnRequest) => {
+			const session = createMockPtySession(111, request);
+			spawnedSessions.push(session);
+			return session;
+		});
+
+		const manager = new TerminalSessionManager();
+		manager.setAgentAuthFailureReporter(() => {
+			throw new Error("network down");
+		});
+
+		await manager.startTaskSession({
+			taskId: "task-claude-2",
+			agentId: "claude",
+			binary: "claude",
+			args: [],
+			cwd: "/tmp/task-claude-2",
+			prompt: "Fix the bug",
+		});
+
+		expect(() => {
+			spawnedSessions[0]?.triggerData("Not logged in. Please run /login to continue.\n");
+		}).not.toThrow();
+	});
+
 	it("sends deferred Codex startup input when the startup UI header appears", async () => {
 		const deferredStartupInput = "\u001b[200~/plan Validate startup UI detect\u001b[201~\r";
 		prepareAgentLaunchMock.mockResolvedValue({

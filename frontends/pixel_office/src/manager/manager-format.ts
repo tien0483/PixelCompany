@@ -42,6 +42,19 @@ export function isDonateExhausted(
 	return usagePressurePercent(account) >= account.donateLimitPercent;
 }
 
+/**
+ * True when the seat's Claude credentials are dead: jacked's probe marked it
+ * `ccNeedsAuth`, or its last validation came back `invalid`/`expired`. Mirrors
+ * the runtime's `isManagerAccountAuthBroken` so the picker's Auto preview and
+ * the actual launch agree on which seat is healthy.
+ */
+export function isAuthBroken(account: Pick<RuntimeManagerAccount, "ccNeedsAuth" | "validationStatus">): boolean {
+	if (account.ccNeedsAuth) {
+		return true;
+	}
+	return account.validationStatus === "invalid" || account.validationStatus === "expired";
+}
+
 /** Compact reset hint from an ISO timestamp (`resets 3:00 PM` / `resets May 4 …`). */
 export function formatResetHint(iso: string | null | undefined, nowMs: number = Date.now()): string | null {
 	if (!iso) {

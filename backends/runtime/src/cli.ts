@@ -35,7 +35,7 @@ import { disablePasscode, generateInternalToken, generatePasscode } from "./secu
 import { terminateProcessForTimeout } from "./server/process-termination";
 import type { RuntimeStateHub } from "./server/runtime-state-hub";
 import { captureNodeException, flushNodeTelemetry } from "./telemetry/sentry-node.js";
-import type { TerminalSessionManager } from "./terminal/session-manager";
+import type { AgentAuthFailureReporter, TerminalSessionManager } from "./terminal/session-manager";
 import { runOnDemandUpdate } from "./update/update";
 
 interface CliOptions {
@@ -428,6 +428,14 @@ async function startServer(): Promise<{
 		console.log(`[kanban] ${migrationMessage}`);
 	}
 
+	// Managers can exist before ManagerClient does (workspace registry boots first), so
+	// the reporter is attached to every terminal manager as a stable indirection function
+	// and the holder is filled in once ManagerClient is available below.
+	let authFailureReporter: AgentAuthFailureReporter | null = null;
+	const attachAuthFailureReporter = (manager: TerminalSessionManager) => {
+		manager.setAgentAuthFailureReporter((report) => authFailureReporter?.(report));
+	};
+
 	let runtimeStateHub: RuntimeStateHub | undefined;
 	const workspaceRegistry = await createWorkspaceRegistry({
 		cwd: process.cwd(),
@@ -436,6 +444,7 @@ async function startServer(): Promise<{
 		hasGitRepository,
 		pathIsDirectory,
 		onTerminalManagerReady: (workspaceId, manager) => {
+			attachAuthFailureReporter(manager);
 			runtimeStateHub?.trackTerminalManager(workspaceId, manager);
 		},
 	});
@@ -460,6 +469,16 @@ async function startServer(): Promise<{
 			runtimeStateHub?.broadcastManagerStateUpdated(state);
 		},
 	});
+	authFailureReporter = async (report) => {
+		if (report.agentId !== "claude") {
+			return;
+		}
+		const accountId = report.managerAccountId ?? ManagerMonitor.getState()?.activeAccountId ?? null;
+		if (accountId === null) {
+			return;
+		}
+		await ManagerClient.validateAccount(accountId);
+	};
 	const HtmlProcess = await startHtmlProcess({
 		warn: (message) => {
 			console.warn(`[kanban] ${message}`);
@@ -479,6 +498,7 @@ async function startServer(): Promise<{
 	});
 	const runtimeHub = runtimeStateHub;
 	for (const { workspaceId, terminalManager } of workspaceRegistry.listManagedWorkspaces()) {
+		attachAuthFailureReporter(terminalManager);
 		runtimeHub.trackTerminalManager(workspaceId, terminalManager);
 	}
 
