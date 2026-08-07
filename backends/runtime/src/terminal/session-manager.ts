@@ -28,6 +28,7 @@ import { hasCodexWorkspaceTrustPrompt, shouldAutoConfirmCodexWorkspaceTrust } fr
 import { isCursorOutputTransitionDetector } from "./cursor-output-transition";
 import { stripAnsi } from "./output-utils";
 import { PtySession } from "./pty-session";
+import { reconcileHydratedSessionSummary } from "./session-hydration";
 import {
 	computeRunTimingPatch,
 	freezeRunTimingPatch,
@@ -42,7 +43,12 @@ import {
 	filterTerminalProtocolOutput,
 	type TerminalProtocolFilterState,
 } from "./terminal-protocol-filter";
-import type { TerminalSessionListener, TerminalSessionService } from "./terminal-session-service";
+import type {
+	TerminalRestoreResult,
+	TerminalSessionListener,
+	TerminalSessionService,
+} from "./terminal-session-service";
+import { MAX_SNAPSHOT_BYTES, type TerminalSnapshotRecord, type TerminalSnapshotStore } from "./terminal-snapshot-store";
 import { TerminalStateMirror } from "./terminal-state-mirror";
 
 const MAX_WORKSPACE_TRUST_BUFFER_CHARS = 16_384;
@@ -51,6 +57,17 @@ const AUTO_RESTART_WINDOW_MS = 5_000;
 const MAX_AUTO_RESTARTS_PER_WINDOW = 3;
 // Safety cap so stopTaskSession() can't hang forever if a process ignores SIGTERM.
 const STOP_TASK_SESSION_EXIT_TIMEOUT_MS = 5_000;
+// Terminal scrollback snapshot persistence: trailing debounce so a bursty session doesn't
+// write on every PTY chunk, plus a max-latency force-write so a constantly-chatty session
+// still lands on disk periodically instead of debouncing forever.
+const SNAPSHOT_DEBOUNCE_MS = 5_000;
+const SNAPSHOT_MAX_LATENCY_MS = 30_000;
+// Scrollback window serialized on the first attempt, and the smaller fallback window
+// retried once if the first serialization is over MAX_SNAPSHOT_BYTES. This "shrink and
+// retry" logic is deliberately the caller's job, not the store's — see MAX_SNAPSHOT_BYTES's
+// doc comment in terminal-snapshot-store.ts.
+const SNAPSHOT_SCROLLBACK_LINES = 2_000;
+const SNAPSHOT_RETRY_SCROLLBACK_LINES = 500;
 // TUI apps (Codex, OpenCode) can query OSC 10/11 before the browser terminal is attached
 // and ready to answer. We intercept those startup probes during early PTY output, synthesize
 // foreground/background color replies, then disable the filter once a live terminal listener
@@ -89,6 +106,12 @@ interface ActiveProcessState {
 	workspaceTrustConfirmTimer: NodeJS.Timeout | null;
 }
 
+/** Debounce/max-latency timer bookkeeping for one task's pending scrollback snapshot write. */
+interface PendingSnapshotWrite {
+	debounceTimer: NodeJS.Timeout | null;
+	maxLatencyTimer: NodeJS.Timeout | null;
+}
+
 interface SessionEntry {
 	summary: RuntimeTaskSessionSummary;
 	active: ActiveProcessState | null;
@@ -101,6 +124,15 @@ interface SessionEntry {
 	pendingAutoRestart: Promise<void> | null;
 	/** Resolved from the PTY `onExit` handler once `active` is nulled out; lets stopTaskSession() await the real exit instead of just the kill signal. */
 	exitWaiters: Set<() => void>;
+	/**
+	 * Disk snapshot loaded (at most once per mirror lifetime) when no live mirror is
+	 * available. `undefined` means "not yet attempted"; `null` means "attempted, nothing
+	 * on disk". Cleared back to `undefined` whenever a fresh PTY/mirror is started so a
+	 * new run never shows replayed content from a previous one.
+	 */
+	restoredSnapshot: TerminalSnapshotRecord | null | undefined;
+	/** Non-null while a debounced/max-latency snapshot write is outstanding for this task. */
+	pendingSnapshotWrite: PendingSnapshotWrite | null;
 }
 
 export interface StartTaskSessionRequest {
@@ -258,10 +290,19 @@ function hasCodexStartupUiRendered(text: string): boolean {
 	return stripped.includes("openai codex (v");
 }
 
+export interface TerminalSessionManagerOptions {
+	snapshotStore?: TerminalSnapshotStore | null;
+}
+
 export class TerminalSessionManager implements TerminalSessionService {
 	private readonly entries = new Map<string, SessionEntry>();
 	private readonly summaryListeners = new Set<(summary: RuntimeTaskSessionSummary) => void>();
 	private agentAuthFailureReporter: AgentAuthFailureReporter | null = null;
+	private readonly snapshotStore: TerminalSnapshotStore | null;
+
+	constructor(options?: TerminalSessionManagerOptions) {
+		this.snapshotStore = options?.snapshotStore ?? null;
+	}
 
 	/** Wired by the CLI once a Manager client exists; reports a live agent 401 so Manager can re-validate the seat. */
 	setAgentAuthFailureReporter(reporter: AgentAuthFailureReporter | null): void {
@@ -278,6 +319,47 @@ export class TerminalSessionManager implements TerminalSessionService {
 			})?.catch?.(() => {});
 		} catch {
 			// Reporting never takes down a session.
+		}
+	}
+
+	getSnapshotStore(): TerminalSnapshotStore | null {
+		return this.snapshotStore;
+	}
+
+	/**
+	 * Flushes every task's outstanding debounced/max-latency snapshot write immediately.
+	 * Parallels the session summary persister's own `flush()` semantics (Task 3/4): it
+	 * only writes what's actually pending, it does not force a fresh write for tasks with
+	 * nothing outstanding. The shutdown coordinator (Task 7) calls this before closing the
+	 * server so a SIGTERM doesn't lose an in-flight debounce window.
+	 */
+	async flushTerminalSnapshots(): Promise<void> {
+		const pendingTaskIds = Array.from(this.entries.entries())
+			.filter(([, entry]) => entry.pendingSnapshotWrite !== null)
+			.map(([taskId]) => taskId);
+		await Promise.all(pendingTaskIds.map((taskId) => this.persistSnapshotNow(taskId)));
+	}
+
+	/**
+	 * Deletes the persisted disk snapshot for `taskId` (no-op if no store is configured)
+	 * and invalidates any memoized `restoredSnapshot` so a later `getRestoreSnapshot` call
+	 * doesn't keep serving a cached record for a file that no longer exists. Called from
+	 * `workspace-api.ts`'s `deleteWorktree` handler and from the shutdown coordinator's
+	 * interrupted-worktree cleanup, so a removed task's stale scrollback never lingers on
+	 * disk after its worktree is gone.
+	 */
+	async deleteTerminalSnapshot(taskId: string): Promise<void> {
+		const entry = this.entries.get(taskId);
+		if (entry) {
+			entry.restoredSnapshot = null;
+		}
+		if (!this.snapshotStore) {
+			return;
+		}
+		try {
+			await this.snapshotStore.delete(taskId);
+		} catch {
+			// Best effort: a failed snapshot delete should not block worktree cleanup.
 		}
 	}
 
@@ -320,7 +402,7 @@ export class TerminalSessionManager implements TerminalSessionService {
 	hydrateFromRecord(record: Record<string, RuntimeTaskSessionSummary>): void {
 		for (const [taskId, summary] of Object.entries(record)) {
 			this.entries.set(taskId, {
-				summary: cloneSummary(summary),
+				summary: cloneSummary(reconcileHydratedSessionSummary(summary, now())),
 				active: null,
 				terminalStateMirror: null,
 				listenerIdCounter: 1,
@@ -330,6 +412,8 @@ export class TerminalSessionManager implements TerminalSessionService {
 				autoRestartTimestamps: [],
 				pendingAutoRestart: null,
 				exitWaiters: new Set(),
+				restoredSnapshot: undefined,
+				pendingSnapshotWrite: null,
 			});
 		}
 	}
@@ -390,12 +474,47 @@ export class TerminalSessionManager implements TerminalSessionService {
 		};
 	}
 
-	async getRestoreSnapshot(taskId: string) {
+	/**
+	 * Restore priority: a live in-RAM mirror (still in this process's memory, whether the
+	 * PTY is still running or just exited) is always authoritative and never stale. Only
+	 * once that's gone — i.e. the app restarted and `hydrateFromRecord` reset the mirror to
+	 * `null` — do we fall back to a disk snapshot, which is necessarily stale (it reflects
+	 * whatever was captured before shutdown, not "now"). The disk load happens at most once
+	 * per mirror lifetime and is memoized on the entry; `startTaskSession` clears the memo
+	 * when a fresh mirror is created.
+	 */
+	async getRestoreSnapshot(taskId: string): Promise<TerminalRestoreResult | null> {
 		const entry = this.entries.get(taskId);
-		if (!entry?.terminalStateMirror) {
+		if (!entry) {
 			return null;
 		}
-		return await entry.terminalStateMirror.getSnapshot();
+		if (entry.terminalStateMirror) {
+			const live = await entry.terminalStateMirror.getSnapshot();
+			return {
+				snapshot: live.snapshot,
+				cols: live.cols,
+				rows: live.rows,
+				stale: false,
+				capturedAt: null,
+			};
+		}
+		if (!this.snapshotStore) {
+			return null;
+		}
+		if (entry.restoredSnapshot === undefined) {
+			entry.restoredSnapshot = await this.snapshotStore.load(taskId);
+		}
+		const restored = entry.restoredSnapshot;
+		if (!restored) {
+			return null;
+		}
+		return {
+			snapshot: restored.snapshot,
+			cols: restored.cols,
+			rows: restored.rows,
+			stale: true,
+			capturedAt: restored.capturedAt,
+		};
 	}
 
 	async startTaskSession(request: StartTaskSessionRequest): Promise<RuntimeTaskSessionSummary> {
@@ -423,6 +542,8 @@ export class TerminalSessionManager implements TerminalSessionService {
 		}
 		entry.terminalStateMirror?.dispose();
 		entry.terminalStateMirror = null;
+		// A fresh PTY start should never show stale replayed content from a previous run.
+		entry.restoredSnapshot = undefined;
 
 		const cols = Number.isFinite(request.cols) && (request.cols ?? 0) > 0 ? Math.floor(request.cols ?? 0) : 120;
 		const rows = Number.isFinite(request.rows) && (request.rows ?? 0) > 0 ? Math.floor(request.rows ?? 0) : 40;
@@ -483,6 +604,7 @@ export class TerminalSessionManager implements TerminalSessionService {
 						return;
 					}
 					entry.terminalStateMirror?.applyOutput(filteredChunk);
+					this.scheduleSnapshotPersist(request.taskId);
 
 					const needsDecodedOutput =
 						entry.active.workspaceTrustBuffer !== null ||
@@ -595,6 +717,9 @@ export class TerminalSessionManager implements TerminalSessionService {
 						return;
 					}
 					stopWorkspaceTrustTimers(currentActive);
+					// A session ending should never lose its last output to an unlucky debounce
+					// window, so force a final snapshot write regardless of the debounce state.
+					void this.persistSnapshotNow(request.taskId).catch(() => {});
 
 					const previousAuthFailureMessage = currentActive.authFailureMessage;
 					const authFailure =
@@ -764,6 +889,9 @@ export class TerminalSessionManager implements TerminalSessionService {
 		}
 		entry.terminalStateMirror?.dispose();
 		entry.terminalStateMirror = null;
+		// Same reasoning as startTaskSession: a fresh PTY start should never show stale
+		// replayed content from a previous run.
+		entry.restoredSnapshot = undefined;
 
 		const cols = Number.isFinite(request.cols) && (request.cols ?? 0) > 0 ? Math.floor(request.cols ?? 0) : 120;
 		const rows = Number.isFinite(request.rows) && (request.rows ?? 0) > 0 ? Math.floor(request.rows ?? 0) : 40;
@@ -799,6 +927,7 @@ export class TerminalSessionManager implements TerminalSessionService {
 						return;
 					}
 					entry.terminalStateMirror?.applyOutput(filteredChunk);
+					this.scheduleSnapshotPersist(request.taskId);
 
 					if (entry.active.workspaceTrustBuffer !== null) {
 						entry.active.workspaceTrustBuffer += filteredChunk.toString("utf8");
@@ -824,6 +953,9 @@ export class TerminalSessionManager implements TerminalSessionService {
 						return;
 					}
 					stopWorkspaceTrustTimers(currentActive);
+					// A session ending should never lose its last output to an unlucky debounce
+					// window, so force a final snapshot write regardless of the debounce state.
+					void this.persistSnapshotNow(request.taskId).catch(() => {});
 
 					const summary = updateSummary(currentEntry, {
 						state: currentActive.session.wasInterrupted() ? "interrupted" : "idle",
@@ -914,6 +1046,10 @@ export class TerminalSessionManager implements TerminalSessionService {
 
 		// Preserve agentId so the server can route to the correct agent type
 		// (Cline SDK vs terminal PTY) when a task is restored from trash.
+		// pausedAt/pauseReason are carried through explicitly (not just left untouched by
+		// omission) so this patch stays correct even if updateSummary's merge semantics
+		// change later — a stale session that was also manually/force-paused must not lose
+		// that pause state on recovery.
 		const summary = updateSummary(entry, {
 			state: "idle",
 			workspacePath: null,
@@ -926,6 +1062,8 @@ export class TerminalSessionManager implements TerminalSessionService {
 			latestHookActivity: null,
 			latestTurnCheckpoint: null,
 			previousTurnCheckpoint: null,
+			pausedAt: entry.summary.pausedAt,
+			pauseReason: entry.summary.pauseReason,
 		});
 
 		for (const listener of entry.listeners.values()) {
@@ -1181,6 +1319,10 @@ export class TerminalSessionManager implements TerminalSessionService {
 				// Best effort: cleanup failure is non-critical.
 			});
 		}
+		// A session ending should never lose its last output to an unlucky debounce
+		// window; the PTY's own onExit handler will also force a write, but this one
+		// runs immediately rather than waiting on the (up to 5s) exit timeout below.
+		await this.persistSnapshotNow(taskId);
 		// Wait for the PTY's actual onExit before resolving, so callers that
 		// immediately follow up with startTaskSession() don't race the
 		// "still active" guard there and silently no-op the restart.
@@ -1208,6 +1350,97 @@ export class TerminalSessionManager implements TerminalSessionService {
 			entry.active.session.stop({ interrupted: true });
 		}
 		return activeEntries.map((entry) => cloneSummary(entry.summary));
+	}
+
+	/**
+	 * Schedules a debounced scrollback snapshot write for `taskId`: a trailing 5s debounce
+	 * (reset on every call) so a bursty session doesn't write on every PTY chunk, plus a
+	 * 30s max-latency force-write (armed once, not reset) so a constantly-chatty session
+	 * still lands on disk periodically instead of debouncing forever. No-op when no
+	 * snapshot store is configured or the task has no live mirror to serialize.
+	 */
+	private scheduleSnapshotPersist(taskId: string): void {
+		if (!this.snapshotStore) {
+			return;
+		}
+		const entry = this.entries.get(taskId);
+		if (!entry?.terminalStateMirror) {
+			return;
+		}
+		const pending: PendingSnapshotWrite = entry.pendingSnapshotWrite ?? {
+			debounceTimer: null,
+			maxLatencyTimer: null,
+		};
+		entry.pendingSnapshotWrite = pending;
+
+		if (pending.debounceTimer) {
+			clearTimeout(pending.debounceTimer);
+		}
+		pending.debounceTimer = setTimeout(() => {
+			void this.persistSnapshotNow(taskId);
+		}, SNAPSHOT_DEBOUNCE_MS);
+
+		if (!pending.maxLatencyTimer) {
+			pending.maxLatencyTimer = setTimeout(() => {
+				void this.persistSnapshotNow(taskId);
+			}, SNAPSHOT_MAX_LATENCY_MS);
+		}
+	}
+
+	/**
+	 * Serializes the task's live mirror and persists it, clearing any outstanding debounce/
+	 * max-latency timers first. Used both by the scheduled timers above and by the
+	 * immediate final-write call sites (PTY `onExit`, `stopTaskSession`, `flushTerminalSnapshots`).
+	 * Serializes at {@link SNAPSHOT_SCROLLBACK_LINES} lines first; if the payload is over
+	 * `MAX_SNAPSHOT_BYTES` it retries at {@link SNAPSHOT_RETRY_SCROLLBACK_LINES}, and if still
+	 * over, persists an explicit empty/truncated marker rather than relying solely on the
+	 * store's own hard-cap backstop. Never throws: a failed write is best-effort.
+	 */
+	private async persistSnapshotNow(taskId: string): Promise<void> {
+		const store = this.snapshotStore;
+		const entry = this.entries.get(taskId);
+		if (!entry) {
+			return;
+		}
+		const pending = entry.pendingSnapshotWrite;
+		if (pending) {
+			if (pending.debounceTimer) {
+				clearTimeout(pending.debounceTimer);
+			}
+			if (pending.maxLatencyTimer) {
+				clearTimeout(pending.maxLatencyTimer);
+			}
+			entry.pendingSnapshotWrite = null;
+		}
+		if (!store) {
+			return;
+		}
+		const mirror = entry.terminalStateMirror;
+		if (!mirror) {
+			return;
+		}
+		try {
+			let snapshot = await mirror.getSnapshot({ maxScrollbackLines: SNAPSHOT_SCROLLBACK_LINES });
+			let truncated = false;
+			if (Buffer.byteLength(snapshot.snapshot, "utf8") > MAX_SNAPSHOT_BYTES) {
+				snapshot = await mirror.getSnapshot({ maxScrollbackLines: SNAPSHOT_RETRY_SCROLLBACK_LINES });
+				if (Buffer.byteLength(snapshot.snapshot, "utf8") > MAX_SNAPSHOT_BYTES) {
+					truncated = true;
+				}
+			}
+			const record: TerminalSnapshotRecord = {
+				version: 1,
+				taskId,
+				capturedAt: now(),
+				cols: snapshot.cols,
+				rows: snapshot.rows,
+				snapshot: truncated ? "" : snapshot.snapshot,
+				truncated,
+			};
+			await store.save(record);
+		} catch {
+			// Best effort: a failed snapshot write should never break the session.
+		}
 	}
 
 	private applySessionEvent(entry: SessionEntry, event: SessionTransitionEvent): RuntimeTaskSessionSummary {
@@ -1242,6 +1475,8 @@ export class TerminalSessionManager implements TerminalSessionService {
 			autoRestartTimestamps: [],
 			pendingAutoRestart: null,
 			exitWaiters: new Set(),
+			restoredSnapshot: undefined,
+			pendingSnapshotWrite: null,
 		};
 		this.entries.set(taskId, created);
 		return created;

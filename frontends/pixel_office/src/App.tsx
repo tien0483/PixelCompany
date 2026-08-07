@@ -1393,6 +1393,7 @@ export default function App(): ReactElement {
 														onStartTask={handleStartTaskFromBoard}
 														onPauseTask={pauseTaskSession}
 														onResumeTask={resumeTaskSession}
+														onResumeEndedSession={handleRestartTaskWithCurrentAccount}
 														onCancelAutoRun={handleCancelAutoRun}
 														onDeleteTask={handleDeleteBacklogTask}
 														onStartAllTasks={
@@ -1504,6 +1505,7 @@ export default function App(): ReactElement {
 													}
 													isExpanded={isHomeTerminalExpanded}
 													onToggleExpand={handleToggleExpandHomeTerminal}
+													onResumeEndedSession={handleRestartTaskWithCurrentAccount}
 												/>
 											</div>
 										</ResizableBottomPane>
@@ -1530,6 +1532,7 @@ export default function App(): ReactElement {
 									onStartTask={handleStartTaskFromBoard}
 									onPauseTask={pauseTaskSession}
 									onResumeTask={resumeTaskSession}
+									onResumeEndedSession={handleRestartTaskWithCurrentAccount}
 									onCancelAutoRun={handleCancelAutoRun}
 									onStartAllTasks={handleStartAllBacklogTasksFromBoard}
 									onClearTrash={handleOpenClearTrash}
@@ -1633,8 +1636,8 @@ export default function App(): ReactElement {
 									managerAccounts={managedManagerAccounts}
 									managerActiveAccountId={manager?.activeAccountId ?? null}
 									onTaskManagerAccountChanged={handleTaskManagerAccountChanged}
-								onTaskApiSeatChanged={handleTaskApiSeatChanged}
-									onRestartTaskWithAccount={handleRestartTaskWithCurrentAccount}
+									onTaskApiSeatChanged={handleTaskApiSeatChanged}
+									onRestartTaskSession={handleRestartTaskWithCurrentAccount}
 									restartTaskLoadingById={restartTaskLoadingById}
 									onTaskLaunchSettingsChanged={handleTaskLaunchSettingsChanged}
 									onTaskAutoResumeOnUsageLimitChanged={

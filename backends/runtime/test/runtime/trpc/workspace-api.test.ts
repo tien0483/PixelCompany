@@ -360,13 +360,17 @@ describe("createWorkspaceApi deleteWorktree", () => {
 	}
 
 	function createApi() {
-		return createWorkspaceApi({
-			ensureTerminalManagerForWorkspace: vi.fn(),
+		const terminalManager = {
+			deleteTerminalSnapshot: vi.fn(async () => {}),
+		};
+		const api = createWorkspaceApi({
+			ensureTerminalManagerForWorkspace: vi.fn(async () => terminalManager as never),
 			getScopedClineTaskSessionService: vi.fn(),
 			broadcastRuntimeWorkspaceStateUpdated: vi.fn(),
 			broadcastRuntimeProjectsUpdated: vi.fn(),
 			buildWorkspaceStateSnapshot: vi.fn(),
 		});
+		return { api, terminalManager };
 	}
 
 	it("refuses to delete a chain root's worktree while a live follower still shares it", async () => {
@@ -397,7 +401,7 @@ describe("createWorkspaceApi deleteWorktree", () => {
 
 		workspaceStateMocks.loadWorkspaceState.mockResolvedValue(stateResponseWithBoard(board));
 
-		const api = createApi();
+		const { api, terminalManager } = createApi();
 		const response = await api.deleteWorktree(
 			{ workspaceId: "workspace-1", workspacePath: "/tmp/repo" },
 			{ taskId: "root-task" },
@@ -407,6 +411,9 @@ describe("createWorkspaceApi deleteWorktree", () => {
 		expect(response.removed).toBe(false);
 		expect(response.error).toMatch(/shared with a live chain member/i);
 		expect(workspaceTaskWorktreeMocks.deleteTaskWorktree).not.toHaveBeenCalled();
+		// A refused delete must not clean up the snapshot either: the worktree (and its
+		// terminal history) is still live and shared with the follower.
+		expect(terminalManager.deleteTerminalSnapshot).not.toHaveBeenCalled();
 	});
 
 	it("deletes a chain root's worktree once its last live follower is gone", async () => {
@@ -438,7 +445,7 @@ describe("createWorkspaceApi deleteWorktree", () => {
 		workspaceStateMocks.loadWorkspaceState.mockResolvedValue(stateResponseWithBoard(board));
 		workspaceTaskWorktreeMocks.deleteTaskWorktree.mockResolvedValue({ ok: true, removed: true });
 
-		const api = createApi();
+		const { api, terminalManager } = createApi();
 		const response = await api.deleteWorktree(
 			{ workspaceId: "workspace-1", workspacePath: "/tmp/repo" },
 			{ taskId: "root-task" },
@@ -450,6 +457,7 @@ describe("createWorkspaceApi deleteWorktree", () => {
 			repoPath: "/tmp/repo",
 			taskId: "root-task",
 		});
+		expect(terminalManager.deleteTerminalSnapshot).toHaveBeenCalledWith("root-task");
 	});
 
 	it("deletes a standalone (non-chain) task's worktree as before", async () => {
@@ -472,7 +480,7 @@ describe("createWorkspaceApi deleteWorktree", () => {
 		workspaceStateMocks.loadWorkspaceState.mockResolvedValue(stateResponseWithBoard(board));
 		workspaceTaskWorktreeMocks.deleteTaskWorktree.mockResolvedValue({ ok: true, removed: true });
 
-		const api = createApi();
+		const { api, terminalManager } = createApi();
 		const response = await api.deleteWorktree(
 			{ workspaceId: "workspace-1", workspacePath: "/tmp/repo" },
 			{ taskId: "standalone-task" },
@@ -483,5 +491,6 @@ describe("createWorkspaceApi deleteWorktree", () => {
 			repoPath: "/tmp/repo",
 			taskId: "standalone-task",
 		});
+		expect(terminalManager.deleteTerminalSnapshot).toHaveBeenCalledWith("standalone-task");
 	});
 });

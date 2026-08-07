@@ -34,6 +34,7 @@ import { cn } from "@/components/ui/cn";
 import { Spinner } from "@/components/ui/spinner";
 import { Tooltip } from "@/components/ui/tooltip";
 import { useCountdownMs, useElapsedMs } from "@/hooks/use-elapsed-timer";
+import { isSessionPausedLive, isSessionPausedOffline, pausedOfflineBadgeLabel } from "@/runtime/session-status";
 import type { RuntimeTaskSessionSummary } from "@/runtime/types";
 import { useTaskWorkspaceInfoValue, useTaskWorkspaceSnapshotValue } from "@/stores/workspace-metadata-store";
 import type { BoardCard as BoardCardModel, BoardColumnId } from "@/types";
@@ -331,6 +332,7 @@ export function BoardCard({
 	onStart,
 	onPause,
 	onResume,
+	onResumeEndedSession,
 	onCancelAutoRun,
 	onDelete,
 	onMoveToTrash,
@@ -368,6 +370,8 @@ export function BoardCard({
 	onStart?: (taskId: string) => void;
 	onPause?: (taskId: string) => void;
 	onResume?: (taskId: string) => void;
+	/** Resumes a paused-offline (PTY already exited) session via `--continue`, instead of writing "continue" to a live PTY. */
+	onResumeEndedSession?: (taskId: string) => void;
 	onCancelAutoRun?: (taskId: string) => void;
 	onDelete?: (taskId: string) => void;
 	onMoveToTrash?: (taskId: string) => void;
@@ -438,6 +442,8 @@ export function BoardCard({
 	}
 	const sessionActivity = rawSessionActivity ?? lastSessionActivityRef.current;
 	const isPaused = sessionSummary?.pausedAt != null;
+	const isPausedOffline = sessionSummary ? isSessionPausedOffline(sessionSummary) : false;
+	const isPausedLive = sessionSummary ? isSessionPausedLive(sessionSummary) : false;
 	const pausedByMaxRuntime = sessionSummary?.pauseReason === "max_runtime";
 	const elapsedMs = useElapsedMs(sessionSummary);
 	const showElapsed =
@@ -916,8 +922,10 @@ export function BoardCard({
 										onMouseDown={stopEvent}
 										onClick={(event) => {
 											stopEvent(event);
-											if (isPaused) {
+											if (isPausedLive) {
 												onResume?.(card.id);
+											} else if (isPausedOffline) {
+												onResumeEndedSession?.(card.id);
 											} else {
 												onPause?.(card.id);
 											}
@@ -1053,7 +1061,9 @@ export function BoardCard({
 									>
 										{formatElapsed(elapsedMs)}
 									</span>
-									{isPaused ? (
+									{isPausedOffline ? (
+										<span className="text-status-orange">· {pausedOfflineBadgeLabel()}</span>
+									) : isPaused ? (
 										<span className="text-status-orange">
 											· Paused{pausedByMaxRuntime ? " (max runtime)" : ""}
 										</span>

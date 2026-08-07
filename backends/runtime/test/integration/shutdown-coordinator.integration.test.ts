@@ -1,12 +1,13 @@
 import { spawnSync } from "node:child_process";
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { RuntimeBoardData, RuntimeTaskSessionSummary } from "../../src/core/api-contract";
 import { shutdownRuntimeServer } from "../../src/server/shutdown-coordinator";
 import { loadWorkspaceState, saveWorkspaceState } from "../../src/state/workspace-state";
+import { ensureTaskWorktreeIfDoesntExist } from "../../src/workspace/task-worktree";
 import type { TerminalSessionManager } from "../../src/terminal/session-manager";
 import { createGitTestEnv } from "../utilities/git-env";
 import { createTempDir } from "../utilities/temp-dir";
@@ -34,15 +35,30 @@ async function withTemporaryHome<T>(run: () => Promise<T>): Promise<T> {
 	}
 }
 
-function initGitRepository(path: string): void {
-	const init = spawnSync("git", ["init"], {
-		cwd: path,
+function runGit(cwd: string, args: string[]): void {
+	const result = spawnSync("git", args, {
+		cwd,
 		stdio: "ignore",
 		env: createGitTestEnv(),
 	});
-	if (init.status !== 0) {
-		throw new Error(`Failed to initialize git repository at ${path}`);
+	if (result.status !== 0) {
+		throw new Error(`git ${args.join(" ")} failed in ${cwd}`);
 	}
+}
+
+function initGitRepository(path: string): void {
+	runGit(path, ["init"]);
+}
+
+/** Creates a repo with an initial commit on `main` so `ensureTaskWorktreeIfDoesntExist` can succeed. */
+function initGitRepositoryWithCommit(path: string): void {
+	initGitRepository(path);
+	runGit(path, ["config", "user.name", "Kanban Test"]);
+	runGit(path, ["config", "user.email", "kanban-test@example.com"]);
+	writeFileSync(join(path, "README.md"), "hello\n", "utf8");
+	runGit(path, ["add", "README.md"]);
+	runGit(path, ["commit", "-m", "init"]);
+	runGit(path, ["branch", "-M", "main"]);
 }
 
 function createCard(taskId: string) {
@@ -77,7 +93,11 @@ function createBoard(taskIds: { inProgress?: string[]; review?: string[] }): Run
 	};
 }
 
-function createSession(taskId: string, state: "running" | "awaiting_review" | "idle"): RuntimeTaskSessionSummary {
+function createSession(
+	taskId: string,
+	state: "running" | "awaiting_review" | "idle",
+	overrides: Partial<RuntimeTaskSessionSummary> = {},
+): RuntimeTaskSessionSummary {
 	return {
 		taskId,
 		state,
@@ -95,7 +115,28 @@ function createSession(taskId: string, state: "running" | "awaiting_review" | "i
 		exitCode: null,
 		lastHookAt: null,
 		latestHookActivity: null,
+		...overrides,
 	};
+}
+
+/** A fully "parked" summary: idle, no process, `pausedAt` set. Matches the paused invariant. */
+function createParkedSession(taskId: string): RuntimeTaskSessionSummary {
+	return createSession(taskId, "idle", { pausedAt: Date.now() - 5_000, pauseReason: "manual" });
+}
+
+function createFakeTerminalManager(
+	summariesByTaskId: Record<string, RuntimeTaskSessionSummary>,
+	options?: {
+		markInterruptedAndStopAllResult?: RuntimeTaskSessionSummary[];
+	},
+): TerminalSessionManager {
+	return {
+		markInterruptedAndStopAll: vi.fn(() => options?.markInterruptedAndStopAllResult ?? []),
+		listSummaries: vi.fn(() => Object.values(summariesByTaskId)),
+		getSummary: vi.fn((taskId: string) => summariesByTaskId[taskId] ?? null),
+		deleteTerminalSnapshot: vi.fn(async () => {}),
+		flushTerminalSnapshots: vi.fn(async () => {}),
+	} as unknown as TerminalSessionManager;
 }
 
 describe.sequential("shutdown coordinator integration", () => {
@@ -136,19 +177,14 @@ describe.sequential("shutdown coordinator integration", () => {
 				});
 
 				let didCloseRuntimeServer = false;
-				const managedTerminalManager = {
-					markInterruptedAndStopAll: () => [createSession("managed-running", "running")],
-					listSummaries: () => [createSession("managed-running", "running")],
-					getSummary: (taskId: string) => {
-						if (taskId === "managed-running") {
-							return createSession("managed-running", "running");
-						}
-						if (taskId === "managed-idle") {
-							return createSession("managed-idle", "idle");
-						}
-						return null;
+				const managedTerminalManager = createFakeTerminalManager(
+					{
+						"managed-running": createSession("managed-running", "running"),
+						"managed-idle": createSession("managed-idle", "idle"),
 					},
-				} as unknown as TerminalSessionManager;
+					{ markInterruptedAndStopAllResult: [createSession("managed-running", "running")] },
+				);
+				const flushSessionPersistence = vi.fn(async () => {});
 				await shutdownRuntimeServer({
 					workspaceRegistry: {
 						listManagedWorkspaces: () => [
@@ -158,6 +194,7 @@ describe.sequential("shutdown coordinator integration", () => {
 								terminalManager: managedTerminalManager,
 							},
 						],
+						flushSessionPersistence,
 					},
 					warn: () => {},
 					closeRuntimeServer: async () => {
@@ -183,6 +220,254 @@ describe.sequential("shutdown coordinator integration", () => {
 				);
 				expect(indexedAfter.sessions["indexed-awaiting-review"]?.state).toBe("interrupted");
 				expect(indexedAfter.sessions["indexed-missing-session"]).toBeUndefined();
+
+				// Every trashed/interrupted worktree task's scrollback snapshot is cleaned up
+				// alongside its worktree, routed through the live manager for the managed
+				// workspace (so its in-memory memoized restoredSnapshot is invalidated too).
+				const deletedSnapshotTaskIds = (
+					managedTerminalManager.deleteTerminalSnapshot as ReturnType<typeof vi.fn>
+				).mock.calls
+					.map(([taskId]) => taskId)
+					.sort();
+				expect(deletedSnapshotTaskIds).toEqual(["managed-idle", "managed-missing-session", "managed-running"].sort());
+
+				// Task 7: session persistence + terminal snapshots are flushed before shutdown.
+				expect(flushSessionPersistence).toHaveBeenCalledTimes(1);
+				expect(managedTerminalManager.flushTerminalSnapshots).toHaveBeenCalledTimes(1);
+			} finally {
+				cleanup();
+			}
+		});
+	}, 30_000);
+
+	it("parks a paused In Progress card untouched while a non-paused card is still trashed and its worktree deleted", async () => {
+		await withTemporaryHome(async () => {
+			const { path: sandboxRoot, cleanup } = createTempDir("kanban-shutdown-parked-");
+			try {
+				const managedProjectPath = join(sandboxRoot, "managed-project");
+				mkdirSync(managedProjectPath, { recursive: true });
+				initGitRepositoryWithCommit(managedProjectPath);
+
+				const pausedEnsure = await ensureTaskWorktreeIfDoesntExist({
+					cwd: managedProjectPath,
+					taskId: "paused-task",
+					baseRef: "main",
+				});
+				expect(pausedEnsure.ok).toBe(true);
+				const interruptedEnsure = await ensureTaskWorktreeIfDoesntExist({
+					cwd: managedProjectPath,
+					taskId: "interrupted-task",
+					baseRef: "main",
+				});
+				expect(interruptedEnsure.ok).toBe(true);
+				if (!pausedEnsure.ok || !interruptedEnsure.ok) {
+					throw new Error("expected both worktrees to be created");
+				}
+				const pausedWorktreePath = pausedEnsure.path;
+				const interruptedWorktreePath = interruptedEnsure.path;
+				expect(existsSync(pausedWorktreePath)).toBe(true);
+				expect(existsSync(interruptedWorktreePath)).toBe(true);
+
+				const pausedSession = createParkedSession("paused-task");
+				const runningSession = createSession("interrupted-task", "running");
+
+				const managedInitial = await loadWorkspaceState(managedProjectPath);
+				await saveWorkspaceState(managedProjectPath, {
+					board: createBoard({
+						inProgress: ["paused-task", "interrupted-task"],
+					}),
+					sessions: {
+						"paused-task": pausedSession,
+						"interrupted-task": runningSession,
+					},
+					expectedRevision: managedInitial.revision,
+				});
+
+				// `markInterruptedAndStopAll` sweeps every entry with a live process, which
+				// includes a paused task: `pauseTaskSession` deliberately keeps the process
+				// alive (so `--continue` can resume it later) and never clears `entry.active`.
+				// The fake must mirror that real behavior so this test actually exercises the
+				// re-partitioning of the sweep's output instead of the fake sidestepping it.
+				const managedTerminalManager = createFakeTerminalManager(
+					{
+						"paused-task": pausedSession,
+						"interrupted-task": runningSession,
+					},
+					{ markInterruptedAndStopAllResult: [pausedSession, runningSession] },
+				);
+				const flushSessionPersistence = vi.fn(async () => {});
+
+				await shutdownRuntimeServer({
+					workspaceRegistry: {
+						listManagedWorkspaces: () => [
+							{
+								workspaceId: "managed-project",
+								workspacePath: managedProjectPath,
+								terminalManager: managedTerminalManager,
+							},
+						],
+						flushSessionPersistence,
+					},
+					warn: () => {},
+					closeRuntimeServer: async () => {},
+				});
+
+				const after = await loadWorkspaceState(managedProjectPath);
+				const inProgress = after.board.columns.find((column) => column.id === "in_progress")?.cards ?? [];
+				const trash = after.board.columns.find((column) => column.id === "trash")?.cards ?? [];
+
+				// Paused task: stays In Progress, untouched.
+				expect(inProgress.map((card) => card.id)).toEqual(["paused-task"]);
+				const pausedAfter = after.sessions["paused-task"];
+				expect(pausedAfter?.state).toBe("idle");
+				expect(pausedAfter?.pausedAt).toBe(pausedSession.pausedAt);
+				expect(pausedAfter?.pauseReason).toBe("manual");
+				expect(pausedAfter?.pid).toBeNull();
+				expect(pausedAfter?.exitCode).toBeNull();
+				expect(existsSync(pausedWorktreePath)).toBe(true);
+
+				// Non-paused task: keeps today's behavior exactly (trashed, worktree deleted).
+				expect(trash.map((card) => card.id)).toEqual(["interrupted-task"]);
+				expect(after.sessions["interrupted-task"]?.state).toBe("interrupted");
+				expect(existsSync(interruptedWorktreePath)).toBe(false);
+
+				// The paused task's worktree is never a delete candidate, so its snapshot is
+				// never touched either; the interrupted task's is.
+				const deleteTerminalSnapshot = managedTerminalManager.deleteTerminalSnapshot as ReturnType<typeof vi.fn>;
+				const deletedSnapshotTaskIds = deleteTerminalSnapshot.mock.calls.map(([taskId]) => taskId);
+				expect(deletedSnapshotTaskIds).toEqual(["interrupted-task"]);
+			} finally {
+				cleanup();
+			}
+		});
+	}, 30_000);
+
+	it("still flushes session persistence and terminal snapshots when skipSessionCleanup is set, without touching board/session state", async () => {
+		await withTemporaryHome(async () => {
+			const { path: sandboxRoot, cleanup } = createTempDir("kanban-shutdown-skip-");
+			try {
+				const managedProjectPath = join(sandboxRoot, "managed-project");
+				mkdirSync(managedProjectPath, { recursive: true });
+				initGitRepository(managedProjectPath);
+
+				const managedInitial = await loadWorkspaceState(managedProjectPath);
+				await saveWorkspaceState(managedProjectPath, {
+					board: createBoard({ inProgress: ["still-running"] }),
+					sessions: {
+						"still-running": createSession("still-running", "running"),
+					},
+					expectedRevision: managedInitial.revision,
+				});
+
+				// `--skip-shutdown-cleanup`'s own help text says "do not move sessions to
+				// done or delete task worktrees on shutdown" — i.e. pause/session state is
+				// meant to survive. A live-managed workspace still needs to be present here
+				// so we can assert its non-destructive flushes fire even on this branch.
+				const managedTerminalManager = createFakeTerminalManager({
+					"still-running": createSession("still-running", "running"),
+				});
+				const listManagedWorkspaces = vi.fn(() => [
+					{
+						workspaceId: "managed-project",
+						workspacePath: managedProjectPath,
+						terminalManager: managedTerminalManager,
+					},
+				]);
+				const flushSessionPersistence = vi.fn(async () => {});
+				let didCloseRuntimeServer = false;
+
+				await shutdownRuntimeServer({
+					workspaceRegistry: {
+						listManagedWorkspaces,
+						flushSessionPersistence,
+					},
+					warn: () => {},
+					closeRuntimeServer: async () => {
+						didCloseRuntimeServer = true;
+					},
+					skipSessionCleanup: true,
+				});
+
+				expect(didCloseRuntimeServer).toBe(true);
+				// Fix: these two are non-destructive (no trashing, no worktree deletion), so
+				// they must still run even when session cleanup is otherwise skipped —
+				// otherwise a pause performed shortly before shutdown, or scrollback still
+				// inside the debounce window, is lost.
+				expect(listManagedWorkspaces).toHaveBeenCalledTimes(1);
+				expect(flushSessionPersistence).toHaveBeenCalledTimes(1);
+				expect(managedTerminalManager.flushTerminalSnapshots).toHaveBeenCalledTimes(1);
+				// Everything destructive stays skipped exactly as before.
+				expect(managedTerminalManager.markInterruptedAndStopAll).not.toHaveBeenCalled();
+
+				const after = await loadWorkspaceState(managedProjectPath);
+				const inProgress = after.board.columns.find((column) => column.id === "in_progress")?.cards ?? [];
+				expect(inProgress.map((card) => card.id)).toEqual(["still-running"]);
+				expect(after.sessions["still-running"]?.state).toBe("running");
+			} finally {
+				cleanup();
+			}
+		});
+	}, 30_000);
+
+	it("awaits flushSessionPersistence and flushTerminalSnapshots after markInterruptedAndStopAll and before closeRuntimeServer", async () => {
+		await withTemporaryHome(async () => {
+			const { path: sandboxRoot, cleanup } = createTempDir("kanban-shutdown-order-");
+			try {
+				const managedProjectPath = join(sandboxRoot, "managed-project");
+				mkdirSync(managedProjectPath, { recursive: true });
+				initGitRepository(managedProjectPath);
+
+				const managedInitial = await loadWorkspaceState(managedProjectPath);
+				await saveWorkspaceState(managedProjectPath, {
+					board: createBoard({ inProgress: ["order-task"] }),
+					sessions: {
+						"order-task": createSession("order-task", "running"),
+					},
+					expectedRevision: managedInitial.revision,
+				});
+
+				const runningSession = createSession("order-task", "running");
+				const markInterruptedAndStopAll = vi.fn(() => [runningSession]);
+				const managedTerminalManager = {
+					markInterruptedAndStopAll,
+					listSummaries: vi.fn(() => [runningSession]),
+					getSummary: vi.fn((taskId: string) => (taskId === "order-task" ? runningSession : null)),
+					deleteTerminalSnapshot: vi.fn(async () => {}),
+					flushTerminalSnapshots: vi.fn(async () => {}),
+				} as unknown as TerminalSessionManager;
+				const flushSessionPersistence = vi.fn(async () => {});
+				const closeRuntimeServer = vi.fn(async () => {});
+
+				await shutdownRuntimeServer({
+					workspaceRegistry: {
+						listManagedWorkspaces: () => [
+							{
+								workspaceId: "managed-project",
+								workspacePath: managedProjectPath,
+								terminalManager: managedTerminalManager,
+							},
+						],
+						flushSessionPersistence,
+					},
+					warn: () => {},
+					closeRuntimeServer,
+				});
+
+				expect(markInterruptedAndStopAll).toHaveBeenCalledTimes(1);
+				expect(flushSessionPersistence).toHaveBeenCalledTimes(1);
+				expect(managedTerminalManager.flushTerminalSnapshots).toHaveBeenCalledTimes(1);
+				expect(closeRuntimeServer).toHaveBeenCalledTimes(1);
+
+				const markOrder = markInterruptedAndStopAll.mock.invocationCallOrder[0]!;
+				const flushSessionOrder = flushSessionPersistence.mock.invocationCallOrder[0]!;
+				const flushSnapshotsOrder = (managedTerminalManager.flushTerminalSnapshots as ReturnType<typeof vi.fn>).mock
+					.invocationCallOrder[0]!;
+				const closeOrder = closeRuntimeServer.mock.invocationCallOrder[0]!;
+
+				expect(markOrder).toBeLessThan(flushSessionOrder);
+				expect(markOrder).toBeLessThan(flushSnapshotsOrder);
+				expect(flushSessionOrder).toBeLessThan(closeOrder);
+				expect(flushSnapshotsOrder).toBeLessThan(closeOrder);
 			} finally {
 				cleanup();
 			}

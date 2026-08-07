@@ -26,6 +26,7 @@ import type { RuntimeTrpcContext } from "./app-router";
 
 interface DisposeWorkspaceOptions {
 	stopTerminalSessions?: boolean;
+	flushSessionSummaries?: boolean;
 }
 
 export interface CreateProjectsApiDependencies {
@@ -49,6 +50,8 @@ export interface CreateProjectsApiDependencies {
 		workspaceId: string,
 		options?: DisposeWorkspaceOptions,
 	) => { terminalManager: TerminalSessionManager | null; workspacePath: string | null };
+	/** Flushes one workspace's pending session-summary write. See workspace-registry.ts. */
+	flushWorkspaceSessionPersistence: (workspaceId: string) => Promise<void>;
 	collectProjectWorktreeTaskIdsForRemoval: (board: RuntimeBoardData) => Set<string>;
 	warn: (message: string) => void;
 	buildProjectsPayload: (preferredCurrentProjectId: string | null) => Promise<{
@@ -187,9 +190,16 @@ export function createProjectsApi(deps: CreateProjectsApiDependencies): RuntimeT
 				if (!removed) {
 					throw new Error(`Could not remove project index entry for "${body.projectId}".`);
 				}
+				// Flush any pending session-summary write BEFORE deleting the workspace's
+				// directory, then dispose without flushing again: `markInterruptedAndStopAll`
+				// above can trigger PTY `onExit` handlers that fire during the delete's async
+				// I/O and enqueue a write that would otherwise resurrect
+				// `workspaces/<id>/sessions.json` right after we remove it.
+				await deps.flushWorkspaceSessionPersistence(body.projectId);
 				await removeWorkspaceStateFiles(body.projectId);
 				deps.disposeWorkspace(body.projectId, {
 					stopTerminalSessions: false,
+					flushSessionSummaries: false,
 				});
 
 				if (deps.getActiveWorkspaceId() === body.projectId) {

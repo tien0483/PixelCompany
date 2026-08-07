@@ -2356,6 +2356,8 @@ export const runtimeTerminalWsRestoreMessageSchema = z.object({
 	snapshot: z.string(),
 	cols: z.number().int().positive().nullable().optional(),
 	rows: z.number().int().positive().nullable().optional(),
+	stale: z.boolean().default(false),
+	capturedAt: z.number().nullable().default(null),
 });
 export type RuntimeTerminalWsRestoreMessage = z.infer<typeof runtimeTerminalWsRestoreMessageSchema>;
 

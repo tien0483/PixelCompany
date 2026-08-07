@@ -91,6 +91,7 @@ export interface CreateRuntimeServerDependencies {
 		workspaceId: string,
 		options?: {
 			stopTerminalSessions?: boolean;
+			flushSessionSummaries?: boolean;
 		},
 	) => DisposeTrackedWorkspaceResult;
 	collectProjectWorktreeTaskIdsForRemoval: (board: RuntimeWorkspaceStateResponse["board"]) => Set<string>;
@@ -208,8 +209,15 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 		}
 		for (const workspaceId of workspaceIds) {
 			await disposeClineTaskSessionServiceAsync(workspaceId);
+			// Same resurrection hazard as project removal (see workspace-registry.ts /
+			// projects-api.ts): `resetAllState` rm -rf's the entire runtime home right
+			// after this returns, so flush the real pending state now and then discard
+			// (rather than flush) whatever `disposeWorkspace`'s own
+			// `markInterruptedAndStopAll` races in afterward.
+			await deps.workspaceRegistry.flushWorkspaceSessionPersistence(workspaceId);
 			deps.disposeWorkspace(workspaceId, {
 				stopTerminalSessions: true,
+				flushSessionSummaries: false,
 			});
 		}
 		deps.workspaceRegistry.clearActiveWorkspace();
@@ -379,6 +387,7 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 					disposeClineTaskSessionService(workspaceId);
 					return deps.disposeWorkspace(workspaceId, options);
 				},
+				flushWorkspaceSessionPersistence: deps.workspaceRegistry.flushWorkspaceSessionPersistence,
 				collectProjectWorktreeTaskIdsForRemoval: deps.collectProjectWorktreeTaskIdsForRemoval,
 				warn: deps.warn,
 				buildProjectsPayload: deps.workspaceRegistry.buildProjectsPayload,

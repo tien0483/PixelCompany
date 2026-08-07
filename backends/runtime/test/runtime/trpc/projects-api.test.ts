@@ -5,6 +5,25 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { RuntimeProjectTaskCounts } from "../../../src/core/api-contract";
 import type { TerminalSessionManager } from "../../../src/terminal/session-manager";
+
+const workspaceStateMocks = vi.hoisted(() => ({
+	listWorkspaceIndexEntries: vi.fn(),
+	loadWorkspaceContext: vi.fn(),
+	loadWorkspaceContextById: vi.fn(),
+	loadWorkspaceState: vi.fn(),
+	removeWorkspaceIndexEntry: vi.fn(),
+	removeWorkspaceStateFiles: vi.fn(),
+}));
+
+vi.mock("../../../src/state/workspace-state.js", () => ({
+	listWorkspaceIndexEntries: workspaceStateMocks.listWorkspaceIndexEntries,
+	loadWorkspaceContext: workspaceStateMocks.loadWorkspaceContext,
+	loadWorkspaceContextById: workspaceStateMocks.loadWorkspaceContextById,
+	loadWorkspaceState: workspaceStateMocks.loadWorkspaceState,
+	removeWorkspaceIndexEntry: workspaceStateMocks.removeWorkspaceIndexEntry,
+	removeWorkspaceStateFiles: workspaceStateMocks.removeWorkspaceStateFiles,
+}));
+
 import { type CreateProjectsApiDependencies, createProjectsApi } from "../../../src/trpc/projects-api";
 
 function createTestCwd(): string {
@@ -43,6 +62,7 @@ function createDefaultDeps(serverCwd: string): CreateProjectsApiDependencies {
 			terminalManager: null as TerminalSessionManager | null,
 			workspacePath: null as string | null,
 		})),
+		flushWorkspaceSessionPersistence: vi.fn(async () => {}),
 		collectProjectWorktreeTaskIdsForRemoval: vi.fn(() => new Set<string>()),
 		warn: vi.fn(),
 		buildProjectsPayload: vi.fn(async () => ({ currentProjectId: null, projects: [] })),
@@ -306,5 +326,70 @@ describe("addProject", () => {
 		expect(resolveSpy).toHaveBeenCalledWith("my-new-proj", testCwd);
 		// Crucially, it must NOT have been called with the active project path:
 		expect(resolveSpy).not.toHaveBeenCalledWith("my-new-proj", activeProjectPath);
+	});
+});
+
+describe("removeProject", () => {
+	let testCwd: string;
+
+	beforeEach(() => {
+		testCwd = createTestCwd();
+		vi.clearAllMocks();
+		workspaceStateMocks.listWorkspaceIndexEntries.mockResolvedValue([
+			{ workspaceId: "ws-1", repoPath: "/tmp/removed-project" },
+		]);
+		workspaceStateMocks.loadWorkspaceState.mockResolvedValue({
+			repoPath: "/tmp/removed-project",
+			statePath: "/tmp/removed-project/state",
+			git: { isGitRepository: true },
+			board: { columns: [] },
+			sessions: {},
+			revision: 0,
+		});
+		workspaceStateMocks.removeWorkspaceIndexEntry.mockResolvedValue(true);
+		workspaceStateMocks.removeWorkspaceStateFiles.mockResolvedValue(undefined);
+	});
+
+	afterEach(() => {
+		rmSync(testCwd, { recursive: true, force: true });
+	});
+
+	it("flushes the workspace's pending session-summary write before deleting its state files, then disposes without re-flushing", async () => {
+		const deps = createDefaultDeps(testCwd);
+		const callOrder: string[] = [];
+		(deps.flushWorkspaceSessionPersistence as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+			callOrder.push("flush");
+		});
+		workspaceStateMocks.removeWorkspaceStateFiles.mockImplementation(async () => {
+			callOrder.push("removeWorkspaceStateFiles");
+		});
+
+		const api = createProjectsApi(deps);
+		const result = await api.removeProject(null, { projectId: "ws-1" });
+
+		expect(result.ok).toBe(true);
+		expect(deps.flushWorkspaceSessionPersistence).toHaveBeenCalledWith("ws-1");
+		// The pre-delete flush (capturing real, current state) must land before the
+		// directory is removed. Without this, a session-summary write racing in via a
+		// PTY `onExit` handler during the delete's async I/O could otherwise land AFTER
+		// the delete and resurrect `workspaces/<id>/sessions.json`.
+		expect(callOrder).toEqual(["flush", "removeWorkspaceStateFiles"]);
+		// disposeWorkspace runs after the delete and must be told not to flush again:
+		// anything that raced in during the delete should be discarded, not written
+		// back out into the directory we just removed.
+		expect(deps.disposeWorkspace).toHaveBeenCalledWith("ws-1", {
+			stopTerminalSessions: false,
+			flushSessionSummaries: false,
+		});
+	});
+
+	it("returns an error and does not delete state files for an unknown project id", async () => {
+		const deps = createDefaultDeps(testCwd);
+		const api = createProjectsApi(deps);
+		const result = await api.removeProject(null, { projectId: "unknown-project" });
+
+		expect(result.ok).toBe(false);
+		expect(workspaceStateMocks.removeWorkspaceStateFiles).not.toHaveBeenCalled();
+		expect(deps.flushWorkspaceSessionPersistence).not.toHaveBeenCalled();
 	});
 });

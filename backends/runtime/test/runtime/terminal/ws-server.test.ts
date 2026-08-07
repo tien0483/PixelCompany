@@ -8,8 +8,11 @@ import { WebSocket } from "ws";
 
 import type { RuntimeTaskSessionSummary, RuntimeTerminalWsServerMessage } from "../../../src/core/api-contract";
 import { getKanbanRuntimePort, setKanbanRuntimePort } from "../../../src/core/runtime-endpoint";
-import type { TerminalSessionListener, TerminalSessionService } from "../../../src/terminal/terminal-session-service";
-import type { TerminalRestoreSnapshot } from "../../../src/terminal/terminal-state-mirror";
+import type {
+	TerminalRestoreResult,
+	TerminalSessionListener,
+	TerminalSessionService,
+} from "../../../src/terminal/terminal-session-service";
 import { createTerminalWebSocketBridge, type TerminalWebSocketBridge } from "../../../src/terminal/ws-server";
 
 const TASK_ID = "task-1";
@@ -66,10 +69,12 @@ class FakeTerminalManager implements TerminalSessionService {
 	}
 
 	getRestoreSnapshot = vi.fn(
-		async (): Promise<TerminalRestoreSnapshot> => ({
+		async (): Promise<TerminalRestoreResult> => ({
 			snapshot: "",
 			cols: 80,
 			rows: 24,
+			stale: false,
+			capturedAt: null,
 		}),
 	);
 	recoverStaleSession = vi.fn(() => createSummary());

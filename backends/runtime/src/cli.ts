@@ -506,10 +506,12 @@ async function startServer(): Promise<{
 		workspaceId: string,
 		options?: {
 			stopTerminalSessions?: boolean;
+			flushSessionSummaries?: boolean;
 		},
 	): { terminalManager: TerminalSessionManager | null; workspacePath: string | null } => {
 		const disposed = workspaceRegistry.disposeWorkspace(workspaceId, {
 			stopTerminalSessions: options?.stopTerminalSessions,
+			flushSessionSummaries: options?.flushSessionSummaries,
 		});
 		runtimeHub.disposeWorkspace(workspaceId);
 		return disposed;

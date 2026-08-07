@@ -67,4 +67,30 @@ describe("TerminalStateMirror", () => {
 
 		expect(onInputResponse).toHaveBeenCalledWith("\u001b[1;1R");
 	});
+
+	it("serializes the full scrollback by default", async () => {
+		const mirror = createMirror(20, 3);
+
+		for (let i = 0; i < 50; i += 1) {
+			mirror.applyOutput(Buffer.from(`line-${i}\r\n`, "utf8"));
+		}
+
+		const snapshot = await mirror.getSnapshot();
+
+		expect(snapshot.snapshot).toContain("line-0");
+		expect(snapshot.snapshot).toContain("line-49");
+	});
+
+	it("limits serialized scrollback when maxScrollbackLines is provided", async () => {
+		const mirror = createMirror(20, 3);
+
+		for (let i = 0; i < 50; i += 1) {
+			mirror.applyOutput(Buffer.from(`line-${i}\r\n`, "utf8"));
+		}
+
+		const limited = await mirror.getSnapshot({ maxScrollbackLines: 2 });
+
+		expect(limited.snapshot).not.toContain("line-0");
+		expect(limited.snapshot).toContain("line-49");
+	});
 });

@@ -23,6 +23,10 @@ export interface UsePersistentTerminalSessionResult {
 	containerRef: MutableRefObject<HTMLDivElement | null>;
 	lastError: string | null;
 	isStopping: boolean;
+	/** True once the most recent restore reported no snapshot at all (see `PersistentTerminalRestoreState`). */
+	restoreWasEmpty: boolean;
+	/** True once the most recent restore replayed a frozen scrollback from an already-exited PTY. */
+	staleRestore: boolean;
 	clearTerminal: () => void;
 	stopTerminal: () => Promise<void>;
 }
@@ -57,6 +61,8 @@ export function usePersistentTerminalSession({
 	} | null>(null);
 	const [lastError, setLastError] = useState<string | null>(null);
 	const [isStopping, setIsStopping] = useState(false);
+	const [restoreWasEmpty, setRestoreWasEmpty] = useState(false);
+	const [staleRestore, setStaleRestore] = useState(false);
 	callbackRef.current = {
 		onSummary,
 		onConnectionReady,
@@ -73,6 +79,8 @@ export function usePersistentTerminalSession({
 			previousSessionRef.current = null;
 			setLastError(null);
 			setIsStopping(false);
+			setRestoreWasEmpty(false);
+			setStaleRestore(false);
 			return;
 		}
 
@@ -85,6 +93,8 @@ export function usePersistentTerminalSession({
 			terminalRef.current = null;
 			previousSessionRef.current = null;
 			setLastError("No project selected.");
+			setRestoreWasEmpty(false);
+			setStaleRestore(false);
 			return;
 		}
 		const container = containerRef.current;
@@ -121,6 +131,10 @@ export function usePersistentTerminalSession({
 			onLastError: setLastError,
 			onSummary: (summary) => {
 				callbackRef.current.onSummary?.(summary);
+			},
+			onRestoreState: (state) => {
+				setRestoreWasEmpty(state.restoreWasEmpty);
+				setStaleRestore(state.staleRestore);
 			},
 		});
 		terminal.mount(
@@ -187,6 +201,8 @@ export function usePersistentTerminalSession({
 		containerRef,
 		lastError,
 		isStopping,
+		restoreWasEmpty,
+		staleRestore,
 		clearTerminal,
 		stopTerminal,
 	};
