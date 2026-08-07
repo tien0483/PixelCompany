@@ -65,11 +65,17 @@ export function ManagerSidebarSection({
 	online,
 	manager = null,
 	settingsFocusToken = 0,
+	workspaceId = null,
 }: {
 	online: boolean;
 	manager?: RuntimeManagerSnapshot | null;
 	/** Incremented when lower-left Settings is clicked — jumps to Settings route. */
 	settingsFocusToken?: number;
+	/**
+	 * Selected project. The Manager catalog is per project, so the shelves read and
+	 * write its `.claude`, and Workflows lists its `.agent/workflows`.
+	 */
+	workspaceId?: string | null;
 }): ReactElement {
 	const [route, setRoute] = useState<ManagerSidebarRoute>("settings");
 	const active = ROUTES.find((item) => item.id === route) ?? ROUTES[0];
@@ -118,6 +124,7 @@ export function ManagerSidebarSection({
 					manager={manager}
 					copy={MANAGER_LABELS.shelves.agents}
 					select={FEATURE_SHELF_SELECTORS.agents}
+					workspaceId={workspaceId}
 					testId="manager-shelf-agents"
 				/>
 			) : null}
@@ -127,6 +134,7 @@ export function ManagerSidebarSection({
 					manager={manager}
 					copy={MANAGER_LABELS.shelves.commands}
 					select={FEATURE_SHELF_SELECTORS.commands}
+					workspaceId={workspaceId}
 					testId="manager-shelf-commands"
 				/>
 			) : null}
@@ -136,10 +144,11 @@ export function ManagerSidebarSection({
 					manager={manager}
 					copy={MANAGER_LABELS.shelves.skills}
 					select={FEATURE_SHELF_SELECTORS.skills}
+					workspaceId={workspaceId}
 					header={
 						<>
 							<TrainingPacksPanel online={online} />
-							<TrainingDiskSkillsPanel online={online} />
+							<TrainingDiskSkillsPanel online={online} workspaceId={workspaceId} />
 						</>
 					}
 					testId="manager-shelf-skills"
@@ -151,10 +160,11 @@ export function ManagerSidebarSection({
 					manager={manager}
 					copy={MANAGER_LABELS.shelves.rules}
 					select={FEATURE_SHELF_SELECTORS.rules}
+					workspaceId={workspaceId}
 					testId="manager-shelf-rules"
 				/>
 			) : null}
-			{route === "workflows" ? <WorkflowsView online={online} /> : null}
+			{route === "workflows" ? <WorkflowsView online={online} workspaceId={workspaceId} /> : null}
 			{route === "installations" ? <ManagerInstallationsView online={online} /> : null}
 			{route === "settings" ? <ManagerSettingsView online={online} manager={manager} /> : null}
 			{route === "logs" ? <ManagerLogsView online={online} /> : null}

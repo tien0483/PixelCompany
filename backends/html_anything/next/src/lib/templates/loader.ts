@@ -1,11 +1,13 @@
 import fs from "node:fs";
 import path from "node:path";
 
+import { templateSkillsDir } from "@/lib/agent-data-root";
+
 /**
  * File-based skill registry, modelled on nexu-io/open-design's daemon layout
  * (see `apps/daemon/src/skills.ts`). Each template is a folder:
  *
- *   src/lib/templates/skills/<id>/
+ *   agent-data/templates/skills/<id>/
  *     SKILL.md      — frontmatter (id, scenario, tags, …) + prompt body
  *     example.md    — (optional) sample input content
  *     example.html  — (optional) pre-rendered preview, shown inline in the picker
@@ -16,7 +18,7 @@ import path from "node:path";
  * PixelOffice fork: marketplace / user-skill merge removed (see VENDOR.md).
  */
 
-const SKILLS_DIR = path.join(process.cwd(), "src/lib/templates/skills");
+const SKILLS_DIR = templateSkillsDir();
 
 export type SkillFrontmatter = {
   name?: string;

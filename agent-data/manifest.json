@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "sources": [
+    {
+      "id": "manager-catalog",
+      "root": "agent-data/catalog",
+      "owner": "manager",
+      "kinds": ["skill", "agent", "command", "rule", "pack"],
+      "toggleable": true,
+      "description": "Manager shelves. Toggling an entry installs it into the selected project's .claude directory."
+    },
+    {
+      "id": "manager-runtime",
+      "root": "agent-data/runtime",
+      "owner": "manager",
+      "kinds": ["hook", "web", "lens", "guardrail", "git-hook", "template"],
+      "toggleable": false,
+      "description": "Manager's own runtime assets. Bound to Manager's role, not user-selectable."
+    },
+    {
+      "id": "html-anything-templates",
+      "root": "agent-data/templates/skills",
+      "owner": "html_anything",
+      "kinds": ["template"],
+      "toggleable": false,
+      "description": "Document/deck template skills html_anything renders from. Bound to its role."
+    },
+    {
+      "id": "repo-local",
+      "root": ".agent",
+      "owner": "pixel-company",
+      "kinds": ["skill", "workflow"],
+      "toggleable": false,
+      "description": "This repo's own project assets, surfaced through the per-project Local assets toggle."
+    }
+  ]
+}

@@ -11,8 +11,19 @@ import type { RuntimeSkillInventoryItem } from "@/runtime/types";
 
 /**
  * Read-only list of workflows discovered from project .agent/workflows/ directories.
+ *
+ * Workflows only ever come from the attached repo, so a query without `workspaceId`
+ * returns nothing at all — this shelf was permanently empty until it started passing
+ * the selected project through.
  */
-export function WorkflowsView({ online }: { online: boolean }): ReactElement {
+export function WorkflowsView({
+	online,
+	workspaceId = null,
+}: {
+	online: boolean;
+	/** Selected project whose `.agent/workflows` to list. */
+	workspaceId?: string | null;
+}): ReactElement {
 	const [workflows, setWorkflows] = useState<RuntimeSkillInventoryItem[] | null>(null);
 	const [loading, setLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
@@ -21,7 +32,9 @@ export function WorkflowsView({ online }: { online: boolean }): ReactElement {
 		setLoading(true);
 		setError(null);
 		try {
-			const inventory = await getRuntimeTrpcClient(null).runtime.listSkillInventory.query({});
+			const inventory = await getRuntimeTrpcClient(null).runtime.listSkillInventory.query(
+				workspaceId ? { workspaceId } : {},
+			);
 			setWorkflows(inventory.workflows ?? []);
 		} catch (err) {
 			setWorkflows(null);
@@ -29,7 +42,7 @@ export function WorkflowsView({ online }: { online: boolean }): ReactElement {
 		} finally {
 			setLoading(false);
 		}
-	}, []);
+	}, [workspaceId]);
 
 	useEffect(() => {
 		if (!online) {

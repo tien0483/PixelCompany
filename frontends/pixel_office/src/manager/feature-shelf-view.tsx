@@ -1,5 +1,5 @@
 import type { ReactElement, ReactNode } from "react";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Fzf } from "fzf";
 import { Search } from "lucide-react";
 
@@ -25,6 +25,12 @@ export interface FeatureShelfViewProps {
 	select: (feature: RuntimeManagerFeature) => boolean;
 	/** Rendered above the list — used by Training to host packs. */
 	header?: ReactNode;
+	/**
+	 * Selected project. The Manager catalog is per project, so `installed` is read for
+	 * this workspace and a toggle installs into its `.claude`. Null falls back to the
+	 * global view carried by the streamed snapshot.
+	 */
+	workspaceId?: string | null;
 	testId: string;
 }
 
@@ -37,8 +43,11 @@ function featureKey(feature: RuntimeManagerFeature): string {
  *
  * Every category the Manager surfaces (staff, playbooks, training, handbook) is the
  * same interaction over a different slice of `manager.features`, which the runtime
- * already streams in full — so a shelf needs no fetch of its own, and toggling reuses
- * the existing `manager.setFeatureEnabled` procedure.
+ * already streams in full — so the catalog itself needs no fetch of its own.
+ *
+ * The `installed` flags are the exception. The catalog is per project, and the streamed
+ * snapshot is one shared singleton serving every client, so it can only carry the global
+ * reading. With a project selected, the flags are re-read for that project and overlaid.
  */
 export function FeatureShelfView({
 	online,
@@ -46,14 +55,53 @@ export function FeatureShelfView({
 	copy,
 	select,
 	header,
+	workspaceId = null,
 	testId,
 }: FeatureShelfViewProps): ReactElement {
 	const [query, setQuery] = useState("");
 	const [pendingKey, setPendingKey] = useState<string | null>(null);
 	const [error, setError] = useState<string | null>(null);
+	const [projectInstalled, setProjectInstalled] = useState<Set<string> | null>(null);
+	const [projectClaudeDir, setProjectClaudeDir] = useState<string | null>(null);
+	const [reloadToken, setReloadToken] = useState(0);
+
+	useEffect(() => {
+		if (!online || !workspaceId) {
+			setProjectInstalled(null);
+			setProjectClaudeDir(null);
+			return;
+		}
+		let cancelled = false;
+		void getRuntimeTrpcClient(null)
+			.manager.features.query({ workspaceId })
+			.then((result) => {
+				if (cancelled) {
+					return;
+				}
+				setProjectInstalled(
+					new Set(result.features.filter((entry) => entry.installed).map((entry) => featureKey(entry))),
+				);
+				setProjectClaudeDir(result.claudeDir);
+			})
+			.catch(() => {
+				// Fall back to the global flags rather than showing everything as off.
+				if (!cancelled) {
+					setProjectInstalled(null);
+					setProjectClaudeDir(null);
+				}
+			});
+		return () => {
+			cancelled = true;
+		};
+	}, [online, workspaceId, reloadToken]);
 
 	const features = useMemo(() => {
-		const matching = (manager?.features ?? []).filter(select);
+		const matching = (manager?.features ?? []).filter(select).map((feature) =>
+			// Hooks are machine-wide, so their global flag is already the right answer.
+			projectInstalled === null || feature.category === "hooks"
+				? feature
+				: { ...feature, installed: projectInstalled.has(featureKey(feature)) },
+		);
 		// Installed first, then alphabetical — the shelf reads as "who works here".
 		return matching.sort((left, right) => {
 			if (left.installed !== right.installed) {
@@ -61,7 +109,7 @@ export function FeatureShelfView({
 			}
 			return left.displayName.localeCompare(right.displayName);
 		});
-	}, [manager?.features, select]);
+	}, [manager?.features, projectInstalled, select]);
 
 	const visible = useMemo(() => {
 		const trimmed = query.trim();
@@ -84,11 +132,15 @@ export function FeatureShelfView({
 					category: feature.category,
 					name: feature.name,
 					enabled: !feature.installed,
+					...(workspaceId ? { workspaceId } : {}),
 				});
 				if (!result.ok) {
 					setError(result.error ?? "Could not change that.");
 				} else {
 					notifySkillInventoryChanged();
+					// The streamed snapshot only refreshes the global flags, so re-read the
+					// project's own state to reflect what just changed.
+					setReloadToken((token) => token + 1);
 				}
 			} catch (err) {
 				setError(err instanceof Error ? err.message : "Could not change that.");
@@ -96,7 +148,7 @@ export function FeatureShelfView({
 				setPendingKey(null);
 			}
 		},
-		[],
+		[workspaceId],
 	);
 
 	if (!online && manager === null) {
@@ -122,6 +174,15 @@ export function FeatureShelfView({
 					</span>
 				</div>
 				<p className="mt-0.5 text-[10px] text-text-tertiary">{copy.description}</p>
+				{projectClaudeDir === null ? null : (
+					<p
+						className="mt-0.5 truncate text-[10px] text-text-tertiary"
+						title={projectClaudeDir}
+						data-testid={`${testId}-scope`}
+					>
+						Installs into {projectClaudeDir}
+					</p>
+				)}
 				<div className="mt-1.5 flex items-center gap-1 rounded border border-border bg-surface-2 px-1.5">
 					<Search size={10} className="shrink-0 text-text-tertiary" aria-hidden />
 					<input

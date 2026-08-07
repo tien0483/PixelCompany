@@ -53,7 +53,7 @@ Output is `scripts\windows\dist\`:
 
 **Ship the entire `dist\` folder** (zip + Setup.cmd + `.mjs` files).
 
-Allowlist includes: root lockfiles/`package.json`, `frontends/pixel_office`, `backends/runtime`, `backends/manager`, `scripts/solo.mjs` + `start-stack.mjs` + `pm.mjs`, `AGENT.md`, `.agent/AGENT.md`, `.agent/manager`, `.agent/skills`, `.agent/workflows`, `.claude`.
+Allowlist includes: root lockfiles/`package.json`, `frontends/pixel_office`, `backends/runtime`, `backends/manager`, `scripts/solo.mjs` + `start-stack.mjs` + `pm.mjs`, `AGENT.md`, `agent-data`, `.agent/AGENT.md`, `.agent/skills`, `.agent/workflows`, `.claude`.
 
 Bundle only (no installer copy):
 
