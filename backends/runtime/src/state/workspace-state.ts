@@ -67,6 +67,12 @@ interface WorkspaceStateMeta {
 	revision: number;
 	updatedAt: number;
 	localAssets?: WorkspaceLocalAssetsMeta;
+	/**
+	 * Manager catalog entries this project has enabled, as `<category>/<name>`.
+	 * The install itself lives in `<repo>/.claude`, so this is a record of intent —
+	 * it lets "sync to this project" reapply a set after a clone or a clean.
+	 */
+	managerFeatures?: string[];
 }
 
 const workspaceLocalAssetsMetaSchema = z.object({
@@ -78,6 +84,7 @@ const workspaceStateMetaSchema = z.object({
 	revision: z.number().int().nonnegative(),
 	updatedAt: z.number(),
 	localAssets: workspaceLocalAssetsMetaSchema.optional(),
+	managerFeatures: z.array(z.string().min(1)).optional(),
 });
 
 const ALL_WORKSPACE_LOCAL_ASSET_ROOTS: WorkspaceLocalAssetRoot[] = ["claude", "agent"];
@@ -696,6 +703,43 @@ export async function getWorkspaceLocalAssetsSetting(workspaceId: string): Promi
 	};
 }
 
+/** Manager catalog entries this project has enabled, as `<category>/<name>`. */
+export async function getWorkspaceManagerFeatures(workspaceId: string): Promise<string[]> {
+	const meta = await readWorkspaceMeta(workspaceId);
+	return meta.managerFeatures ?? [];
+}
+
+/**
+ * Record one catalog entry as enabled or disabled for this project. The install
+ * itself already happened in `<repo>/.claude`; this is the intent record that lets
+ * the set be reapplied later.
+ */
+export async function setWorkspaceManagerFeature(
+	workspaceId: string,
+	featureKey: string,
+	enabled: boolean,
+): Promise<string[]> {
+	return await lockedFileSystem.withLock(getWorkspaceDirectoryLockRequest(workspaceId), async () => {
+		const metaPath = getWorkspaceMetaPath(workspaceId);
+		const currentMeta = await readWorkspaceMeta(workspaceId);
+		const current = new Set(currentMeta.managerFeatures ?? []);
+		if (enabled) {
+			current.add(featureKey);
+		} else {
+			current.delete(featureKey);
+		}
+		const managerFeatures = [...current].sort();
+		const nextMeta: WorkspaceStateMeta = {
+			revision: currentMeta.revision,
+			updatedAt: Date.now(),
+			...(currentMeta.localAssets ? { localAssets: currentMeta.localAssets } : {}),
+			managerFeatures,
+		};
+		await lockedFileSystem.writeJsonFileAtomic(metaPath, nextMeta, { lock: null });
+		return managerFeatures;
+	});
+}
+
 export async function setWorkspaceLocalAssets(
 	workspaceId: string,
 	input: { enabled: boolean; roots?: WorkspaceLocalAssetRoot[] },
@@ -708,6 +752,7 @@ export async function setWorkspaceLocalAssets(
 			revision: currentMeta.revision,
 			updatedAt: Date.now(),
 			localAssets: { enabled: input.enabled, roots },
+			...(currentMeta.managerFeatures ? { managerFeatures: currentMeta.managerFeatures } : {}),
 		};
 		await lockedFileSystem.writeJsonFileAtomic(metaPath, nextMeta, { lock: null });
 		return { enabled: input.enabled, roots };
@@ -747,6 +792,7 @@ export async function saveWorkspaceState(
 			revision: nextRevision,
 			updatedAt: Date.now(),
 			...(currentMeta.localAssets ? { localAssets: currentMeta.localAssets } : {}),
+			...(currentMeta.managerFeatures ? { managerFeatures: currentMeta.managerFeatures } : {}),
 		};
 
 		await lockedFileSystem.writeJsonFileAtomic(getWorkspaceBoardPath(context.workspaceId), board, {
@@ -803,6 +849,7 @@ export async function mutateWorkspaceState<T>(
 			revision: nextRevision,
 			updatedAt: Date.now(),
 			...(currentMeta.localAssets ? { localAssets: currentMeta.localAssets } : {}),
+			...(currentMeta.managerFeatures ? { managerFeatures: currentMeta.managerFeatures } : {}),
 		};
 
 		await lockedFileSystem.writeJsonFileAtomic(getWorkspaceBoardPath(context.workspaceId), nextBoard, {

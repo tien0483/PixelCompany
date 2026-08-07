@@ -94,6 +94,8 @@ import type {
 	RuntimeManagerAccountReauthRequest,
 	RuntimeManagerAccountReorderRequest,
 	RuntimeManagerAccountUpdateRequest,
+	RuntimeManagerFeaturesRequest,
+	RuntimeManagerFeaturesResponse,
 	RuntimeManagerFeatureToggleRequest,
 	RuntimeManagerHookLogs,
 	RuntimeManagerInstallationsOverview,
@@ -193,6 +195,8 @@ import {
 	RuntimeManagerAccountReauthRequestSchema,
 	RuntimeManagerAccountReorderRequestSchema,
 	RuntimeManagerAccountUpdateRequestSchema,
+	RuntimeManagerFeaturesRequestSchema,
+	RuntimeManagerFeaturesResponseSchema,
 	RuntimeManagerFeatureToggleRequestSchema,
 	RuntimeManagerGitIdentitySchema,
 	RuntimeManagerHookLogsSchema,
@@ -642,6 +646,7 @@ export interface RuntimeTrpcContext {
 	managerApi: {
 		getState: () => Promise<RuntimeManagerState>;
 		setFeatureEnabled: (input: RuntimeManagerFeatureToggleRequest) => Promise<RuntimeManagerMutationResponse>;
+		features: (input: RuntimeManagerFeaturesRequest) => Promise<RuntimeManagerFeaturesResponse>;
 		pauseSwap: (input: RuntimeManagerSwapPauseRequest) => Promise<RuntimeManagerMutationResponse>;
 		resumeSwap: () => Promise<RuntimeManagerMutationResponse>;
 		useAccount: (input: RuntimeManagerAccountIdRequest) => Promise<RuntimeManagerMutationResponse>;
@@ -1257,6 +1262,12 @@ export const runtimeAppRouter = t.router({
 			.output(RuntimeManagerMutationResponseSchema)
 			.mutation(async ({ ctx, input }) => {
 				return await ctx.managerApi.setFeatureEnabled(input);
+			}),
+		features: t.procedure
+			.input(RuntimeManagerFeaturesRequestSchema)
+			.output(RuntimeManagerFeaturesResponseSchema)
+			.query(async ({ ctx, input }) => {
+				return await ctx.managerApi.features(input);
 			}),
 		pauseSwap: t.procedure
 			.input(RuntimeManagerSwapPauseRequestSchema)

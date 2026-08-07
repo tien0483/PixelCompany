@@ -10,7 +10,7 @@ import tempfile
 from pathlib import Path
 from typing import Literal
 
-from fastapi import APIRouter, Request, status
+from fastapi import APIRouter, Query, Request, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
@@ -37,10 +37,31 @@ RULES_END_MARKER = "# end-jacked-behaviors"
 # Valid hook/knowledge names (allowlist)
 VALID_HOOKS = {"sounds", "memory_vault", "statusline"}
 
+# Hook features patch ~/.claude/settings.json and the Claude Code statusline, which
+# are machine-wide — only the file-based categories below can be project-scoped.
+PROJECT_SCOPED_CATEGORIES = {"agents", "commands", "knowledge"}
+
+
+def _catalog_root() -> Path:
+    """Catalog source root. Read through a function so tests can patch DATA_ROOT."""
+    return DATA_ROOT
+
+
+def _target_claude_dir(repo_path: str | None) -> Path:
+    """
+    Where a feature installs to. The Manager catalog is per project: with a repo
+    selected, entries land in ``<repo>/.claude`` so two projects can enable
+    different staff and playbooks. Without one, fall back to the global dir
+    (the machine-wide hook features, and any caller that predates the param).
+    """
+    if repo_path and repo_path.strip():
+        return Path(repo_path).expanduser().resolve() / ".claude"
+    return CLAUDE_DIR
+
 
 def _get_valid_skill_names() -> list[str]:
     """List skill names from package source."""
-    skills_dir = DATA_ROOT / "skills"
+    skills_dir = _catalog_root() / "skills"
     if not skills_dir.exists():
         return []
     return [d.name for d in sorted(skills_dir.iterdir())
@@ -181,6 +202,8 @@ def reset_locks() -> None:
 
 class FeatureToggleRequest(BaseModel):
     enabled: bool
+    # Absolute path of the selected project. Absent → global ~/.claude.
+    repo_path: str | None = None
 
 
 # --- Helpers ---
@@ -280,7 +303,7 @@ def _write_settings_json(data: dict):
 
 def _get_valid_agent_names() -> list[str]:
     """List agent names from package source."""
-    agents_dir = DATA_ROOT / "agents"
+    agents_dir = _catalog_root() / "agents"
     if not agents_dir.exists():
         return []
     return [f.stem for f in sorted(agents_dir.glob("*.md"))]
@@ -288,7 +311,7 @@ def _get_valid_agent_names() -> list[str]:
 
 def _get_valid_command_names() -> list[str]:
     """List command names from package source."""
-    commands_dir = DATA_ROOT / "commands"
+    commands_dir = _catalog_root() / "commands"
     if not commands_dir.exists():
         return []
     return [f.stem for f in sorted(commands_dir.glob("*.md"))]
@@ -384,16 +407,22 @@ def _memory_vault_health() -> dict | None:
         return None
 
 
-def _detect_rules_status() -> dict:
+def _rules_md_path(claude_dir: Path) -> Path:
+    """CLAUDE.md the behavioral rules are appended to, global or per project."""
+    return CLAUDE_MD if claude_dir == CLAUDE_DIR else claude_dir / "CLAUDE.md"
+
+
+def _detect_rules_status(claude_dir: Path | None = None) -> dict:
     """Check behavioral rules installation status.
 
     Returns dict with 'installed' and optionally 'corrupt' keys.
     """
-    if not CLAUDE_MD.exists():
+    claude_md = _rules_md_path(claude_dir if claude_dir is not None else CLAUDE_DIR)
+    if not claude_md.exists():
         return {"installed": False}
 
     try:
-        content = CLAUDE_MD.read_text(encoding="utf-8")
+        content = claude_md.read_text(encoding="utf-8")
     except OSError:
         return {"installed": False}
 
@@ -410,8 +439,16 @@ def _detect_rules_status() -> dict:
 # --- GET /api/features ---
 
 @router.get("/features")
-async def list_features():
-    """Full feature manifest with installed status."""
+async def list_features(repo_path: str | None = Query(default=None)):
+    """
+    Full feature manifest with installed status.
+
+    ``repo_path`` scopes the `installed` flags to that project's ``.claude``, so a
+    shelf shows what this project has enabled rather than what the machine has.
+    Omit it for the global view.
+    """
+    claude_dir = _target_claude_dir(repo_path)
+    catalog_root = _catalog_root()
     # Read-only consumer: a corrupt settings.json must not 500 the whole feature
     # list. Degrade to {} for detection and flag it so the client can warn.
     try:
@@ -423,10 +460,10 @@ async def list_features():
 
     # Agents
     agents = []
-    agents_src = DATA_ROOT / "agents"
+    agents_src = catalog_root / "agents"
     for name in _get_valid_agent_names():
         src = agents_src / f"{name}.md"
-        installed_path = CLAUDE_DIR / "agents" / f"{name}.md"
+        installed_path = claude_dir / "agents" / f"{name}.md"
         fm = _parse_frontmatter(src)
         agents.append({
             "name": name,
@@ -439,10 +476,10 @@ async def list_features():
 
     # Commands
     commands = []
-    commands_src = DATA_ROOT / "commands"
+    commands_src = catalog_root / "commands"
     for name in _get_valid_command_names():
         src = commands_src / f"{name}.md"
-        installed_path = CLAUDE_DIR / "commands" / f"{name}.md"
+        installed_path = claude_dir / "commands" / f"{name}.md"
         fm = _parse_frontmatter(src)
         commands.append({
             "name": name,
@@ -483,25 +520,25 @@ async def list_features():
         hooks.append(entry)
 
     # Knowledge
-    rules_status = _detect_rules_status()
+    rules_status = _detect_rules_status(claude_dir)
     knowledge = [
         {
             "name": "rules",
             "display_name": "Behavioral Rules",
-            "description": "Coding habits and workflow rules added to ~/.claude/CLAUDE.md",
+            "description": f"Coding habits and workflow rules added to {_rules_md_path(claude_dir)}",
             "installed": rules_status.get("installed", False),
-            "source_available": (DATA_ROOT / "rules" / "manager_behaviors.md").exists(),
+            "source_available": (catalog_root / "rules" / "manager_behaviors.md").exists(),
             "corrupt": rules_status.get("corrupt", False),
         },
     ]
     for skill_name in _get_valid_skill_names():
-        src = DATA_ROOT / "skills" / skill_name / "SKILL.md"
+        src = catalog_root / "skills" / skill_name / "SKILL.md"
         fm = _parse_frontmatter(src)
         knowledge.append({
             "name": f"skill_{skill_name}",
             "display_name": fm.get("name", f"/{skill_name} Skill"),
             "description": fm.get("description", ""),
-            "installed": (CLAUDE_DIR / "skills" / skill_name / "SKILL.md").exists(),
+            "installed": (claude_dir / "skills" / skill_name / "SKILL.md").exists(),
             "source_available": src.exists(),
         })
     knowledge.append({
@@ -509,16 +546,23 @@ async def list_features():
         "display_name": "Reference Doc",
         "description": "Comprehensive knowledge document about jacked for Claude",
         "installed": (
-            (CLAUDE_DIR / "manager-reference.md").exists()
-            or (CLAUDE_DIR / "jacked-reference.md").exists()
+            (claude_dir / "manager-reference.md").exists()
+            or (claude_dir / "jacked-reference.md").exists()
         ),
-        "source_available": (DATA_ROOT / "rules" / "manager-reference.md").exists(),
+        "source_available": (catalog_root / "rules" / "manager-reference.md").exists(),
     })
 
     return {
         "agents": agents, "commands": commands, "hooks": hooks,
         "knowledge": knowledge,
         "settings_unreadable": settings_unreadable,
+        # Echo the scope so a client can label the shelf and tell a project-scoped
+        # reading apart from the global one.
+        "scope": {
+            "repo_path": str(Path(repo_path).expanduser().resolve()) if repo_path else None,
+            "claude_dir": str(claude_dir),
+            "project_scoped_categories": sorted(PROJECT_SCOPED_CATEGORIES),
+        },
     }
 
 
@@ -531,13 +575,22 @@ async def toggle_feature(
     body: FeatureToggleRequest,
     request: Request,
 ):
-    """Enable or disable a feature."""
+    """
+    Enable or disable a feature.
+
+    ``body.repo_path`` installs into that project's ``.claude`` instead of the global
+    one, so the same catalog entry can be on for one project and off for another.
+    Hook features ignore it — they patch machine-wide Claude Code settings.
+    """
     # Validate name
     if not _validate_name(name):
         return JSONResponse(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             content={"error": {"message": "Invalid feature name", "code": "INVALID_FEATURE"}},
         )
+
+    claude_dir = _target_claude_dir(body.repo_path)
+    catalog_root = _catalog_root()
 
     # Validate against allowlist
     if category == "agents":
@@ -547,11 +600,12 @@ async def toggle_feature(
                 content={"error": {"message": f"Unknown agent: {name}", "code": "INVALID_FEATURE"}},
             )
         return await _toggle_file_feature(
-            src=DATA_ROOT / "agents" / f"{name}.md",
-            dst=CLAUDE_DIR / "agents" / f"{name}.md",
+            src=catalog_root / "agents" / f"{name}.md",
+            dst=claude_dir / "agents" / f"{name}.md",
             enabled=body.enabled,
             name=name,
             category=category,
+            claude_dir=claude_dir,
         )
 
     if category == "commands":
@@ -561,11 +615,12 @@ async def toggle_feature(
                 content={"error": {"message": f"Unknown command: {name}", "code": "INVALID_FEATURE"}},
             )
         return await _toggle_file_feature(
-            src=DATA_ROOT / "commands" / f"{name}.md",
-            dst=CLAUDE_DIR / "commands" / f"{name}.md",
+            src=catalog_root / "commands" / f"{name}.md",
+            dst=claude_dir / "commands" / f"{name}.md",
             enabled=body.enabled,
             name=name,
             category=category,
+            claude_dir=claude_dir,
         )
 
     if category == "hooks":
@@ -583,7 +638,7 @@ async def toggle_feature(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 content={"error": {"message": f"Unknown knowledge item: {name}", "code": "INVALID_FEATURE"}},
             )
-        return await _toggle_knowledge(name, body.enabled)
+        return await _toggle_knowledge(name, body.enabled, claude_dir=claude_dir)
 
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -593,8 +648,18 @@ async def toggle_feature(
 
 # --- Toggle helpers ---
 
-async def _toggle_file_feature(src: Path, dst: Path, enabled: bool, name: str, category: str):
+async def _toggle_file_feature(
+    src: Path,
+    dst: Path,
+    enabled: bool,
+    name: str,
+    category: str,
+    claude_dir: Path | None = None,
+):
     """Enable/disable a file-based feature (agents, commands)."""
+    # Guard against the dir we are actually writing into — checking the global one
+    # would reject every legitimate per-project install.
+    root = (claude_dir if claude_dir is not None else CLAUDE_DIR).resolve()
     if enabled:
         if not src.exists():
             return JSONResponse(
@@ -604,7 +669,7 @@ async def _toggle_file_feature(src: Path, dst: Path, enabled: bool, name: str, c
         dst.parent.mkdir(parents=True, exist_ok=True)
         # Path traversal final check
         try:
-            dst.resolve().relative_to(CLAUDE_DIR.resolve())
+            dst.resolve().relative_to(root)
         except ValueError:
             return JSONResponse(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -698,19 +763,22 @@ async def _toggle_statusline(enabled: bool):
     return {"name": "statusline", "category": "hooks", "enabled": enabled, **result}
 
 
-async def _toggle_knowledge(name: str, enabled: bool):
+async def _toggle_knowledge(name: str, enabled: bool, claude_dir: Path | None = None):
     """Enable/disable a knowledge feature."""
+    target = claude_dir if claude_dir is not None else CLAUDE_DIR
     if name == "rules":
-        return await _toggle_rules(enabled)
+        return await _toggle_rules(enabled, claude_dir=target)
     if name.startswith("skill_"):
         skill_name = name[len("skill_"):]
         if _validate_name(skill_name):
-            src = DATA_ROOT / "skills" / skill_name / "SKILL.md"
-            skill_dir = CLAUDE_DIR / "skills" / skill_name
+            src = _catalog_root() / "skills" / skill_name / "SKILL.md"
+            skill_dir = target / "skills" / skill_name
             dst = skill_dir / "SKILL.md"
             if enabled:
                 if src.exists():
-                    return await _toggle_file_feature(src, dst, enabled, name, "knowledge")
+                    return await _toggle_file_feature(
+                        src, dst, enabled, name, "knowledge", claude_dir=target
+                    )
             else:
                 # Skills are directories; deleting only SKILL.md left empty folders that
                 # still appeared in PixelOffice card skill pickers.
@@ -724,9 +792,9 @@ async def _toggle_knowledge(name: str, enabled: bool):
             content={"error": {"message": f"Unknown skill: {skill_name}", "code": "INVALID_FEATURE"}},
         )
     if name == "reference":
-        src = DATA_ROOT / "rules" / "manager-reference.md"
-        dst = CLAUDE_DIR / "manager-reference.md"
-        return await _toggle_file_feature(src, dst, enabled, name, "knowledge")
+        src = _catalog_root() / "rules" / "manager-reference.md"
+        dst = target / "manager-reference.md"
+        return await _toggle_file_feature(src, dst, enabled, name, "knowledge", claude_dir=target)
 
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -734,10 +802,11 @@ async def _toggle_knowledge(name: str, enabled: bool):
     )
 
 
-async def _toggle_rules(enabled: bool):
+async def _toggle_rules(enabled: bool, claude_dir: Path | None = None):
     """Enable/disable behavioral rules in CLAUDE.md."""
+    claude_md = _rules_md_path(claude_dir if claude_dir is not None else CLAUDE_DIR)
     if enabled:
-        rules_src = DATA_ROOT / "rules" / "manager_behaviors.md"
+        rules_src = _catalog_root() / "rules" / "manager_behaviors.md"
         if not rules_src.exists():
             return JSONResponse(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -745,10 +814,10 @@ async def _toggle_rules(enabled: bool):
             )
         rules_text = rules_src.read_text(encoding="utf-8").strip()
 
-        CLAUDE_MD.parent.mkdir(parents=True, exist_ok=True)
+        claude_md.parent.mkdir(parents=True, exist_ok=True)
         existing = ""
-        if CLAUDE_MD.exists():
-            existing = CLAUDE_MD.read_text(encoding="utf-8")
+        if claude_md.exists():
+            existing = claude_md.read_text(encoding="utf-8")
 
         # Check if already installed
         if RULES_START_PREFIX in existing and RULES_END_MARKER in existing:
@@ -775,14 +844,14 @@ async def _toggle_rules(enabled: bool):
         else:
             new_content = existing + rules_text + "\n"
 
-        CLAUDE_MD.write_text(new_content, encoding="utf-8")
+        claude_md.write_text(new_content, encoding="utf-8")
 
     else:
         # Remove rules
-        if not CLAUDE_MD.exists():
+        if not claude_md.exists():
             return {"name": "rules", "category": "knowledge", "enabled": False}
 
-        content = CLAUDE_MD.read_text(encoding="utf-8")
+        content = claude_md.read_text(encoding="utf-8")
         if RULES_START_PREFIX not in content or RULES_END_MARKER not in content:
             return {"name": "rules", "category": "knowledge", "enabled": False}
 
@@ -799,7 +868,7 @@ async def _toggle_rules(enabled: bool):
         else:
             new_content = after
 
-        CLAUDE_MD.write_text(new_content, encoding="utf-8")
+        claude_md.write_text(new_content, encoding="utf-8")
 
     return {"name": "rules", "category": "knowledge", "enabled": enabled}
 

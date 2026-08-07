@@ -845,6 +845,15 @@ export const runtimeManagerPacingSchema = z.object({
 });
 export type RuntimeManagerPacing = z.infer<typeof runtimeManagerPacingSchema>;
 
+/** Scope Manager echoes back on `/api/features` so a reading can be labelled. */
+export const runtimeManagerFeaturesScopeSchema = z.object({
+	repoPath: z.string().nullable(),
+	claudeDir: z.string(),
+	/** Categories that honour a project scope; hooks are always machine-wide. */
+	projectScopedCategories: z.array(z.string()),
+});
+export type RuntimeManagerFeaturesScope = z.infer<typeof runtimeManagerFeaturesScopeSchema>;
+
 export const RuntimeManagerSnapshotSchema = z.object({
 	version: z.string().nullable(),
 	accounts: z.array(RuntimeManagerAccountSchema),
@@ -857,6 +866,12 @@ export const RuntimeManagerSnapshotSchema = z.object({
 	/** Fleet pacing (pause-until-reset target). Null/absent when Manager exposes no pacing summary. */
 	pacing: runtimeManagerPacingSchema.nullable().optional(),
 	features: z.array(RuntimeManagerFeatureSchema),
+	/**
+	 * Which `.claude` the `features[].installed` flags were read from. Absent on a
+	 * global read; set when the fetch was scoped to a project, so a shelf can say
+	 * whose catalog state it is showing.
+	 */
+	featuresScope: runtimeManagerFeaturesScopeSchema.nullable().optional(),
 	latestSwap: RuntimeManagerSwapSchema.nullable(),
 	lessonsActive: z.number().int().nonnegative().nullable(),
 	fetchedAt: z.number(),
@@ -894,8 +909,29 @@ export const RuntimeManagerFeatureToggleRequestSchema = z.object({
 	category: RuntimeManagerFeatureCategorySchema,
 	name: z.string().min(1),
 	enabled: z.boolean(),
+	/**
+	 * Workspace whose project the feature installs into. The Manager catalog is
+	 * per project, so this decides between `<repo>/.claude` and the global
+	 * `~/.claude`. Omit for the global install (and for hook features, which are
+	 * machine-wide regardless).
+	 */
+	workspaceId: z.string().min(1).optional(),
 });
 export type RuntimeManagerFeatureToggleRequest = z.infer<typeof RuntimeManagerFeatureToggleRequestSchema>;
+
+/** Features for one project, read on demand — the streamed snapshot stays global. */
+export const RuntimeManagerFeaturesRequestSchema = z.object({
+	workspaceId: z.string().min(1).optional(),
+});
+export type RuntimeManagerFeaturesRequest = z.infer<typeof RuntimeManagerFeaturesRequestSchema>;
+
+export const RuntimeManagerFeaturesResponseSchema = z.object({
+	features: z.array(RuntimeManagerFeatureSchema),
+	/** Absolute `.claude` directory the flags were read from, for labelling. */
+	claudeDir: z.string().nullable(),
+	repoPath: z.string().nullable(),
+});
+export type RuntimeManagerFeaturesResponse = z.infer<typeof RuntimeManagerFeaturesResponseSchema>;
 
 export const RuntimeManagerValidateVerdictSchema = z.enum(["good", "bad", "indeterminate"]);
 export type RuntimeManagerValidateVerdict = z.infer<typeof RuntimeManagerValidateVerdictSchema>;
