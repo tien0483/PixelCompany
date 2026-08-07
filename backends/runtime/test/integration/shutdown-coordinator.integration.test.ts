@@ -283,12 +283,17 @@ describe.sequential("shutdown coordinator integration", () => {
 					expectedRevision: managedInitial.revision,
 				});
 
+				// `markInterruptedAndStopAll` sweeps every entry with a live process, which
+				// includes a paused task: `pauseTaskSession` deliberately keeps the process
+				// alive (so `--continue` can resume it later) and never clears `entry.active`.
+				// The fake must mirror that real behavior so this test actually exercises the
+				// re-partitioning of the sweep's output instead of the fake sidestepping it.
 				const managedTerminalManager = createFakeTerminalManager(
 					{
 						"paused-task": pausedSession,
 						"interrupted-task": runningSession,
 					},
-					{ markInterruptedAndStopAllResult: [runningSession] },
+					{ markInterruptedAndStopAllResult: [pausedSession, runningSession] },
 				);
 				const flushSessionPersistence = vi.fn(async () => {});
 

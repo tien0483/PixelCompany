@@ -241,13 +241,23 @@ export async function shutdownRuntimeServer(deps: RuntimeShutdownCoordinatorDepe
 
 	for (const { workspaceId, workspacePath, terminalManager } of managedWorkspaces) {
 		const interrupted = terminalManager.markInterruptedAndStopAll();
-		const interruptedTaskIds = new Set(collectShutdownInterruptedTaskIds(interrupted, terminalManager));
+		const shutdownSweepTaskIds = collectShutdownInterruptedTaskIds(interrupted, terminalManager);
 		if (!workspacePath) {
 			continue;
 		}
 		managedWorkspacePaths.add(workspacePath);
 		try {
 			const workspaceState = await loadWorkspaceState(workspacePath);
+			// `markInterruptedAndStopAll`/`listSummaries` sweep on `entry.active`/`state`
+			// alone: a manually-paused task (`pausedAt != null`) keeps its process alive and
+			// `state === "running"` for the entire pause duration by design (see
+			// `isParkedOnShutdown`'s docstring), so it shows up in this sweep too. Re-partition
+			// it here the same way the work-column pass below does, otherwise a paused task
+			// lands in `interruptedTaskIds` and gets trashed/worktree-deleted despite also
+			// being correctly classified as parked by the work-column pass.
+			const sweepPartition = partitionWorkColumnTaskIds(shutdownSweepTaskIds, workspaceState, terminalManager);
+			const interruptedTaskIds = new Set(sweepPartition.interruptedTaskIds);
+			const parkedTaskIds = new Set(sweepPartition.parkedTaskIds);
 			const workColumnPartition = partitionWorkColumnTaskIds(
 				collectWorkColumnTaskIds(workspaceState),
 				workspaceState,
@@ -256,7 +266,9 @@ export async function shutdownRuntimeServer(deps: RuntimeShutdownCoordinatorDepe
 			for (const taskId of workColumnPartition.interruptedTaskIds) {
 				interruptedTaskIds.add(taskId);
 			}
-			const parkedTaskIds = new Set(workColumnPartition.parkedTaskIds);
+			for (const taskId of workColumnPartition.parkedTaskIds) {
+				parkedTaskIds.add(taskId);
+			}
 			interruptedByWorkspace.push({
 				workspaceId,
 				workspacePath,
