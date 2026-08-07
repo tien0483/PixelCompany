@@ -1,4 +1,4 @@
-﻿"""Tests for repo-local .agent/manager catalog and runtime resolution."""
+﻿"""Tests for repo-local agent-data catalog and runtime resolution."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -38,7 +38,7 @@ def test_get_catalog_data_root_resolves_pixeloffice_manager_catalog():
     assert (root / "skills").is_dir()
     assert (root / "packs.json").is_file()
     normalized = str(root).replace("\\", "/")
-    assert ".agent/manager/data" in normalized
+    assert "agent-data/catalog" in normalized
 
 
 def test_get_runtime_data_root_resolves_pixeloffice_manager_runtime():
@@ -47,7 +47,7 @@ def test_get_runtime_data_root_resolves_pixeloffice_manager_runtime():
     assert (root / "hooks").is_dir()
     assert (root / "web").is_dir()
     normalized = str(root).replace("\\", "/")
-    assert ".agent/manager/runtime" in normalized
+    assert "agent-data/runtime" in normalized
 
 
 def test_catalog_env_override_wins(tmp_path, monkeypatch):
@@ -77,7 +77,7 @@ def test_pixeloffice_repo_layout_from_package():
     repo_catalog = data_paths._catalog_from_pixeloffice_layout(Path(__file__).resolve().parent.parent)
     if repo_catalog is None:
         pytest.skip("not running from PixelOffice backends/manager layout")
-    assert repo_catalog.name == "data"
+    assert repo_catalog.name == "catalog"
     assert (repo_catalog / "skills").is_dir()
 
     repo_runtime = data_paths._runtime_from_pixeloffice_layout(Path(__file__).resolve().parent.parent)

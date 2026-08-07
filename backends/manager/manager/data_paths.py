@@ -1,8 +1,11 @@
 """Resolve PixelOffice Manager data (catalog + runtime).
 
-Catalog lives under ``<repo>/.agent/manager/data/`` (skills, agents, commands,
-rules, packs). Runtime assets live under ``<repo>/.agent/manager/runtime/``
+Catalog lives under ``<repo>/agent-data/catalog/`` (skills, agents, commands,
+rules, packs). Runtime assets live under ``<repo>/agent-data/runtime/``
 (hooks, web UI, lenses, guardrails, git-hooks, templates).
+
+Both used to sit under ``<repo>/.agent/manager/``; those paths stay in the
+candidate lists so an un-migrated checkout still resolves.
 """
 from __future__ import annotations
 
@@ -14,9 +17,15 @@ _CATALOG_ENV_LEGACY = "PIXELOFFICE_AGENT_JACKED_DATA"
 _RUNTIME_ENV = "PIXELOFFICE_AGENT_MANAGER_RUNTIME"
 _RUNTIME_ENV_LEGACY = "PIXELOFFICE_AGENT_JACKED_RUNTIME"
 
-_MANAGER_REL = Path(".agent") / "manager"
-_CATALOG_REL = _MANAGER_REL / "data"
-_RUNTIME_REL = _MANAGER_REL / "runtime"
+_AGENT_DATA_REL = Path("agent-data")
+_LEGACY_MANAGER_REL = Path(".agent") / "manager"
+
+# Preferred first; the legacy location is only reached when the new one is absent.
+_CATALOG_RELS = (_AGENT_DATA_REL / "catalog", _LEGACY_MANAGER_REL / "data")
+_RUNTIME_RELS = (_AGENT_DATA_REL / "runtime", _LEGACY_MANAGER_REL / "runtime")
+
+_CATALOG_REL = _CATALOG_RELS[0]
+_RUNTIME_REL = _RUNTIME_RELS[0]
 
 
 def get_package_data_root() -> Path:
@@ -70,16 +79,22 @@ def _catalog_from_pixeloffice_layout(package_dir: Path) -> Path | None:
     repo_root = _pixeloffice_repo_root(package_dir)
     if repo_root is None:
         return None
-    candidate = repo_root / _CATALOG_REL
-    return candidate if _is_catalog_root(candidate) else None
+    for rel in _CATALOG_RELS:
+        candidate = repo_root / rel
+        if _is_catalog_root(candidate):
+            return candidate
+    return None
 
 
 def _runtime_from_pixeloffice_layout(package_dir: Path) -> Path | None:
     repo_root = _pixeloffice_repo_root(package_dir)
     if repo_root is None:
         return None
-    candidate = repo_root / _RUNTIME_REL
-    return candidate if _is_runtime_root(candidate) else None
+    for rel in _RUNTIME_RELS:
+        candidate = repo_root / rel
+        if _is_runtime_root(candidate):
+            return candidate
+    return None
 
 
 def _shipped_runtime_root() -> Path:
@@ -93,9 +108,10 @@ def resolve_agent_catalog_data_root() -> Path | None:
         return override if _is_catalog_root(override) else None
 
     for base in _walk_parents(Path.cwd()):
-        candidate = base / _CATALOG_REL
-        if _is_catalog_root(candidate):
-            return candidate
+        for rel in _CATALOG_RELS:
+            candidate = base / rel
+            if _is_catalog_root(candidate):
+                return candidate
 
     return _catalog_from_pixeloffice_layout(Path(__file__).resolve().parent)
 
@@ -107,9 +123,10 @@ def resolve_agent_runtime_data_root() -> Path | None:
         return override if _is_runtime_root(override) else None
 
     for base in _walk_parents(Path.cwd()):
-        candidate = base / _RUNTIME_REL
-        if _is_runtime_root(candidate):
-            return candidate
+        for rel in _RUNTIME_RELS:
+            candidate = base / rel
+            if _is_runtime_root(candidate):
+                return candidate
 
     return _runtime_from_pixeloffice_layout(Path(__file__).resolve().parent)
 

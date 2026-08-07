@@ -574,6 +574,7 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 				roots: setting.roots,
 			});
 		},
+		getWorkspaceLocalAssets: async (input) => await getWorkspaceLocalAssetsSetting(input.workspaceId),
 		setWorkspaceLocalAssets: async (input) =>
 			setWorkspaceLocalAssets(input.workspaceId, {
 				enabled: input.enabled,

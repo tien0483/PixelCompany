@@ -50,7 +50,7 @@ _lifespan_startup_count: int = 0
 
 from manager.data_paths import get_runtime_data_root
 
-# Static web files — repo-local ``.agent/manager/runtime/web`` when present
+# Static web files — repo-local ``agent-data/runtime/web`` when present
 WEB_DIR = get_runtime_data_root() / "web"
 
 TOKEN_REFRESH_INTERVAL = 1800  # 30 minutes

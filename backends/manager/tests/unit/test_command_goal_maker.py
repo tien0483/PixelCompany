@@ -26,7 +26,7 @@ def gm() -> str:
 
 
 def test_goal_maker_command_exists():
-    assert CMD.exists(), ".agent/manager/data/commands/goal-maker.md must exist"
+    assert CMD.exists(), "agent-data/catalog/commands/goal-maker.md must exist"
 
 
 def test_frontmatter_marks_it_deliberate_and_distinguishes_siblings(gm: str):

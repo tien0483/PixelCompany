@@ -14,7 +14,14 @@ import type { RuntimeSkillInventoryItem } from "@/runtime/types";
  * ~/.agents/skills). Complements Jacked Training toggles + packs so newly
  * installed / user-authored skills show up in Manager without a restart.
  */
-export function TrainingDiskSkillsPanel({ online }: { online: boolean }): ReactElement {
+export function TrainingDiskSkillsPanel({
+	online,
+	workspaceId = null,
+}: {
+	online: boolean;
+	/** Selected project, so its own `.claude`/`.agent` skills show up alongside the global ones. */
+	workspaceId?: string | null;
+}): ReactElement {
 	const [skills, setSkills] = useState<RuntimeSkillInventoryItem[] | null>(null);
 	const [loading, setLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
@@ -23,7 +30,9 @@ export function TrainingDiskSkillsPanel({ online }: { online: boolean }): ReactE
 		setLoading(true);
 		setError(null);
 		try {
-			const inventory = await getRuntimeTrpcClient(null).runtime.listSkillInventory.query({});
+			const inventory = await getRuntimeTrpcClient(null).runtime.listSkillInventory.query(
+				workspaceId ? { workspaceId } : {},
+			);
 			setSkills(inventory.skills);
 		} catch (err) {
 			setSkills(null);
@@ -31,7 +40,7 @@ export function TrainingDiskSkillsPanel({ online }: { online: boolean }): ReactE
 		} finally {
 			setLoading(false);
 		}
-	}, []);
+	}, [workspaceId]);
 
 	useEffect(() => {
 		if (!online) {

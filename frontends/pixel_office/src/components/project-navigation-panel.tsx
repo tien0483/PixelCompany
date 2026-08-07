@@ -440,6 +440,7 @@ export function ProjectNavigationPanel({
 					online={managerOnline}
 					manager={managerState}
 					settingsFocusToken={managerSettingsFocusToken}
+					workspaceId={currentProjectId}
 				/>
 			) : (
 				<HomeSidebarPlansPanel workspaceId={currentProjectId} onOpenPlan={onOpenPlan} />

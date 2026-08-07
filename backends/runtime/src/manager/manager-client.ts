@@ -9,6 +9,7 @@ import type {
 	RuntimeManagerAccountLaunchCredential,
 	RuntimeManagerAccountLaunchDir,
 	RuntimeManagerFeature,
+	RuntimeManagerFeaturesScope,
 	RuntimeManagerFeatureCategory,
 	RuntimeManagerHookLogs,
 	RuntimeManagerInstallationsOverview,
@@ -50,14 +51,27 @@ const PROVIDER_CAPABILITIES: Record<RuntimeManagerProvider, { canAutoSwap: boole
 
 const FEATURE_CATEGORIES: RuntimeManagerFeatureCategory[] = ["agents", "commands", "hooks", "knowledge"];
 
+/** `/api/features`, scoped to a project when one is selected. */
+function featuresPath(repoPath?: string | null): string {
+	const trimmed = repoPath?.trim();
+	return trimmed ? `/api/features?repo_path=${encodeURIComponent(trimmed)}` : "/api/features";
+}
+
 export interface ManagerClient {
 	/** Resolved companion base URL (no trailing slash). */
 	baseUrl: string;
-	fetchSnapshot: () => Promise<RuntimeManagerSnapshot | null>;
+	/**
+	 * `repoPath` scopes each feature's `installed` flag to that project's `.claude`.
+	 * The Manager catalog is per project, so a shelf read without it shows the global
+	 * view rather than what the selected project has enabled.
+	 */
+	fetchSnapshot: (repoPath?: string | null) => Promise<RuntimeManagerSnapshot | null>;
+	/** `repoPath` installs into that project's `.claude` instead of the global one. */
 	setFeatureEnabled: (
 		category: RuntimeManagerFeatureCategory,
 		name: string,
 		enabled: boolean,
+		repoPath?: string | null,
 	) => Promise<{ ok: boolean; error?: string }>;
 	pauseSwap: (minutes: number) => Promise<{ ok: boolean; error?: string }>;
 	resumeSwap: () => Promise<{ ok: boolean; error?: string }>;
@@ -285,6 +299,29 @@ function parseFeatures(raw: unknown): RuntimeManagerFeature[] {
 	return features;
 }
 
+/** `scope` on `/api/features`; absent from an older Manager, which read globally. */
+function parseFeaturesScope(raw: unknown): RuntimeManagerFeaturesScope | null {
+	if (!isRecord(raw)) {
+		return null;
+	}
+	const scope = raw.scope;
+	if (!isRecord(scope)) {
+		return null;
+	}
+	const claudeDir = readString(scope, "claude_dir");
+	if (claudeDir === null) {
+		return null;
+	}
+	const categories = scope.project_scoped_categories;
+	return {
+		repoPath: readString(scope, "repo_path"),
+		claudeDir,
+		projectScopedCategories: Array.isArray(categories)
+			? categories.filter((entry): entry is string => typeof entry === "string")
+			: [],
+	};
+}
+
 function parseSwapEntry(raw: unknown): RuntimeManagerSwap | null {
 	if (!isRecord(raw)) {
 		return null;
@@ -423,7 +460,7 @@ export function createManagerClient(deps: CreateManagerClientDependencies): Mana
 		}
 	};
 
-	const fetchSnapshot = async (): Promise<RuntimeManagerSnapshot | null> => {
+	const fetchSnapshot = async (repoPath?: string | null): Promise<RuntimeManagerSnapshot | null> => {
 		const health = await request("/api/health");
 		if (!isRecord(health) || health.status !== "ok") {
 			return null;
@@ -435,7 +472,7 @@ export function createManagerClient(deps: CreateManagerClientDependencies): Mana
 				request("/api/auth/accounts?include_inactive=true"),
 				request("/api/menubar-summary"),
 				request("/api/settings/swap-settings"),
-				request("/api/features"),
+				request(featuresPath(repoPath)),
 				request("/api/settings/swap-log?limit=1"),
 				request("/api/analytics/lessons"),
 				request("/api/version"),
@@ -472,6 +509,7 @@ export function createManagerClient(deps: CreateManagerClientDependencies): Mana
 			autoSwapEnabled: swapSettings ? readBoolean(swapSettings, "auto_swap_enabled") : false,
 			pacing: parsePacing(pacingRaw),
 			features: parseFeatures(featuresRaw),
+			featuresScope: parseFeaturesScope(featuresRaw),
 			latestSwap: parseLatestSwap(swapLogRaw),
 			lessonsActive: isRecord(lessonsRaw) ? readNumber(lessonsRaw, "active") : null,
 			fetchedAt,
@@ -711,11 +749,15 @@ export function createManagerClient(deps: CreateManagerClientDependencies): Mana
 	return {
 		baseUrl,
 		fetchSnapshot,
-		setFeatureEnabled: async (category, name, enabled) =>
+		setFeatureEnabled: async (category, name, enabled, repoPath) =>
 			await mutate(`/api/features/${category}/${encodeURIComponent(name)}`, {
 				method: "PUT",
 				headers: { "content-type": "application/json" },
-				body: JSON.stringify({ enabled }),
+				// Manager reads `repo_path`; omit it entirely rather than sending null so a
+				// hook toggle keeps its existing global behaviour.
+				body: JSON.stringify(
+					repoPath?.trim() ? { enabled, repo_path: repoPath.trim() } : { enabled },
+				),
 			}),
 		pauseSwap: async (minutes) =>
 			await mutate(`/api/settings/swap-pause?minutes=${minutes.toString()}`, { method: "POST" }),
