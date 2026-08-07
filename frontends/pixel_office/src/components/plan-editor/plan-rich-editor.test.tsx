@@ -83,4 +83,41 @@ describe("PlanRichEditor", () => {
 			onChange.mock.calls.some((call) => String(call[0]).includes("edited")),
 		).toBe(true);
 	});
+
+	it("displays content that arrives after the editor has already mounted", async () => {
+		const onChange = vi.fn();
+
+		await act(async () => {
+			root.render(
+				<TooltipProvider>
+					<PlanRichEditor
+						content=""
+						onChange={onChange}
+						planId="plan-1"
+						onInsertImage={vi.fn()}
+					/>
+				</TooltipProvider>,
+			);
+		});
+		await flush();
+		await waitForRichEditor(container);
+
+		// Simulates the plan finishing its async load after the rich editor already
+		// mounted with the initial empty content.
+		await act(async () => {
+			root.render(
+				<TooltipProvider>
+					<PlanRichEditor
+						content="# Loaded content\n"
+						onChange={onChange}
+						planId="plan-1"
+						onInsertImage={vi.fn()}
+					/>
+				</TooltipProvider>,
+			);
+		});
+		await flush();
+
+		expect(container.textContent).toMatch(/Loaded content/i);
+	});
 });
