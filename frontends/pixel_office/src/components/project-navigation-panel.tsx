@@ -1,6 +1,15 @@
 import * as Collapsible from "@radix-ui/react-collapsible";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
-import { ChevronDown, ChevronUp, Ellipsis, ExternalLink, Info, Plus } from "lucide-react";
+import {
+	ChevronDown,
+	ChevronUp,
+	Ellipsis,
+	ExternalLink,
+	Info,
+	PanelLeftClose,
+	PanelLeftOpen,
+	Plus,
+} from "lucide-react";
 import { type MouseEvent as ReactMouseEvent, useCallback, useEffect, useRef, useState } from "react";
 import { canShowFeaturebaseFeedbackButton } from "@/components/featurebase-feedback-button";
 import { HomeSidebarManagerPanel, HomeSidebarManagerTab } from "@/components/home-sidebar-manager";
@@ -231,6 +240,18 @@ export function ProjectNavigationPanel({
 						className="absolute top-0 right-0 bottom-0 w-1.5 cursor-ew-resize z-10"
 					/>
 				)}
+				{!isMobile && (
+					<button
+						type="button"
+						data-testid="expand-left-sidebar-button"
+						aria-label="Expand sidebar"
+						title="Expand sidebar"
+						onClick={() => setCollapsed(false)}
+						className="rounded p-1 text-text-tertiary hover:bg-surface-2 hover:text-text-secondary"
+					>
+						<PanelLeftOpen size={14} />
+					</button>
+				)}
 				{sortedProjects.map((project) => {
 					const isCurrent = currentProjectId === project.id;
 					const letter = project.name.charAt(0).toUpperCase();
@@ -320,7 +341,18 @@ export function ProjectNavigationPanel({
 							aria-label="Close sidebar"
 							className="min-w-[44px] min-h-[44px] -mr-2"
 						/>
-					) : null}
+					) : (
+						<button
+							type="button"
+							data-testid="collapse-left-sidebar-button"
+							aria-label="Collapse sidebar"
+							title="Collapse sidebar"
+							onClick={() => setCollapsed(true)}
+							className="rounded p-1 text-text-secondary hover:bg-surface-2 hover:text-text-primary"
+						>
+							<PanelLeftClose size={14} />
+						</button>
+					)}
 				</div>
 				<div className="mt-2 rounded-md bg-surface-2 border border-border p-1">
 					<div className="grid grid-cols-3 gap-1">
