@@ -142,16 +142,18 @@ export function HomeTriplePane({
 						className="absolute inset-y-0 -left-1 z-10 w-2 cursor-ew-resize"
 						onMouseDown={startWidthDrag}
 					/>
-					<button
-						type="button"
-						data-testid="collapse-right-column-button"
-						aria-label="Collapse right column"
-						title="Collapse panel"
-						onClick={onCollapse}
-						className="absolute left-1 top-1 z-20 rounded p-1 text-text-secondary hover:bg-surface-2 hover:text-text-primary"
-					>
-						<PanelRightClose size={14} />
-					</button>
+					<div className="flex shrink-0 items-center justify-end border-b border-border px-1 py-0.5">
+						<button
+							type="button"
+							data-testid="collapse-right-column-button"
+							aria-label="Collapse right column"
+							title="Collapse panel"
+							onClick={onCollapse}
+							className="rounded p-1 text-text-secondary hover:bg-surface-2 hover:text-text-primary"
+						>
+							<PanelRightClose size={14} />
+						</button>
+					</div>
 					<div
 						data-testid="home-manager-watch-pane"
 						className="flex min-h-0 flex-col overflow-hidden border-b border-border"
