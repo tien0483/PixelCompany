@@ -42,7 +42,8 @@ export default function PlanRichEditor({
 	onDragOver,
 	onEditorReady,
 }: PlanRichEditorProps): ReactElement {
-	const skipNextSyncRef = useRef(false);
+	/** Markdown most recently emitted via onUpdate — lets the sync effect skip its own echo. */
+	const lastEmittedMarkdownRef = useRef<string | null>(null);
 	const onChangeRef = useRef(onChange);
 	onChangeRef.current = onChange;
 	const readMarkdownRef = useRef<(() => string) | null>(null);
@@ -62,9 +63,9 @@ export default function PlanRichEditor({
 			editable: !disabled,
 			onUpdate: ({ editor: updatedEditor }) => {
 				try {
-					skipNextSyncRef.current = true;
-					const markdown = readMarkdown(updatedEditor);
-					onChangeRef.current(fromEditorMarkdown(markdown, planId));
+					const markdown = fromEditorMarkdown(readMarkdown(updatedEditor), planId);
+					lastEmittedMarkdownRef.current = markdown;
+					onChangeRef.current(markdown);
 				} catch (error) {
 					setBridgeError(
 						error instanceof Error
@@ -84,6 +85,7 @@ export default function PlanRichEditor({
 		if (!editor) {
 			return;
 		}
+		lastEmittedMarkdownRef.current = null;
 		try {
 			readMarkdownRef.current = captureMarkdownSerializer(editor);
 			setBridgeError(null);
@@ -110,8 +112,9 @@ export default function PlanRichEditor({
 		if (!editor || bridgeError) {
 			return;
 		}
-		if (skipNextSyncRef.current) {
-			skipNextSyncRef.current = false;
+		if (lastEmittedMarkdownRef.current === content) {
+			// This content update is just our own onUpdate echoing back through the parent
+			// (e.g. autosave round-trip) — nothing external changed, skip the sync.
 			return;
 		}
 		try {

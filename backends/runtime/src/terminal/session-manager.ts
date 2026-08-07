@@ -2,6 +2,7 @@
 // It owns process lifecycle, terminal protocol filtering, and summary updates
 // for command-driven agents such as Claude Code, Codex, Gemini, and shell sessions.
 import type {
+	RuntimeAgentId,
 	RuntimeTaskHookActivity,
 	RuntimeTaskImage,
 	RuntimeTaskLaunchSettings,
@@ -56,6 +57,15 @@ const STOP_TASK_SESSION_EXIT_TIMEOUT_MS = 5_000;
 // has attached.
 const OSC_FOREGROUND_QUERY_REPLY = "\u001b]10;rgb:e6e6/eded/f3f3\u001b\\";
 const OSC_BACKGROUND_QUERY_REPLY = "\u001b]11;rgb:1717/1717/2121\u001b\\";
+
+export interface AgentAuthFailureReport {
+	taskId: string;
+	agentId: RuntimeAgentId | null;
+	managerAccountId: number | null;
+	message: string;
+}
+
+export type AgentAuthFailureReporter = (report: AgentAuthFailureReport) => void | Promise<void>;
 
 type RestartableSessionRequest =
 	| { kind: "task"; request: StartTaskSessionRequest }
@@ -251,6 +261,25 @@ function hasCodexStartupUiRendered(text: string): boolean {
 export class TerminalSessionManager implements TerminalSessionService {
 	private readonly entries = new Map<string, SessionEntry>();
 	private readonly summaryListeners = new Set<(summary: RuntimeTaskSessionSummary) => void>();
+	private agentAuthFailureReporter: AgentAuthFailureReporter | null = null;
+
+	/** Wired by the CLI once a Manager client exists; reports a live agent 401 so Manager can re-validate the seat. */
+	setAgentAuthFailureReporter(reporter: AgentAuthFailureReporter | null): void {
+		this.agentAuthFailureReporter = reporter;
+	}
+
+	private reportAgentAuthFailure(entry: SessionEntry, taskId: string, message: string): void {
+		try {
+			void this.agentAuthFailureReporter?.({
+				taskId,
+				agentId: entry.summary.agentId,
+				managerAccountId: entry.summary.managerAccountId ?? null,
+				message,
+			})?.catch?.(() => {});
+		} catch {
+			// Reporting never takes down a session.
+		}
+	}
 
 	private trySendDeferredCodexStartupInput(taskId: string): boolean {
 		const entry = this.entries.get(taskId);
@@ -483,6 +512,7 @@ export class TerminalSessionManager implements TerminalSessionService {
 									taskListener.onState?.(cloneSummary(summary));
 								}
 								this.emitSummary(summary);
+								this.reportAgentAuthFailure(entry, request.taskId, authFailure);
 							}
 						}
 					}
@@ -566,13 +596,17 @@ export class TerminalSessionManager implements TerminalSessionService {
 					}
 					stopWorkspaceTrustTimers(currentActive);
 
+					const previousAuthFailureMessage = currentActive.authFailureMessage;
 					const authFailure =
-						currentActive.authFailureMessage ??
+						previousAuthFailureMessage ??
 						detectAgentAuthFailure(currentEntry.summary.agentId, currentActive.recentOutputText);
 					if (authFailure) {
 						currentActive.authFailureMessage = authFailure;
 						currentEntry.suppressAutoRestartOnExit = true;
 						currentEntry.restartRequest = null;
+						if (previousAuthFailureMessage === null) {
+							this.reportAgentAuthFailure(currentEntry, request.taskId, authFailure);
+						}
 					}
 
 					let summary = this.applySessionEvent(currentEntry, {

@@ -88,6 +88,8 @@ export interface CreateRuntimeApiDependencies {
 	resolveDefaultCursormanagerAccountId?: () => Promise<number | null>;
 	/** Active Claude Jacked seat — used to prep CC creds for skill/MCP-tagged launches. */
 	resolveActiveClaudemanagerAccountId?: () => Promise<number | null>;
+	/** Jacked's live active Claude seat, unfiltered — used to detect a revoked live seat and redirect Auto launches. */
+	resolveLiveActiveClaudemanagerAccountId?: () => Promise<number | null>;
 	/** Donate state of a pinned account — lets a locked over-cap seat hard-block the launch. */
 	getPinnedManagerAccount?: (accountId: number) => Promise<ManagerDonateAccountLike | null>;
 	resolveInteractiveShellCommand: () => { binary: string; args: string[] };
@@ -359,6 +361,7 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 						(await deps.getManagerAccountProvider?.(accountId)) ?? null,
 					resolveDefaultCursorAccountId: deps.resolveDefaultCursormanagerAccountId,
 					resolveActiveClaudeAccountId: deps.resolveActiveClaudemanagerAccountId,
+					resolveLiveActiveClaudeAccountId: deps.resolveLiveActiveClaudemanagerAccountId,
 					getPinnedAccount: deps.getPinnedManagerAccount,
 					needsClaudeConfigDirForLaunchTags:
 						resolved.agentId === "claude" && hasClaudeScopedConfigAllowlist(body.taskLaunchSettings),

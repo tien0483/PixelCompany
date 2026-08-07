@@ -19,7 +19,6 @@ import {
 import { createGitProcessEnv } from "../core/git-process-env";
 import { updateTaskDependencies } from "../core/task-board-mutations";
 import { type LockRequest, lockedFileSystem } from "../fs/locked-file-system";
-import { runGit } from "../workspace/git-utils";
 import { LEGACY_RUNTIME_HOME_PARENT_DIR_NAME, RUNTIME_HOME_PARENT_DIR_NAME } from "../workspace/task-worktree-path";
 
 const RUNTIME_HOME_PARENT_DIR = RUNTIME_HOME_PARENT_DIR_NAME;
@@ -560,16 +559,6 @@ async function resolveWorkspacePath(cwd: string): Promise<string> {
 	}
 }
 
-async function configureBranchMapNotesRefs(repoPath: string): Promise<void> {
-	try {
-		await runGit(repoPath, ["config", "--add", "remote.origin.push", "+refs/notes/branch-map:refs/notes/branch-map"]);
-		await runGit(repoPath, ["config", "--add", "remote.origin.fetch", "+refs/notes/branch-map:refs/notes/branch-map"]);
-	} catch (error) {
-		const message = error instanceof Error ? error.message : String(error);
-		console.warn(`Could not configure refs/notes/branch-map sync for ${repoPath}. ${message}`);
-	}
-}
-
 function toWorkspaceStateResponse(
 	context: RuntimeWorkspaceContext,
 	board: RuntimeBoardData,
@@ -625,7 +614,6 @@ export async function loadWorkspaceContext(
 		index = ensured.index;
 		if (ensured.changed) {
 			await writeWorkspaceIndex(index);
-			await configureBranchMapNotesRefs(repoPath);
 		}
 
 		return {

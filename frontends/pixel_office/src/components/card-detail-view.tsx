@@ -1,5 +1,8 @@
 import type { DropResult } from "@hello-pangea/dnd";
+import * as Collapsible from "@radix-ui/react-collapsible";
 import {
+	ChevronDown,
+	ChevronRight,
 	Files,
 	GitCompareArrows,
 	Maximize2,
@@ -348,12 +351,18 @@ function DiffToolbar({
 	isExpanded,
 	onToggleExpand,
 	hideExpand,
+	planReady,
+	activeView,
+	onViewChange,
 }: {
 	mode: RuntimeWorkspaceChangesMode;
 	onModeChange: (mode: RuntimeWorkspaceChangesMode) => void;
 	isExpanded: boolean;
 	onToggleExpand: () => void;
 	hideExpand?: boolean;
+	planReady?: boolean;
+	activeView: "changes" | "plan";
+	onViewChange: (view: "changes" | "plan") => void;
 }): React.ReactElement {
 	return (
 		<div className="flex items-center gap-1 border-b border-divider px-2 py-1">
@@ -369,17 +378,31 @@ function DiffToolbar({
 			) : null}
 			<div className="inline-flex items-center gap-0.5 rounded-md p-0.5">
 				<DiffModeButton
-					active={mode === "working_copy"}
-					onClick={() => onModeChange("working_copy")}
+					active={activeView === "changes" && mode === "working_copy"}
+					onClick={() => {
+						onModeChange("working_copy");
+						onViewChange("changes");
+					}}
 				>
 					All Changes
 				</DiffModeButton>
 				<DiffModeButton
-					active={mode === "last_turn"}
-					onClick={() => onModeChange("last_turn")}
+					active={activeView === "changes" && mode === "last_turn"}
+					onClick={() => {
+						onModeChange("last_turn");
+						onViewChange("changes");
+					}}
 				>
 					Last Turn
 				</DiffModeButton>
+				{planReady ? (
+					<DiffModeButton
+						active={activeView === "plan"}
+						onClick={() => onViewChange("plan")}
+					>
+						Plan
+					</DiffModeButton>
+				) : null}
 			</div>
 			{!hideExpand ? (
 				<Button
@@ -575,6 +598,10 @@ export function CardDetailView({
 	>(new Map());
 	const [diffMode, setDiffMode] =
 		useState<RuntimeWorkspaceChangesMode>("working_copy");
+	const [diffPanelView, setDiffPanelView] = useState<"changes" | "plan">(
+		"changes",
+	);
+	const wasPlanReadyRef = useRef(false);
 	const [isDiffExpanded, setIsDiffExpanded] = useState(false);
 	const [savedPlanTextKey, setSavedPlanTextKey] = useState<string | null>(null);
 	const { savePlan, isSaving: isSavingPlan } =
@@ -586,6 +613,20 @@ export function CardDetailView({
 	const planTextForSave = sessionSummary?.latestHookActivity?.planText ?? null;
 	const planAlreadySaved =
 		typeof planTextForSave === "string" && savedPlanTextKey === planTextForSave;
+	const [isTaskConfigExpanded, setIsTaskConfigExpanded] = useState(
+		() => !sessionSummary,
+	);
+	useEffect(() => {
+		if (planReadyForSave && planTextForSave && !wasPlanReadyRef.current) {
+			setDiffPanelView("plan");
+		}
+		wasPlanReadyRef.current = planReadyForSave && Boolean(planTextForSave);
+	}, [planReadyForSave, planTextForSave]);
+	useEffect(() => {
+		if (!planReadyForSave && diffPanelView === "plan") {
+			setDiffPanelView("changes");
+		}
+	}, [planReadyForSave, diffPanelView]);
 	const {
 		taskCardsPanelRatio,
 		setTaskCardsPanelRatio,
@@ -940,6 +981,8 @@ export function CardDetailView({
 									isExpanded={false}
 									onToggleExpand={handleToggleDiffExpand}
 									hideExpand
+									activeView="changes"
+									onViewChange={() => {}}
 								/>
 							) : null}
 							<div className="flex min-h-0 flex-1">
@@ -1074,158 +1117,120 @@ export function CardDetailView({
 					</div>
 				) : (
 					<>
-						{onTaskManagerAccountChanged && taskManagerAccounts.length > 0 ? (
-							<div
-								data-testid="task-account-pin-strip"
-								className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border bg-surface-1 px-2 py-1"
-							>
-								<TaskAccountPicker
-									accounts={taskManagerAccounts}
-									value={selection.card.managerAccountId}
-									activeAccountId={managerActiveAccountId}
-									agentId={effectiveTaskAgentId}
-									onChange={(managerAccountId) => {
-										onTaskManagerAccountChanged(
-											selection.card.id,
-											managerAccountId,
-										);
-									}}
-								/>
-								{/* Only offer a restart when the card has an explicit pin that differs from the running session. */}
-								{typeof sessionSummary?.managerAccountId === "number" &&
-								typeof selection.card.managerAccountId === "number" &&
-								sessionSummary.managerAccountId !==
-									selection.card.managerAccountId &&
-								(sessionSummary.state === "running" ||
-									sessionSummary.state === "awaiting_review") ? (
-									<button
-										type="button"
-										data-testid="restart-task-with-account"
-										disabled={
-											restartTaskLoadingById?.[selection.card.id] === true
-										}
-										onClick={() =>
-											onRestartTaskWithAccount?.(selection.card.id)
-										}
-										className="text-[10px] text-accent underline underline-offset-2 disabled:opacity-50 disabled:no-underline"
-									>
-										{restartTaskLoadingById?.[selection.card.id]
-											? "Restarting…"
-											: `Restart with ${
-													pinnedManagerAccount?.displayName ??
-													pinnedManagerAccount?.email ??
-													`account ${selection.card.managerAccountId}`
-												}`}
-									</button>
-								) : null}
-							</div>
-						) : null}
-						{onTaskAutoResumeOnUsageLimitChanged ? (
-							<div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border bg-surface-1 px-2 py-1">
-								<label
-									className="flex cursor-pointer items-center gap-1.5 text-[11px] text-text-secondary"
-									title="If this task hits the Claude usage limit, park it and auto-continue once the window resets."
+						<Collapsible.Root
+							open={isTaskConfigExpanded}
+							onOpenChange={setIsTaskConfigExpanded}
+							className="shrink-0 border-b border-border bg-surface-1"
+						>
+							<Collapsible.Trigger asChild>
+								<button
+									type="button"
+									data-testid="task-config-toggle"
+									className="flex w-full items-center justify-between gap-2 px-2 py-1 text-[11px] text-text-secondary hover:bg-surface-2"
 								>
-									<input
-										type="checkbox"
-										className="accent-accent"
-										checked={selection.card.autoResumeOnUsageLimit === true}
-										onChange={(event) => {
-											onTaskAutoResumeOnUsageLimitChanged(
-												selection.card.id,
-												event.target.checked,
-											);
-										}}
-									/>
-									Auto-resume on usage limit
-								</label>
-							</div>
-						) : null}
-						{onTaskLaunchSettingsChanged ? (
-							<div
-								data-testid="task-launch-settings-strip"
-								className="shrink-0 border-b border-border bg-surface-1 px-2 py-2"
-							>
-								<TaskLaunchSettingsPicker
-									active
-									agentId={selection.card.agentId}
-									defaultAgentId={selectedAgentId}
-									workspaceId={currentProjectId}
-									value={selection.card.taskLaunchSettings}
-									sessionAppliesOnRestart={
-										sessionSummary?.state === "running" ||
-										sessionSummary?.state === "awaiting_review"
-									}
-									onChange={(next) => {
-										onTaskLaunchSettingsChanged(
-											selection.card.id,
-											next ?? null,
-										);
-									}}
-								/>
-							</div>
-						) : null}
-						{planReadyForSave && planTextForSave ? (
-							<div
-								data-testid="save-plan-panel"
-								className="flex shrink-0 flex-col gap-2 border-b border-border bg-surface-1 px-3 py-2"
-							>
-								<div className="flex items-center justify-between gap-2">
-									<span className="text-[12px] font-medium text-text-primary">
-										Plan ready for review
-									</span>
-									<Button
-										type="button"
-										variant="primary"
-										size="sm"
-										data-testid="save-plan-button"
-										disabled={planAlreadySaved || isSavingPlan}
-										onClick={() => {
-											void (async () => {
-												try {
-													const plan = await savePlan({
-														name:
-															selection.card.title.trim() || "Untitled plan",
-														content: planTextForSave,
-													});
-													setSavedPlanTextKey(planTextForSave);
-													trackPlanSaved({
-														plan_id: plan.id,
-														name_character_count: plan.name.length,
-														content_character_count: planTextForSave.length,
-													});
-													showAppToast({
-														intent: "success",
-														message: `Saved plan "${plan.name}".`,
-													});
-													onSavePlan?.(plan);
-												} catch (error) {
-													showAppToast({
-														intent: "danger",
-														message:
-															error instanceof Error
-																? error.message
-																: "Failed to save plan.",
-													});
-												}
-											})();
-										}}
+									<span>Task configuration</span>
+									{isTaskConfigExpanded ? (
+										<ChevronDown size={14} />
+									) : (
+										<ChevronRight size={14} />
+									)}
+								</button>
+							</Collapsible.Trigger>
+							<Collapsible.Content className="overflow-hidden data-[state=closed]:animate-[kb-collapsible-up_200ms_ease-out] data-[state=open]:animate-[kb-collapsible-down_200ms_ease-out]">
+								{onTaskManagerAccountChanged &&
+								taskManagerAccounts.length > 0 ? (
+									<div
+										data-testid="task-account-pin-strip"
+										className="flex flex-wrap items-center gap-2 border-b border-border px-2 py-1"
 									>
-										{planAlreadySaved
-											? "Plan Saved"
-											: isSavingPlan
-												? "Saving…"
-												: "Save Plan"}
-									</Button>
-								</div>
-								<div className="max-h-48 overflow-auto rounded-md border border-border bg-surface-0 px-3 py-2 text-[12px]">
-									<PlanMarkdownPreview
-										content={planTextForSave}
-										planId={null}
-									/>
-								</div>
-							</div>
-						) : null}
+										<TaskAccountPicker
+											accounts={taskManagerAccounts}
+											value={selection.card.managerAccountId}
+											activeAccountId={managerActiveAccountId}
+											agentId={effectiveTaskAgentId}
+											onChange={(managerAccountId) => {
+												onTaskManagerAccountChanged(
+													selection.card.id,
+													managerAccountId,
+												);
+											}}
+										/>
+										{/* Only offer a restart when the card has an explicit pin that differs from the running session. */}
+										{typeof sessionSummary?.managerAccountId === "number" &&
+										typeof selection.card.managerAccountId === "number" &&
+										sessionSummary.managerAccountId !==
+											selection.card.managerAccountId &&
+										(sessionSummary.state === "running" ||
+											sessionSummary.state === "awaiting_review") ? (
+											<button
+												type="button"
+												data-testid="restart-task-with-account"
+												disabled={
+													restartTaskLoadingById?.[selection.card.id] === true
+												}
+												onClick={() =>
+													onRestartTaskWithAccount?.(selection.card.id)
+												}
+												className="text-[10px] text-accent underline underline-offset-2 disabled:opacity-50 disabled:no-underline"
+											>
+												{restartTaskLoadingById?.[selection.card.id]
+													? "Restarting…"
+													: `Restart with ${
+															pinnedManagerAccount?.displayName ??
+															pinnedManagerAccount?.email ??
+															`account ${selection.card.managerAccountId}`
+														}`}
+											</button>
+										) : null}
+									</div>
+								) : null}
+								{onTaskAutoResumeOnUsageLimitChanged ? (
+									<div className="flex flex-wrap items-center gap-2 border-b border-border px-2 py-1">
+										<label
+											className="flex cursor-pointer items-center gap-1.5 text-[11px] text-text-secondary"
+											title="If this task hits the Claude usage limit, park it and auto-continue once the window resets."
+										>
+											<input
+												type="checkbox"
+												className="accent-accent"
+												checked={selection.card.autoResumeOnUsageLimit === true}
+												onChange={(event) => {
+													onTaskAutoResumeOnUsageLimitChanged(
+														selection.card.id,
+														event.target.checked,
+													);
+												}}
+											/>
+											Auto-resume on usage limit
+										</label>
+									</div>
+								) : null}
+								{onTaskLaunchSettingsChanged ? (
+									<div
+										data-testid="task-launch-settings-strip"
+										className="px-2 py-2"
+									>
+										<TaskLaunchSettingsPicker
+											active
+											agentId={selection.card.agentId}
+											defaultAgentId={selectedAgentId}
+											workspaceId={currentProjectId}
+											value={selection.card.taskLaunchSettings}
+											sessionAppliesOnRestart={
+												sessionSummary?.state === "running" ||
+												sessionSummary?.state === "awaiting_review"
+											}
+											onChange={(next) => {
+												onTaskLaunchSettingsChanged(
+													selection.card.id,
+													next ?? null,
+												);
+											}}
+										/>
+									</div>
+								) : null}
+							</Collapsible.Content>
+						</Collapsible.Root>
 						<div
 							ref={mainRowRef}
 							className="flex min-h-0 flex-1 overflow-hidden"
@@ -1251,16 +1256,80 @@ export function CardDetailView({
 								className="flex min-h-0 min-w-0 flex-col"
 								style={{ width: isDiffExpanded ? "100%" : diffPanelPercent }}
 							>
-								{isRuntimeAvailable ? (
+								{isRuntimeAvailable || (planReadyForSave && planTextForSave) ? (
 									<DiffToolbar
 										mode={diffMode}
 										onModeChange={setDiffMode}
 										isExpanded={isDiffExpanded}
 										onToggleExpand={handleToggleDiffExpand}
+										planReady={Boolean(planReadyForSave && planTextForSave)}
+										activeView={diffPanelView}
+										onViewChange={setDiffPanelView}
 									/>
 								) : null}
 								<div className="flex min-h-0 flex-1">
-									{isWorkspaceChangesPending ? (
+									{diffPanelView === "plan" &&
+									planReadyForSave &&
+									planTextForSave ? (
+										<div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+											<div className="flex shrink-0 items-center justify-between gap-2 border-b border-border px-3 py-2">
+												<span className="text-[12px] font-medium text-text-primary">
+													Plan ready for review
+												</span>
+												<Button
+													type="button"
+													variant="primary"
+													size="sm"
+													data-testid="save-plan-button"
+													disabled={planAlreadySaved || isSavingPlan}
+													onClick={() => {
+														void (async () => {
+															try {
+																const plan = await savePlan({
+																	name:
+																		selection.card.title.trim() ||
+																		"Untitled plan",
+																	content: planTextForSave,
+																});
+																setSavedPlanTextKey(planTextForSave);
+																trackPlanSaved({
+																	plan_id: plan.id,
+																	name_character_count: plan.name.length,
+																	content_character_count:
+																		planTextForSave.length,
+																});
+																showAppToast({
+																	intent: "success",
+																	message: `Saved plan "${plan.name}".`,
+																});
+																onSavePlan?.(plan);
+															} catch (error) {
+																showAppToast({
+																	intent: "danger",
+																	message:
+																		error instanceof Error
+																			? error.message
+																			: "Failed to save plan.",
+																});
+															}
+														})();
+													}}
+												>
+													{planAlreadySaved
+														? "Plan Saved"
+														: isSavingPlan
+															? "Saving…"
+															: "Save Plan"}
+												</Button>
+											</div>
+											<div className="min-h-0 flex-1 overflow-auto px-3 py-2 text-[12px]">
+												<PlanMarkdownPreview
+													content={planTextForSave}
+													planId={null}
+												/>
+											</div>
+										</div>
+									) : isWorkspaceChangesPending ? (
 										<WorkspaceChangesLoadingPanel
 											panelFlex={detailDiffFileTreePanelFlex}
 										/>

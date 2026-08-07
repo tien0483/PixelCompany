@@ -34,6 +34,13 @@ export interface ResolveManagerAccountPinInput {
 	 * before the scoped dir clones them. Avoids Claude Code's login screen.
 	 */
 	resolveActiveClaudeAccountId?: () => Promise<number | null>;
+	/**
+	 * Jacked's live active Claude seat (`snapshot.activeAccountId`), unfiltered —
+	 * the credential an unpinned launch would actually inherit. Distinct from
+	 * `resolveActiveClaudeAccountId`, which returns the auth/donate-healthy pick.
+	 * Used to detect a revoked live seat and redirect the launch onto a healthy one.
+	 */
+	resolveLiveActiveClaudeAccountId?: () => Promise<number | null>;
 	/** True when this launch will rewrite CLAUDE_CONFIG_DIR for skill/MCP tags. */
 	needsClaudeConfigDirForLaunchTags?: boolean;
 	/**
@@ -63,6 +70,8 @@ export interface ManagerDonateAccountLike {
 	pressure?: number;
 	donateLimitPercent?: number;
 	donateLimitLocked?: boolean;
+	ccNeedsAuth?: boolean;
+	validationStatus?: string | null;
 }
 
 /**
@@ -96,6 +105,8 @@ export function toManagerDonateAccount(account: RuntimeManagerAccount): ManagerD
 		pressure: account.pressure,
 		donateLimitPercent: account.donateLimitPercent,
 		donateLimitLocked: account.donateLimitLocked,
+		ccNeedsAuth: account.ccNeedsAuth,
+		validationStatus: account.validationStatus,
 	};
 }
 
@@ -118,6 +129,19 @@ export function isManagerAccountDonatePinBlocked(account: ManagerDonateAccountLi
 	return isManagerAccountDonateExhausted(account);
 }
 
+/**
+ * True when the seat's Claude credentials are dead: jacked's probe marked it
+ * `ccNeedsAuth`, or its last validation came back `invalid`/`expired`.
+ * `unknown` / `checking` (or an unset field) count as healthy — jacked's probe
+ * is best-effort and must not lock out a seat it hasn't validated yet.
+ */
+export function isManagerAccountAuthBroken(account: ManagerDonateAccountLike): boolean {
+	if (account.ccNeedsAuth === true) {
+		return true;
+	}
+	return account.validationStatus === "invalid" || account.validationStatus === "expired";
+}
+
 function expectedProviderForAgent(agentId: RuntimeAgentId): RuntimeManagerProvider | null {
 	if (agentId === "claude") {
 		return "claude";
@@ -134,6 +158,20 @@ function providerMismatchWarning(
 	agentId: RuntimeAgentId,
 ): string {
 	return `Account ${String(accountId)} is a ${accountProvider} account but this task runs ${agentId}; pin ignored.`;
+}
+
+/**
+ * Two-stage filter shared by the Claude and Cursor Auto pickers: prefer
+ * auth-healthy seats, then narrow to under-donate-cap seats within that set.
+ * Each stage falls back to the wider pool when it would otherwise empty out,
+ * so a fully broken/exhausted fleet still yields a candidate for the pin's
+ * hard-block gates to report on rather than silently picking nothing.
+ */
+function pickHealthyPool<T extends ManagerDonateAccountLike>(accounts: ReadonlyArray<T>): T[] {
+	const authHealthy = accounts.filter((account) => !isManagerAccountAuthBroken(account));
+	const pool = authHealthy.length > 0 ? authHealthy : accounts.slice();
+	const underLimit = pool.filter((account) => !isManagerAccountDonateExhausted(account));
+	return underLimit.length > 0 ? underLimit : pool;
 }
 
 /**
@@ -155,8 +193,7 @@ export function pickDefaultCursorAccountId(input: {
 	if (cursorAccounts.length === 0) {
 		return null;
 	}
-	const underLimit = cursorAccounts.filter((account) => !isManagerAccountDonateExhausted(account));
-	const pool = underLimit.length > 0 ? underLimit : cursorAccounts;
+	const pool = pickHealthyPool(cursorAccounts);
 	const activeForProvider = pool.find((account) => account.isActiveForProvider === true);
 	if (activeForProvider) {
 		return activeForProvider.id;
@@ -188,8 +225,7 @@ export function pickDefaultClaudeAccountId(input: {
 	if (claudeAccounts.length === 0) {
 		return null;
 	}
-	const underLimit = claudeAccounts.filter((account) => !isManagerAccountDonateExhausted(account));
-	const pool = underLimit.length > 0 ? underLimit : claudeAccounts;
+	const pool = pickHealthyPool(claudeAccounts);
 	if (input.activeAccountId !== null && pool.some((account) => account.id === input.activeAccountId)) {
 		return input.activeAccountId;
 	}
@@ -273,15 +309,46 @@ export async function resolveManagerAccountPin(
 		// rule as an explicit pin. Cursor unpinned launches keep their `agent login`
 		// credential, which does not map 1:1 to a Seats row, so they are not gated.
 		if (input.agentId === "claude") {
-			const activeSeatId = (await input.resolveActiveClaudeAccountId?.()) ?? null;
-			if (activeSeatId !== null) {
-				const activeSeat = (await input.getPinnedAccount?.(activeSeatId)) ?? null;
-				if (activeSeat && isManagerAccountDonatePinBlocked(activeSeat)) {
+			const liveSeatId =
+				(await input.resolveLiveActiveClaudeAccountId?.()) ?? (await input.resolveActiveClaudeAccountId?.()) ?? null;
+			if (liveSeatId !== null) {
+				const liveSeat = (await input.getPinnedAccount?.(liveSeatId)) ?? null;
+				if (liveSeat && isManagerAccountDonatePinBlocked(liveSeat)) {
 					return {
 						env: {},
 						accountId: null,
 						blocked: true,
-						warning: `The active seat (account ${String(activeSeatId)}) is over its donate cap; refusing to launch until usage resets.`,
+						warning: `The active seat (account ${String(liveSeatId)}) is over its donate cap; refusing to launch until usage resets.`,
+					};
+				}
+				if (liveSeat && isManagerAccountAuthBroken(liveSeat)) {
+					const healthySeatId = (await input.resolveActiveClaudeAccountId?.()) ?? null;
+					if (healthySeatId === null || healthySeatId === liveSeatId) {
+						return {
+							env: {},
+							accountId: null,
+							blocked: true,
+							warning: `The active seat (account ${String(liveSeatId)}) needs re-auth; no healthy Claude seat is available to launch on.`,
+						};
+					}
+					let redirectLaunchDir: { configDir: string } | null;
+					try {
+						redirectLaunchDir = await input.getAccountLaunchDir(healthySeatId);
+					} catch {
+						redirectLaunchDir = null;
+					}
+					if (!redirectLaunchDir || redirectLaunchDir.configDir.trim().length === 0) {
+						return {
+							env: {},
+							accountId: null,
+							blocked: true,
+							warning: `The active seat (account ${String(liveSeatId)}) needs re-auth, and account ${String(healthySeatId)}'s credentials could not be prepared; refusing to launch.`,
+						};
+					}
+					return {
+						env: { [CLAUDE_CONFIG_DIR_ENV]: resolveHostPath(redirectLaunchDir.configDir) },
+						accountId: healthySeatId,
+						warning: `The active seat (account ${String(liveSeatId)}) needs re-auth; launched on account ${String(healthySeatId)} instead.`,
 					};
 				}
 			}
@@ -303,6 +370,18 @@ export async function resolveManagerAccountPin(
 			accountId: null,
 			blocked: true,
 			warning: `Account ${String(managerAccountId)} is disabled in Manager; re-enable the seat or switch this task to Auto.`,
+		};
+	}
+
+	// An explicit pin names the seat the task must run on — no silent swap. A
+	// pin on a seat with dead credentials must fail loudly rather than drop the
+	// agent into a login screen.
+	if (pinnedAccount && isManagerAccountAuthBroken(pinnedAccount)) {
+		return {
+			env: {},
+			accountId: null,
+			blocked: true,
+			warning: `Account ${String(managerAccountId)} needs re-auth; re-authenticate the seat or switch this task to Auto.`,
 		};
 	}
 

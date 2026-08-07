@@ -4,7 +4,7 @@ import type { ReactElement } from "react";
 import type { RuntimeAgentId, RuntimeManagerAccount } from "@/runtime/types";
 
 import { NativeSelect } from "@/components/ui/native-select";
-import { formatPercent, isDonateExhausted } from "@/manager/manager-format";
+import { formatPercent, isAuthBroken, isDonateExhausted } from "@/manager/manager-format";
 
 const AUTO_VALUE = "auto";
 
@@ -21,8 +21,9 @@ function accountLabel(account: RuntimeManagerAccount): string {
 	const name = account.displayName ?? account.email;
 	const usage = account.canTrackUsage ? ` · 5h ${formatPercent(account.fiveHourPercent)}` : "";
 	const deactivated = account.isActive ? "" : " · deactivated";
+	const needsReauth = isAuthBroken(account) ? " · needs re-auth" : "";
 	const donate = isDonateExhausted(account) ? (account.donateLimitLocked ? " · over cap (locked)" : " · over cap") : "";
-	return `${name}${usage}${deactivated}${donate}`;
+	return `${name}${usage}${deactivated}${needsReauth}${donate}`;
 }
 
 function agentAccountLabel(agentId: RuntimeAgentId | null): string {
@@ -43,8 +44,10 @@ export function autoFallbackAccount(
 ): RuntimeManagerAccount | null {
 	const enabled = accounts.filter((account) => account.isActive);
 	const poolBase = enabled.length > 0 ? enabled : accounts;
-	const underLimit = poolBase.filter((account) => !isDonateExhausted(account));
-	const pool = underLimit.length > 0 ? underLimit : poolBase;
+	const authHealthy = poolBase.filter((account) => !isAuthBroken(account));
+	const healthyBase = authHealthy.length > 0 ? authHealthy : poolBase;
+	const underLimit = healthyBase.filter((account) => !isDonateExhausted(account));
+	const pool = underLimit.length > 0 ? underLimit : healthyBase;
 	if (agentId === "cursor") {
 		return pool.find((account) => account.isActiveForProvider) ?? pool[0] ?? null;
 	}

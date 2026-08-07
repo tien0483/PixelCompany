@@ -3,9 +3,11 @@ import { describe, expect, it, vi } from "vitest";
 import {
 	CLAUDE_CONFIG_DIR_ENV,
 	CURSOR_API_KEY_ENV,
+	isManagerAccountAuthBroken,
 	isManagerAccountDisabled,
 	isManagerAccountDonateExhausted,
 	isManagerAccountDonatePinBlocked,
+	pickDefaultClaudeAccountId,
 	pickDefaultCursorAccountId,
 	resolveManagerAccountPin,
 	toManagerDonateAccount,
@@ -75,7 +77,16 @@ describe("toManagerDonateAccount", () => {
 			pressure: 0.42,
 			donateLimitPercent: 80,
 			donateLimitLocked: true,
+			ccNeedsAuth: false,
+			validationStatus: null,
 		});
+	});
+
+	it("keeps a revoked seat's auth-broken fields detectable after the projection", () => {
+		expect(isManagerAccountAuthBroken(toManagerDonateAccount({ ...snapshotAccount, ccNeedsAuth: true }))).toBe(true);
+		expect(
+			isManagerAccountAuthBroken(toManagerDonateAccount({ ...snapshotAccount, validationStatus: "invalid" })),
+		).toBe(true);
 	});
 
 	it("keeps a disabled seat detectable after the projection", () => {
@@ -131,6 +142,27 @@ describe("isManagerAccountDonatePinBlocked", () => {
 				donateLimitLocked: true,
 			}),
 		).toBe(false);
+	});
+});
+
+describe("isManagerAccountAuthBroken", () => {
+	it("is broken when ccNeedsAuth is true", () => {
+		expect(isManagerAccountAuthBroken({ id: 1, provider: "claude", ccNeedsAuth: true })).toBe(true);
+	});
+
+	it("is broken when validationStatus is invalid or expired", () => {
+		expect(isManagerAccountAuthBroken({ id: 1, provider: "claude", validationStatus: "invalid" })).toBe(true);
+		expect(isManagerAccountAuthBroken({ id: 1, provider: "claude", validationStatus: "expired" })).toBe(true);
+	});
+
+	it("treats unknown/checking/null validationStatus as healthy", () => {
+		expect(isManagerAccountAuthBroken({ id: 1, provider: "claude", validationStatus: "unknown" })).toBe(false);
+		expect(isManagerAccountAuthBroken({ id: 1, provider: "claude", validationStatus: "checking" })).toBe(false);
+		expect(isManagerAccountAuthBroken({ id: 1, provider: "claude", validationStatus: null })).toBe(false);
+	});
+
+	it("treats an account with neither field set as healthy", () => {
+		expect(isManagerAccountAuthBroken({ id: 1, provider: "claude" })).toBe(false);
 	});
 });
 
@@ -203,6 +235,53 @@ describe("pickDefaultCursorAccountId", () => {
 		expect(
 			pickDefaultCursorAccountId({
 				accounts: [{ id: 1, provider: "claude" }],
+				activeAccountId: 1,
+			}),
+		).toBeNull();
+	});
+});
+
+describe("pickDefaultClaudeAccountId", () => {
+	it("skips a broken active seat for a healthy one", () => {
+		expect(
+			pickDefaultClaudeAccountId({
+				accounts: [
+					{ id: 1, provider: "claude", ccNeedsAuth: true },
+					{ id: 2, provider: "claude" },
+				],
+				activeAccountId: 1,
+			}),
+		).toBe(2);
+	});
+
+	it("falls back to the wider pool when every Claude seat is auth-broken", () => {
+		expect(
+			pickDefaultClaudeAccountId({
+				accounts: [
+					{ id: 1, provider: "claude", ccNeedsAuth: true },
+					{ id: 2, provider: "claude", validationStatus: "invalid" },
+				],
+				activeAccountId: 1,
+			}),
+		).toBe(1);
+	});
+
+	it("prefers a healthy seat over a lower-usage broken one", () => {
+		expect(
+			pickDefaultClaudeAccountId({
+				accounts: [
+					{ id: 1, provider: "claude", validationStatus: "expired", fiveHourPercent: 5 },
+					{ id: 2, provider: "claude", fiveHourPercent: 50 },
+				],
+				activeAccountId: null,
+			}),
+		).toBe(2);
+	});
+
+	it("returns null when no Claude accounts exist", () => {
+		expect(
+			pickDefaultClaudeAccountId({
+				accounts: [{ id: 1, provider: "cursor" }],
 				activeAccountId: 1,
 			}),
 		).toBeNull();
@@ -559,6 +638,108 @@ describe("resolveManagerAccountPin", () => {
 		expect(pin.blocked).toBeUndefined();
 		expect(pin.env).toEqual({ [CLAUDE_CONFIG_DIR_ENV]: "/home/u/.claude/accounts/15" });
 		expect(pin.accountId).toBe(15);
+	});
+
+	it("redirects an unpinned Claude launch to a healthy seat when the live active seat needs re-auth", async () => {
+		const getAccountLaunchDir = vi.fn().mockResolvedValue({ configDir: "/home/u/.claude/accounts/2" });
+		const resolveLiveActiveClaudeAccountId = vi.fn().mockResolvedValue(1);
+		const resolveActiveClaudeAccountId = vi.fn().mockResolvedValue(2);
+		const getPinnedAccount = vi.fn().mockResolvedValue({ id: 1, provider: "claude", ccNeedsAuth: true });
+
+		const pin = await resolveManagerAccountPin({
+			agentId: "claude",
+			managerAccountId: undefined,
+			getAccountLaunchDir,
+			resolveLiveActiveClaudeAccountId,
+			resolveActiveClaudeAccountId,
+			getPinnedAccount,
+		});
+
+		expect(pin.blocked).toBeUndefined();
+		expect(pin.accountId).toBe(2);
+		expect(pin.env).toEqual({ [CLAUDE_CONFIG_DIR_ENV]: "/home/u/.claude/accounts/2" });
+		expect(pin.warning).toBe("The active seat (account 1) needs re-auth; launched on account 2 instead.");
+		expect(getPinnedAccount).toHaveBeenCalledWith(1);
+		expect(getAccountLaunchDir).toHaveBeenCalledWith(2);
+	});
+
+	it("hard-blocks an unpinned Claude launch when every seat needs re-auth", async () => {
+		const resolveLiveActiveClaudeAccountId = vi.fn().mockResolvedValue(1);
+		const resolveActiveClaudeAccountId = vi.fn().mockResolvedValue(1);
+		const getPinnedAccount = vi.fn().mockResolvedValue({ id: 1, provider: "claude", ccNeedsAuth: true });
+
+		const pin = await resolveManagerAccountPin({
+			agentId: "claude",
+			managerAccountId: undefined,
+			getAccountLaunchDir: vi.fn(),
+			resolveLiveActiveClaudeAccountId,
+			resolveActiveClaudeAccountId,
+			getPinnedAccount,
+		});
+
+		expect(pin.blocked).toBe(true);
+		expect(pin.accountId).toBeNull();
+		expect(pin.env).toEqual({});
+		expect(pin.warning).toContain("needs re-auth");
+	});
+
+	it("blocks (not falls back) an unpinned redirect when the healthy target's credentials cannot be prepared", async () => {
+		const getAccountLaunchDir = vi.fn().mockRejectedValue(new Error("ECONNREFUSED"));
+		const resolveLiveActiveClaudeAccountId = vi.fn().mockResolvedValue(1);
+		const resolveActiveClaudeAccountId = vi.fn().mockResolvedValue(2);
+		const getPinnedAccount = vi.fn().mockResolvedValue({ id: 1, provider: "claude", ccNeedsAuth: true });
+
+		const pin = await resolveManagerAccountPin({
+			agentId: "claude",
+			managerAccountId: undefined,
+			getAccountLaunchDir,
+			resolveLiveActiveClaudeAccountId,
+			resolveActiveClaudeAccountId,
+			getPinnedAccount,
+		});
+
+		expect(pin.blocked).toBe(true);
+		expect(pin.accountId).toBeNull();
+		expect(pin.env).toEqual({});
+	});
+
+	it("does not redirect when the live active seat is healthy", async () => {
+		const getAccountLaunchDir = vi.fn();
+		const resolveLiveActiveClaudeAccountId = vi.fn().mockResolvedValue(1);
+		const resolveActiveClaudeAccountId = vi.fn().mockResolvedValue(1);
+		const getPinnedAccount = vi.fn().mockResolvedValue({ id: 1, provider: "claude" });
+
+		const pin = await resolveManagerAccountPin({
+			agentId: "claude",
+			managerAccountId: undefined,
+			getAccountLaunchDir,
+			resolveLiveActiveClaudeAccountId,
+			resolveActiveClaudeAccountId,
+			getPinnedAccount,
+		});
+
+		expect(pin.blocked).toBeUndefined();
+		expect(pin.accountId).toBeNull();
+		expect(pin.env).toEqual({});
+		expect(getAccountLaunchDir).not.toHaveBeenCalled();
+	});
+
+	it("hard-blocks an explicit Claude pin on a seat that needs re-auth", async () => {
+		const getAccountLaunchDir = vi.fn().mockResolvedValue({ configDir: "/home/u/.claude/accounts/16" });
+		const getPinnedAccount = vi.fn().mockResolvedValue({ id: 16, provider: "claude", validationStatus: "invalid" });
+
+		const pin = await resolveManagerAccountPin({
+			agentId: "claude",
+			managerAccountId: 16,
+			getAccountLaunchDir,
+			getPinnedAccount,
+		});
+
+		expect(pin.blocked).toBe(true);
+		expect(pin.accountId).toBeNull();
+		expect(pin.env).toEqual({});
+		expect(pin.warning).toContain("re-auth");
+		expect(getAccountLaunchDir).not.toHaveBeenCalled();
 	});
 
 	it("ignores a Claude pin on a Cursor task and does not force a Seats key", async () => {
