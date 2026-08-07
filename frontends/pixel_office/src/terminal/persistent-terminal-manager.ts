@@ -32,11 +32,23 @@ interface PersistentTerminalAppearance {
 	themeColors?: ThemeTerminalColors;
 }
 
+/**
+ * Result of the most recent `applyRestore`: whether it restored nothing at all
+ * (`restoreWasEmpty`) versus wrote a frozen replay of a scrollback captured
+ * from a now-exited PTY (`staleRestore`). A live (non-stale) restore leaves
+ * `staleRestore: false`.
+ */
+interface PersistentTerminalRestoreState {
+	restoreWasEmpty: boolean;
+	staleRestore: boolean;
+}
+
 interface PersistentTerminalSubscriber {
 	onConnectionReady?: (taskId: string) => void;
 	onLastError?: (message: string | null) => void;
 	onSummary?: (summary: RuntimeTaskSessionSummary) => void;
 	onOutputText?: (text: string) => void;
+	onRestoreState?: (state: PersistentTerminalRestoreState) => void;
 }
 
 interface MountPersistentTerminalOptions {
@@ -138,6 +150,37 @@ function buildKey(workspaceId: string, taskId: string): string {
 	return `${workspaceId}:${taskId}`;
 }
 
+// Mirrors the "just now / Xm ago / Xh ago / ..." convention used by
+// `formatRelativeDate` in git-history/git-commit-list-panel.tsx, but takes an
+// epoch-ms number (what `capturedAt` on a terminal snapshot is) instead of an
+// ISO date string.
+function formatRelativeAgo(epochMs: number | null, nowMs: number = Date.now()): string {
+	if (epochMs == null) {
+		return "earlier";
+	}
+	const seconds = Math.max(0, Math.floor((nowMs - epochMs) / 1000));
+	if (seconds < 60) {
+		return "just now";
+	}
+	const minutes = Math.floor(seconds / 60);
+	if (minutes < 60) {
+		return `${minutes}m ago`;
+	}
+	const hours = Math.floor(minutes / 60);
+	if (hours < 24) {
+		return `${hours}h ago`;
+	}
+	const days = Math.floor(hours / 24);
+	if (days < 30) {
+		return `${days}d ago`;
+	}
+	const months = Math.floor(days / 30);
+	if (months < 12) {
+		return `${months}mo ago`;
+	}
+	return `${Math.floor(months / 12)}y ago`;
+}
+
 class PersistentTerminal {
 	private readonly terminal: Terminal;
 	private readonly fitAddon = new FitAddon();
@@ -152,6 +195,7 @@ class PersistentTerminal {
 	private appearance: PersistentTerminalAppearance;
 	private latestSummary: RuntimeTaskSessionSummary | null = null;
 	private lastError: string | null = null;
+	private restoreState: PersistentTerminalRestoreState | null = null;
 	private resizeObserver: ResizeObserver | null = null;
 	private resizeTimer: ReturnType<typeof setTimeout> | null = null;
 	private visibleContainer: HTMLDivElement | null = null;
@@ -246,6 +290,15 @@ class PersistentTerminal {
 		}
 	}
 
+	private notifyRestoreState(): void {
+		if (!this.restoreState) {
+			return;
+		}
+		for (const subscriber of this.subscribers) {
+			subscriber.onRestoreState?.(this.restoreState);
+		}
+	}
+
 	private notifyOutputText(text: string): void {
 		for (const subscriber of this.subscribers) {
 			subscriber.onOutputText?.(text);
@@ -309,20 +362,36 @@ class PersistentTerminal {
 		return this.terminalWriteQueue;
 	}
 
-	private async applyRestore(
-		snapshot: string,
-		cols: number | null | undefined,
-		rows: number | null | undefined,
-	): Promise<void> {
+	private async applyRestore(input: {
+		snapshot: string;
+		cols: number | null | undefined;
+		rows: number | null | undefined;
+		stale: boolean;
+		capturedAt: number | null;
+	}): Promise<void> {
+		const { snapshot, cols, rows, stale, capturedAt } = input;
 		await this.terminalWriteQueue.catch(() => undefined);
 		this.terminal.reset();
 		if (cols && rows && (this.terminal.cols !== cols || this.terminal.rows !== rows)) {
 			this.terminal.resize(cols, rows);
 		}
 		if (!snapshot) {
+			this.restoreState = { restoreWasEmpty: true, staleRestore: false };
+			this.notifyRestoreState();
 			return;
 		}
+		this.restoreState = { restoreWasEmpty: false, staleRestore: stale };
+		this.notifyRestoreState();
 		await this.enqueueTerminalWrite(snapshot);
+		if (stale) {
+			// A `SerializeAddon` restore is a frozen frame of cells, not real application
+			// state (especially for alternate-screen/TUI agents) — the copy must say
+			// "replayed", never "resume where you left off".
+			const relativeLabel = formatRelativeAgo(capturedAt);
+			await this.enqueueTerminalWrite(
+				`\r\n\x1b[2m── replayed from the previous session (ended ${relativeLabel}) — Resume to continue ──\x1b[0m\r\n`,
+			);
+		}
 	}
 
 	private requestResize(): void {
@@ -421,7 +490,13 @@ class PersistentTerminal {
 
 			if (payload.type === "restore") {
 				this.restoreCompleted = false;
-				void this.applyRestore(payload.snapshot, payload.cols, payload.rows)
+				void this.applyRestore({
+					snapshot: payload.snapshot,
+					cols: payload.cols,
+					rows: payload.rows,
+					stale: payload.stale,
+					capturedAt: payload.capturedAt,
+				})
 					.then(() => {
 						if (this.disposed || this.controlSocket !== controlSocket) {
 							return;
@@ -513,6 +588,9 @@ class PersistentTerminal {
 		}
 		if (this.connectionReady) {
 			subscriber.onConnectionReady?.(this.taskId);
+		}
+		if (this.restoreState) {
+			subscriber.onRestoreState?.(this.restoreState);
 		}
 		return () => {
 			this.subscribers.delete(subscriber);

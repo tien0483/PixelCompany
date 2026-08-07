@@ -43,6 +43,28 @@ function createTask(taskId: string, prompt: string, createdAt: number): BoardCar
 	};
 }
 
+function createSessionSummary(overrides: Partial<RuntimeTaskSessionSummary> & { taskId: string }): RuntimeTaskSessionSummary {
+	return {
+		state: "idle",
+		mode: null,
+		agentId: null,
+		workspacePath: null,
+		pid: null,
+		startedAt: null,
+		updatedAt: 1,
+		activeRunMs: 0,
+		runningSince: null,
+		pausedAt: null,
+		pauseReason: null,
+		lastOutputAt: null,
+		reviewReason: null,
+		exitCode: null,
+		lastHookAt: null,
+		latestHookActivity: null,
+		...overrides,
+	};
+}
+
 function createBoard(): BoardData {
 	return {
 		columns: [
@@ -70,6 +92,7 @@ interface HookSnapshot {
 	handleStartTask: (taskId: string) => void;
 	handleCardSelect: (taskId: string) => void;
 	handleConfirmClearTrash: () => void;
+	setSessions: Dispatch<SetStateAction<Record<string, RuntimeTaskSessionSummary>>>;
 }
 
 function createRect(width: number, height: number): DOMRect {
@@ -142,6 +165,7 @@ function HookHarness({
 			handleStartTask: actions.handleStartTask,
 			handleCardSelect: actions.handleCardSelect,
 			handleConfirmClearTrash: actions.handleConfirmClearTrash,
+			setSessions,
 		});
 	}, [
 		actions.handleCardSelect,
@@ -872,5 +896,144 @@ describe("useBoardInteractions", () => {
 			root.unmount();
 			document.body.removeChild(container);
 		}
+	});
+
+	describe("paused-session reconciler guard", () => {
+		function createInProgressBoard(task: BoardCard): BoardData {
+			return {
+				columns: [
+					{ id: "backlog", title: "Backlog", cards: [] },
+					{ id: "in_progress", title: "In Progress", cards: [task] },
+					{ id: "review", title: "Review", cards: [] },
+					{ id: "trash", title: "Done", cards: [] },
+				],
+				dependencies: [],
+			};
+		}
+
+		async function renderPausedGuardHarness(task: BoardCard): Promise<{
+			latestSnapshot: HookSnapshot;
+			getBoard: () => BoardData;
+		}> {
+			useProgrammaticCardMovesMock.mockReturnValue({
+				handleProgrammaticCardMoveReady: () => {},
+				setRequestMoveTaskToTrashHandler: () => {},
+				tryProgrammaticCardMove: () => "unavailable",
+				consumeProgrammaticCardMove: () => ({}),
+				resolvePendingProgrammaticTrashMove: () => {},
+				waitForProgrammaticCardMoveAvailability: async () => {},
+				resetProgrammaticCardMoves: () => {},
+				requestMoveTaskToTrashWithAnimation: async () => {},
+				programmaticCardMoveCycle: 0,
+			});
+
+			useLinkedBacklogTaskActionsMock.mockReturnValue({
+				handleCreateDependency: () => {},
+				handleDeleteDependency: () => {},
+				confirmMoveTaskToTrash: async () => {},
+				requestMoveTaskToTrash: async () => {},
+			});
+
+			let currentBoard = createInProgressBoard(task);
+			const setBoard = vi.fn<Dispatch<SetStateAction<BoardData>>>((nextBoard) => {
+				currentBoard = typeof nextBoard === "function" ? nextBoard(currentBoard) : nextBoard;
+			});
+
+			let latestSnapshot: HookSnapshot | null = null;
+			await act(async () => {
+				root.render(
+					<HookHarness
+						board={currentBoard}
+						setBoard={setBoard}
+						ensureTaskWorkspace={async () => ({ ok: true as const })}
+						startTaskSession={async () => ({ ok: true as const })}
+						onSnapshot={(snapshot) => {
+							latestSnapshot = snapshot;
+						}}
+					/>,
+				);
+			});
+
+			if (!latestSnapshot) {
+				throw new Error("Expected a hook snapshot.");
+			}
+
+			return { latestSnapshot, getBoard: () => currentBoard };
+		}
+
+		it("does not move a paused idle summary out of In Progress", async () => {
+			const task = createTask("task-paused-idle", "Paused idle task", 1);
+			const { latestSnapshot, getBoard } = await renderPausedGuardHarness(task);
+
+			await act(async () => {
+				latestSnapshot.setSessions({
+					[task.id]: createSessionSummary({
+						taskId: task.id,
+						state: "idle",
+						pausedAt: 1000,
+						pid: null,
+						updatedAt: 2,
+					}),
+				});
+			});
+
+			const board = getBoard();
+			expect(board.columns.find((column) => column.id === "in_progress")?.cards.map((card) => card.id)).toContain(
+				task.id,
+			);
+			expect(board.columns.find((column) => column.id === "trash")?.cards.map((card) => card.id)).not.toContain(
+				task.id,
+			);
+		});
+
+		it("does not move a paused-but-stray interrupted summary to trash (belt-and-suspenders)", async () => {
+			const task = createTask("task-paused-interrupted", "Paused interrupted task", 1);
+			const { latestSnapshot, getBoard } = await renderPausedGuardHarness(task);
+
+			await act(async () => {
+				latestSnapshot.setSessions({
+					[task.id]: createSessionSummary({
+						taskId: task.id,
+						state: "interrupted",
+						pausedAt: 1000,
+						pid: null,
+						updatedAt: 2,
+					}),
+				});
+			});
+
+			const board = getBoard();
+			expect(board.columns.find((column) => column.id === "in_progress")?.cards.map((card) => card.id)).toContain(
+				task.id,
+			);
+			expect(board.columns.find((column) => column.id === "trash")?.cards.map((card) => card.id)).not.toContain(
+				task.id,
+			);
+		});
+
+		it("still moves an unpaused interrupted summary to trash (regression guard)", async () => {
+			const task = createTask("task-unpaused-interrupted", "Unpaused interrupted task", 1);
+			const { latestSnapshot, getBoard } = await renderPausedGuardHarness(task);
+
+			await act(async () => {
+				latestSnapshot.setSessions({
+					[task.id]: createSessionSummary({
+						taskId: task.id,
+						state: "interrupted",
+						pausedAt: null,
+						pid: null,
+						updatedAt: 2,
+					}),
+				});
+			});
+
+			const board = getBoard();
+			expect(board.columns.find((column) => column.id === "trash")?.cards.map((card) => card.id)).toContain(
+				task.id,
+			);
+			expect(board.columns.find((column) => column.id === "in_progress")?.cards.map((card) => card.id)).not.toContain(
+				task.id,
+			);
+		});
 	});
 });

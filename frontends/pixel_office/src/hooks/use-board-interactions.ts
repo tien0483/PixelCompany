@@ -458,6 +458,15 @@ export function useBoardInteractions({
 			const previousSessions = previousSessionsRef.current;
 			const blockedInterruptedTaskIds = new Set<string>();
 			for (const summary of Object.values(sessions)) {
+				// A paused-but-not-running summary must never be reconciled by this loop,
+				// whether it's the expected `idle`+paused (server boot-time reconcile) or a
+				// stray `interrupted`+paused (belt-and-suspenders for a reconcile gap) — it
+				// stays exactly where it is (In Progress). This also means an unhandled
+				// `idle` summary reaching the end of this loop with no branch touching it is
+				// now intentional: it's a paused-offline card, not a bug.
+				if (summary.pausedAt != null && summary.state !== "running") {
+					continue;
+				}
 				const previous = previousSessions[summary.taskId];
 				if (previous && previous.updatedAt > summary.updatedAt) {
 					continue;
