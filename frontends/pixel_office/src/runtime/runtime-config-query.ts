@@ -11,6 +11,7 @@ import type {
 	RuntimeClineAccountProfileResponse,
 	RuntimeClineAccountSwitchResponse,
 	RuntimeClineAddProviderResponse,
+	RuntimeClineApiSeat,
 	RuntimeClineCustomProvider,
 	RuntimeClineDeleteProviderResponse,
 	RuntimeClineDeviceAuthCompleteRequest,
@@ -28,6 +29,7 @@ import type {
 	RuntimeClineProviderModel,
 	RuntimeClineProviderSettings,
 	RuntimeClineReasoningEffort,
+	RuntimeClineTestProviderResponse,
 	RuntimeClineUpdateProviderResponse,
 	RuntimeConfigResponse,
 	RuntimeDebugResetAllStateResponse,
@@ -158,6 +160,20 @@ export async function fetchClineCustomProviders(
 	const trpcClient = getRuntimeTrpcClient(workspaceId);
 	const response = await trpcClient.runtime.getClineCustomProviders.query();
 	return response.providers;
+}
+
+export async function fetchClineApiSeats(workspaceId: string | null): Promise<RuntimeClineApiSeat[]> {
+	const trpcClient = getRuntimeTrpcClient(workspaceId);
+	const response = await trpcClient.runtime.listClineApiSeats.query();
+	return response.seats;
+}
+
+export async function testClineProvider(
+	workspaceId: string | null,
+	input: { providerId: string; modelId?: string | null },
+): Promise<RuntimeClineTestProviderResponse> {
+	const trpcClient = getRuntimeTrpcClient(workspaceId);
+	return await trpcClient.runtime.testClineProvider.mutate(input);
 }
 
 export async function fetchClineAccountProfile(

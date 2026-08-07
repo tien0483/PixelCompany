@@ -47,6 +47,9 @@ export const CLINE_MODEL_CATALOG_DEFAULTS = {
 	loadPrivateOnAuth: true,
 	failOnError: false,
 } as const;
+const PROBE_SYSTEM_PROMPT = "You are a connectivity probe. Reply with OK.";
+const PROBE_PROMPT = "ping";
+const PROBE_MAX_OUTPUT_TOKENS = 1;
 
 export interface ManagedOauthCredentials {
 	access: string;
@@ -126,6 +129,22 @@ export interface SdkCustomProviderSummary {
 	defaultModelId: string | null;
 	modelsSourceUrl: string | null;
 	models: string[];
+}
+
+export interface SdkConfiguredProvider {
+	providerId: string;
+	modelId: string | null;
+	baseUrl: string | null;
+	hasApiKey: boolean;
+	tokenSource: string | null;
+}
+
+export interface SdkProviderProbeInput {
+	providerId: string;
+	modelId: string;
+	apiKey: string | null;
+	baseUrl: string | null;
+	timeoutMs: number;
 }
 
 type LocalModelsFile = {
@@ -575,6 +594,85 @@ export async function listSdkCustomProviders(): Promise<SdkCustomProviderSummary
 		modelsSourceUrl: entry.provider.modelsSourceUrl ?? null,
 		models: Object.keys(entry.models ?? {}),
 	}));
+}
+
+/**
+ * Every provider that has a persisted settings entry, built-ins included.
+ *
+ * listSdkCustomProviders() reads models.json, so it only ever sees user-added
+ * endpoints — a built-in provider the user simply pasted an API key into (say
+ * OpenRouter) lives in providers.json and is invisible to it.
+ */
+export function listSdkConfiguredProviders(): SdkConfiguredProvider[] {
+	const state = providerManager.read();
+	return Object.entries(state.providers ?? {}).map(([providerId, entry]) => {
+		const settings = entry.settings as SdkProviderSettings | undefined;
+		return {
+			providerId,
+			modelId: settings?.model?.trim() || null,
+			baseUrl: settings?.baseUrl?.trim() || null,
+			hasApiKey: Boolean(settings?.apiKey?.trim() || settings?.auth?.apiKey?.trim()),
+			tokenSource: entry.tokenSource ?? null,
+		};
+	});
+}
+
+/**
+ * The SDK's SingleCompletionHandler, which the package root does not re-export —
+ * `createHandler` returns a plain ApiHandler and only some providers additionally
+ * implement the single-shot path.
+ */
+type SdkSingleCompletionHandler = { completePrompt(prompt: string): Promise<string> };
+
+function supportsSingleCompletion(
+	handler: ClineCore.Llms.ApiHandler,
+): handler is ClineCore.Llms.ApiHandler & SdkSingleCompletionHandler {
+	return typeof (handler as Partial<SdkSingleCompletionHandler>).completePrompt === "function";
+}
+
+/**
+ * Smallest possible real call against a provider, used to verify an API seat.
+ *
+ * Goes through the SDK handler rather than hand-rolled HTTP so every provider
+ * family (OpenAI-compatible, Anthropic, Gemini, Bedrock, …) is covered by the
+ * same code path the launcher uses. Throws on failure; the caller turns the
+ * thrown error into a seat verdict.
+ */
+export async function probeSdkProvider(input: SdkProviderProbeInput): Promise<void> {
+	const storedConfig = providerManager.getProviderConfig(input.providerId);
+	const catalogEntry = await ClineCore.Llms.getProvider(input.providerId).catch(() => undefined);
+	const controller = new AbortController();
+	const timeout = setTimeout(() => {
+		controller.abort();
+	}, input.timeoutMs);
+	const config: ClineCore.Llms.ProviderConfig = {
+		...(storedConfig ?? {}),
+		providerId: input.providerId,
+		modelId: input.modelId,
+		...(catalogEntry?.client ? { clientType: catalogEntry.client } : {}),
+		...(input.apiKey ? { apiKey: input.apiKey } : {}),
+		...(input.baseUrl ? { baseUrl: input.baseUrl } : {}),
+		maxOutputTokens: PROBE_MAX_OUTPUT_TOKENS,
+		abortSignal: controller.signal,
+	};
+	const handler = ClineCore.Llms.createHandler(config);
+	handler.setAbortSignal?.(controller.signal);
+	try {
+		if (supportsSingleCompletion(handler)) {
+			await handler.completePrompt(PROBE_PROMPT);
+			return;
+		}
+		// One streamed chunk is enough: it proves auth, model access, and quota.
+		for await (const chunk of handler.createMessage(PROBE_SYSTEM_PROMPT, [
+			{ role: "user", content: PROBE_PROMPT },
+		])) {
+			void chunk;
+			break;
+		}
+	} finally {
+		clearTimeout(timeout);
+		handler.abort?.();
+	}
 }
 
 export function getSdkProviderSettings(providerId: string): SdkProviderSettings | null {

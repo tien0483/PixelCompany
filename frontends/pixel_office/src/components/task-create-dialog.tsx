@@ -27,11 +27,12 @@ import { TaskLaunchSettingsPicker } from "@/components/task-launch-settings";
 import { TaskPromptComposer } from "@/components/task-prompt-composer";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogBody, DialogFooter, DialogHeader } from "@/components/ui/dialog";
-import { ApiSeatQuickPick } from "@/manager/api-seat-quick-pick";
 import {
 	TaskAccountPicker,
+	applyTaskSeatSelection,
 	filterManagerAccountsForAgent,
 } from "@/manager/task-account-picker";
+import { useClineApiSeats } from "@/runtime/use-cline-api-seats";
 import type {
 	RuntimeAgentId,
 	RuntimeClineReasoningEffort,
@@ -198,6 +199,7 @@ export function TaskCreateDialog({
 		DEFAULT_PRIMARY_START_ACTION,
 		normalizeStoredTaskCreateStartAction,
 	);
+	const { seats: apiSeats } = useClineApiSeats(workspaceId, open);
 
 	const {
 		agentOptions,
@@ -216,6 +218,7 @@ export function TaskCreateDialog({
 		defaultAgentId,
 		defaultProviderId,
 		defaultModelId,
+		apiSeats,
 	});
 
 	const effectiveAgentId = agentId ?? defaultAgentId ?? null;
@@ -628,29 +631,23 @@ export function TaskCreateDialog({
 								defaultReasoningEffort={defaultReasoningEffort}
 								providerDefaultModels={providerDefaultModels}
 							/>
-							<ApiSeatQuickPick
-								active={open}
-								workspaceId={workspaceId}
-								onSelect={(seat) => {
-									onAgentIdChange("cline");
-									onClineSettingsChange({
-										providerId: seat.providerId,
-										...(seat.defaultModelId ? { modelId: seat.defaultModelId } : {}),
-									});
-								}}
-							/>
 						</>
 					) : null}
-					{onManagerAccountIdChange && eligibleManagerAccounts.length > 0 ? (
+					{onManagerAccountIdChange && (eligibleManagerAccounts.length > 0 || apiSeats.length > 0) ? (
 						<TaskAccountPicker
 							accounts={eligibleManagerAccounts}
+							apiSeats={apiSeats}
 							value={managerAccountId}
+							clineProviderId={clineSettings?.providerId ?? null}
 							activeAccountId={managerActiveAccountId}
 							agentId={effectiveAgentId}
-							onChange={(nextAccountId) => {
-								onManagerAccountIdChange(
-									typeof nextAccountId === "number" ? nextAccountId : undefined,
-								);
+							onChange={(selection) => {
+								applyTaskSeatSelection(selection, {
+									onManagerAccountIdChange,
+									onAgentIdChange,
+									onClineSettingsChange,
+									currentAgentId: effectiveAgentId,
+								});
 							}}
 						/>
 					) : null}

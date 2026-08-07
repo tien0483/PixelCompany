@@ -78,12 +78,14 @@ export const RUNTIME_AGENT_CATALOG: RuntimeAgentCatalogEntry[] = [
 	},
 ];
 
-// Claude + Cursor are launchable; Jacked pins credentials per task. Other CLIs
-// stay gated until explicitly enabled below.
+// Claude + Cursor are launchable; Jacked pins credentials per task. Cline runs
+// through the in-process SDK rather than a PTY, so it needs no binary on PATH —
+// the UI hides it until an API-key seat exists. Other CLIs stay gated until
+// explicitly enabled below.
 export const RUNTIME_LAUNCH_SUPPORTED_AGENT_IDS: readonly RuntimeAgentId[] = [
 	"claude",
 	"cursor",
-	// "cline",
+	"cline",
 	// "codex",
 	// "droid",
 	// "kiro",

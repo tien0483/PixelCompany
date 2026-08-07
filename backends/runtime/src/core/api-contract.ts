@@ -1706,6 +1706,42 @@ export const runtimeClineCustomProviderListResponseSchema = z.object({
 });
 export type RuntimeClineCustomProviderListResponse = z.infer<typeof runtimeClineCustomProviderListResponseSchema>;
 
+/**
+ * An API-key "seat": any Cline provider that carries a usable key, whether it is
+ * a built-in from the SDK catalog (OpenRouter, Anthropic, …) or a user-added
+ * OpenAI-compatible endpoint. Never carries the key itself.
+ */
+export const runtimeClineApiSeatSchema = z.object({
+	providerId: z.string(),
+	name: z.string(),
+	baseUrl: z.string().nullable(),
+	defaultModelId: z.string().nullable(),
+	models: z.array(z.string()),
+	source: z.enum(["builtin", "custom"]),
+	apiKeyConfigured: z.boolean(),
+});
+export type RuntimeClineApiSeat = z.infer<typeof runtimeClineApiSeatSchema>;
+
+export const runtimeClineApiSeatListResponseSchema = z.object({
+	seats: z.array(runtimeClineApiSeatSchema),
+});
+export type RuntimeClineApiSeatListResponse = z.infer<typeof runtimeClineApiSeatListResponseSchema>;
+
+export const runtimeClineTestProviderRequestSchema = z.object({
+	providerId: z.string(),
+	modelId: z.string().nullable().optional(),
+});
+export type RuntimeClineTestProviderRequest = z.infer<typeof runtimeClineTestProviderRequestSchema>;
+
+export const runtimeClineTestProviderResponseSchema = z.object({
+	ok: z.boolean(),
+	providerId: z.string(),
+	modelId: z.string().nullable(),
+	latencyMs: z.number().int().nonnegative(),
+	error: z.string().optional(),
+});
+export type RuntimeClineTestProviderResponse = z.infer<typeof runtimeClineTestProviderResponseSchema>;
+
 export const runtimeClineOauthLoginRequestSchema = z.object({
 	provider: runtimeClineOauthProviderSchema,
 	baseUrl: z.string().nullable().optional(),

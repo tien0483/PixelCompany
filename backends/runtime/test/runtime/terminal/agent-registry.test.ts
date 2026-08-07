@@ -98,8 +98,8 @@ describe("buildRuntimeConfigResponse", () => {
 		});
 
 		expect(response.agentAutonomousModeEnabled).toBe(true);
-		// PixelOffice curates launch-supported agents only (Claude + Cursor).
-		expect(response.agents.map((agent) => agent.id)).toEqual(["claude", "cursor"]);
+		// PixelOffice curates launch-supported agents only (Claude + Cline + Cursor).
+		expect(response.agents.map((agent) => agent.id)).toEqual(["claude", "cline", "cursor"]);
 		expect(response.agents.find((agent) => agent.id === "claude")?.defaultArgs).toEqual([]);
 		expect(response.agents.find((agent) => agent.id === "cursor")?.defaultArgs).toEqual([]);
 	});
@@ -123,7 +123,7 @@ describe("buildRuntimeConfigResponse", () => {
 		});
 
 		expect(response.agentAutonomousModeEnabled).toBe(false);
-		expect(response.agents.map((agent) => agent.id)).toEqual(["claude", "cursor"]);
+		expect(response.agents.map((agent) => agent.id)).toEqual(["claude", "cline", "cursor"]);
 		expect(response.agents.find((agent) => agent.id === "claude")?.defaultArgs).toEqual([]);
 		expect(response.agents.find((agent) => agent.id === "cursor")?.defaultArgs).toEqual([]);
 		expect(response.agents.find((agent) => agent.id === "claude")?.command).toBe("claude");

@@ -106,6 +106,7 @@ import {
 	clearTaskAutoRun,
 	findCardSelection,
 	setTaskLaunchSettings,
+	setTaskApiSeat,
 	setTaskManagerAccount,
 } from "@/state/board-state";
 import { isTaskInChain } from "@/state/chain-groups";
@@ -987,6 +988,16 @@ export default function App(): ReactElement {
 		[setBoard],
 	);
 
+	const handleTaskApiSeatChanged = useCallback(
+		(taskId: string, seat: { providerId: string; modelId: string | null } | null) => {
+			setBoard((currentBoard) => {
+				const result = setTaskApiSeat(currentBoard, taskId, seat);
+				return result.updated ? result.board : currentBoard;
+			});
+		},
+		[setBoard],
+	);
+
 	const handleTaskAutoResumeOnUsageLimitChanged = useCallback(
 		(taskId: string, enabled: boolean) => {
 			// Card-level opt-in; the running session reads it at launch, so a live session
@@ -1622,6 +1633,7 @@ export default function App(): ReactElement {
 									managerAccounts={managedManagerAccounts}
 									managerActiveAccountId={manager?.activeAccountId ?? null}
 									onTaskManagerAccountChanged={handleTaskManagerAccountChanged}
+								onTaskApiSeatChanged={handleTaskApiSeatChanged}
 									onRestartTaskWithAccount={handleRestartTaskWithCurrentAccount}
 									restartTaskLoadingById={restartTaskLoadingById}
 									onTaskLaunchSettingsChanged={handleTaskLaunchSettingsChanged}

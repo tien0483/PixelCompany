@@ -39,6 +39,7 @@ import {
 	shouldClearManagerAccountPin,
 	TaskAccountPicker,
 } from "@/manager/task-account-picker";
+import { useClineApiSeats } from "@/runtime/use-cline-api-seats";
 import { ResizableBottomPane } from "@/resize/resizable-bottom-pane";
 import { ResizeHandle } from "@/resize/resize-handle";
 import { useCardDetailLayout } from "@/resize/use-card-detail-layout";
@@ -484,6 +485,7 @@ export function CardDetailView({
 	isDocumentVisible = true,
 	onClineSettingsSaved,
 	onTaskClineSettingsChanged,
+	onTaskApiSeatChanged,
 	managerAccounts,
 	managerActiveAccountId = null,
 	onTaskManagerAccountChanged,
@@ -575,6 +577,11 @@ export function CardDetailView({
 	onTaskManagerAccountChanged?: (
 		taskId: string,
 		managerAccountId: number | null,
+	) => void;
+	/** Moves the card onto (or off) an API-key seat, which implies the Cline agent. */
+	onTaskApiSeatChanged?: (
+		taskId: string,
+		seat: { providerId: string; modelId: string | null } | null,
 	) => void;
 	/** Stops the live session and relaunches it pinned to the task's newly-picked manager account. */
 	onRestartTaskWithAccount?: (taskId: string) => void;
@@ -727,6 +734,7 @@ export function CardDetailView({
 			),
 		[effectiveTaskAgentId, managerAccounts],
 	);
+	const { seats: apiSeats } = useClineApiSeats(currentProjectId);
 	const pinnedManagerAccount = useMemo(
 		() =>
 			(managerAccounts ?? []).find(
@@ -1138,20 +1146,36 @@ export function CardDetailView({
 							</Collapsible.Trigger>
 							<Collapsible.Content className="overflow-hidden data-[state=closed]:animate-[kb-collapsible-up_200ms_ease-out] data-[state=open]:animate-[kb-collapsible-down_200ms_ease-out]">
 								{onTaskManagerAccountChanged &&
-								taskManagerAccounts.length > 0 ? (
+								(taskManagerAccounts.length > 0 || apiSeats.length > 0) ? (
 									<div
 										data-testid="task-account-pin-strip"
 										className="flex flex-wrap items-center gap-2 border-b border-border px-2 py-1"
 									>
 										<TaskAccountPicker
 											accounts={taskManagerAccounts}
+											apiSeats={apiSeats}
 											value={selection.card.managerAccountId}
+											clineProviderId={
+												selection.card.clineSettings?.providerId ?? null
+											}
 											activeAccountId={managerActiveAccountId}
 											agentId={effectiveTaskAgentId}
-											onChange={(managerAccountId) => {
+											onChange={(seatSelection) => {
+												if (seatSelection.kind === "api") {
+													onTaskApiSeatChanged?.(selection.card.id, {
+														providerId: seatSelection.providerId,
+														modelId: seatSelection.modelId,
+													});
+													return;
+												}
+												if (effectiveTaskAgentId === "cline") {
+													onTaskApiSeatChanged?.(selection.card.id, null);
+												}
 												onTaskManagerAccountChanged(
 													selection.card.id,
-													managerAccountId,
+													seatSelection.kind === "manager"
+														? seatSelection.accountId
+														: null,
 												);
 											}}
 										/>

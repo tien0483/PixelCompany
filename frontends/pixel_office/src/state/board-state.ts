@@ -855,6 +855,56 @@ export function setTaskManagerAccount(
 	return { board: withUpdatedColumns(board, columns), updated: true };
 }
 
+/**
+ * Pin a card to an API-key seat, or release it back to the default agent.
+ *
+ * An API seat is a Cline provider, so this moves the card onto the Cline agent
+ * and drops any Manager pin — the two seat kinds are mutually exclusive.
+ * Passing null reverses that: Cline settings go, and the agent falls back to the
+ * board default.
+ */
+export function setTaskApiSeat(
+	board: BoardData,
+	taskId: string,
+	seat: { providerId: string; modelId: string | null } | null,
+): { board: BoardData; updated: boolean } {
+	const selection = findCardSelection(board, taskId);
+	if (!selection) {
+		return { board, updated: false };
+	}
+
+	let updated = false;
+	const columns = board.columns.map((column) => {
+		let columnUpdated = false;
+		const cards = column.cards.map((card) => {
+			if (card.id !== taskId) {
+				return card;
+			}
+			columnUpdated = true;
+			updated = true;
+			const { managerAccountId: _clearedPin, agentId: _previousAgentId, clineSettings: _previous, ...rest } = card;
+			if (!seat) {
+				return { ...rest, updatedAt: Date.now() };
+			}
+			return {
+				...rest,
+				agentId: "cline" as const,
+				clineSettings: {
+					providerId: seat.providerId,
+					...(seat.modelId ? { modelId: seat.modelId } : {}),
+				},
+				updatedAt: Date.now(),
+			};
+		});
+		return columnUpdated ? { ...column, cards } : column;
+	});
+
+	if (!updated) {
+		return { board, updated: false };
+	}
+	return { board: withUpdatedColumns(board, columns), updated: true };
+}
+
 /** Remove a backlog card's scheduled auto-run countdown (`autoRunAt`). */
 export function clearTaskAutoRun(board: BoardData, taskId: string): { board: BoardData; updated: boolean } {
 	const selection = findCardSelection(board, taskId);

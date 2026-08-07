@@ -33,13 +33,17 @@ const oauthMocks = vi.hoisted(() => ({
 	saveProviderSettings: vi.fn(),
 	getProviderSettings: vi.fn(),
 	getLastUsedProviderSettings: vi.fn(),
+	readProviderSettings: vi.fn(() => ({ version: 1, providers: {} })),
+	writeProviderSettings: vi.fn(),
 }));
 
 const llmsModelMocks = vi.hoisted(() => ({
 	getAllProviders: vi.fn(),
+	getProvider: vi.fn(),
 	getModelsForProvider: vi.fn(),
 	resolveProviderConfig: vi.fn(),
 	resolveProviderModelCatalogKeys: vi.fn(),
+	createHandler: vi.fn(),
 }));
 
 const localProviderMocks = vi.hoisted(() => ({
@@ -98,6 +102,9 @@ vi.mock("@clinebot/core", () => ({
 		saveProviderSettings = oauthMocks.saveProviderSettings;
 		getProviderSettings = oauthMocks.getProviderSettings;
 		getLastUsedProviderSettings = oauthMocks.getLastUsedProviderSettings;
+		read = oauthMocks.readProviderSettings;
+		write = oauthMocks.writeProviderSettings;
+		getFilePath = vi.fn(() => "/tmp/cline/settings/providers.json");
 		getProviderConfig = vi.fn((providerId: string) => {
 			const settings = oauthMocks.getProviderSettings(providerId);
 			if (!settings) {
@@ -113,8 +120,10 @@ vi.mock("@clinebot/core", () => ({
 	},
 	Llms: {
 		getAllProviders: llmsModelMocks.getAllProviders,
+		getProvider: llmsModelMocks.getProvider,
 		getModelsForProvider: llmsModelMocks.getModelsForProvider,
 		resolveProviderModelCatalogKeys: llmsModelMocks.resolveProviderModelCatalogKeys,
+		createHandler: llmsModelMocks.createHandler,
 	},
 	LlmsModels: {
 		CLINE_DEFAULT_MODEL: "anthropic/claude-sonnet-4.6",
@@ -224,6 +233,19 @@ function setSelectedProviderSettings(
 	oauthMocks.getProviderSettings.mockImplementation((providerId: string) =>
 		settings && settings.provider === providerId ? settings : undefined,
 	);
+}
+
+/** Minimal deps for the provider-only endpoints (no terminal or task session work). */
+function createClineProviderDeps() {
+	return {
+		getActiveWorkspaceId: vi.fn(() => "workspace-1"),
+		loadScopedRuntimeConfig: vi.fn(async () => createRuntimeConfigState()),
+		setActiveRuntimeConfig: vi.fn(),
+		getScopedTerminalManager: vi.fn(async () => ({}) as never),
+		getScopedClineTaskSessionService: vi.fn(async () => createClineTaskSessionServiceMock() as never),
+		resolveInteractiveShellCommand: vi.fn(),
+		runCommand: vi.fn(),
+	};
 }
 
 function restoreEnvVar(name: "CLINE_API_KEY" | "OCA_API_KEY", value: string | undefined): void {
@@ -1954,6 +1976,115 @@ describe("createRuntimeApi startTaskSession", () => {
 				},
 			],
 		});
+	});
+
+	it("lists built-in providers holding a key alongside custom endpoints as API seats", async () => {
+		const api = createTestRuntimeApi(createClineProviderDeps());
+		llmsModelMocks.getAllProviders.mockResolvedValue([
+			{ id: "openrouter", name: "OpenRouter", defaultModelId: "openrouter/auto", client: "openai-compatible" },
+		]);
+		oauthMocks.readProviderSettings.mockReturnValue({
+			version: 1,
+			providers: {
+				openrouter: {
+					settings: { provider: "openrouter", apiKey: "sk-or-test", model: "cohere/north-mini-code:free" },
+					updatedAt: "2026-08-07T00:00:00.000Z",
+					tokenSource: "manual",
+				},
+				// A managed OAuth sign-in is the Settings surface, not a seat.
+				cline: {
+					settings: { provider: "cline", auth: { accessToken: "token" } },
+					updatedAt: "2026-08-07T00:00:00.000Z",
+					tokenSource: "oauth",
+				},
+			},
+		});
+
+		const response = await api.listClineApiSeats({ workspaceId: "workspace-1", workspacePath: "/tmp/repo" });
+
+		expect(response.seats).toEqual([
+			{
+				providerId: "openrouter",
+				name: "OpenRouter",
+				baseUrl: null,
+				defaultModelId: "cohere/north-mini-code:free",
+				models: [],
+				source: "builtin",
+				apiKeyConfigured: true,
+			},
+		]);
+		expect(JSON.stringify(response)).not.toContain("sk-or-test");
+	});
+
+	it("reports a successful provider probe with the resolved model", async () => {
+		const api = createTestRuntimeApi(createClineProviderDeps());
+		setSelectedProviderSettings({
+			provider: "openrouter",
+			model: "cohere/north-mini-code:free",
+			apiKey: "sk-or-test",
+			baseUrl: "https://openrouter.ai/api/v1",
+		});
+		llmsModelMocks.getProvider.mockResolvedValue({ id: "openrouter", client: "openai-compatible" });
+		const completePrompt = vi.fn(async () => "OK");
+		llmsModelMocks.createHandler.mockReturnValue({ completePrompt });
+
+		const response = await api.testClineProvider(
+			{ workspaceId: "workspace-1", workspacePath: "/tmp/repo" },
+			{ providerId: "openrouter" },
+		);
+
+		expect(response.ok).toBe(true);
+		expect(response.providerId).toBe("openrouter");
+		expect(response.modelId).toBe("cohere/north-mini-code:free");
+		expect(response.latencyMs).toBeGreaterThanOrEqual(0);
+		expect(llmsModelMocks.createHandler).toHaveBeenCalledWith(
+			expect.objectContaining({
+				providerId: "openrouter",
+				modelId: "cohere/north-mini-code:free",
+				apiKey: "sk-or-test",
+				baseUrl: "https://openrouter.ai/api/v1",
+			}),
+		);
+	});
+
+	it("returns the provider error without leaking the API key when a probe fails", async () => {
+		const api = createTestRuntimeApi(createClineProviderDeps());
+		setSelectedProviderSettings({
+			provider: "openrouter",
+			model: "cohere/north-mini-code:free",
+			apiKey: "sk-or-test",
+			baseUrl: "https://openrouter.ai/api/v1",
+		});
+		llmsModelMocks.getProvider.mockResolvedValue({ id: "openrouter", client: "openai-compatible" });
+		llmsModelMocks.createHandler.mockReturnValue({
+			completePrompt: vi.fn(async () => {
+				throw new Error("401 No auth credentials found");
+			}),
+		});
+
+		const response = await api.testClineProvider(
+			{ workspaceId: "workspace-1", workspacePath: "/tmp/repo" },
+			{ providerId: "openrouter" },
+		);
+
+		expect(response.ok).toBe(false);
+		expect(response.error).toContain("401");
+		expect(JSON.stringify(response)).not.toContain("sk-or-test");
+	});
+
+	it("fails the probe when the seat has no stored API key", async () => {
+		const api = createTestRuntimeApi(createClineProviderDeps());
+		setSelectedProviderSettings({ provider: "openrouter", model: "openrouter/auto" });
+		llmsModelMocks.createHandler.mockClear();
+
+		const response = await api.testClineProvider(
+			{ workspaceId: "workspace-1", workspacePath: "/tmp/repo" },
+			{ providerId: "openrouter" },
+		);
+
+		expect(response.ok).toBe(false);
+		expect(response.error).toContain("No API key");
+		expect(llmsModelMocks.createHandler).not.toHaveBeenCalled();
 	});
 
 	it("adds refreshed live catalog models to provider model responses", async () => {
