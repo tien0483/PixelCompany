@@ -178,6 +178,12 @@ def pick_best_target(
     ``cached_7d_resets_at``, ``cached_usage_5h``, ``cached_usage_7d``.
     Nothing else is consulted — do NOT add fields here without updating
     callers and tests.
+
+    ``has_extra_usage`` (Anthropic's reserve/emergency overage flag) is
+    deliberately excluded: it's display-only metadata (see
+    ``manager.web.oauth``/``manager.api.routes.auth``) and must never let
+    auto-swap treat an account's reserved overage as spendable headroom.
+    See ``TestPickBestTargetTierStrict.test_has_extra_usage_does_not_affect_ranking``.
     """
     now = _resolve_now(now)
     prev_tiers = prev_tiers or {}
@@ -352,6 +358,11 @@ def should_swap_now(
     rule 2 (defaults preserve prior call sites).
 
     Returns None when none fire (stay; ride out the 5h window).
+
+    ``has_extra_usage`` is deliberately excluded from every rule above: it's
+    display-only reserve/emergency overage metadata, never a signal to stay
+    on (or swap off) an account. See
+    ``TestShouldSwapNow.test_has_extra_usage_does_not_affect_swap_decision``.
 
     Reason strings always start with one of the ``REASON_PREFIX_*``
     constants — callers (usage_monitor) parse these prefixes to derive
