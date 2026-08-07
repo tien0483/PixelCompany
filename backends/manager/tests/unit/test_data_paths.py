@@ -1,4 +1,4 @@
-﻿"""Tests for repo-local .agent/manager catalog and runtime resolution."""
+﻿"""Tests for repo-local agent-data catalog and runtime resolution."""
 from __future__ import annotations
 
 from pathlib import Path
