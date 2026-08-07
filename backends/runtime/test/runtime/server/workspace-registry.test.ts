@@ -7,6 +7,10 @@ const persisterMocks = vi.hoisted(() => ({
 	createSessionSummaryPersister: vi.fn(),
 }));
 
+const terminalMocks = vi.hoisted(() => ({
+	createTerminalSnapshotStore: vi.fn(),
+}));
+
 const workspaceStateMocks = vi.hoisted(() => ({
 	listWorkspaceIndexEntries: vi.fn(),
 	loadWorkspaceBoardById: vi.fn(),
@@ -29,6 +33,10 @@ vi.mock("../../../src/state/workspace-state.js", () => ({
 	removeWorkspaceIndexEntry: workspaceStateMocks.removeWorkspaceIndexEntry,
 	removeWorkspaceStateFiles: workspaceStateMocks.removeWorkspaceStateFiles,
 	saveWorkspaceSessionSummaries: workspaceStateMocks.saveWorkspaceSessionSummaries,
+}));
+
+vi.mock("../../../src/terminal/terminal-snapshot-store.js", () => ({
+	createTerminalSnapshotStore: terminalMocks.createTerminalSnapshotStore,
 }));
 
 import { createWorkspaceRegistry } from "../../../src/server/workspace-registry";
@@ -93,6 +101,7 @@ describe("createWorkspaceRegistry session persistence wiring", () => {
 		});
 		workspaceStateMocks.saveWorkspaceSessionSummaries.mockResolvedValue(undefined);
 		persisterMocks.createSessionSummaryPersister.mockImplementation(() => createFakePersister());
+		terminalMocks.createTerminalSnapshotStore.mockImplementation(() => ({}));
 	});
 
 	it("creates and subscribes a persister when the terminal manager is hydrated", async () => {
@@ -169,5 +178,15 @@ describe("createWorkspaceRegistry session persistence wiring", () => {
 
 		expect(persisterOne.flush).toHaveBeenCalledTimes(1);
 		expect(persisterTwo.flush).toHaveBeenCalledTimes(1);
+	});
+
+	it("creates and wires a snapshot store when the terminal manager is hydrated", async () => {
+		const registry = await createWorkspaceRegistry(createDeps());
+
+		const manager = await registry.ensureTerminalManagerForWorkspace("ws-1", "/tmp/ws");
+
+		expect(terminalMocks.createTerminalSnapshotStore).toHaveBeenCalledWith("ws-1");
+		const mockStore = terminalMocks.createTerminalSnapshotStore.mock.results[0]?.value;
+		expect(manager.getSnapshotStore()).toBe(mockStore);
 	});
 });
