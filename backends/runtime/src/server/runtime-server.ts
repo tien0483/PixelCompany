@@ -27,7 +27,7 @@ import {
 	getKanbanRuntimeTls,
 	isKanbanRemoteHost,
 } from "../core/runtime-endpoint";
-import type { HtmlClient } from "../html/html-client";
+import type { HtmlClient, HtmlPromptFailure } from "../html/html-client";
 import {
 	createUsageResumeScheduler,
 	isUsageResumeCandidate,
@@ -104,6 +104,36 @@ export interface CreateRuntimeServerDependencies {
 export interface RuntimeServer {
 	url: string;
 	close: () => Promise<void>;
+}
+
+/**
+ * Turns a sidecar prompt failure into a status + message the UI can act on.
+ * The sidecar's own body is passed through for HTTP failures because it names
+ * the problem (`unknown template: <id>`), which the previous catch-all 502 hid.
+ */
+function describeHtmlPromptFailure(failure: HtmlPromptFailure): { status: number; error: string } {
+	switch (failure.kind) {
+		case "unreachable":
+			return {
+				status: 502,
+				error: `HTML sidecar unreachable at ${failure.baseUrl}: ${failure.message}`,
+			};
+		case "timeout":
+			return {
+				status: 504,
+				error: `HTML sidecar timed out after ${failure.timeoutMs}ms at ${failure.baseUrl}`,
+			};
+		case "http":
+			return {
+				status: failure.status,
+				error: `HTML sidecar returned ${failure.status}: ${failure.body || "(empty body)"}`,
+			};
+		case "malformed":
+			return {
+				status: 502,
+				error: `HTML sidecar returned an unexpected prompt payload: ${failure.body || "(empty body)"}`,
+			};
+	}
 }
 
 function readWorkspaceIdFromRequest(request: IncomingMessage, requestUrl: URL): string | null {
@@ -650,9 +680,10 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 					editFromHtml: input.editFromHtml,
 					editFromContent: input.editFromContent,
 				});
-				if (!promptResult) {
-					res.writeHead(502, { "Content-Type": "application/json; charset=utf-8" });
-					res.end(JSON.stringify({ error: "HTML sidecar unreachable or unknown template" }));
+				if (!promptResult.ok) {
+					const { status, error } = describeHtmlPromptFailure(promptResult.failure);
+					res.writeHead(status, { "Content-Type": "application/json; charset=utf-8" });
+					res.end(JSON.stringify({ error }));
 					return;
 				}
 
@@ -672,7 +703,7 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 
 				await runAgentOneShot({
 					agentId: "claude",
-					prompt: promptResult.prompt,
+					prompt: promptResult.value.prompt,
 					cwd: input.cwd,
 					model: input.model,
 					signal: abortCtl.signal,

@@ -988,7 +988,12 @@ export function RuntimeSettingsDialog({
 	const currentThemeDef = THEMES.find((t) => t.id === draftThemeId);
 
 	return (
-		<Dialog open={open} onOpenChange={handleDialogOpenChange} contentClassName="!max-w-[780px]">
+		<Dialog
+			open={open}
+			onOpenChange={handleDialogOpenChange}
+			size="custom"
+			contentClassName="w-[90vw] max-w-[780px] max-h-[85vh]"
+		>
 			<DialogHeader title="Settings" icon={<Settings size={16} />} />
 			<div className="flex h-[min(480px,60vh)]">
 				<SettingsNav items={navItems} activeId={activeSection} onSelect={handleNavSelect} />

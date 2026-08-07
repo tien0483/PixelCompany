@@ -279,7 +279,7 @@ export function AddProjectDialog({
 					}
 					onOpenChange(isOpen);
 				}}
-				contentClassName="max-w-lg"
+				size="md"
 				contentAriaDescribedBy="add-project-dialog-description"
 				onEscapeKeyDown={handleDialogEscapeKeyDown}
 			>

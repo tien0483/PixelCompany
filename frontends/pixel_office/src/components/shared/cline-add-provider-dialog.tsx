@@ -306,7 +306,7 @@ export function ClineAddProviderDialog({
 	};
 
 	return (
-		<Dialog open={open} onOpenChange={onOpenChange} contentClassName="max-w-3xl">
+		<Dialog open={open} onOpenChange={onOpenChange} size="xl">
 			<DialogHeader title={mode === "edit" ? "Edit OpenAI-compatible provider" : "Add OpenAI-compatible provider"} />
 			<DialogBody className="space-y-4">
 				<section className="rounded-lg border border-border bg-surface-1 p-3">

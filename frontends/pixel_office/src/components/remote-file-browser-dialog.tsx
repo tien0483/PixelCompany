@@ -138,7 +138,8 @@ export function RemoteFileBrowserDialog({
 		<Dialog
 			open={open}
 			onOpenChange={onOpenChange}
-			contentClassName="max-w-xl"
+			size="custom"
+			contentClassName="w-[90vw] max-w-xl max-h-[85vh]"
 			contentAriaDescribedBy="remote-file-browser-description"
 		>
 			<DialogHeader title="Browse Remote Directory" icon={<FolderOpen size={16} />} />
