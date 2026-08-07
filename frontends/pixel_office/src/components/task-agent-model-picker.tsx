@@ -16,11 +16,15 @@ import { NativeSelect } from "@/components/ui/native-select";
 import { fetchClineProviderCatalog, fetchClineProviderModels } from "@/runtime/runtime-config-query";
 import type {
 	RuntimeAgentId,
+	RuntimeClineApiSeat,
 	RuntimeClineProviderCatalogItem,
 	RuntimeClineProviderModel,
 	RuntimeClineReasoningEffort,
 	RuntimeTaskClineSettings,
 } from "@/runtime/types";
+
+/** Stable identity so the agentOptions memo does not rebuild on every render. */
+const EMPTY_API_SEATS: RuntimeClineApiSeat[] = [];
 
 // ---------------------------------------------------------------------------
 // Hook: manages fetch state for Cline provider catalog + model lists
@@ -37,6 +41,8 @@ export interface UseTaskAgentModelPickerInput {
 	defaultProviderId?: string | null;
 	/** The default Cline model ID from runtimeConfig.clineProviderSettings.modelId */
 	defaultModelId?: string | null;
+	/** API-key seats; Cline is only offered as an agent when at least one exists. */
+	apiSeats?: RuntimeClineApiSeat[];
 }
 
 export interface UseTaskAgentModelPickerResult {
@@ -59,6 +65,7 @@ export function useTaskAgentModelPicker({
 	defaultAgentId,
 	defaultProviderId,
 	defaultModelId,
+	apiSeats = EMPTY_API_SEATS,
 }: UseTaskAgentModelPickerInput): UseTaskAgentModelPickerResult {
 	const [providerCatalog, setProviderCatalog] = useState<RuntimeClineProviderCatalogItem[]>([]);
 	const [providerModels, setProviderModels] = useState<RuntimeClineProviderModel[]>([]);
@@ -128,7 +135,11 @@ export function useTaskAgentModelPicker({
 	}, [active, effectiveAgentId, effectiveProviderId, workspaceId]);
 
 	const agentOptions = useMemo(() => {
-		const catalog = getRuntimeLaunchSupportedAgentCatalog();
+		// Cline has no CLI and no OAuth seat — it only runs against a stored API key,
+		// so it stays out of the list until one exists (or the card already uses it).
+		const catalog = getRuntimeLaunchSupportedAgentCatalog().filter(
+			(agent) => agent.id !== "cline" || apiSeats.length > 0 || effectiveAgentId === "cline",
+		);
 		const defaultAgent = defaultAgentId ? catalog.find((a) => a.id === defaultAgentId) : null;
 		const firstLabel = defaultAgent ? `Default (${defaultAgent.label})` : "Default";
 		return [
@@ -137,7 +148,7 @@ export function useTaskAgentModelPicker({
 			// is selectable without opening Settings first.
 			...catalog.map((agent) => ({ value: agent.id, label: agent.label })),
 		];
-	}, [defaultAgentId]);
+	}, [apiSeats.length, defaultAgentId, effectiveAgentId]);
 
 	const clineProviderOptions = useMemo(() => {
 		let firstLabel = "Default";

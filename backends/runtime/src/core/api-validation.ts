@@ -10,6 +10,7 @@ import {
 	type RuntimeClineOauthLoginRequest,
 	type RuntimeClineProviderModelsRequest,
 	type RuntimeClineProviderSettingsSaveRequest,
+	type RuntimeClineTestProviderRequest,
 	type RuntimeClineUpdateProviderRequest,
 	type RuntimeCommandRunRequest,
 	type RuntimeConfigSaveRequest,
@@ -51,6 +52,7 @@ import {
 	runtimeClineOauthLoginRequestSchema,
 	runtimeClineProviderModelsRequestSchema,
 	runtimeClineProviderSettingsSaveRequestSchema,
+	runtimeClineTestProviderRequestSchema,
 	runtimeClineUpdateProviderRequestSchema,
 	runtimeCommandRunRequestSchema,
 	runtimeConfigSaveRequestSchema,
@@ -543,6 +545,19 @@ export function parseClineDeleteProviderRequest(value: unknown): RuntimeClineDel
 	}
 	return {
 		providerId,
+	};
+}
+
+export function parseClineTestProviderRequest(value: unknown): RuntimeClineTestProviderRequest {
+	const parsed = parseWithSchema(runtimeClineTestProviderRequestSchema, value);
+	const providerId = parsed.providerId.trim().toLowerCase();
+	if (!providerId) {
+		throw new Error("Provider ID cannot be empty.");
+	}
+	const modelId = parsed.modelId?.trim() || null;
+	return {
+		providerId,
+		...(modelId ? { modelId } : {}),
 	};
 }
 

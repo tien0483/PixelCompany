@@ -29,6 +29,7 @@ import {
 	parseClineMcpSettingsSaveRequest,
 	parseClineOauthLoginRequest,
 	parseClineProviderModelsRequest,
+	parseClineTestProviderRequest,
 	parseClineProviderSettingsSaveRequest,
 	parseClineUpdateProviderRequest,
 	parseCommandRunRequest,
@@ -213,6 +214,13 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 		},
 		getClineCustomProviders: async (_workspaceScope) => {
 			return await clineProviderService.listCustomProviders();
+		},
+		listClineApiSeats: async (_workspaceScope) => {
+			return await clineProviderService.listApiSeats();
+		},
+		testClineProvider: async (_workspaceScope, input) => {
+			const body = parseClineTestProviderRequest(input);
+			return await clineProviderService.testProvider(body);
 		},
 		startTaskSession: async (workspaceScope, input) => {
 			try {

@@ -1,20 +1,83 @@
 import { isRuntimeAgentLaunchSupported } from "@runtime-agent-catalog";
 import type { ReactElement } from "react";
 
-import type { RuntimeAgentId, RuntimeManagerAccount } from "@/runtime/types";
+import type {
+	RuntimeAgentId,
+	RuntimeClineApiSeat,
+	RuntimeManagerAccount,
+	RuntimeTaskClineSettings,
+} from "@/runtime/types";
 
 import { NativeSelect } from "@/components/ui/native-select";
 import { formatPercent, isAuthBroken, isDonateExhausted } from "@/manager/manager-format";
 
 const AUTO_VALUE = "auto";
+const MANAGER_VALUE_PREFIX = "manager:";
+const API_VALUE_PREFIX = "api:";
+
+/**
+ * What the card's seat picker resolved to. API seats are Cline providers rather
+ * than Manager accounts, so selecting one also switches the card's agent — the
+ * caller owns that, since it holds agentId and clineSettings.
+ */
+export type TaskSeatSelection =
+	| { kind: "auto" }
+	| { kind: "manager"; accountId: number; provider: RuntimeManagerAccount["provider"] }
+	| { kind: "api"; providerId: string; modelId: string | null };
+
+export interface ApplyTaskSeatSelectionHandlers {
+	currentAgentId: RuntimeAgentId | null;
+	onManagerAccountIdChange?: (value: number | undefined) => void;
+	onAgentIdChange?: (value: RuntimeAgentId | undefined) => void;
+	onClineSettingsChange?: (value: RuntimeTaskClineSettings | undefined) => void;
+}
+
+/**
+ * Applies a seat choice across the three card fields it can touch. Manager and
+ * API seats are mutually exclusive: a card runs on one agent, so pinning either
+ * kind clears the other's field.
+ */
+export function applyTaskSeatSelection(
+	selection: TaskSeatSelection,
+	handlers: ApplyTaskSeatSelectionHandlers,
+): void {
+	const { currentAgentId, onManagerAccountIdChange, onAgentIdChange, onClineSettingsChange } = handlers;
+
+	if (selection.kind === "api") {
+		onManagerAccountIdChange?.(undefined);
+		onAgentIdChange?.("cline");
+		onClineSettingsChange?.({
+			providerId: selection.providerId,
+			...(selection.modelId ? { modelId: selection.modelId } : {}),
+		});
+		return;
+	}
+
+	// Leaving an API seat means leaving Cline; the caller's default agent takes over.
+	if (currentAgentId === "cline") {
+		onClineSettingsChange?.(undefined);
+		onAgentIdChange?.(selection.kind === "manager" ? (agentIdForManagerProvider(selection.provider) ?? undefined) : undefined);
+	} else if (selection.kind === "manager") {
+		const seatAgentId = agentIdForManagerProvider(selection.provider);
+		if (seatAgentId && seatAgentId !== currentAgentId) {
+			onAgentIdChange?.(seatAgentId);
+		}
+	}
+
+	onManagerAccountIdChange?.(selection.kind === "manager" ? selection.accountId : undefined);
+}
 
 export interface TaskAccountPickerProps {
 	accounts: RuntimeManagerAccount[];
+	/** API-key seats, offered alongside Manager accounts in the same list. */
+	apiSeats?: RuntimeClineApiSeat[];
 	value: number | undefined;
+	/** Provider id pinned via the card's clineSettings, when the card runs on Cline. */
+	clineProviderId?: string | null;
 	activeAccountId: number | null;
 	agentId: RuntimeAgentId | null;
 	disabled?: boolean;
-	onChange: (managerAccountId: number | null) => void;
+	onChange: (selection: TaskSeatSelection) => void;
 }
 
 function accountLabel(account: RuntimeManagerAccount): string {
@@ -30,7 +93,32 @@ function agentAccountLabel(agentId: RuntimeAgentId | null): string {
 	if (agentId === "cursor") {
 		return "Cursor account for this task";
 	}
+	if (agentId === "cline") {
+		return "API seat for this task";
+	}
 	return "Claude account for this task";
+}
+
+function apiSeatLabel(seat: RuntimeClineApiSeat): string {
+	return seat.defaultModelId ? `${seat.name} · ${seat.defaultModelId}` : seat.name;
+}
+
+function parseSeatSelection(
+	value: string,
+	accounts: RuntimeManagerAccount[],
+	apiSeats: RuntimeClineApiSeat[],
+): TaskSeatSelection {
+	if (value.startsWith(MANAGER_VALUE_PREFIX)) {
+		const accountId = Number(value.slice(MANAGER_VALUE_PREFIX.length));
+		const account = accounts.find((candidate) => candidate.id === accountId);
+		return { kind: "manager", accountId, provider: account?.provider ?? "claude" };
+	}
+	if (value.startsWith(API_VALUE_PREFIX)) {
+		const providerId = value.slice(API_VALUE_PREFIX.length);
+		const seat = apiSeats.find((candidate) => candidate.providerId === providerId);
+		return { kind: "api", providerId, modelId: seat?.defaultModelId ?? null };
+	}
+	return { kind: "auto" };
 }
 
 /**
@@ -55,14 +143,17 @@ export function autoFallbackAccount(
 }
 
 /**
- * Pins one board task to a specific Jacked account for the task's agent.
+ * Pins one board task to a specific seat — a Manager account or an API-key seat.
  *
  * Claude tasks use CLAUDE_CONFIG_DIR. Cursor Auto uses the same `agent login`
- * as a normal terminal; an explicit Cursor pin injects CURSOR_API_KEY.
+ * as a normal terminal; an explicit Cursor pin injects CURSOR_API_KEY. API seats
+ * are Cline providers, so picking one moves the card onto the Cline agent.
  */
 export function TaskAccountPicker({
 	accounts,
+	apiSeats = [],
 	value,
+	clineProviderId,
 	activeAccountId,
 	agentId,
 	disabled = false,
@@ -74,8 +165,17 @@ export function TaskAccountPicker({
 		: "Auto (active account)";
 	// Orphaned pins (wrong provider after an agent switch) must not stick as a
 	// select value — fall back to Auto so the next start can resolve correctly.
+	const pinnedSeat =
+		agentId === "cline" && clineProviderId
+			? apiSeats.find((seat) => seat.providerId === clineProviderId)
+			: undefined;
 	const valueInFleet = value !== undefined && accounts.some((account) => account.id === value);
-	const selectValue = valueInFleet ? String(value) : AUTO_VALUE;
+	let selectValue = AUTO_VALUE;
+	if (pinnedSeat) {
+		selectValue = `${API_VALUE_PREFIX}${pinnedSeat.providerId}`;
+	} else if (valueInFleet) {
+		selectValue = `${MANAGER_VALUE_PREFIX}${value}`;
+	}
 
 	return (
 		<label className="flex min-w-0 items-center gap-1.5 text-[11px] text-text-secondary">
@@ -84,23 +184,31 @@ export function TaskAccountPicker({
 				size="sm"
 				data-testid="task-account-picker"
 				aria-label={agentAccountLabel(agentId)}
-				disabled={disabled || accounts.length === 0}
+				disabled={disabled || (accounts.length === 0 && apiSeats.length === 0)}
 				value={selectValue}
 				onChange={(event) => {
-					const next = event.target.value;
-					onChange(next === AUTO_VALUE ? null : Number(next));
+					onChange(parseSeatSelection(event.target.value, accounts, apiSeats));
 				}}
 			>
 				<option value={AUTO_VALUE}>{autoLabel}</option>
 				{accounts.map((account) => (
 					<option
 						key={account.id}
-						value={String(account.id)}
+						value={`${MANAGER_VALUE_PREFIX}${account.id}`}
 						disabled={isDonateExhausted(account)}
 					>
 						{accountLabel(account)}
 					</option>
 				))}
+				{apiSeats.length > 0 ? (
+					<optgroup label="API seats (Cline)">
+						{apiSeats.map((seat) => (
+							<option key={seat.providerId} value={`${API_VALUE_PREFIX}${seat.providerId}`}>
+								{apiSeatLabel(seat)}
+							</option>
+						))}
+					</optgroup>
+				) : null}
 			</NativeSelect>
 		</label>
 	);

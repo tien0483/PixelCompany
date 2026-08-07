@@ -14,6 +14,10 @@ import {
 import type { ReactElement, ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 import { ClineAddProviderDialog } from "@/components/shared/cline-add-provider-dialog";
+import {
+	ClineApiSeatDialog,
+	type ClineApiSeatSubmitInput,
+} from "@/components/shared/cline-api-seat-dialog";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
 import type {
@@ -38,11 +42,14 @@ import { pollAuthCode, VercelAuthSessionError } from "@/manager/vercel-auth-sess
 import {
 	addClineProvider,
 	deleteClineProvider,
-	fetchClineCustomProviders,
+	fetchClineApiSeats,
+	saveClineProviderSettings,
+	testClineProvider,
 } from "@/runtime/runtime-config-query";
 import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
 import type {
-	RuntimeClineCustomProvider,
+	RuntimeClineApiSeat,
+	RuntimeClineTestProviderResponse,
 	RuntimeManagerAccount,
 	RuntimeManagerSnapshot,
 	RuntimeManagerSwapLog,
@@ -479,19 +486,25 @@ function AccountRow({
 }
 
 /**
- * A "seat" backed by an API key (Cline custom provider) rather than an OAuth
- * account — no usage meters, donate cap, or fleet priority, since none of that
- * applies to a flat key. Tasks pick these up via ApiSeatQuickPick, not this row.
+ * A "seat" backed by an API key rather than an OAuth account — no usage meters,
+ * donate cap, or fleet priority, since none of that applies to a flat key.
+ *
+ * Ping runs the smallest real completion the provider allows, so a bad key, an
+ * ungranted model, or an empty balance shows up here rather than mid-task.
  */
 function ApiSeatRow({
 	seat,
 	busy,
 	online,
+	pingResult,
+	onPing,
 	onDelete,
 }: {
-	seat: RuntimeClineCustomProvider;
+	seat: RuntimeClineApiSeat;
 	busy: boolean;
 	online: boolean;
+	pingResult: RuntimeClineTestProviderResponse | null;
+	onPing: () => void;
 	onDelete: () => void;
 }): ReactElement {
 	return (
@@ -506,23 +519,49 @@ function ApiSeatRow({
 							{seat.name}
 						</span>
 						<span className="shrink-0 rounded bg-surface-2 px-1 py-0.5 text-[9px] uppercase tracking-wide text-text-tertiary">
-							API key
+							{seat.source === "custom" ? "Custom" : "API key"}
 						</span>
 					</div>
-					<p className="truncate text-[10px] text-text-tertiary" title={seat.baseUrl}>
-						{seat.baseUrl}
+					<p className="truncate text-[10px] text-text-tertiary" title={seat.baseUrl ?? undefined}>
+						{seat.baseUrl ?? "Provider default endpoint"}
 						{seat.defaultModelId ? ` · ${seat.defaultModelId}` : ""}
 					</p>
+					{pingResult ? (
+						<p
+							data-testid={`manager-api-seat-ping-${seat.providerId}`}
+							className={cn(
+								"truncate text-[10px]",
+								pingResult.ok ? "text-status-green" : "text-status-red",
+							)}
+							title={pingResult.error ?? undefined}
+						>
+							{pingResult.ok
+								? `ok · ${pingResult.latencyMs}ms${pingResult.modelId ? ` · ${pingResult.modelId}` : ""}`
+								: `fail · ${pingResult.error ?? "unreachable"}`}
+						</p>
+					) : null}
 				</div>
-				<Button
-					variant="ghost"
-					size="sm"
-					disabled={!online || busy}
-					onClick={onDelete}
-					icon={<Trash2 size={10} />}
-					className="h-6 px-2 text-[10px]"
-					aria-label={`Delete ${seat.name}`}
-				/>
+				<div className="flex shrink-0 items-center gap-1">
+					<Button
+						variant="ghost"
+						size="sm"
+						disabled={!online || busy}
+						onClick={onPing}
+						className="h-6 px-2 text-[10px]"
+						aria-label={`Ping ${seat.name}`}
+					>
+						{busy ? "Pinging…" : "Ping"}
+					</Button>
+					<Button
+						variant="ghost"
+						size="sm"
+						disabled={!online || busy}
+						onClick={onDelete}
+						icon={<Trash2 size={10} />}
+						className="h-6 px-2 text-[10px]"
+						aria-label={`Delete ${seat.name}`}
+					/>
+				</div>
 			</div>
 		</div>
 	);
@@ -549,8 +588,11 @@ export function ManagerAccountsView({
 	const [addAccountStep, setAddAccountStep] =
 		useState<AddAccountMenuStep>("provider");
 	const [apiKeyDialogOpen, setApiKeyDialogOpen] = useState(false);
-	const [apiSeats, setApiSeats] = useState<RuntimeClineCustomProvider[]>([]);
+	/** The catalog-provider quick add; the custom-endpoint form is the fallback. */
+	const [apiSeatQuickAddOpen, setApiSeatQuickAddOpen] = useState(false);
+	const [apiSeats, setApiSeats] = useState<RuntimeClineApiSeat[]>([]);
 	const [apiSeatBusyId, setApiSeatBusyId] = useState<string | null>(null);
+	const [apiSeatPings, setApiSeatPings] = useState<Record<string, RuntimeClineTestProviderResponse>>({});
 	const [oauthStatus, setOauthStatus] = useState<string | null>(null);
 	const [oauthAuthUrl, setOauthAuthUrl] = useState<string | null>(null);
 	const [oauthManual, setOauthManual] = useState(false);
@@ -623,7 +665,7 @@ export function ManagerAccountsView({
 
 	const refreshApiSeats = async () => {
 		try {
-			setApiSeats(await fetchClineCustomProviders(null));
+			setApiSeats(await fetchClineApiSeats(null));
 		} catch {
 			setApiSeats([]);
 		}
@@ -698,13 +740,58 @@ export function ManagerAccountsView({
 		}
 	};
 
-	const handleDeleteApiSeat = async (providerId: string) => {
-		setApiSeatBusyId(providerId);
+	/** Saves a key against a provider the SDK catalog already defines. */
+	const handleAddApiSeatFromCatalog = async (
+		input: ClineApiSeatSubmitInput,
+	): Promise<{ ok: boolean; message?: string }> => {
+		try {
+			await saveClineProviderSettings(null, {
+				providerId: input.providerId,
+				apiKey: input.apiKey,
+				modelId: input.modelId,
+				baseUrl: input.baseUrl,
+			});
+			await refreshApiSeats();
+			setActionStatus("API seat added.");
+			return { ok: true };
+		} catch (err) {
+			return { ok: false, message: describeThrown(err) };
+		}
+	};
+
+	const handlePingApiSeat = async (seat: RuntimeClineApiSeat) => {
+		setApiSeatBusyId(seat.providerId);
+		setError(null);
+		try {
+			const result = await testClineProvider(null, {
+				providerId: seat.providerId,
+				modelId: seat.defaultModelId,
+			});
+			setApiSeatPings((current) => ({ ...current, [seat.providerId]: result }));
+		} catch (err) {
+			setError(describeThrown(err));
+		} finally {
+			setApiSeatBusyId(null);
+		}
+	};
+
+	const handleDeleteApiSeat = async (seat: RuntimeClineApiSeat) => {
+		setApiSeatBusyId(seat.providerId);
 		setError(null);
 		setActionStatus(null);
 		setNotice(null);
 		try {
-			await deleteClineProvider(null, providerId);
+			// A built-in provider has no models.json entry to delete — dropping the
+			// stored key is what retires the seat.
+			if (seat.source === "custom") {
+				await deleteClineProvider(null, seat.providerId);
+			} else {
+				await saveClineProviderSettings(null, { providerId: seat.providerId, apiKey: null });
+			}
+			setApiSeatPings((current) => {
+				const { [seat.providerId]: _removed, ...rest } = current;
+				return rest;
+			});
 			await refreshApiSeats();
 			setActionStatus("API seat removed.");
 		} catch (err) {
@@ -1279,7 +1366,7 @@ export function ManagerAccountsView({
 											className="flex cursor-pointer items-center justify-between gap-2 rounded-sm px-2 py-1.5 text-[11px] text-text-primary outline-none data-[highlighted]:bg-surface-3"
 											data-testid="manager-add-account-provider-api-key"
 											onSelect={() => {
-												setApiKeyDialogOpen(true);
+												setApiSeatQuickAddOpen(true);
 											}}
 										>
 											<span>
@@ -1383,6 +1470,18 @@ export function ManagerAccountsView({
 							</DropdownMenu.Content>
 						</DropdownMenu.Portal>
 					</DropdownMenu.Root>
+					<ClineApiSeatDialog
+						open={apiSeatQuickAddOpen}
+						workspaceId={null}
+						onClose={() => {
+							setApiSeatQuickAddOpen(false);
+						}}
+						onSelectCustom={() => {
+							setApiSeatQuickAddOpen(false);
+							setApiKeyDialogOpen(true);
+						}}
+						onSubmit={handleAddApiSeatFromCatalog}
+					/>
 					<ClineAddProviderDialog
 						open={apiKeyDialogOpen}
 						onOpenChange={setApiKeyDialogOpen}
@@ -1828,7 +1927,9 @@ export function ManagerAccountsView({
 								seat={seat}
 								busy={apiSeatBusyId === seat.providerId}
 								online={online}
-								onDelete={() => void handleDeleteApiSeat(seat.providerId)}
+								pingResult={apiSeatPings[seat.providerId] ?? null}
+								onPing={() => void handlePingApiSeat(seat)}
+								onDelete={() => void handleDeleteApiSeat(seat)}
 							/>
 						))}
 					</div>

@@ -5,7 +5,9 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
 	TaskAccountPicker,
+	type TaskSeatSelection,
 	agentIdForManagerProvider,
+	applyTaskSeatSelection,
 	autoFallbackAccount,
 	filterManagerAccountsForAgent,
 	managerProviderForAgent,
@@ -14,7 +16,7 @@ import {
 	shouldClearManagerAccountPin,
 } from "@/manager/task-account-picker";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import type { RuntimeManagerAccount } from "@/runtime/types";
+import type { RuntimeAgentId, RuntimeClineApiSeat, RuntimeManagerAccount, RuntimeTaskClineSettings } from "@/runtime/types";
 
 function account(
 	id: number,
@@ -48,12 +50,27 @@ function account(
 	};
 }
 
+function apiSeat(providerId: string, name: string, defaultModelId: string | null): RuntimeClineApiSeat {
+	return {
+		providerId,
+		name,
+		baseUrl: `https://${providerId}.example.com/v1`,
+		defaultModelId,
+		models: [],
+		source: "builtin",
+		apiKeyConfigured: true,
+	};
+}
+
 function renderPicker(
 	props: {
 		accounts: RuntimeManagerAccount[];
-		agentId: "claude" | "cursor" | "codex";
+		agentId: "claude" | "cursor" | "codex" | "cline";
 		value?: number;
 		activeAccountId?: number | null;
+		apiSeats?: RuntimeClineApiSeat[];
+		clineProviderId?: string | null;
+		onChange?: (selection: TaskSeatSelection) => void;
 	},
 ): HTMLElement {
 	const container = document.createElement("div");
@@ -66,10 +83,12 @@ function renderPicker(
 			wrap(
 				<TaskAccountPicker
 					accounts={props.accounts}
+					apiSeats={props.apiSeats ?? []}
 					value={props.value}
+					clineProviderId={props.clineProviderId ?? null}
 					activeAccountId={props.activeAccountId ?? null}
 					agentId={props.agentId}
-					onChange={() => {}}
+					onChange={props.onChange ?? (() => {})}
 				/>,
 			),
 		);
@@ -343,7 +362,112 @@ describe("TaskAccountPicker", () => {
 			agentId: "claude",
 			activeAccountId: 1,
 		});
-		const option = container.querySelector('option[value="1"]');
+		const option = container.querySelector('option[value="manager:1"]');
 		expect(option?.textContent).toContain("needs re-auth");
+	});
+
+	it("lists API seats alongside Manager accounts", () => {
+		const container = renderPicker({
+			accounts: [account(1, "claude", "claude@example.com")],
+			agentId: "claude",
+			activeAccountId: 1,
+			apiSeats: [apiSeat("openrouter", "OpenRouter", "cohere/north-mini-code:free")],
+		});
+		const option = container.querySelector('option[value="api:openrouter"]');
+		expect(option?.textContent).toBe("OpenRouter · cohere/north-mini-code:free");
+	});
+
+	it("selects the API seat the card is pinned to", () => {
+		const container = renderPicker({
+			accounts: [],
+			agentId: "cline",
+			apiSeats: [apiSeat("openrouter", "OpenRouter", "cohere/north-mini-code:free")],
+			clineProviderId: "openrouter",
+		});
+		const select = container.querySelector<HTMLSelectElement>('[data-testid="task-account-picker"]');
+		expect(select?.value).toBe("api:openrouter");
+		expect(select?.getAttribute("aria-label")).toBe("API seat for this task");
+	});
+
+	it("emits an api selection carrying the seat's default model", () => {
+		const selections: TaskSeatSelection[] = [];
+		const container = renderPicker({
+			accounts: [],
+			agentId: "claude",
+			apiSeats: [apiSeat("openrouter", "OpenRouter", "cohere/north-mini-code:free")],
+			onChange: (selection) => selections.push(selection),
+		});
+		const select = container.querySelector<HTMLSelectElement>('[data-testid="task-account-picker"]');
+		act(() => {
+			if (select) {
+				select.value = "api:openrouter";
+				select.dispatchEvent(new Event("change", { bubbles: true }));
+			}
+		});
+		expect(selections).toEqual([
+			{ kind: "api", providerId: "openrouter", modelId: "cohere/north-mini-code:free" },
+		]);
+	});
+});
+
+describe("applyTaskSeatSelection", () => {
+	function collect(currentAgentId: RuntimeAgentId | null, selection: TaskSeatSelection) {
+		const applied: {
+			managerAccountId?: number | undefined;
+			agentId?: RuntimeAgentId | undefined;
+			clineSettings?: RuntimeTaskClineSettings | undefined;
+		} = {};
+		applyTaskSeatSelection(selection, {
+			currentAgentId,
+			onManagerAccountIdChange: (value) => {
+				applied.managerAccountId = value;
+			},
+			onAgentIdChange: (value) => {
+				applied.agentId = value;
+			},
+			onClineSettingsChange: (value) => {
+				applied.clineSettings = value;
+			},
+		});
+		return applied;
+	}
+
+	it("moves the card onto Cline and drops the Manager pin", () => {
+		expect(
+			collect("claude", { kind: "api", providerId: "openrouter", modelId: "cohere/north-mini-code:free" }),
+		).toEqual({
+			managerAccountId: undefined,
+			agentId: "cline",
+			clineSettings: { providerId: "openrouter", modelId: "cohere/north-mini-code:free" },
+		});
+	});
+
+	it("omits modelId when the seat has no default model", () => {
+		expect(collect("claude", { kind: "api", providerId: "openrouter", modelId: null }).clineSettings).toEqual({
+			providerId: "openrouter",
+		});
+	});
+
+	it("clears Cline settings when leaving an API seat for a Manager seat", () => {
+		expect(collect("cline", { kind: "manager", accountId: 7, provider: "claude" })).toEqual({
+			managerAccountId: 7,
+			agentId: "claude",
+			clineSettings: undefined,
+		});
+	});
+
+	it("clears Cline settings when leaving an API seat for Auto", () => {
+		expect(collect("cline", { kind: "auto" })).toEqual({
+			managerAccountId: undefined,
+			agentId: undefined,
+			clineSettings: undefined,
+		});
+	});
+
+	it("switches agent family when pinning a Cursor seat from a Claude task", () => {
+		expect(collect("claude", { kind: "manager", accountId: 3, provider: "cursor" })).toEqual({
+			managerAccountId: 3,
+			agentId: "cursor",
+		});
 	});
 });

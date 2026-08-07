@@ -8,6 +8,8 @@ import type {
 	RuntimeClineAccountOrganizationsResponse,
 	RuntimeClineAccountProfileResponse,
 	RuntimeClineAccountSwitchResponse,
+	RuntimeClineApiSeat,
+	RuntimeClineApiSeatListResponse,
 	RuntimeClineCustomProviderListResponse,
 	RuntimeClineDeviceAuthCompleteResponse,
 	RuntimeClineDeviceAuthStartResponse,
@@ -20,6 +22,8 @@ import type {
 	RuntimeClineProviderSettings,
 	RuntimeClineProviderSettingsSaveResponse,
 	RuntimeClineReasoningEffort,
+	RuntimeClineTestProviderRequest,
+	RuntimeClineTestProviderResponse,
 } from "../core/api-contract";
 import { openInBrowser } from "../server/browser";
 import { createKanbanClineLogger } from "./cline-runtime-logger";
@@ -35,9 +39,11 @@ import {
 	fetchSdkOrgData,
 	getLastUsedSdkProviderSettings,
 	getSdkProviderSettings,
+	listSdkConfiguredProviders,
 	listSdkCustomProviders,
 	listSdkProviderCatalog,
 	listSdkProviderModels,
+	probeSdkProvider,
 	loginManagedOauthProvider,
 	type ManagedClineOauthProviderId,
 	refreshManagedOauthCredentials,
@@ -66,6 +72,7 @@ const LITELLM_MODELS_RESPONSE_SCHEMA = z.object({
 });
 const LITELLM_MODEL_LIST_PATHNAMES = ["/models", "/model/info"] as const;
 const LITELLM_MODEL_LIST_TIMEOUT_MS = 2_500;
+const PROVIDER_PROBE_TIMEOUT_MS = 15_000;
 const LOGGER = createKanbanClineLogger({ component: "cline-provider-service" });
 
 type ClineRemoteConfig = z.infer<typeof CLINE_REMOTE_CONFIG_SCHEMA>;
@@ -490,6 +497,55 @@ export function createClineProviderService() {
 		return promise;
 	}
 
+	/**
+	 * Hoisted so the seat probe can reuse the exact credential resolution the
+	 * launcher uses — a green ping must mean the task would start.
+	 */
+	async function resolveLaunchConfig(overrides?: {
+		providerIdOverride?: string;
+		modelIdOverride?: string;
+		reasoningEffortOverride?: RuntimeClineReasoningEffort | null;
+	}): Promise<ResolvedClineLaunchConfig> {
+		const selectedSettings = overrides?.providerIdOverride
+			? (getSdkProviderSettings(overrides.providerIdOverride) ?? getSelectedProviderSettings())
+			: getSelectedProviderSettings();
+		if (!selectedSettings) {
+			throw new Error(
+				"No native Cline provider is configured. Open Settings, choose a provider, and then start the task again.",
+			);
+		}
+
+		const normalizedProviderId = selectedSettings.provider.trim().toLowerCase();
+		if (!normalizedProviderId) {
+			throw new Error(
+				"No native Cline provider is configured. Open Settings, choose a provider, and then start the task again.",
+			);
+		}
+		const oauthResolution = await refreshManagedOauthSettings(selectedSettings);
+		const resolvedSettings = oauthResolution?.settings ?? selectedSettings;
+		const apiKey = isManagedOauthProviderId(normalizedProviderId)
+			? resolveManagedProviderLaunchApiKey({
+					providerId: normalizedProviderId,
+					settings: resolvedSettings,
+					oauthApiKey: oauthResolution?.apiKey ?? null,
+				})
+			: resolveVisibleApiKey(resolvedSettings);
+		const modelId =
+			overrides?.modelIdOverride?.trim() ||
+			resolvedSettings.model?.trim() ||
+			(await resolveDefaultModelIdForProvider(normalizedProviderId));
+		return {
+			providerId: normalizedProviderId,
+			modelId,
+			apiKey,
+			baseUrl: resolvedSettings.baseUrl?.trim() || null,
+			reasoningEffort:
+				overrides && "reasoningEffortOverride" in overrides
+					? (overrides.reasoningEffortOverride ?? null)
+					: (toRuntimeReasoningEffort(resolvedSettings.reasoning?.effort) ?? undefined),
+		};
+	}
+
 	return {
 		getProviderSettingsSummary(): RuntimeClineProviderSettings {
 			return getProviderSettingsSummary();
@@ -781,50 +837,7 @@ export function createClineProviderService() {
 			}
 		},
 
-		async resolveLaunchConfig(overrides?: {
-			providerIdOverride?: string;
-			modelIdOverride?: string;
-			reasoningEffortOverride?: RuntimeClineReasoningEffort | null;
-		}): Promise<ResolvedClineLaunchConfig> {
-			const selectedSettings = overrides?.providerIdOverride
-				? (getSdkProviderSettings(overrides.providerIdOverride) ?? getSelectedProviderSettings())
-				: getSelectedProviderSettings();
-			if (!selectedSettings) {
-				throw new Error(
-					"No native Cline provider is configured. Open Settings, choose a provider, and then start the task again.",
-				);
-			}
-
-			const normalizedProviderId = selectedSettings.provider.trim().toLowerCase();
-			if (!normalizedProviderId) {
-				throw new Error(
-					"No native Cline provider is configured. Open Settings, choose a provider, and then start the task again.",
-				);
-			}
-			const oauthResolution = await refreshManagedOauthSettings(selectedSettings);
-			const resolvedSettings = oauthResolution?.settings ?? selectedSettings;
-			const apiKey = isManagedOauthProviderId(normalizedProviderId)
-				? resolveManagedProviderLaunchApiKey({
-						providerId: normalizedProviderId,
-						settings: resolvedSettings,
-						oauthApiKey: oauthResolution?.apiKey ?? null,
-					})
-				: resolveVisibleApiKey(resolvedSettings);
-			const modelId =
-				overrides?.modelIdOverride?.trim() ||
-				resolvedSettings.model?.trim() ||
-				(await resolveDefaultModelIdForProvider(normalizedProviderId));
-			return {
-				providerId: normalizedProviderId,
-				modelId,
-				apiKey,
-				baseUrl: resolvedSettings.baseUrl?.trim() || null,
-				reasoningEffort:
-					overrides && "reasoningEffortOverride" in overrides
-						? (overrides.reasoningEffortOverride ?? null)
-						: (toRuntimeReasoningEffort(resolvedSettings.reasoning?.effort) ?? undefined),
-			};
-		},
+		resolveLaunchConfig,
 
 		async getProviderCatalog(): Promise<RuntimeClineProviderCatalogResponse> {
 			const selectedProviderId = getProviderSettingsSummary().providerId?.trim().toLowerCase() ?? "";
@@ -984,6 +997,114 @@ export function createClineProviderService() {
 		async listCustomProviders(): Promise<RuntimeClineCustomProviderListResponse> {
 			const providers = await listSdkCustomProviders();
 			return { providers };
+		},
+
+		/**
+		 * Every provider usable as an API-key seat, from both stores: user-added
+		 * endpoints in models.json and built-in catalog providers the user pasted a
+		 * key into (providers.json). Managed-OAuth providers are the Settings
+		 * sign-in surface, not seats, so they only appear if they hold a manual key.
+		 */
+		async listApiSeats(): Promise<RuntimeClineApiSeatListResponse> {
+			const [customProviders, catalog] = await Promise.all([
+				listSdkCustomProviders().catch(() => []),
+				listSdkProviderCatalog().catch((): Awaited<ReturnType<typeof listSdkProviderCatalog>> => []),
+			]);
+			const catalogById = new Map(catalog.map((provider) => [provider.id, provider]));
+			const customById = new Map(customProviders.map((provider) => [provider.providerId, provider]));
+			const seats = new Map<string, RuntimeClineApiSeat>();
+
+			for (const provider of customProviders) {
+				seats.set(provider.providerId, {
+					providerId: provider.providerId,
+					name: provider.name,
+					baseUrl: provider.baseUrl || null,
+					defaultModelId: provider.defaultModelId,
+					models: provider.models,
+					source: "custom",
+					apiKeyConfigured: Boolean(resolveVisibleApiKey(getSdkProviderSettings(provider.providerId))),
+				});
+			}
+
+			for (const configured of listSdkConfiguredProviders()) {
+				if (customById.has(configured.providerId)) {
+					continue;
+				}
+				if (!configured.hasApiKey) {
+					continue;
+				}
+				if (isManagedOauthProviderId(configured.providerId) && configured.tokenSource === "oauth") {
+					continue;
+				}
+				const catalogEntry = catalogById.get(configured.providerId);
+				seats.set(configured.providerId, {
+					providerId: configured.providerId,
+					name: catalogEntry?.name ?? configured.providerId,
+					baseUrl: configured.baseUrl ?? catalogEntry?.baseUrl ?? null,
+					defaultModelId: configured.modelId ?? catalogEntry?.defaultModelId ?? null,
+					models: [],
+					source: "builtin",
+					apiKeyConfigured: true,
+				});
+			}
+
+			return {
+				seats: [...seats.values()].sort((left, right) => left.name.localeCompare(right.name)),
+			};
+		},
+
+		/**
+		 * Smallest real call a seat can make, so a bad key, an ungranted model, or an
+		 * empty balance surfaces here instead of halfway through a task.
+		 */
+		async testProvider(input: RuntimeClineTestProviderRequest): Promise<RuntimeClineTestProviderResponse> {
+			const providerId = input.providerId.trim().toLowerCase();
+			const startedAt = Date.now();
+			let resolvedModelId: string | null = input.modelId?.trim() || null;
+			try {
+				if (!providerId) {
+					throw new Error("Provider ID cannot be empty.");
+				}
+				const launchConfig = await resolveLaunchConfig({
+					providerIdOverride: providerId,
+					...(resolvedModelId ? { modelIdOverride: resolvedModelId } : {}),
+				});
+				resolvedModelId = launchConfig.modelId;
+				if (!launchConfig.modelId) {
+					throw new Error("No model is configured for this seat. Pick a model and try again.");
+				}
+				if (!launchConfig.apiKey) {
+					throw new Error("No API key is stored for this seat.");
+				}
+				await probeSdkProvider({
+					providerId: launchConfig.providerId,
+					modelId: launchConfig.modelId,
+					apiKey: launchConfig.apiKey,
+					baseUrl: launchConfig.baseUrl,
+					timeoutMs: PROVIDER_PROBE_TIMEOUT_MS,
+				});
+				return {
+					ok: true,
+					providerId,
+					modelId: launchConfig.modelId,
+					latencyMs: Date.now() - startedAt,
+				};
+			} catch (error) {
+				const message = toErrorMessage(error);
+				// Metadata is user-visible in logs — never widen this to the resolved key.
+				LOGGER.log("Cline provider probe failed.", {
+					severity: "warn",
+					providerId,
+					modelId: resolvedModelId,
+				});
+				return {
+					ok: false,
+					providerId,
+					modelId: resolvedModelId,
+					latencyMs: Date.now() - startedAt,
+					error: message,
+				};
+			}
 		},
 
 		saveProviderSettings(input: {

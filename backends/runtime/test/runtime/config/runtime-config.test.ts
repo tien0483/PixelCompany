@@ -294,7 +294,9 @@ describe.sequential("runtime-config auto agent selection", () => {
 			await withTemporaryEnv({ home: tempHome }, async () => {
 				const current = await loadRuntimeConfig(tempProject);
 				await saveRuntimeConfig(tempProject, {
-					selectedAgentId: "cline",
+					// A gated agent normalizes back to the default, giving the writer a
+					// default-valued key to omit. Cline is launchable now; codex is not.
+					selectedAgentId: "codex",
 					selectedShortcutLabel: null,
 					agentAutonomousModeEnabled: true,
 					readyForReviewNotificationsEnabled: true,

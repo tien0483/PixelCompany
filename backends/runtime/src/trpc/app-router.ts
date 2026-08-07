@@ -15,6 +15,7 @@ import type {
 	RuntimeClineAccountSwitchResponse,
 	RuntimeClineAddProviderRequest,
 	RuntimeClineAddProviderResponse,
+	RuntimeClineApiSeatListResponse,
 	RuntimeClineCustomProviderListResponse,
 	RuntimeClineDeleteProviderRequest,
 	RuntimeClineDeleteProviderResponse,
@@ -35,6 +36,8 @@ import type {
 	RuntimeClineProviderModelsResponse,
 	RuntimeClineProviderSettingsSaveRequest,
 	RuntimeClineProviderSettingsSaveResponse,
+	RuntimeClineTestProviderRequest,
+	RuntimeClineTestProviderResponse,
 	RuntimeClineUpdateProviderRequest,
 	RuntimeClineUpdateProviderResponse,
 	RuntimeCommandRunRequest,
@@ -226,6 +229,7 @@ import {
 	runtimeClineAccountSwitchResponseSchema,
 	runtimeClineAddProviderRequestSchema,
 	runtimeClineAddProviderResponseSchema,
+	runtimeClineApiSeatListResponseSchema,
 	runtimeClineCustomProviderListResponseSchema,
 	runtimeClineDeleteProviderRequestSchema,
 	runtimeClineDeleteProviderResponseSchema,
@@ -246,6 +250,8 @@ import {
 	runtimeClineProviderModelsResponseSchema,
 	runtimeClineProviderSettingsSaveRequestSchema,
 	runtimeClineProviderSettingsSaveResponseSchema,
+	runtimeClineTestProviderRequestSchema,
+	runtimeClineTestProviderResponseSchema,
 	runtimeClineUpdateProviderRequestSchema,
 	runtimeClineUpdateProviderResponseSchema,
 	runtimeCommandRunRequestSchema,
@@ -401,6 +407,11 @@ export interface RuntimeTrpcContext {
 		getClineCustomProviders: (
 			scope: RuntimeTrpcWorkspaceScope | null,
 		) => Promise<RuntimeClineCustomProviderListResponse>;
+		listClineApiSeats: (scope: RuntimeTrpcWorkspaceScope | null) => Promise<RuntimeClineApiSeatListResponse>;
+		testClineProvider: (
+			scope: RuntimeTrpcWorkspaceScope | null,
+			input: RuntimeClineTestProviderRequest,
+		) => Promise<RuntimeClineTestProviderResponse>;
 		startTaskSession: (
 			scope: RuntimeTrpcWorkspaceScope,
 			input: RuntimeTaskSessionStartRequest,
@@ -780,6 +791,15 @@ export const runtimeAppRouter = t.router({
 			.output(runtimeClineCustomProviderListResponseSchema)
 			.query(async ({ ctx }) => {
 				return await ctx.runtimeApi.getClineCustomProviders(ctx.workspaceScope);
+			}),
+		listClineApiSeats: t.procedure.output(runtimeClineApiSeatListResponseSchema).query(async ({ ctx }) => {
+			return await ctx.runtimeApi.listClineApiSeats(ctx.workspaceScope);
+		}),
+		testClineProvider: t.procedure
+			.input(runtimeClineTestProviderRequestSchema)
+			.output(runtimeClineTestProviderResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.runtimeApi.testClineProvider(ctx.workspaceScope, input);
 			}),
 		startTaskSession: workspaceProcedure
 			.input(runtimeTaskSessionStartRequestSchema)
