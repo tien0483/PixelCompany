@@ -27,6 +27,7 @@ export enum LocalStorageKey {
 	/** Max cards allowed to run concurrently; the backlog auto-run scheduler defers past this. */
 	MaxRunningTasks = "kanban.max-running-tasks",
 	PlansLastImportFolder = "kanban.plans-last-import-folder",
+	PlanEditorRawPaneRatio = "kanban.plan-editor-raw-pane-ratio",
 	AddProjectLastBrowseFolder = "kanban.add-project-last-browse-folder",
 }
 
@@ -46,6 +47,7 @@ export const LAYOUT_CUSTOMIZATION_LOCAL_STORAGE_KEYS = [
 	LocalStorageKey.GitDiffFileTreePanelRatio,
 	LocalStorageKey.HomeRightColumnWidth,
 	LocalStorageKey.HomeRightSplitRatio,
+	LocalStorageKey.PlanEditorRawPaneRatio,
 ] as const;
 
 function getLocalStorage(): Storage | null {
