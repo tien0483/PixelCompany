@@ -26,4 +26,17 @@ describe("createPlanEditorExtensions", () => {
 		const markdown = getMarkdownFromEditor(editor);
 		expect(markdown.trim()).toContain("# Roadmap");
 	});
+
+	it("serializes highlight and text color marks with exact, correctly-placed HTML", () => {
+		editor = new Editor({
+			element: document.createElement("div"),
+			extensions: createPlanEditorExtensions(),
+			content: "<p>before <mark>highlighted</mark> <span style=\"color: #F85149\">red</span> after</p>",
+		});
+
+		const markdown = getMarkdownFromEditor(editor).trim();
+		expect(markdown).toBe(
+			'before <mark>highlighted</mark> <span style="color: #F85149">red</span> after',
+		);
+	});
 });
