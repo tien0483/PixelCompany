@@ -152,6 +152,14 @@ export function useWorkspacePersistence({
 		return () => {
 			window.clearTimeout(timeoutId);
 		};
+		// `sessions` is deliberately excluded from these deps (it's still read via
+		// `sessionsRef.current` above, so the payload sent to the server stays current).
+		// The server now owns session durability via its own debounced session-summary
+		// persister (see session-summary-persister.ts / Tasks 3, 4, 6, 7), so this effect
+		// only needs to re-run on `board` changes. `sessions` changes on effectively every
+		// PTY chunk (`lastOutputAt` ticks constantly), so adding it here would re-fire this
+		// full workspace-state save per chunk instead of per real board edit. Do not add
+		// `sessions` back to this list.
 	}, [
 		board,
 		canPersistWorkspaceState,
