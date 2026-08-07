@@ -6,6 +6,8 @@ import { initTRPC, TRPCError } from "@trpc/server";
 import { z } from "zod";
 import type {
 	RuntimeAgentModelInventory,
+	RuntimeCleanMergedWorktreesResponse,
+	RuntimeCleanStashResponse,
 	RuntimeClineAccountBalanceResponse,
 	RuntimeClineAccountOrganizationsResponse,
 	RuntimeClineAccountProfileResponse,
@@ -178,6 +180,12 @@ import type {
 	RuntimeWorktreeEnsureResponse,
 } from "../core/api-contract";
 import {
+	type RuntimeHtmlStatus,
+	RuntimeHtmlStatusSchema,
+	type RuntimeHtmlTemplate,
+	type RuntimeHtmlTemplateExample,
+	RuntimeHtmlTemplateExampleSchema,
+	RuntimeHtmlTemplateSchema,
 	RuntimeManagerAccountAuthorizeCcRequestSchema,
 	RuntimeManagerAccountIdRequestSchema,
 	RuntimeManagerAccountLaunchCredentialSchema,
@@ -208,13 +216,9 @@ import {
 	RuntimeManagerUsageAuthSessionCreateRequestSchema,
 	RuntimeManagerUsageAuthSessionCreateResponseSchema,
 	RuntimeManagerUsageOverviewSchema,
-	RuntimeHtmlStatusSchema,
-	RuntimeHtmlTemplateSchema,
-	RuntimeHtmlTemplateExampleSchema,
-	type RuntimeHtmlStatus,
-	type RuntimeHtmlTemplate,
-	type RuntimeHtmlTemplateExample,
 	runtimeAgentModelInventorySchema,
+	runtimeCleanMergedWorktreesResponseSchema,
+	runtimeCleanStashResponseSchema,
 	runtimeClineAccountBalanceResponseSchema,
 	runtimeClineAccountOrganizationsResponseSchema,
 	runtimeClineAccountProfileResponseSchema,
@@ -553,6 +557,8 @@ export interface RuntimeTrpcContext {
 			input: RuntimeGitCommitRequest,
 		) => Promise<RuntimeGitCommitResponse>;
 		listWorktrees: (scope: RuntimeTrpcWorkspaceScope) => Promise<RuntimeGitWorktreeInventoryResponse>;
+		cleanMergedWorktrees: (scope: RuntimeTrpcWorkspaceScope) => Promise<RuntimeCleanMergedWorktreesResponse>;
+		cleanStash: (scope: RuntimeTrpcWorkspaceScope) => Promise<RuntimeCleanStashResponse>;
 		getBlame: (scope: RuntimeTrpcWorkspaceScope, input: RuntimeGitBlameRequest) => Promise<RuntimeGitBlameResponse>;
 		getMergeConflicts: (
 			scope: RuntimeTrpcWorkspaceScope,
@@ -1057,6 +1063,14 @@ export const runtimeAppRouter = t.router({
 		listWorktrees: workspaceProcedure.output(runtimeGitWorktreeInventoryResponseSchema).query(async ({ ctx }) => {
 			return await ctx.workspaceApi.listWorktrees(ctx.workspaceScope);
 		}),
+		cleanMergedWorktrees: workspaceProcedure
+			.output(runtimeCleanMergedWorktreesResponseSchema)
+			.mutation(async ({ ctx }) => {
+				return await ctx.workspaceApi.cleanMergedWorktrees(ctx.workspaceScope);
+			}),
+		cleanStash: workspaceProcedure.output(runtimeCleanStashResponseSchema).mutation(async ({ ctx }) => {
+			return await ctx.workspaceApi.cleanStash(ctx.workspaceScope);
+		}),
 		getBlame: workspaceProcedure
 			.input(runtimeGitBlameRequestSchema)
 			.output(runtimeGitBlameResponseSchema)
@@ -1443,7 +1457,7 @@ export const runtimeAppRouter = t.router({
 					});
 				}
 			}),
-			getUsageAuthCode: t.procedure
+		getUsageAuthCode: t.procedure
 			.input(RuntimeManagerUsageAuthCodeRequestSchema)
 			.output(RuntimeManagerUsageAuthCodeResponseSchema)
 			.query(async ({ input }) => {

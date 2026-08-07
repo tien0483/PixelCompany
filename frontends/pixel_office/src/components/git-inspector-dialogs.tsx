@@ -1,9 +1,23 @@
-import { GitMerge, Loader2 } from "lucide-react";
+import { GitMerge, Loader2, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
-
+import { showAppToast } from "@/components/app-toaster";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogBody, DialogHeader } from "@/components/ui/dialog";
 import {
+	AlertDialog,
+	AlertDialogAction,
+	AlertDialogBody,
+	AlertDialogCancel,
+	AlertDialogDescription,
+	AlertDialogFooter,
+	AlertDialogHeader,
+	AlertDialogTitle,
+	Dialog,
+	DialogBody,
+	DialogHeader,
+} from "@/components/ui/dialog";
+import { Spinner } from "@/components/ui/spinner";
+import {
+	cleanRuntimeMergedWorktrees,
 	fetchRuntimeMergeConflicts,
 	fetchRuntimeWorktrees,
 	resolveRuntimeMergeConflict,
@@ -26,29 +40,54 @@ export function WorktreesDialog({
 		null,
 	);
 	const [error, setError] = useState<string | null>(null);
+	const [isCleaningMerged, setIsCleaningMerged] = useState(false);
+	const [isCleanConfirmOpen, setIsCleanConfirmOpen] = useState(false);
+
+	const load = useCallback(async () => {
+		setWorktrees(null);
+		setError(null);
+		const response = await fetchRuntimeWorktrees(workspaceId);
+		if (response.ok) {
+			setWorktrees(response.worktrees);
+		} else {
+			setError(response.error ?? "Failed to list worktrees.");
+		}
+	}, [workspaceId]);
 
 	useEffect(() => {
 		if (!open) {
 			return;
 		}
-		let cancelled = false;
-		setWorktrees(null);
-		setError(null);
-		void (async () => {
-			const response = await fetchRuntimeWorktrees(workspaceId);
-			if (cancelled) {
+		void load();
+	}, [open, load]);
+
+	const cleanMerged = useCallback(async () => {
+		setIsCleaningMerged(true);
+		try {
+			const response = await cleanRuntimeMergedWorktrees(workspaceId);
+			if (!response.ok) {
+				showAppToast({
+					intent: "danger",
+					icon: "warning-sign",
+					message: response.error ?? "Failed to clean merged worktrees.",
+					timeout: 7000,
+				});
 				return;
 			}
-			if (response.ok) {
-				setWorktrees(response.worktrees);
-			} else {
-				setError(response.error ?? "Failed to list worktrees.");
-			}
-		})();
-		return () => {
-			cancelled = true;
-		};
-	}, [open, workspaceId]);
+			showAppToast({
+				intent: "success",
+				icon: "tick",
+				message:
+					response.cleanedTaskIds.length > 0
+						? `Removed ${response.cleanedTaskIds.length} merged worktree${response.cleanedTaskIds.length === 1 ? "" : "s"}.`
+						: "No merged worktrees to remove.",
+				timeout: 4000,
+			});
+			await load();
+		} finally {
+			setIsCleaningMerged(false);
+		}
+	}, [workspaceId, load]);
 
 	return (
 		<Dialog
@@ -56,7 +95,17 @@ export function WorktreesDialog({
 			onOpenChange={onOpenChange}
 			contentClassName="max-w-2xl"
 		>
-			<DialogHeader title="Worktrees" />
+			<DialogHeader title="Worktrees">
+				<Button
+					variant="default"
+					size="sm"
+					icon={isCleaningMerged ? <Spinner size={14} /> : <Trash2 size={14} />}
+					disabled={isCleaningMerged}
+					onClick={() => setIsCleanConfirmOpen(true)}
+				>
+					Clean merged
+				</Button>
+			</DialogHeader>
 			<DialogBody>
 				{error ? (
 					<p className="text-[13px] text-status-red">{error}</p>
@@ -92,6 +141,42 @@ export function WorktreesDialog({
 					</ul>
 				)}
 			</DialogBody>
+			<AlertDialog
+				open={isCleanConfirmOpen}
+				onOpenChange={setIsCleanConfirmOpen}
+			>
+				<AlertDialogHeader>
+					<AlertDialogTitle>Clean merged worktrees?</AlertDialogTitle>
+				</AlertDialogHeader>
+				<AlertDialogBody>
+					<AlertDialogDescription>
+						Removes every task worktree whose branch is fully merged into its
+						base ref, and deletes that local branch. Worktrees shared with a
+						live chain member or not yet merged are left alone.
+					</AlertDialogDescription>
+				</AlertDialogBody>
+				<AlertDialogFooter>
+					<AlertDialogCancel asChild>
+						<Button
+							variant="default"
+							onClick={() => setIsCleanConfirmOpen(false)}
+						>
+							Cancel
+						</Button>
+					</AlertDialogCancel>
+					<AlertDialogAction asChild>
+						<Button
+							variant="danger"
+							onClick={() => {
+								setIsCleanConfirmOpen(false);
+								void cleanMerged();
+							}}
+						>
+							Clean merged
+						</Button>
+					</AlertDialogAction>
+				</AlertDialogFooter>
+			</AlertDialog>
 		</Dialog>
 	);
 }

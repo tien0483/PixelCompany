@@ -68,7 +68,10 @@ import { useReviewStalenessAlert } from "@/hooks/use-review-staleness-alert";
 import { useSavedPlans } from "@/hooks/use-saved-plans";
 import { useShortcutActions } from "@/hooks/use-shortcut-actions";
 import { useStartupOnboarding } from "@/hooks/use-startup-onboarding";
-import { ensureBranchOptionPresent, useTaskBranchOptions } from "@/hooks/use-task-branch-options";
+import {
+	ensureBranchOptionPresent,
+	useTaskBranchOptions,
+} from "@/hooks/use-task-branch-options";
 import { useTaskEditor } from "@/hooks/use-task-editor";
 import { useTaskSessions } from "@/hooks/use-task-sessions";
 import { useTaskStartActions } from "@/hooks/use-task-start-actions";
@@ -506,6 +509,8 @@ export default function App(): ReactElement {
 		clearGitActionError,
 		gitHistory,
 		runGitAction,
+		isCleaningStash,
+		cleanStash,
 		switchHomeBranch,
 		deleteHomeBranch,
 		isDeletingHomeBranch,
@@ -877,7 +882,9 @@ export default function App(): ReactElement {
 		if (!selectedCard) {
 			return undefined;
 		}
-		const activeSelectedTaskWorkspaceInfo = getTaskWorkspaceInfo(selectedCard.card.id);
+		const activeSelectedTaskWorkspaceInfo = getTaskWorkspaceInfo(
+			selectedCard.card.id,
+		);
 		if (!activeSelectedTaskWorkspaceInfo) {
 			return undefined;
 		}
@@ -1091,7 +1098,10 @@ export default function App(): ReactElement {
 			}}
 			workspaceId={currentProjectId}
 			branchRef={editTaskBranchRef}
-			branchOptions={ensureBranchOptionPresent(createTaskBranchOptions, editTaskBranchRef)}
+			branchOptions={ensureBranchOptionPresent(
+				createTaskBranchOptions,
+				editTaskBranchRef,
+			)}
 			onBranchRefChange={setEditTaskBranchRef}
 			branchSelectDisabled={isEditTaskBaseRefLocked}
 			branchSelectDisabledReason="Base ref is fixed once the task has started."
@@ -1210,6 +1220,14 @@ export default function App(): ReactElement {
 										void runGitAction("stash-pop");
 									}
 						}
+						onCleanStash={
+							selectedCard
+								? undefined
+								: () => {
+										void cleanStash();
+									}
+						}
+						isCleaningStash={isCleaningStash}
 						onGitCommit={
 							selectedCard ? undefined : () => setIsCommitDialogOpen(true)
 						}

@@ -4,6 +4,8 @@
 import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
 import type {
 	RuntimeAgentId,
+	RuntimeCleanMergedWorktreesResponse,
+	RuntimeCleanStashResponse,
 	RuntimeClineAccountBalanceResponse,
 	RuntimeClineAccountOrganizationsResponse,
 	RuntimeClineAccountProfileResponse,
@@ -324,6 +326,20 @@ export async function fetchRuntimeWorktrees(
 ): Promise<RuntimeGitWorktreeInventoryResponse> {
 	const trpcClient = getRuntimeTrpcClient(workspaceId);
 	return await trpcClient.workspace.listWorktrees.query();
+}
+
+export async function cleanRuntimeMergedWorktrees(
+	workspaceId: string | null,
+): Promise<RuntimeCleanMergedWorktreesResponse> {
+	const trpcClient = getRuntimeTrpcClient(workspaceId);
+	return await trpcClient.workspace.cleanMergedWorktrees.mutate();
+}
+
+export async function cleanRuntimeStash(
+	workspaceId: string | null,
+): Promise<RuntimeCleanStashResponse> {
+	const trpcClient = getRuntimeTrpcClient(workspaceId);
+	return await trpcClient.workspace.cleanStash.mutate();
 }
 
 export async function fetchRuntimeMergeConflicts(

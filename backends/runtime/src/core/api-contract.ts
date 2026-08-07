@@ -268,6 +268,14 @@ export type RuntimeGitRepositoryInfo = z.infer<typeof runtimeGitRepositoryInfoSc
 export const runtimeGitSyncActionSchema = z.enum(["fetch", "pull", "push", "stash", "stash-pop"]);
 export type RuntimeGitSyncAction = z.infer<typeof runtimeGitSyncActionSchema>;
 
+export const runtimeCleanStashResponseSchema = z.object({
+	ok: z.boolean(),
+	clearedCount: z.number(),
+	output: z.string(),
+	error: z.string().optional(),
+});
+export type RuntimeCleanStashResponse = z.infer<typeof runtimeCleanStashResponseSchema>;
+
 export const runtimeGitSyncSummarySchema = z.object({
 	currentBranch: z.string().nullable(),
 	upstreamBranch: z.string().nullable(),
@@ -2419,6 +2427,21 @@ export const runtimeGitWorktreeInventoryResponseSchema = z.object({
 	error: z.string().optional(),
 });
 export type RuntimeGitWorktreeInventoryResponse = z.infer<typeof runtimeGitWorktreeInventoryResponseSchema>;
+
+export const runtimeCleanMergedWorktreesSkippedEntrySchema = z.object({
+	taskId: z.string(),
+	branch: z.string(),
+	reason: z.string(),
+});
+export type RuntimeCleanMergedWorktreesSkippedEntry = z.infer<typeof runtimeCleanMergedWorktreesSkippedEntrySchema>;
+
+export const runtimeCleanMergedWorktreesResponseSchema = z.object({
+	ok: z.boolean(),
+	cleanedTaskIds: z.array(z.string()),
+	skipped: z.array(runtimeCleanMergedWorktreesSkippedEntrySchema),
+	error: z.string().optional(),
+});
+export type RuntimeCleanMergedWorktreesResponse = z.infer<typeof runtimeCleanMergedWorktreesResponseSchema>;
 
 export const runtimeGitPullRequestRequestSchema = z.object({
 	title: z.string(),

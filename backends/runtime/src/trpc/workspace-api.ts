@@ -2,14 +2,14 @@ import { TRPCError } from "@trpc/server";
 import type { ClineTaskSessionService } from "../cline-sdk/cline-task-session-service";
 import type {
 	RuntimeGitCheckoutResponse,
+	RuntimeGitCherryPickResponse,
 	RuntimeGitCreateBranchResponse,
 	RuntimeGitDeleteBranchResponse,
+	RuntimeGitDiscardResponse,
 	RuntimeGitMergeBranchResponse,
 	RuntimeGitMergeIntoCurrentResponse,
-	RuntimeGitRebaseCurrentOntoResponse,
-	RuntimeGitCherryPickResponse,
 	RuntimeGitPushBranchResponse,
-	RuntimeGitDiscardResponse,
+	RuntimeGitRebaseCurrentOntoResponse,
 	RuntimeGitRevertResponse,
 	RuntimeGitSummaryResponse,
 	RuntimeGitSyncAction,
@@ -21,13 +21,13 @@ import type {
 } from "../core/api-contract";
 import {
 	parseGitCheckoutRequest,
+	parseGitCherryPickRequest,
 	parseGitCreateBranchRequest,
 	parseGitDeleteBranchRequest,
 	parseGitMergeBranchRequest,
 	parseGitMergeIntoCurrentRequest,
-	parseGitRebaseCurrentOntoRequest,
-	parseGitCherryPickRequest,
 	parseGitPushBranchRequest,
+	parseGitRebaseCurrentOntoRequest,
 	parseWorktreeDeleteRequest,
 	parseWorktreeEnsureRequest,
 } from "../core/api-validation";
@@ -43,6 +43,7 @@ import {
 import { createPullRequest } from "../workspace/git-gh";
 import { getBlame, getCommitDiff, getGitLog, getGitRefs } from "../workspace/git-history";
 import {
+	cleanGitStash,
 	commitWorkspaceChanges,
 	discardGitChanges,
 	getGitSyncSummary,
@@ -51,15 +52,16 @@ import {
 	revertGitFile,
 	revertGitHunk,
 	runGitCheckoutAction,
+	runGitCherryPickAction,
 	runGitCreateBranchAction,
 	runGitDeleteBranchAction,
 	runGitMergeBranchAction,
 	runGitMergeIntoCurrentAction,
-	runGitRebaseCurrentOntoAction,
-	runGitCherryPickAction,
 	runGitPushBranchAction,
+	runGitRebaseCurrentOntoAction,
 	runGitSyncAction,
 } from "../workspace/git-sync";
+import { cleanMergedWorktrees } from "../workspace/git-worktree-cleanup";
 import { listGitWorktrees } from "../workspace/git-worktree-inventory";
 import { searchWorkspaceFiles } from "../workspace/search-workspace-files";
 import {
@@ -639,6 +641,42 @@ export function createWorkspaceApi(deps: CreateWorkspaceApiDependencies): Runtim
 				return await listGitWorktrees(workspaceScope.workspacePath);
 			} catch (error) {
 				return { ok: false, worktrees: [], error: error instanceof Error ? error.message : String(error) };
+			}
+		},
+		cleanMergedWorktrees: async (workspaceScope) => {
+			try {
+				const { board } = await loadWorkspaceState(workspaceScope.workspacePath);
+				const response = await cleanMergedWorktrees({
+					repoPath: workspaceScope.workspacePath,
+					workspaceId: workspaceScope.workspaceId,
+					board,
+				});
+				if (response.cleanedTaskIds.length > 0) {
+					void deps.broadcastRuntimeWorkspaceStateUpdated(
+						workspaceScope.workspaceId,
+						workspaceScope.workspacePath,
+					);
+				}
+				return response;
+			} catch (error) {
+				return {
+					ok: false,
+					cleanedTaskIds: [],
+					skipped: [],
+					error: error instanceof Error ? error.message : String(error),
+				};
+			}
+		},
+		cleanStash: async (workspaceScope) => {
+			try {
+				return await cleanGitStash(workspaceScope.workspacePath);
+			} catch (error) {
+				return {
+					ok: false,
+					clearedCount: 0,
+					output: "",
+					error: error instanceof Error ? error.message : String(error),
+				};
 			}
 		},
 		getBlame: async (workspaceScope, input) => {

@@ -3,18 +3,19 @@ import { tmpdir } from "node:os";
 import { isAbsolute, join } from "node:path";
 
 import type {
+	RuntimeCleanStashResponse,
 	RuntimeGitCheckoutResponse,
-	RuntimeGitCreateBranchResponse,
-	RuntimeGitDeleteBranchResponse,
-	RuntimeGitMergeBranchResponse,
-	RuntimeGitMergeIntoCurrentResponse,
-	RuntimeGitRebaseCurrentOntoResponse,
 	RuntimeGitCherryPickResponse,
-	RuntimeGitPushBranchResponse,
 	RuntimeGitCommitResponse,
 	RuntimeGitConflictSide,
 	RuntimeGitConflictsResponse,
+	RuntimeGitCreateBranchResponse,
+	RuntimeGitDeleteBranchResponse,
 	RuntimeGitDiscardResponse,
+	RuntimeGitMergeBranchResponse,
+	RuntimeGitMergeIntoCurrentResponse,
+	RuntimeGitPushBranchResponse,
+	RuntimeGitRebaseCurrentOntoResponse,
 	RuntimeGitResolveConflictResponse,
 	RuntimeGitRevertResponse,
 	RuntimeGitSyncAction,
@@ -297,7 +298,9 @@ export async function getCommitsAheadOfBaseRef(worktreePath: string, baseRef: st
 	if (!trimmedBaseRef) {
 		return 0;
 	}
-	const result = await getGitStdout(["rev-list", "--count", `${trimmedBaseRef}..HEAD`], worktreePath).catch(() => null);
+	const result = await getGitStdout(["rev-list", "--count", `${trimmedBaseRef}..HEAD`], worktreePath).catch(
+		() => null,
+	);
 	if (!result) {
 		return 0;
 	}
@@ -348,6 +351,43 @@ export async function runGitSyncAction(options: {
 		summary: nextSummary,
 		output: commandResult.output,
 	};
+}
+
+/**
+ * Drops every entry in the stash (`git stash clear`). Counts entries via
+ * `stash list` first so the response can report how many were removed —
+ * `stash clear` itself prints nothing on success.
+ */
+export async function cleanGitStash(cwd: string): Promise<RuntimeCleanStashResponse> {
+	const repoRoot = await resolveRepoRoot(cwd);
+	const listResult = await runGit(repoRoot, ["stash", "list"]);
+	if (!listResult.ok) {
+		return {
+			ok: false,
+			clearedCount: 0,
+			output: listResult.output,
+			error: listResult.error ?? "Failed to list stash entries.",
+		};
+	}
+
+	const clearedCount = listResult.stdout
+		? listResult.stdout.split("\n").filter((line) => line.trim().length > 0).length
+		: 0;
+	if (clearedCount === 0) {
+		return { ok: true, clearedCount: 0, output: "" };
+	}
+
+	const clearResult = await runGit(repoRoot, ["stash", "clear"]);
+	if (!clearResult.ok) {
+		return {
+			ok: false,
+			clearedCount: 0,
+			output: clearResult.output,
+			error: clearResult.error ?? "Failed to clear stash.",
+		};
+	}
+
+	return { ok: true, clearedCount, output: clearResult.output };
 }
 
 export async function commitWorkspaceChanges(options: {
@@ -612,7 +652,14 @@ export async function runGitMergeBranchAction(options: {
 	const initialSummary = await getGitSyncSummary(options.cwd);
 
 	if (!branch) {
-		return { ok: false, branch, baseRef, summary: initialSummary, output: "", error: "Task branch name cannot be empty." };
+		return {
+			ok: false,
+			branch,
+			baseRef,
+			summary: initialSummary,
+			output: "",
+			error: "Task branch name cannot be empty.",
+		};
 	}
 
 	if (initialSummary.currentBranch !== baseRef) {
@@ -997,7 +1044,9 @@ export async function runGitSafeForcePush(options: {
 	]);
 
 	if (!pushResult.ok) {
-		const actualSha = await getGitStdout(["rev-parse", `origin/${options.branch}`], options.cwd).catch(() => "unknown");
+		const actualSha = await getGitStdout(["rev-parse", `origin/${options.branch}`], options.cwd).catch(
+			() => "unknown",
+		);
 		await appendBranchRegistryStatusLog(options.workspaceId, {
 			taskId: options.taskId,
 			op: "force-push-rejected",

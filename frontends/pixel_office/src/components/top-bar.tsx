@@ -2,6 +2,7 @@ import * as RadixPopover from "@radix-ui/react-popover";
 import {
 	Archive,
 	ArchiveRestore,
+	ArchiveX,
 	ArrowDown,
 	ArrowLeft,
 	ArrowUp,
@@ -203,6 +204,8 @@ function TopBarGitStatusSection({
 	onGitPush,
 	onGitStash,
 	onGitStashPop,
+	onCleanStash,
+	isCleaningStash,
 	onGitCommit,
 	onGitPullRequest,
 	onGitWorktrees,
@@ -218,6 +221,8 @@ function TopBarGitStatusSection({
 	onGitPush?: () => void;
 	onGitStash?: () => void;
 	onGitStashPop?: () => void;
+	onCleanStash?: () => void;
+	isCleaningStash?: boolean;
 	onGitCommit?: () => void;
 	onGitPullRequest?: () => void;
 	onGitWorktrees?: () => void;
@@ -347,6 +352,21 @@ function TopBarGitStatusSection({
 							aria-label="Pop stashed changes"
 						/>
 					</Tooltip>
+					<Tooltip
+						side="bottom"
+						content="Drop every stashed changeset (git stash clear). This cannot be undone."
+					>
+						<Button
+							variant="ghost"
+							size="sm"
+							icon={
+								isCleaningStash ? <Spinner size={14} /> : <ArchiveX size={14} />
+							}
+							onClick={onCleanStash}
+							disabled={isCleaningStash}
+							aria-label="Clean stash"
+						/>
+					</Tooltip>
 					<Tooltip side="bottom" content="Commit your working-copy changes.">
 						<Button
 							variant="ghost"
@@ -430,6 +450,8 @@ export function TopBar({
 	onGitPush,
 	onGitStash,
 	onGitStashPop,
+	onCleanStash,
+	isCleaningStash,
 	onGitCommit,
 	onGitPullRequest,
 	onGitWorktrees,
@@ -475,6 +497,8 @@ export function TopBar({
 	onGitPush?: () => void;
 	onGitStash?: () => void;
 	onGitStashPop?: () => void;
+	onCleanStash?: () => void;
+	isCleaningStash?: boolean;
 	onGitCommit?: () => void;
 	onGitPullRequest?: () => void;
 	onGitWorktrees?: () => void;
@@ -709,6 +733,8 @@ export function TopBar({
 									onGitPush={onGitPush}
 									onGitStash={onGitStash}
 									onGitStashPop={onGitStashPop}
+									onCleanStash={onCleanStash}
+									isCleaningStash={isCleaningStash}
 									onGitCommit={onGitCommit}
 									onGitPullRequest={onGitPullRequest}
 									onGitWorktrees={onGitWorktrees}

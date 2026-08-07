@@ -194,10 +194,19 @@ export async function deregisterActiveBranch(workspaceId: string, taskId: string
 	});
 }
 
-export async function getActiveBranchEntry(workspaceId: string, taskId: string): Promise<BranchRegistryEntry | undefined> {
+export async function getActiveBranchEntry(
+	workspaceId: string,
+	taskId: string,
+): Promise<BranchRegistryEntry | undefined> {
 	const registryPath = getWorkspaceBranchRegistryPath(workspaceId);
 	const file = await readBranchRegistryFile(registryPath);
 	return file.entries[taskId];
+}
+
+export async function listActiveBranchEntries(workspaceId: string): Promise<BranchRegistryEntry[]> {
+	const registryPath = getWorkspaceBranchRegistryPath(workspaceId);
+	const file = await readBranchRegistryFile(registryPath);
+	return Object.values(file.entries);
 }
 
 export async function appendBranchRegistryStatusLog(
