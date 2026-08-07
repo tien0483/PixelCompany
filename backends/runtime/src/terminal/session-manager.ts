@@ -28,6 +28,7 @@ import { hasCodexWorkspaceTrustPrompt, shouldAutoConfirmCodexWorkspaceTrust } fr
 import { isCursorOutputTransitionDetector } from "./cursor-output-transition";
 import { stripAnsi } from "./output-utils";
 import { PtySession } from "./pty-session";
+import { reconcileHydratedSessionSummary } from "./session-hydration";
 import {
 	computeRunTimingPatch,
 	freezeRunTimingPatch,
@@ -258,10 +259,28 @@ function hasCodexStartupUiRendered(text: string): boolean {
 	return stripped.includes("openai codex (v");
 }
 
+/**
+ * Forward-compatible stub for the terminal scrollback snapshot store landing in Task 5
+ * (`terminal-snapshot-store.ts`). Left loosely typed on purpose: the real shape (what a
+ * snapshot looks like, how it's keyed/persisted) is Task 5's design decision, and this
+ * task only needs the constructor wiring to already be in place so Task 5 doesn't have
+ * to touch every existing `new TerminalSessionManager()` call site again.
+ */
+export type TerminalSnapshotStore = unknown;
+
+export interface TerminalSessionManagerOptions {
+	snapshotStore?: TerminalSnapshotStore | null;
+}
+
 export class TerminalSessionManager implements TerminalSessionService {
 	private readonly entries = new Map<string, SessionEntry>();
 	private readonly summaryListeners = new Set<(summary: RuntimeTaskSessionSummary) => void>();
 	private agentAuthFailureReporter: AgentAuthFailureReporter | null = null;
+	private readonly snapshotStore: TerminalSnapshotStore | null;
+
+	constructor(options?: TerminalSessionManagerOptions) {
+		this.snapshotStore = options?.snapshotStore ?? null;
+	}
 
 	/** Wired by the CLI once a Manager client exists; reports a live agent 401 so Manager can re-validate the seat. */
 	setAgentAuthFailureReporter(reporter: AgentAuthFailureReporter | null): void {
@@ -279,6 +298,11 @@ export class TerminalSessionManager implements TerminalSessionService {
 		} catch {
 			// Reporting never takes down a session.
 		}
+	}
+
+	/** Exposed for Task 6 to wire scrollback snapshot capture/restore against. Unused stub for now. */
+	getSnapshotStore(): TerminalSnapshotStore | null {
+		return this.snapshotStore;
 	}
 
 	private trySendDeferredCodexStartupInput(taskId: string): boolean {
@@ -320,7 +344,7 @@ export class TerminalSessionManager implements TerminalSessionService {
 	hydrateFromRecord(record: Record<string, RuntimeTaskSessionSummary>): void {
 		for (const [taskId, summary] of Object.entries(record)) {
 			this.entries.set(taskId, {
-				summary: cloneSummary(summary),
+				summary: cloneSummary(reconcileHydratedSessionSummary(summary, now())),
 				active: null,
 				terminalStateMirror: null,
 				listenerIdCounter: 1,
@@ -914,6 +938,10 @@ export class TerminalSessionManager implements TerminalSessionService {
 
 		// Preserve agentId so the server can route to the correct agent type
 		// (Cline SDK vs terminal PTY) when a task is restored from trash.
+		// pausedAt/pauseReason are carried through explicitly (not just left untouched by
+		// omission) so this patch stays correct even if updateSummary's merge semantics
+		// change later — a stale session that was also manually/force-paused must not lose
+		// that pause state on recovery.
 		const summary = updateSummary(entry, {
 			state: "idle",
 			workspacePath: null,
@@ -926,6 +954,8 @@ export class TerminalSessionManager implements TerminalSessionService {
 			latestHookActivity: null,
 			latestTurnCheckpoint: null,
 			previousTurnCheckpoint: null,
+			pausedAt: entry.summary.pausedAt,
+			pauseReason: entry.summary.pauseReason,
 		});
 
 		for (const listener of entry.listeners.values()) {

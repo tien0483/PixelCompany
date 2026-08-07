@@ -6,6 +6,7 @@ import type {
 	RuntimeProjectTaskCounts,
 	RuntimeWorkspaceStateResponse,
 } from "../core/api-contract";
+import { createSessionSummaryPersister, type SessionSummaryPersister } from "../state/session-summary-persister";
 import {
 	listWorkspaceIndexEntries,
 	loadWorkspaceBoardById,
@@ -14,6 +15,7 @@ import {
 	type RuntimeWorkspaceIndexEntry,
 	removeWorkspaceIndexEntry,
 	removeWorkspaceStateFiles,
+	saveWorkspaceSessionSummaries,
 } from "../state/workspace-state";
 import { TerminalSessionManager } from "../terminal/session-manager";
 
@@ -67,6 +69,8 @@ export interface WorkspaceRegistry {
 		terminalManager: TerminalSessionManager | null;
 		workspacePath: string | null;
 	};
+	/** Flushes every tracked workspace's session-summary persister (debounced writes). */
+	flushSessionPersistence: () => Promise<void>;
 	summarizeProjectTaskCounts: (workspaceId: string, repoPath: string) => Promise<RuntimeProjectTaskCounts>;
 	createProjectSummary: (input: {
 		workspaceId: string;
@@ -204,6 +208,7 @@ export async function createWorkspaceRegistry(deps: CreateWorkspaceRegistryDepen
 	const projectTaskCountsByWorkspaceId = new Map<string, RuntimeProjectTaskCounts>();
 	const terminalManagersByWorkspaceId = new Map<string, TerminalSessionManager>();
 	const terminalManagerLoadPromises = new Map<string, Promise<TerminalSessionManager>>();
+	const sessionPersistersByWorkspaceId = new Map<string, SessionSummaryPersister>();
 
 	const rememberWorkspace = (workspaceId: string, repoPath: string): void => {
 		workspacePathsById.set(workspaceId, repoPath);
@@ -241,6 +246,22 @@ export async function createWorkspaceRegistry(deps: CreateWorkspaceRegistryDepen
 			} catch {
 				// Workspace state will be created on demand.
 			}
+
+			const persister = createSessionSummaryPersister({ workspaceId });
+			manager.onSummary(persister.handleSummary);
+			sessionPersistersByWorkspaceId.set(workspaceId, persister);
+
+			// hydrateFromRecord reconciles pause/crash state in memory only; write that
+			// reconciled shape back to sessions.json immediately so it's durable right
+			// away rather than waiting on the next live summary change to trip the
+			// persister's debounce.
+			try {
+				await saveWorkspaceSessionSummaries(workspaceId, manager.listSummaries());
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error);
+				console.warn(`Could not persist reconciled session summaries for workspace ${workspaceId}. ${message}`);
+			}
+
 			terminalManagersByWorkspaceId.set(workspaceId, manager);
 			return manager;
 		})().finally(() => {
@@ -278,6 +299,22 @@ export async function createWorkspaceRegistry(deps: CreateWorkspaceRegistryDepen
 			}
 			terminalManagersByWorkspaceId.delete(workspaceId);
 			terminalManagerLoadPromises.delete(workspaceId);
+		}
+		const persister = sessionPersistersByWorkspaceId.get(workspaceId);
+		if (persister) {
+			sessionPersistersByWorkspaceId.delete(workspaceId);
+			// disposeWorkspace's signature is synchronous (all call sites treat it as such),
+			// so the flush is fire-and-forget here rather than awaited; dispose() still runs
+			// only once that flush settles, so we never clear timers out from under a write
+			// that's still in flight.
+			void persister
+				.flush()
+				.catch(() => {
+					// Best effort: the persister's own flush/write path already logs failures.
+				})
+				.finally(() => {
+					persister.dispose();
+				});
 		}
 		projectTaskCountsByWorkspaceId.delete(workspaceId);
 		const workspacePath = workspacePathsById.get(workspaceId) ?? null;
@@ -459,6 +496,9 @@ export async function createWorkspaceRegistry(deps: CreateWorkspaceRegistryDepen
 		setActiveWorkspace,
 		clearActiveWorkspace,
 		disposeWorkspace,
+		flushSessionPersistence: async (): Promise<void> => {
+			await Promise.all(Array.from(sessionPersistersByWorkspaceId.values()).map((persister) => persister.flush()));
+		},
 		summarizeProjectTaskCounts,
 		createProjectSummary: toProjectSummary,
 		buildWorkspaceStateSnapshot,

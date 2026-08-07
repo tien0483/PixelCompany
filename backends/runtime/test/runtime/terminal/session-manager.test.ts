@@ -98,10 +98,16 @@ describe("TerminalSessionManager", () => {
 		expect(afterReviewHook?.latestHookActivity?.activityText).toBe("Waiting for approval");
 	});
 
-	it("resets stale running sessions without active processes", () => {
+	it("resets stale sessions without active processes", () => {
 		const manager = new TerminalSessionManager();
+		// Use "awaiting_review" rather than "running" here: hydrateFromRecord now runs
+		// reconcileHydratedSessionSummary (Task 4 wiring), which already reclassifies a
+		// hydrated "running" (unpaused) summary as "interrupted" — a state
+		// recoverStaleSession intentionally leaves alone since it's no longer "active".
+		// "awaiting_review" stays active through reconcile, so this still exercises
+		// recoverStaleSession's own stale-session reset independently of hydrate's reconcile.
 		manager.hydrateFromRecord({
-			"task-1": createSummary({ state: "running" }),
+			"task-1": createSummary({ state: "awaiting_review" }),
 		});
 
 		const recovered = manager.recoverStaleSession("task-1");
@@ -111,6 +117,64 @@ describe("TerminalSessionManager", () => {
 		expect(recovered?.agentId).toBe("claude");
 		expect(recovered?.workspacePath).toBeNull();
 		expect(recovered?.reviewReason).toBeNull();
+	});
+
+	it("reconciles a hydrated running+pausedAt summary into idle+paused on hydrateFromRecord", () => {
+		const manager = new TerminalSessionManager();
+		manager.hydrateFromRecord({
+			"task-1": createSummary({
+				state: "running",
+				pausedAt: 1_000,
+				pauseReason: "manual",
+				pid: 4321,
+				runningSince: 500,
+			}),
+		});
+
+		const summary = manager.getSummary("task-1");
+
+		// Matches terminal/session-hydration.ts's reconcile: pausedAt != null always wins
+		// and comes back parked (idle, no process), regardless of the run state it was
+		// hydrated with.
+		expect(summary?.state).toBe("idle");
+		expect(summary?.pausedAt).toBe(1_000);
+		expect(summary?.pauseReason).toBe("manual");
+		expect(summary?.pid).toBeNull();
+		expect(summary?.runningSince).toBeNull();
+	});
+
+	it("carries pausedAt/pauseReason through recoverStaleSession's patch when a stale session was also paused", () => {
+		// recoverStaleSession only applies its reset patch to entries in an "active" state
+		// (running/awaiting_review) with no live process — hydrateFromRecord's own reconcile
+		// would already have parked a pausedAt summary, so to exercise recoverStaleSession's
+		// own carry-through we set up the entry directly, bypassing hydrate's reconcile.
+		const manager = new TerminalSessionManager();
+		const entry = {
+			summary: createSummary({
+				state: "awaiting_review",
+				pausedAt: 2_000,
+				pauseReason: "max_runtime",
+			}),
+			active: null,
+			terminalStateMirror: null,
+			listenerIdCounter: 1,
+			listeners: new Map(),
+			restartRequest: null,
+			suppressAutoRestartOnExit: false,
+			autoRestartTimestamps: [],
+			pendingAutoRestart: null,
+		};
+		(
+			manager as unknown as {
+				entries: Map<string, typeof entry>;
+			}
+		).entries.set("task-1", entry);
+
+		const recovered = manager.recoverStaleSession("task-1");
+
+		expect(recovered?.state).toBe("idle");
+		expect(recovered?.pausedAt).toBe(2_000);
+		expect(recovered?.pauseReason).toBe("max_runtime");
 	});
 
 	it("tracks only the latest two turn checkpoints", () => {
