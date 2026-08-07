@@ -1,3 +1,4 @@
+import { PanelRightClose } from "lucide-react";
 import type { ReactElement, ReactNode, MouseEvent as ReactMouseEvent } from "react";
 import { useCallback, useRef, useState } from "react";
 
@@ -15,6 +16,8 @@ interface HomeTriplePaneProps {
 	office: ReactNode;
 	/** When false, only the center pane is shown. */
 	rightColumnOpen: boolean;
+	/** Called when the user clicks the in-pane collapse button. */
+	onCollapse: () => void;
 }
 
 /**
@@ -26,6 +29,7 @@ export function HomeTriplePane({
 	watch,
 	office,
 	rightColumnOpen,
+	onCollapse,
 }: HomeTriplePaneProps): ReactElement {
 	const {
 		rightColumnWidth,
@@ -138,6 +142,16 @@ export function HomeTriplePane({
 						className="absolute inset-y-0 -left-1 z-10 w-2 cursor-ew-resize"
 						onMouseDown={startWidthDrag}
 					/>
+					<button
+						type="button"
+						data-testid="collapse-right-column-button"
+						aria-label="Collapse right column"
+						title="Collapse panel"
+						onClick={onCollapse}
+						className="absolute left-1 top-1 z-20 rounded p-1 text-text-secondary hover:bg-surface-2 hover:text-text-primary"
+					>
+						<PanelRightClose size={14} />
+					</button>
 					<div
 						data-testid="home-manager-watch-pane"
 						className="flex min-h-0 flex-col overflow-hidden border-b border-border"
