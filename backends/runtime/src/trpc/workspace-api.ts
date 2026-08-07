@@ -758,10 +758,22 @@ export function createWorkspaceApi(deps: CreateWorkspaceApiDependencies): Runtim
 					error: "Worktree is shared with a live chain member and cannot be deleted yet.",
 				};
 			}
-			return await deleteTaskWorktree({
+			const result = await deleteTaskWorktree({
 				repoPath: workspaceScope.workspacePath,
 				taskId: body.taskId,
 			});
+			if (result.ok) {
+				// Best effort: an orphaned scrollback snapshot for a deleted worktree is
+				// harmless but pointless to keep around. Route through the manager (rather
+				// than a fresh store instance) so a live entry's memoized restoredSnapshot
+				// also gets invalidated, not just the on-disk file.
+				const terminalManager = await deps.ensureTerminalManagerForWorkspace(
+					workspaceScope.workspaceId,
+					workspaceScope.workspacePath,
+				);
+				await terminalManager.deleteTerminalSnapshot(body.taskId);
+			}
+			return result;
 		},
 		loadTaskContext: async (workspaceScope, input) => {
 			const normalizedInput = normalizeRequiredTaskWorkspaceScopeInput(input);

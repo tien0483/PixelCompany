@@ -324,6 +324,8 @@ describe("TerminalSessionManager", () => {
 			snapshot: "serialized terminal",
 			cols: 120,
 			rows: 40,
+			stale: false,
+			capturedAt: null,
 		});
 		expect(getSnapshotSpy).toHaveBeenCalledTimes(1);
 	});

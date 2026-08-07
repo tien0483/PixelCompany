@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { RuntimeBoardData, RuntimeTaskSessionSummary } from "../../src/core/api-contract";
 import { shutdownRuntimeServer } from "../../src/server/shutdown-coordinator";
@@ -148,6 +148,7 @@ describe.sequential("shutdown coordinator integration", () => {
 						}
 						return null;
 					},
+					deleteTerminalSnapshot: vi.fn(async () => {}),
 				} as unknown as TerminalSessionManager;
 				await shutdownRuntimeServer({
 					workspaceRegistry: {
@@ -183,6 +184,18 @@ describe.sequential("shutdown coordinator integration", () => {
 				);
 				expect(indexedAfter.sessions["indexed-awaiting-review"]?.state).toBe("interrupted");
 				expect(indexedAfter.sessions["indexed-missing-session"]).toBeUndefined();
+
+				// Every trashed/interrupted worktree task's scrollback snapshot is cleaned up
+				// alongside its worktree, routed through the live manager for the managed
+				// workspace (so its in-memory memoized restoredSnapshot is invalidated too).
+				const deletedSnapshotTaskIds = (
+					managedTerminalManager.deleteTerminalSnapshot as ReturnType<typeof vi.fn>
+				).mock.calls
+					.map(([taskId]) => taskId)
+					.sort();
+				expect(deletedSnapshotTaskIds).toEqual(
+					["managed-idle", "managed-missing-session", "managed-running"].sort(),
+				);
 			} finally {
 				cleanup();
 			}

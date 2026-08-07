@@ -503,6 +503,11 @@ export function createTerminalWebSocketBridge({
 					snapshot: snapshot?.snapshot ?? "",
 					cols: snapshot?.cols ?? null,
 					rows: snapshot?.rows ?? null,
+					// A `null` result (no live mirror, no disk snapshot at all) still means
+					// "we don't actually know the live state" — treat it as stale like the
+					// error path below, not as a fresh/authoritative empty terminal.
+					stale: snapshot?.stale ?? true,
+					capturedAt: snapshot?.capturedAt ?? null,
 				});
 			})
 			.catch(() => {
@@ -511,6 +516,10 @@ export function createTerminalWebSocketBridge({
 					snapshot: "",
 					cols: null,
 					rows: null,
+					// An error means we don't actually know the live state, so this is
+					// stale by definition (same reasoning as the null-result case above).
+					stale: true,
+					capturedAt: null,
 				});
 			});
 

@@ -2,6 +2,7 @@ import type { RuntimeTaskSessionSummary, RuntimeWorkspaceStateResponse } from ".
 import { updateTaskDependencies } from "../core/task-board-mutations";
 import { listWorkspaceIndexEntries, loadWorkspaceState, saveWorkspaceState } from "../state/workspace-state";
 import type { TerminalSessionManager } from "../terminal/session-manager";
+import { createTerminalSnapshotStore } from "../terminal/terminal-snapshot-store";
 import { deleteTaskWorktree, removeTaskWorktreeSetupLock } from "../workspace/task-worktree";
 import type { WorkspaceRegistry } from "./workspace-registry";
 import { collectProjectWorktreeTaskIdsForRemoval } from "./workspace-registry";
@@ -97,6 +98,7 @@ async function cleanupInterruptedTaskWorktrees(
 	repoPath: string,
 	taskIds: string[],
 	warn: (message: string) => void,
+	deleteSnapshot: (taskId: string) => Promise<void>,
 ): Promise<void> {
 	if (taskIds.length === 0) {
 		return;
@@ -109,6 +111,15 @@ async function cleanupInterruptedTaskWorktrees(
 				taskId,
 			}),
 		})),
+	);
+	// Best effort, independent of whether the worktree delete itself succeeded: the task
+	// is going to trash either way, so its scrollback snapshot is no longer worth keeping.
+	await Promise.all(
+		taskIds.map((taskId) =>
+			deleteSnapshot(taskId).catch(() => {
+				// An orphaned snapshot file does not block shutdown cleanup.
+			}),
+		),
 	);
 	for (const { taskId, deleted } of deletions) {
 		if (deleted.ok) {
@@ -167,14 +178,17 @@ export async function shutdownRuntimeServer(deps: RuntimeShutdownCoordinatorDepe
 	}
 
 	const interruptedByWorkspace: Array<{
+		workspaceId: string;
 		workspacePath: string;
 		interruptedTaskIds: string[];
 		workspaceState?: RuntimeWorkspaceStateResponse;
 		resolveSummary?: (taskId: string) => RuntimeTaskSessionSummary | null;
+		/** Only present for a workspace with a live manager in this process (first loop below). */
+		terminalManager?: TerminalSessionManager;
 	}> = [];
 	const managedWorkspacePaths = new Set<string>();
 
-	for (const { workspacePath, terminalManager } of deps.workspaceRegistry.listManagedWorkspaces()) {
+	for (const { workspaceId, workspacePath, terminalManager } of deps.workspaceRegistry.listManagedWorkspaces()) {
 		const interrupted = terminalManager.markInterruptedAndStopAll();
 		const interruptedTaskIds = new Set(collectShutdownInterruptedTaskIds(interrupted, terminalManager));
 		if (!workspacePath) {
@@ -187,10 +201,12 @@ export async function shutdownRuntimeServer(deps: RuntimeShutdownCoordinatorDepe
 				interruptedTaskIds.add(taskId);
 			}
 			interruptedByWorkspace.push({
+				workspaceId,
 				workspacePath,
 				interruptedTaskIds: Array.from(interruptedTaskIds),
 				workspaceState,
 				resolveSummary: (taskId) => terminalManager.getSummary(taskId),
+				terminalManager,
 			});
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
@@ -210,6 +226,7 @@ export async function shutdownRuntimeServer(deps: RuntimeShutdownCoordinatorDepe
 				continue;
 			}
 			interruptedByWorkspace.push({
+				workspaceId: workspace.workspaceId,
 				workspacePath: workspace.repoPath,
 				interruptedTaskIds,
 				workspaceState,
@@ -230,7 +247,15 @@ export async function shutdownRuntimeServer(deps: RuntimeShutdownCoordinatorDepe
 					resolveSummary: workspace.resolveSummary,
 				},
 			);
-			await cleanupInterruptedTaskWorktrees(workspace.workspacePath, worktreeTaskIds, deps.warn);
+			// Prefer the live manager when this workspace has one: it also invalidates the
+			// entry's in-memory memoized restoredSnapshot, not just the on-disk file. Fall
+			// back to a fresh store instance (equivalent on-disk target, no cache to keep in
+			// sync) for an indexed-only workspace with no manager loaded in this process.
+			const terminalManager = workspace.terminalManager;
+			const deleteSnapshot = terminalManager
+				? (taskId: string) => terminalManager.deleteTerminalSnapshot(taskId)
+				: (taskId: string) => createTerminalSnapshotStore(workspace.workspaceId).delete(taskId);
+			await cleanupInterruptedTaskWorktrees(workspace.workspacePath, worktreeTaskIds, deps.warn, deleteSnapshot);
 		}),
 	);
 
