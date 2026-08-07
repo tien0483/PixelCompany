@@ -1,6 +1,7 @@
 import type { RuntimeTaskSessionSummary, RuntimeWorkspaceStateResponse } from "../core/api-contract";
 import { updateTaskDependencies } from "../core/task-board-mutations";
 import { listWorkspaceIndexEntries, loadWorkspaceState, saveWorkspaceState } from "../state/workspace-state";
+import { toParkedSessionSummary } from "../terminal/session-hydration";
 import type { TerminalSessionManager } from "../terminal/session-manager";
 import { createTerminalSnapshotStore } from "../terminal/terminal-snapshot-store";
 import { deleteTaskWorktree, removeTaskWorktreeSetupLock } from "../workspace/task-worktree";
@@ -8,10 +9,20 @@ import type { WorkspaceRegistry } from "./workspace-registry";
 import { collectProjectWorktreeTaskIdsForRemoval } from "./workspace-registry";
 
 export interface RuntimeShutdownCoordinatorDependencies {
-	workspaceRegistry: Pick<WorkspaceRegistry, "listManagedWorkspaces">;
+	workspaceRegistry: Pick<WorkspaceRegistry, "listManagedWorkspaces" | "flushSessionPersistence">;
 	warn: (message: string) => void;
 	closeRuntimeServer: () => Promise<void>;
 	skipSessionCleanup?: boolean;
+}
+
+/**
+ * A session that was manually/force-paused (`pausedAt != null`) should survive shutdown
+ * untouched instead of being trashed like a genuinely interrupted one: Resume can relaunch
+ * it with `--continue` later. This mirrors the "paused, no process" invariant documented in
+ * `terminal/session-hydration.ts`.
+ */
+function isParkedOnShutdown(summary: RuntimeTaskSessionSummary | null | undefined): boolean {
+	return summary?.pausedAt != null;
 }
 
 function moveTaskToTrash(
@@ -56,17 +67,23 @@ function moveTaskToTrash(
 
 async function persistInterruptedSessions(
 	workspacePath: string,
-	interruptedTaskIds: string[],
+	taskIds: {
+		interruptedTaskIds: string[];
+		parkedTaskIds: string[];
+	},
 	options?: {
 		workspaceState?: RuntimeWorkspaceStateResponse;
 		resolveSummary?: (taskId: string) => RuntimeTaskSessionSummary | null;
 	},
 ): Promise<string[]> {
-	if (interruptedTaskIds.length === 0) {
+	const { interruptedTaskIds, parkedTaskIds } = taskIds;
+	if (interruptedTaskIds.length === 0 && parkedTaskIds.length === 0) {
 		return [];
 	}
 	const workspaceState = options?.workspaceState ?? (await loadWorkspaceState(workspacePath));
 	const worktreeTaskIds = collectProjectWorktreeTaskIdsForRemoval(workspaceState.board);
+	// Parked tasks stay wherever they are on the board (In Progress) and keep their
+	// worktree, so only interrupted tasks are eligible for the worktree cleanup pass.
 	const worktreeTaskIdsToCleanup = interruptedTaskIds.filter((taskId) => worktreeTaskIds.has(taskId));
 	let nextBoard = workspaceState.board;
 	for (const taskId of interruptedTaskIds) {
@@ -75,6 +92,7 @@ async function persistInterruptedSessions(
 	const nextSessions = {
 		...workspaceState.sessions,
 	};
+	const nowTs = Date.now();
 	for (const taskId of interruptedTaskIds) {
 		const summary = options?.resolveSummary?.(taskId) ?? workspaceState.sessions[taskId] ?? null;
 		if (summary) {
@@ -83,8 +101,14 @@ async function persistInterruptedSessions(
 				state: "interrupted",
 				reviewReason: "interrupted",
 				pid: null,
-				updatedAt: Date.now(),
+				updatedAt: nowTs,
 			};
+		}
+	}
+	for (const taskId of parkedTaskIds) {
+		const summary = options?.resolveSummary?.(taskId) ?? workspaceState.sessions[taskId] ?? null;
+		if (summary) {
+			nextSessions[taskId] = toParkedSessionSummary(summary, nowTs);
 		}
 	}
 	await saveWorkspaceState(workspacePath, {
@@ -171,6 +195,31 @@ function collectWorkColumnTaskIds(workspaceState: RuntimeWorkspaceStateResponse)
 	return Array.from(collectProjectWorktreeTaskIdsForRemoval(workspaceState.board));
 }
 
+/**
+ * Splits a set of In Progress/Review task ids into "interrupted" (trash + delete worktree,
+ * today's behavior) and "parked" (paused, survives shutdown untouched) based on each task's
+ * current session summary. The live in-memory manager is the source of truth when a task has
+ * one; an indexed-only task with no active `TerminalSessionManager` in this process falls back
+ * to whatever was last persisted to `workspaceState.sessions`.
+ */
+function partitionWorkColumnTaskIds(
+	taskIds: Iterable<string>,
+	workspaceState: RuntimeWorkspaceStateResponse,
+	terminalManager: TerminalSessionManager | undefined,
+): { interruptedTaskIds: string[]; parkedTaskIds: string[] } {
+	const interruptedTaskIds: string[] = [];
+	const parkedTaskIds: string[] = [];
+	for (const taskId of taskIds) {
+		const summary = terminalManager?.getSummary(taskId) ?? workspaceState.sessions[taskId] ?? null;
+		if (isParkedOnShutdown(summary)) {
+			parkedTaskIds.push(taskId);
+		} else {
+			interruptedTaskIds.push(taskId);
+		}
+	}
+	return { interruptedTaskIds, parkedTaskIds };
+}
+
 export async function shutdownRuntimeServer(deps: RuntimeShutdownCoordinatorDependencies): Promise<void> {
 	if (deps.skipSessionCleanup) {
 		await deps.closeRuntimeServer();
@@ -181,14 +230,16 @@ export async function shutdownRuntimeServer(deps: RuntimeShutdownCoordinatorDepe
 		workspaceId: string;
 		workspacePath: string;
 		interruptedTaskIds: string[];
+		parkedTaskIds: string[];
 		workspaceState?: RuntimeWorkspaceStateResponse;
 		resolveSummary?: (taskId: string) => RuntimeTaskSessionSummary | null;
 		/** Only present for a workspace with a live manager in this process (first loop below). */
 		terminalManager?: TerminalSessionManager;
 	}> = [];
 	const managedWorkspacePaths = new Set<string>();
+	const managedWorkspaces = deps.workspaceRegistry.listManagedWorkspaces();
 
-	for (const { workspaceId, workspacePath, terminalManager } of deps.workspaceRegistry.listManagedWorkspaces()) {
+	for (const { workspaceId, workspacePath, terminalManager } of managedWorkspaces) {
 		const interrupted = terminalManager.markInterruptedAndStopAll();
 		const interruptedTaskIds = new Set(collectShutdownInterruptedTaskIds(interrupted, terminalManager));
 		if (!workspacePath) {
@@ -197,13 +248,20 @@ export async function shutdownRuntimeServer(deps: RuntimeShutdownCoordinatorDepe
 		managedWorkspacePaths.add(workspacePath);
 		try {
 			const workspaceState = await loadWorkspaceState(workspacePath);
-			for (const taskId of collectWorkColumnTaskIds(workspaceState)) {
+			const workColumnPartition = partitionWorkColumnTaskIds(
+				collectWorkColumnTaskIds(workspaceState),
+				workspaceState,
+				terminalManager,
+			);
+			for (const taskId of workColumnPartition.interruptedTaskIds) {
 				interruptedTaskIds.add(taskId);
 			}
+			const parkedTaskIds = new Set(workColumnPartition.parkedTaskIds);
 			interruptedByWorkspace.push({
 				workspaceId,
 				workspacePath,
 				interruptedTaskIds: Array.from(interruptedTaskIds),
+				parkedTaskIds: Array.from(parkedTaskIds),
 				workspaceState,
 				resolveSummary: (taskId) => terminalManager.getSummary(taskId),
 				terminalManager,
@@ -221,14 +279,20 @@ export async function shutdownRuntimeServer(deps: RuntimeShutdownCoordinatorDepe
 		}
 		try {
 			const workspaceState = await loadWorkspaceState(workspace.repoPath);
-			const interruptedTaskIds = collectWorkColumnTaskIds(workspaceState);
-			if (interruptedTaskIds.length === 0) {
+			const workColumnTaskIds = collectWorkColumnTaskIds(workspaceState);
+			if (workColumnTaskIds.length === 0) {
 				continue;
 			}
+			const { interruptedTaskIds, parkedTaskIds } = partitionWorkColumnTaskIds(
+				workColumnTaskIds,
+				workspaceState,
+				undefined,
+			);
 			interruptedByWorkspace.push({
 				workspaceId: workspace.workspaceId,
 				workspacePath: workspace.repoPath,
 				interruptedTaskIds,
+				parkedTaskIds,
 				workspaceState,
 			});
 		} catch (error) {
@@ -241,7 +305,10 @@ export async function shutdownRuntimeServer(deps: RuntimeShutdownCoordinatorDepe
 		interruptedByWorkspace.map(async (workspace) => {
 			const worktreeTaskIds = await persistInterruptedSessions(
 				workspace.workspacePath,
-				workspace.interruptedTaskIds,
+				{
+					interruptedTaskIds: workspace.interruptedTaskIds,
+					parkedTaskIds: workspace.parkedTaskIds,
+				},
 				{
 					workspaceState: workspace.workspaceState,
 					resolveSummary: workspace.resolveSummary,
@@ -258,6 +325,15 @@ export async function shutdownRuntimeServer(deps: RuntimeShutdownCoordinatorDepe
 			await cleanupInterruptedTaskWorktrees(workspace.workspacePath, worktreeTaskIds, deps.warn, deleteSnapshot);
 		}),
 	);
+
+	// Capture the final exit output/summaries (just written by markInterruptedAndStopAll
+	// above, plus whatever the persistInterruptedSessions pass wrote) before the server
+	// actually closes. Reuses the same `listManagedWorkspaces()` snapshot as the loop
+	// above rather than a fresh call, since no workspace gets disposed in this path
+	// (shutdown-coordinator.ts never calls `disposeWorkspace`) and the set of managers
+	// cannot have changed since.
+	await deps.workspaceRegistry.flushSessionPersistence();
+	await Promise.all(managedWorkspaces.map(({ terminalManager }) => terminalManager.flushTerminalSnapshots()));
 
 	await deps.closeRuntimeServer();
 
