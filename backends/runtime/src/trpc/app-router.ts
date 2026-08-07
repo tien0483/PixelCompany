@@ -97,6 +97,8 @@ import type {
 	RuntimeManagerFeaturesRequest,
 	RuntimeManagerFeaturesResponse,
 	RuntimeManagerFeatureToggleRequest,
+	RuntimeManagerSyncFeaturesRequest,
+	RuntimeManagerSyncFeaturesResponse,
 	RuntimeManagerHookLogs,
 	RuntimeManagerInstallationsOverview,
 	RuntimeManagerMutationResponse,
@@ -141,6 +143,7 @@ import type {
 	RuntimeProjectRemoveResponse,
 	RuntimeProjectsResponse,
 	RuntimeRunUpdateResponse,
+	RuntimeGetWorkspaceLocalAssetsRequest,
 	RuntimeSetWorkspaceLocalAssetsRequest,
 	RuntimeSetWorkspaceLocalAssetsResponse,
 	RuntimeShellSessionStartRequest,
@@ -198,6 +201,8 @@ import {
 	RuntimeManagerFeaturesRequestSchema,
 	RuntimeManagerFeaturesResponseSchema,
 	RuntimeManagerFeatureToggleRequestSchema,
+	RuntimeManagerSyncFeaturesRequestSchema,
+	RuntimeManagerSyncFeaturesResponseSchema,
 	RuntimeManagerGitIdentitySchema,
 	RuntimeManagerHookLogsSchema,
 	RuntimeManagerInstallationsOverviewSchema,
@@ -329,6 +334,7 @@ import {
 	runtimeProjectRemoveResponseSchema,
 	runtimeProjectsResponseSchema,
 	runtimeRunUpdateResponseSchema,
+	runtimeGetWorkspaceLocalAssetsRequestSchema,
 	runtimeSetWorkspaceLocalAssetsRequestSchema,
 	runtimeSetWorkspaceLocalAssetsResponseSchema,
 	runtimeShellSessionStartRequestSchema,
@@ -433,6 +439,9 @@ export interface RuntimeTrpcContext {
 		listSkillInventory: (input: RuntimeSkillInventoryRequest) => Promise<RuntimeSkillInventory>;
 		setWorkspaceLocalAssets: (
 			input: RuntimeSetWorkspaceLocalAssetsRequest,
+		) => Promise<RuntimeSetWorkspaceLocalAssetsResponse>;
+		getWorkspaceLocalAssets: (
+			input: RuntimeGetWorkspaceLocalAssetsRequest,
 		) => Promise<RuntimeSetWorkspaceLocalAssetsResponse>;
 		listMcpInventory: () => Promise<RuntimeMcpInventory>;
 		listAgentModels: (input: RuntimeListAgentModelsRequest) => Promise<RuntimeAgentModelInventory>;
@@ -647,6 +656,9 @@ export interface RuntimeTrpcContext {
 		getState: () => Promise<RuntimeManagerState>;
 		setFeatureEnabled: (input: RuntimeManagerFeatureToggleRequest) => Promise<RuntimeManagerMutationResponse>;
 		features: (input: RuntimeManagerFeaturesRequest) => Promise<RuntimeManagerFeaturesResponse>;
+		syncFeaturesToProject: (
+			input: RuntimeManagerSyncFeaturesRequest,
+		) => Promise<RuntimeManagerSyncFeaturesResponse>;
 		pauseSwap: (input: RuntimeManagerSwapPauseRequest) => Promise<RuntimeManagerMutationResponse>;
 		resumeSwap: () => Promise<RuntimeManagerMutationResponse>;
 		useAccount: (input: RuntimeManagerAccountIdRequest) => Promise<RuntimeManagerMutationResponse>;
@@ -850,6 +862,12 @@ export const runtimeAppRouter = t.router({
 			.output(runtimeSetWorkspaceLocalAssetsResponseSchema)
 			.mutation(async ({ ctx, input }) => {
 				return await ctx.runtimeApi.setWorkspaceLocalAssets(input);
+			}),
+		getWorkspaceLocalAssets: t.procedure
+			.input(runtimeGetWorkspaceLocalAssetsRequestSchema)
+			.output(runtimeSetWorkspaceLocalAssetsResponseSchema)
+			.query(async ({ ctx, input }) => {
+				return await ctx.runtimeApi.getWorkspaceLocalAssets(input);
 			}),
 		listMcpInventory: t.procedure.output(runtimeMcpInventorySchema).query(async ({ ctx }) => {
 			return await ctx.runtimeApi.listMcpInventory();
@@ -1268,6 +1286,12 @@ export const runtimeAppRouter = t.router({
 			.output(RuntimeManagerFeaturesResponseSchema)
 			.query(async ({ ctx, input }) => {
 				return await ctx.managerApi.features(input);
+			}),
+		syncFeaturesToProject: t.procedure
+			.input(RuntimeManagerSyncFeaturesRequestSchema)
+			.output(RuntimeManagerSyncFeaturesResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.managerApi.syncFeaturesToProject(input);
 			}),
 		pauseSwap: t.procedure
 			.input(RuntimeManagerSwapPauseRequestSchema)

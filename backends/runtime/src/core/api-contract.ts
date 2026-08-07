@@ -919,6 +919,22 @@ export const RuntimeManagerFeatureToggleRequestSchema = z.object({
 });
 export type RuntimeManagerFeatureToggleRequest = z.infer<typeof RuntimeManagerFeatureToggleRequestSchema>;
 
+/** Reapply every catalog entry this project has enabled into its `.claude`. */
+export const RuntimeManagerSyncFeaturesRequestSchema = z.object({
+	workspaceId: z.string().min(1),
+});
+export type RuntimeManagerSyncFeaturesRequest = z.infer<typeof RuntimeManagerSyncFeaturesRequestSchema>;
+
+export const RuntimeManagerSyncFeaturesResponseSchema = z.object({
+	ok: z.boolean(),
+	/** Entries reinstalled successfully. */
+	applied: z.number().int().nonnegative(),
+	/** Entries Manager refused, as `<category>/<name>`. */
+	failed: z.array(z.string()),
+	error: z.string().optional(),
+});
+export type RuntimeManagerSyncFeaturesResponse = z.infer<typeof RuntimeManagerSyncFeaturesResponseSchema>;
+
 /** Features for one project, read on demand — the streamed snapshot stays global. */
 export const RuntimeManagerFeaturesRequestSchema = z.object({
 	workspaceId: z.string().min(1).optional(),
@@ -2056,6 +2072,15 @@ export const runtimeSetWorkspaceLocalAssetsResponseSchema = z.object({
 	roots: z.array(z.enum(["claude", "agent"])),
 });
 export type RuntimeSetWorkspaceLocalAssetsResponse = z.infer<typeof runtimeSetWorkspaceLocalAssetsResponseSchema>;
+
+/**
+ * Read the persisted per-project toggle. Without this the Settings switch had no
+ * way to show a project's saved state and reset to off every time it opened.
+ */
+export const runtimeGetWorkspaceLocalAssetsRequestSchema = z.object({
+	workspaceId: z.string().min(1),
+});
+export type RuntimeGetWorkspaceLocalAssetsRequest = z.infer<typeof runtimeGetWorkspaceLocalAssetsRequestSchema>;
 
 /** MCP server ids from ~/.claude/settings.json (and later Cursor if discoverable). */
 export const runtimeMcpInventoryItemSchema = z.object({

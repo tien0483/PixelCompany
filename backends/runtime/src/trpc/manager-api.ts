@@ -25,11 +25,17 @@ import type {
 	RuntimeManagerState,
 	RuntimeManagerSwapLog,
 	RuntimeManagerSwapPauseRequest,
+	RuntimeManagerSyncFeaturesRequest,
+	RuntimeManagerSyncFeaturesResponse,
 	RuntimeManagerUsageOverview,
 } from "../core/api-contract";
 import type { ManagerClient } from "../manager/manager-client";
 import type { ManagerMonitor } from "../manager/manager-monitor";
-import { loadWorkspaceContextById, setWorkspaceManagerFeature } from "../state/workspace-state";
+import {
+	getWorkspaceManagerFeatures,
+	loadWorkspaceContextById,
+	setWorkspaceManagerFeature,
+} from "../state/workspace-state";
 import type { RuntimeTrpcContext } from "./app-router";
 
 export interface CreateManagerApiDependencies {
@@ -65,6 +71,10 @@ export function createManagerApi(deps: CreateManagerApiDependencies): RuntimeTrp
 		await deps.monitor.refresh();
 		return { ok: result.ok, verdict: result.verdict, ...(result.error === undefined ? {} : { error: result.error }) };
 	};
+
+	/** Hooks are machine-wide, so a project sync only ever replays these three. */
+	const isSyncableFeatureCategory = (value: string): value is "agents" | "commands" | "knowledge" =>
+		value === "agents" || value === "commands" || value === "knowledge";
 
 	/** Workspace id → attached repo path, or null when unknown / not supplied. */
 	const resolveRepoPath = async (workspaceId: string | undefined): Promise<string | null> => {
@@ -136,6 +146,36 @@ export function createManagerApi(deps: CreateManagerApiDependencies): RuntimeTrp
 				await setWorkspaceManagerFeature(workspaceId, `${input.category}/${input.name}`, input.enabled);
 			}
 			return result;
+		},
+		syncFeaturesToProject: async (
+			input: RuntimeManagerSyncFeaturesRequest,
+		): Promise<RuntimeManagerSyncFeaturesResponse> => {
+			const repoPath = await resolveRepoPath(input.workspaceId);
+			if (repoPath === null) {
+				return { ok: false, applied: 0, failed: [], error: "That project is no longer attached." };
+			}
+			const recorded = await getWorkspaceManagerFeatures(input.workspaceId);
+			const failed: string[] = [];
+			let applied = 0;
+			for (const key of recorded) {
+				const separator = key.indexOf("/");
+				const category = key.slice(0, separator);
+				const name = key.slice(separator + 1);
+				if (!isSyncableFeatureCategory(category) || name === "") {
+					failed.push(key);
+					continue;
+				}
+				const result = await deps.client.setFeatureEnabled(category, name, true, repoPath);
+				if (result.ok) {
+					applied += 1;
+				} else {
+					failed.push(key);
+				}
+			}
+			if (applied > 0) {
+				await deps.monitor.refresh();
+			}
+			return { ok: failed.length === 0, applied, failed };
 		},
 		features: async (input: RuntimeManagerFeaturesRequest): Promise<RuntimeManagerFeaturesResponse> => {
 			// Read on demand rather than off the streamed snapshot: the monitor is one

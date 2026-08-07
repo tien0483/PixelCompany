@@ -41,10 +41,13 @@ export function HomeSidebarManagerPanel({
 	online,
 	manager = null,
 	settingsFocusToken = 0,
+	workspaceId = null,
 }: {
 	online: boolean;
 	manager?: RuntimeManagerSnapshot | null;
 	settingsFocusToken?: number;
+	/** Selected project the Manager shelves install into and read from. */
+	workspaceId?: string | null;
 }): ReactNode {
 	return (
 		<div className="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -52,6 +55,7 @@ export function HomeSidebarManagerPanel({
 				online={online}
 				manager={manager}
 				settingsFocusToken={settingsFocusToken}
+				workspaceId={workspaceId}
 			/>
 		</div>
 	);
