@@ -7,6 +7,9 @@ export interface HtmlGenerateState {
 	html: string;
 	error: string | null;
 	log: string[];
+	startedAt: number | null;
+	firstByteAt: number | null;
+	doneAt: number | null;
 }
 
 const INITIAL: HtmlGenerateState = {
@@ -14,6 +17,9 @@ const INITIAL: HtmlGenerateState = {
 	html: "",
 	error: null,
 	log: [],
+	startedAt: null,
+	firstByteAt: null,
+	doneAt: null,
 };
 
 export interface HtmlGenerateRequest {
@@ -45,7 +51,15 @@ export function useHtmlGenerate() {
 		abortRef.current?.abort();
 		const ctl = new AbortController();
 		abortRef.current = ctl;
-		setState({ status: "running", html: "", error: null, log: [] });
+		setState({
+			status: "running",
+			html: "",
+			error: null,
+			log: [],
+			startedAt: Date.now(),
+			firstByteAt: null,
+			doneAt: null,
+		});
 
 		try {
 			const res = await fetch("/api/html/generate", {
@@ -91,10 +105,18 @@ export function useHtmlGenerate() {
 					if (event === "delta" && typeof data.text === "string") {
 						htmlAcc += data.text;
 						const snapshot = htmlAcc;
-						setState((prev) => ({ ...prev, html: snapshot }));
+						setState((prev) => ({
+							...prev,
+							html: snapshot,
+							firstByteAt: prev.firstByteAt ?? Date.now(),
+						}));
 					} else if (event === "html" && typeof data.text === "string") {
 						htmlAcc = data.text;
-						setState((prev) => ({ ...prev, html: data.text as string }));
+						setState((prev) => ({
+							...prev,
+							html: data.text as string,
+							firstByteAt: prev.firstByteAt ?? Date.now(),
+						}));
 					} else if (event === "error") {
 						const message = String(data.message ?? "agent error");
 						setState((prev) => ({
@@ -102,6 +124,7 @@ export function useHtmlGenerate() {
 							status: "error",
 							error: message,
 							log: [...prev.log, message],
+							doneAt: prev.doneAt ?? Date.now(),
 						}));
 					} else if (event === "stderr" && typeof data.text === "string") {
 						setState((prev) => ({ ...prev, log: [...prev.log, data.text as string] }));
@@ -110,13 +133,19 @@ export function useHtmlGenerate() {
 							...prev,
 							status: prev.error ? "error" : "done",
 							html: htmlAcc || prev.html,
+							doneAt: prev.doneAt ?? Date.now(),
 						}));
 					}
 				}
 			}
 			setState((prev) =>
 				prev.status === "running"
-					? { ...prev, status: prev.error ? "error" : "done", html: htmlAcc || prev.html }
+					? {
+							...prev,
+							status: prev.error ? "error" : "done",
+							html: htmlAcc || prev.html,
+							doneAt: prev.doneAt ?? Date.now(),
+						}
 					: prev,
 			);
 		} catch (err) {
@@ -125,7 +154,12 @@ export function useHtmlGenerate() {
 				return;
 			}
 			const message = err instanceof Error ? err.message : String(err);
-			setState((prev) => ({ ...prev, status: "error", error: message }));
+			setState((prev) => ({
+				...prev,
+				status: "error",
+				error: message,
+				doneAt: prev.doneAt ?? Date.now(),
+			}));
 		} finally {
 			if (abortRef.current === ctl) {
 				abortRef.current = null;
