@@ -763,6 +763,40 @@ export async function saveWorkspaceState(
 	});
 }
 
+/**
+ * Additive session-summary write path used by the pause/resume durability layer.
+ *
+ * LOAD-BEARING INVARIANT: this function must NEVER touch meta.json and must NEVER
+ * bump `revision`. The client holds a `workspaceRevision` value and sends it back as
+ * `expectedRevision` on every `saveWorkspaceState` call; if this function bumped
+ * revision (or wrote meta.json at all), the very next client save would see a stale
+ * `expectedRevision` and throw `WorkspaceStateConflictError` even though the client
+ * made no conflicting edit of its own. Session summaries change constantly on the
+ * server (pause, resume, exit, PTY hooks, ...) and must be persistable at any time
+ * without perturbing the client's optimistic-concurrency contract. Route ALL other
+ * workspace state writes through `saveWorkspaceState`/`mutateWorkspaceState` above;
+ * this function exists specifically to bypass their revision bump for sessions.json.
+ *
+ * Merges `summaries` into whatever is already on disk by `taskId`: incoming entries
+ * overwrite existing entries with the same `taskId`; entries for other `taskId`s are
+ * preserved untouched.
+ */
+export async function saveWorkspaceSessionSummaries(
+	workspaceId: string,
+	summaries: readonly RuntimeTaskSessionSummary[],
+): Promise<void> {
+	await lockedFileSystem.withLock(getWorkspaceDirectoryLockRequest(workspaceId), async () => {
+		const currentSessions = await readWorkspaceSessions(workspaceId);
+		const nextSessions: Record<string, RuntimeTaskSessionSummary> = { ...currentSessions };
+		for (const summary of summaries) {
+			nextSessions[summary.taskId] = summary;
+		}
+		await lockedFileSystem.writeJsonFileAtomic(getWorkspaceSessionsPath(workspaceId), nextSessions, {
+			lock: null,
+		});
+	});
+}
+
 export interface RuntimeWorkspaceAtomicMutationResult<T> {
 	board: RuntimeBoardData;
 	sessions?: Record<string, RuntimeTaskSessionSummary>;
