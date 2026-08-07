@@ -342,7 +342,7 @@ describe.sequential("shutdown coordinator integration", () => {
 		});
 	}, 30_000);
 
-	it("leaves everything untouched when skipSessionCleanup is set", async () => {
+	it("still flushes session persistence and terminal snapshots when skipSessionCleanup is set, without touching board/session state", async () => {
 		await withTemporaryHome(async () => {
 			const { path: sandboxRoot, cleanup } = createTempDir("kanban-shutdown-skip-");
 			try {
@@ -359,7 +359,20 @@ describe.sequential("shutdown coordinator integration", () => {
 					expectedRevision: managedInitial.revision,
 				});
 
-				const listManagedWorkspaces = vi.fn(() => []);
+				// `--skip-shutdown-cleanup`'s own help text says "do not move sessions to
+				// done or delete task worktrees on shutdown" — i.e. pause/session state is
+				// meant to survive. A live-managed workspace still needs to be present here
+				// so we can assert its non-destructive flushes fire even on this branch.
+				const managedTerminalManager = createFakeTerminalManager({
+					"still-running": createSession("still-running", "running"),
+				});
+				const listManagedWorkspaces = vi.fn(() => [
+					{
+						workspaceId: "managed-project",
+						workspacePath: managedProjectPath,
+						terminalManager: managedTerminalManager,
+					},
+				]);
 				const flushSessionPersistence = vi.fn(async () => {});
 				let didCloseRuntimeServer = false;
 
@@ -376,8 +389,15 @@ describe.sequential("shutdown coordinator integration", () => {
 				});
 
 				expect(didCloseRuntimeServer).toBe(true);
-				expect(listManagedWorkspaces).not.toHaveBeenCalled();
-				expect(flushSessionPersistence).not.toHaveBeenCalled();
+				// Fix: these two are non-destructive (no trashing, no worktree deletion), so
+				// they must still run even when session cleanup is otherwise skipped —
+				// otherwise a pause performed shortly before shutdown, or scrollback still
+				// inside the debounce window, is lost.
+				expect(listManagedWorkspaces).toHaveBeenCalledTimes(1);
+				expect(flushSessionPersistence).toHaveBeenCalledTimes(1);
+				expect(managedTerminalManager.flushTerminalSnapshots).toHaveBeenCalledTimes(1);
+				// Everything destructive stays skipped exactly as before.
+				expect(managedTerminalManager.markInterruptedAndStopAll).not.toHaveBeenCalled();
 
 				const after = await loadWorkspaceState(managedProjectPath);
 				const inProgress = after.board.columns.find((column) => column.id === "in_progress")?.cards ?? [];

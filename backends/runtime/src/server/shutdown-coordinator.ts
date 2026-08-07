@@ -222,6 +222,15 @@ function partitionWorkColumnTaskIds(
 
 export async function shutdownRuntimeServer(deps: RuntimeShutdownCoordinatorDependencies): Promise<void> {
 	if (deps.skipSessionCleanup) {
+		// This flag means "do not move sessions to done or delete task worktrees on
+		// shutdown" — i.e. it's precisely the mode where pause/session state is meant to
+		// survive a restart. Flushing debounced session-summary writes and terminal
+		// scrollback is non-destructive (no trashing, no worktree cleanup) and is exactly
+		// what makes a pause performed shortly before shutdown durable, so it still runs
+		// here even though everything else below is skipped.
+		const managedWorkspaces = deps.workspaceRegistry.listManagedWorkspaces();
+		await deps.workspaceRegistry.flushSessionPersistence();
+		await Promise.all(managedWorkspaces.map(({ terminalManager }) => terminalManager.flushTerminalSnapshots()));
 		await deps.closeRuntimeServer();
 		return;
 	}
