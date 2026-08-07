@@ -166,6 +166,69 @@ describe("createWorkspaceRegistry session persistence wiring", () => {
 		expect(persisterMocks.createSessionSummaryPersister).toHaveBeenCalledTimes(2);
 	});
 
+	it("disposeWorkspace with flushSessionSummaries: false discards the persister instead of flushing it", async () => {
+		const registry = await createWorkspaceRegistry(createDeps());
+		await registry.ensureTerminalManagerForWorkspace("ws-1", "/tmp/ws");
+		const fakePersister = persisterMocks.createSessionSummaryPersister.mock.results[0]?.value as FakePersister;
+
+		registry.disposeWorkspace("ws-1", { flushSessionSummaries: false });
+		await Promise.resolve();
+		await Promise.resolve();
+
+		// A caller that already deleted (or is about to delete) the workspace directory
+		// passes this so a racing write gets discarded, not written back after the fact.
+		expect(fakePersister.flush).not.toHaveBeenCalled();
+		expect(fakePersister.dispose).toHaveBeenCalledTimes(1);
+	});
+
+	it("flushWorkspaceSessionPersistence flushes only the requested workspace's persister", async () => {
+		const registry = await createWorkspaceRegistry(createDeps());
+		await registry.ensureTerminalManagerForWorkspace("ws-1", "/tmp/ws-1");
+		await registry.ensureTerminalManagerForWorkspace("ws-2", "/tmp/ws-2");
+		const persisterOne = persisterMocks.createSessionSummaryPersister.mock.results[0]?.value as FakePersister;
+		const persisterTwo = persisterMocks.createSessionSummaryPersister.mock.results[1]?.value as FakePersister;
+
+		await registry.flushWorkspaceSessionPersistence("ws-1");
+
+		expect(persisterOne.flush).toHaveBeenCalledTimes(1);
+		expect(persisterTwo.flush).not.toHaveBeenCalled();
+	});
+
+	it("flushWorkspaceSessionPersistence is a no-op for a workspace with no tracked persister", async () => {
+		const registry = await createWorkspaceRegistry(createDeps());
+		await expect(registry.flushWorkspaceSessionPersistence("unknown-ws")).resolves.toBeUndefined();
+	});
+
+	it("resolveWorkspaceForStream flushes a removed project's pending write before deleting its directory, then discards any race on dispose", async () => {
+		const deps = createDeps();
+		const registry = await createWorkspaceRegistry(deps);
+		await registry.ensureTerminalManagerForWorkspace("ws-1", "/tmp/ws-1");
+		const fakePersister = persisterMocks.createSessionSummaryPersister.mock.results[0]?.value as FakePersister;
+
+		// This project is missing on disk (default `pathIsDirectory` mock isn't overridden,
+		// but `hasGitRepository` already defaults to false, which alone triggers removal).
+		workspaceStateMocks.listWorkspaceIndexEntries.mockResolvedValue([{ workspaceId: "ws-1", repoPath: "/tmp/ws-1" }]);
+		workspaceStateMocks.removeWorkspaceIndexEntry.mockResolvedValue(true);
+
+		const callOrder: string[] = [];
+		fakePersister.flush.mockImplementation(async () => {
+			callOrder.push("flush");
+		});
+		workspaceStateMocks.removeWorkspaceStateFiles.mockImplementation(async () => {
+			callOrder.push("removeWorkspaceStateFiles");
+		});
+
+		await registry.resolveWorkspaceForStream(null);
+
+		// The explicit pre-delete flush must land before the directory is removed...
+		expect(callOrder).toEqual(["flush", "removeWorkspaceStateFiles"]);
+		// ...and disposeWorkspace afterward must not flush a second time (that would be
+		// exactly the resurrection bug: a write racing in during the delete's async I/O
+		// getting written back out after the directory is gone).
+		expect(fakePersister.flush).toHaveBeenCalledTimes(1);
+		expect(fakePersister.dispose).toHaveBeenCalledTimes(1);
+	});
+
 	it("flushSessionPersistence awaits every tracked persister", async () => {
 		const registry = await createWorkspaceRegistry(createDeps());
 		await registry.ensureTerminalManagerForWorkspace("ws-1", "/tmp/ws-1");

@@ -36,6 +36,16 @@ export interface CreateWorkspaceRegistryDependencies {
 
 export interface DisposeWorkspaceRegistryOptions {
 	stopTerminalSessions?: boolean;
+	/**
+	 * When `false`, skip flushing this workspace's pending session-summary write and
+	 * discard it instead (still clears the persister's timers). Callers that already
+	 * deleted, or are about to delete, this workspace's on-disk directory should pass
+	 * this so a debounced write that raced in during the deletion doesn't recreate
+	 * `workspaces/<id>/sessions.json` afterward. Defaults to `true` (flush as before) —
+	 * those callers should flush explicitly via `flushWorkspaceSessionPersistence`
+	 * BEFORE deleting the directory, then dispose with this set to `false`.
+	 */
+	flushSessionSummaries?: boolean;
 }
 
 export interface ResolvedWorkspaceStreamTarget {
@@ -72,6 +82,13 @@ export interface WorkspaceRegistry {
 	};
 	/** Flushes every tracked workspace's session-summary persister (debounced writes). */
 	flushSessionPersistence: () => Promise<void>;
+	/**
+	 * Flushes a single workspace's pending session-summary write, if it has a tracked
+	 * persister. No-op if the workspace has none. Intended to be `await`ed right before
+	 * a caller deletes that workspace's on-disk directory, so the current durable state
+	 * lands on disk before the directory disappears.
+	 */
+	flushWorkspaceSessionPersistence: (workspaceId: string) => Promise<void>;
 	summarizeProjectTaskCounts: (workspaceId: string, repoPath: string) => Promise<RuntimeProjectTaskCounts>;
 	createProjectSummary: (input: {
 		workspaceId: string;
@@ -304,18 +321,26 @@ export async function createWorkspaceRegistry(deps: CreateWorkspaceRegistryDepen
 		const persister = sessionPersistersByWorkspaceId.get(workspaceId);
 		if (persister) {
 			sessionPersistersByWorkspaceId.delete(workspaceId);
-			// disposeWorkspace's signature is synchronous (all call sites treat it as such),
-			// so the flush is fire-and-forget here rather than awaited; dispose() still runs
-			// only once that flush settles, so we never clear timers out from under a write
-			// that's still in flight.
-			void persister
-				.flush()
-				.catch(() => {
-					// Best effort: the persister's own flush/write path already logs failures.
-				})
-				.finally(() => {
-					persister.dispose();
-				});
+			if (options?.flushSessionSummaries === false) {
+				// Caller already deleted (or is about to delete) this workspace's on-disk
+				// directory and explicitly flushed beforehand — discard whatever raced in
+				// since instead of flushing it, which would recreate the directory we just
+				// removed. dispose() only clears timers, it never writes.
+				persister.dispose();
+			} else {
+				// disposeWorkspace's signature is synchronous (all call sites treat it as such),
+				// so the flush is fire-and-forget here rather than awaited; dispose() still runs
+				// only once that flush settles, so we never clear timers out from under a write
+				// that's still in flight.
+				void persister
+					.flush()
+					.catch(() => {
+						// Best effort: the persister's own flush/write path already logs failures.
+					})
+					.finally(() => {
+						persister.dispose();
+					});
+			}
 		}
 		projectTaskCountsByWorkspaceId.delete(workspaceId);
 		const workspacePath = workspacePathsById.get(workspaceId) ?? null;
@@ -324,6 +349,13 @@ export async function createWorkspaceRegistry(deps: CreateWorkspaceRegistryDepen
 			terminalManager,
 			workspacePath,
 		};
+	};
+
+	const flushWorkspaceSessionPersistence = async (workspaceId: string): Promise<void> => {
+		const persister = sessionPersistersByWorkspaceId.get(workspaceId);
+		if (persister) {
+			await persister.flush();
+		}
 	};
 
 	const summarizeProjectTaskCounts = async (
@@ -414,8 +446,13 @@ export async function createWorkspaceRegistry(deps: CreateWorkspaceRegistryDepen
 
 			removedProjects.push(project);
 			await removeWorkspaceIndexEntry(project.workspaceId);
+			// Flush this workspace's pending session-summary write BEFORE deleting its
+			// directory, then dispose without flushing again: PTY `onExit` handlers can
+			// fire during the delete's async I/O and enqueue a write that would otherwise
+			// resurrect `workspaces/<id>/sessions.json` right after we remove it.
+			await flushWorkspaceSessionPersistence(project.workspaceId);
 			await removeWorkspaceStateFiles(project.workspaceId);
-			disposeWorkspace(project.workspaceId);
+			disposeWorkspace(project.workspaceId, { flushSessionSummaries: false });
 			options?.onRemovedWorkspace?.({
 				workspaceId: project.workspaceId,
 				repoPath: project.repoPath,
@@ -500,6 +537,7 @@ export async function createWorkspaceRegistry(deps: CreateWorkspaceRegistryDepen
 		flushSessionPersistence: async (): Promise<void> => {
 			await Promise.all(Array.from(sessionPersistersByWorkspaceId.values()).map((persister) => persister.flush()));
 		},
+		flushWorkspaceSessionPersistence,
 		summarizeProjectTaskCounts,
 		createProjectSummary: toProjectSummary,
 		buildWorkspaceStateSnapshot,
