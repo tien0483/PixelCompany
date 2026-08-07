@@ -9,6 +9,10 @@ import type { RuntimeSavedPlan } from "@/runtime/types";
 const mockReadQuery = vi.fn();
 const mockWriteMutate = vi.fn();
 const mockWriteAssetMutate = vi.fn();
+const mockListQuery = vi.fn();
+const mockWriteSiblingMutate = vi.fn();
+const mockHtmlStatusQuery = vi.fn();
+const mockHtmlTemplatesQuery = vi.fn();
 
 vi.mock("@/runtime/trpc-client", () => ({
 	getRuntimeTrpcClient: () => ({
@@ -16,6 +20,12 @@ vi.mock("@/runtime/trpc-client", () => ({
 			read: { query: mockReadQuery },
 			write: { mutate: mockWriteMutate },
 			writeAsset: { mutate: mockWriteAssetMutate },
+			writeSibling: { mutate: mockWriteSiblingMutate },
+			list: { query: mockListQuery },
+		},
+		html: {
+			status: { query: mockHtmlStatusQuery },
+			templates: { query: mockHtmlTemplatesQuery },
 		},
 	}),
 }));
@@ -25,25 +35,22 @@ vi.mock("@/components/app-toaster", () => ({
 }));
 
 vi.mock("@/components/plan-editor/plan-rich-editor", () => ({
-	default: function MockPlanRichEditor() {
-		return <div data-testid="plan-rich-editor">rich editor</div>;
+	default: function MockPlanRichEditor({ content }: { content: string }) {
+		return <div data-testid="plan-rich-editor">{content}</div>;
 	},
-}));
-
-vi.mock("@/components/plan-editor/plan-rich-preview", () => ({
-	default: ({ content }: { content: string }) => (
-		<pre data-testid="plan-rich-preview">{content}</pre>
-	),
-}));
-
-vi.mock("@/html/html-generate-dialog", () => ({
-	HtmlGenerateDialog: () => null,
 }));
 
 const PLAN: RuntimeSavedPlan = {
 	id: "plan-1",
 	name: "roadmap",
 	path: "/tmp/roadmap.md",
+	addedAt: 0,
+};
+
+const HTML_SIBLING: RuntimeSavedPlan = {
+	id: "plan-1-html",
+	name: "roadmap",
+	path: "/tmp/roadmap.html",
 	addedAt: 0,
 };
 
@@ -61,28 +68,16 @@ function flush(): Promise<void> {
 	});
 }
 
-async function waitForSaved(container: HTMLDivElement): Promise<void> {
+async function waitFor(check: () => boolean, description: string): Promise<void> {
 	for (let attempt = 0; attempt < 40; attempt += 1) {
-		if (container.textContent?.includes("Saved")) {
+		if (check()) {
 			return;
 		}
 		await act(async () => {
 			await new Promise((resolveWait) => setTimeout(resolveWait, 25));
 		});
 	}
-	throw new Error("plan editor never reached Saved status");
-}
-
-async function waitForRichEditor(container: HTMLDivElement): Promise<void> {
-	for (let attempt = 0; attempt < 40; attempt += 1) {
-		if (container.querySelector('[data-testid="plan-rich-editor"]')) {
-			return;
-		}
-		await act(async () => {
-			await new Promise((resolveWait) => setTimeout(resolveWait, 25));
-		});
-	}
-	throw new Error("plan rich editor never mounted");
+	throw new Error(`timed out waiting for ${description}`);
 }
 
 function getTextarea(container: HTMLDivElement): HTMLTextAreaElement {
@@ -91,6 +86,16 @@ function getTextarea(container: HTMLDivElement): HTMLTextAreaElement {
 		throw new Error("plan editor textarea not found");
 	}
 	return textarea;
+}
+
+function getHtmlSwitchButton(container: HTMLDivElement): HTMLButtonElement {
+	const button = container
+		.querySelector('[data-testid="plan-editor-raw-source-switch"]')
+		?.querySelectorAll("button")[1];
+	if (!(button instanceof HTMLButtonElement)) {
+		throw new Error("HTML source switch not found");
+	}
+	return button;
 }
 
 function setTextareaValue(textarea: HTMLTextAreaElement, value: string): void {
@@ -103,13 +108,33 @@ describe("PlanEditorView", () => {
 	let container: HTMLDivElement;
 	let root: Root;
 
+	function render(plan: RuntimeSavedPlan): Promise<void> {
+		return act(async () => {
+			root.render(
+				<TooltipProvider>
+					<PlanEditorView plan={plan} workspaceId="workspace-1" onClose={() => {}} />
+				</TooltipProvider>,
+			);
+		});
+	}
+
 	beforeEach(() => {
 		container = document.createElement("div");
 		document.body.appendChild(container);
 		root = createRoot(container);
-		mockReadQuery.mockReset().mockResolvedValue({ ok: true, plan: PLAN, content: "# Roadmap\n" });
+		mockReadQuery.mockReset().mockImplementation(({ planId }: { planId: string }) =>
+			Promise.resolve(
+				planId === HTML_SIBLING.id
+					? { ok: true, plan: HTML_SIBLING, content: "<h1>Generated</h1>" }
+					: { ok: true, plan: PLAN, content: "# Roadmap\n" },
+			),
+		);
 		mockWriteMutate.mockReset().mockResolvedValue({ ok: true, plan: PLAN });
 		mockWriteAssetMutate.mockReset();
+		mockWriteSiblingMutate.mockReset().mockResolvedValue({ ok: true, plan: HTML_SIBLING, isNew: true });
+		mockListQuery.mockReset().mockResolvedValue({ ok: true, plans: [PLAN] });
+		mockHtmlStatusQuery.mockReset().mockResolvedValue({ online: false });
+		mockHtmlTemplatesQuery.mockReset().mockResolvedValue([]);
 	});
 
 	afterEach(() => {
@@ -119,71 +144,53 @@ describe("PlanEditorView", () => {
 		container.remove();
 	});
 
-	it("defaults to the rich editor without source/preview mode tabs", async () => {
-		await act(async () => {
-			root.render(
-				<TooltipProvider>
-					<PlanEditorView plan={PLAN} workspaceId="workspace-1" onClose={() => {}} />
-				</TooltipProvider>,
-			);
-		});
+	it("shows raw markdown and the rendered editor side by side", async () => {
+		await render(PLAN);
 		await flush();
-		await waitForRichEditor(container);
+		await waitFor(
+			() => container.querySelector('[data-testid="plan-rich-editor"]') !== null,
+			"rich editor",
+		);
 
-		expect(container.querySelector('[data-testid="plan-rich-editor"]')).not.toBeNull();
-		expect(container.querySelector('[data-testid="plan-editor-textarea"]')).toBeNull();
-		expect(container.querySelector('[aria-label="Split"]')).toBeNull();
-		expect(container.querySelector('[data-testid="plan-editor-switch-to-plain"]')).not.toBeNull();
-		expect(container.querySelector('[data-testid="plan-editor-generate-html"]')).not.toBeNull();
+		expect(container.querySelector('[data-testid="plan-editor-raw-pane"]')).not.toBeNull();
+		expect(container.querySelector('[data-testid="plan-editor-rendered-pane"]')).not.toBeNull();
+		expect(getTextarea(container).value).toBe("# Roadmap\n");
+		expect(container.querySelector('[data-testid="plan-html-generate-bar"]')).not.toBeNull();
 	});
 
-	it("opens html plans in sandboxed preview and never mounts TipTap", async () => {
-		mockReadQuery.mockResolvedValue({
-			ok: true,
-			plan: HTML_PLAN,
-			content: "<html><body><h1>Hi</h1></body></html>",
-		});
-		await act(async () => {
-			root.render(
-				<TooltipProvider>
-					<PlanEditorView plan={HTML_PLAN} workspaceId="workspace-1" onClose={() => {}} />
-				</TooltipProvider>,
-			);
-		});
+	it("greys out the HTML switch until a sibling exists", async () => {
+		await render(PLAN);
 		await flush();
+
+		expect(getHtmlSwitchButton(container).disabled).toBe(true);
+	});
+
+	it("enables the HTML switch and shows the sibling document when one exists", async () => {
+		mockListQuery.mockResolvedValue({ ok: true, plans: [PLAN, HTML_SIBLING] });
+		await render(PLAN);
+		await flush();
+		await waitFor(() => !getHtmlSwitchButton(container).disabled, "enabled HTML switch");
+
+		await act(async () => {
+			getHtmlSwitchButton(container).click();
+		});
+		await waitFor(
+			() => getTextarea(container).value === "<h1>Generated</h1>",
+			"sibling HTML in the raw pane",
+		);
 
 		expect(container.querySelector('[data-testid="plan-editor-html-preview"]')).not.toBeNull();
 		expect(container.querySelector('[data-testid="plan-rich-editor"]')).toBeNull();
-		expect(container.querySelector('[data-testid="plan-editor-generate-html"]')).toBeNull();
-		expect(container.textContent).toContain("HTML");
 	});
 
-	it("switches to plain text editing and autosaves textarea edits", async () => {
-		await act(async () => {
-			root.render(
-				<TooltipProvider>
-					<PlanEditorView plan={PLAN} workspaceId="workspace-1" onClose={() => {}} />
-				</TooltipProvider>,
-			);
-		});
+	it("autosaves raw-pane edits", async () => {
+		await render(PLAN);
 		await flush();
-		await waitForSaved(container);
+		await waitFor(() => container.textContent?.includes("Saved") === true, "saved status");
 
-		const switchToPlain = container.querySelector('[data-testid="plan-editor-switch-to-plain"]');
-		expect(switchToPlain).toBeInstanceOf(HTMLButtonElement);
 		await act(async () => {
-			(switchToPlain as HTMLButtonElement).click();
+			setTextareaValue(getTextarea(container), "# Roadmap\n\nUpdated");
 		});
-
-		expect(container.querySelector('[data-testid="plan-editor-textarea"]')).not.toBeNull();
-		expect(container.querySelector('[data-testid="plan-rich-editor"]')).toBeNull();
-		expect(getTextarea(container).value).toBe("# Roadmap\n");
-
-		const textarea = getTextarea(container);
-		await act(async () => {
-			setTextareaValue(textarea, "# Roadmap\n\nUpdated");
-		});
-
 		expect(mockWriteMutate).not.toHaveBeenCalled();
 
 		await act(async () => {
@@ -193,24 +200,12 @@ describe("PlanEditorView", () => {
 		expect(mockWriteMutate).toHaveBeenCalledWith({ planId: "plan-1", content: "# Roadmap\n\nUpdated" });
 	});
 
-	it("wraps the selection in bold markers via the plain-mode toolbar", async () => {
-		await act(async () => {
-			root.render(
-				<TooltipProvider>
-					<PlanEditorView plan={PLAN} workspaceId="workspace-1" onClose={() => {}} />
-				</TooltipProvider>,
-			);
-		});
+	it("wraps the selection in bold markers via the raw-pane toolbar", async () => {
+		await render(PLAN);
 		await flush();
-		await waitForSaved(container);
-
-		const switchToPlain = container.querySelector('[data-testid="plan-editor-switch-to-plain"]');
-		await act(async () => {
-			(switchToPlain as HTMLButtonElement).click();
-		});
+		await waitFor(() => getTextarea(container).value === "# Roadmap\n", "loaded content");
 
 		const textarea = getTextarea(container);
-		expect(textarea.value).toBe("# Roadmap\n");
 		textarea.focus();
 		textarea.setSelectionRange(2, 9);
 
@@ -223,27 +218,18 @@ describe("PlanEditorView", () => {
 		expect(getTextarea(container).value).toBe("# **Roadmap**\n");
 	});
 
-	it("switches to the rich preview and mounts it with the current content", async () => {
-		await act(async () => {
-			root.render(
-				<TooltipProvider>
-					<PlanEditorView plan={PLAN} workspaceId="workspace-1" onClose={() => {}} />
-				</TooltipProvider>,
-			);
+	it("pins html plans to the HTML source with no generation bar", async () => {
+		mockReadQuery.mockResolvedValue({
+			ok: true,
+			plan: HTML_PLAN,
+			content: "<html><body><h1>Hi</h1></body></html>",
 		});
-		await flush();
-		await waitForSaved(container);
-
-		const switchToPreview = container.querySelector('[data-testid="plan-editor-switch-to-preview"]');
-		expect(switchToPreview).toBeInstanceOf(HTMLButtonElement);
-		await act(async () => {
-			(switchToPreview as HTMLButtonElement).click();
-		});
+		await render(HTML_PLAN);
 		await flush();
 
-		const preview = container.querySelector('[data-testid="plan-rich-preview"]');
-		expect(preview).not.toBeNull();
-		expect(preview?.textContent).toBe("# Roadmap\n");
+		expect(container.querySelector('[data-testid="plan-editor-html-preview"]')).not.toBeNull();
 		expect(container.querySelector('[data-testid="plan-rich-editor"]')).toBeNull();
+		expect(container.querySelector('[data-testid="plan-html-generate-bar"]')).toBeNull();
+		expect(getHtmlSwitchButton(container).disabled).toBe(true);
 	});
 });

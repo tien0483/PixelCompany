@@ -1,7 +1,8 @@
 import type { Editor } from "@tiptap/react";
-import { FileCode2, X } from "lucide-react";
+import { AlertTriangle, X } from "lucide-react";
 import {
 	lazy,
+	type MouseEvent as ReactMouseEvent,
 	type ReactElement,
 	Suspense,
 	useCallback,
@@ -17,25 +18,37 @@ import {
 	type TextSelectionState,
 } from "@/components/plan-editor/markdown-selection-commands";
 import { PlanEditorErrorBoundary } from "@/components/plan-editor/plan-editor-error-boundary";
+import { PlanHtmlGenerateBar } from "@/components/plan-editor/plan-html-generate-bar";
 import { PlanMarkdownToolbar } from "@/components/plan-editor/plan-markdown-toolbar";
 import { insertMarkdownImage } from "@/components/plan-editor/plan-rich-markdown";
 import { usePlanEditorDocument } from "@/components/plan-editor/use-plan-editor-document";
+import { usePlanHtmlSibling } from "@/components/plan-editor/use-plan-html-sibling";
 import { usePlanImagePaste } from "@/components/plan-editor/use-plan-image-paste";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/components/ui/cn";
 import { Spinner } from "@/components/ui/spinner";
-import { HtmlGenerateDialog } from "@/html/html-generate-dialog";
 import { HTML_LABELS } from "@/html/html-labels";
+import { useHtmlGenerate } from "@/html/use-html-generate";
+import { ResizeHandle } from "@/resize/resize-handle";
+import { usePlanEditorLayout } from "@/resize/use-plan-editor-layout";
+import { useResizeDrag } from "@/resize/use-resize-drag";
+import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
 import type { RuntimeSavedPlan } from "@/runtime/types";
 
 const PlanRichEditor = lazy(
 	() => import("@/components/plan-editor/plan-rich-editor"),
 );
-const PlanRichPreview = lazy(
-	() => import("@/components/plan-editor/plan-rich-preview"),
-);
 
-type PlanEditorMode = "rich" | "plain" | "preview";
+/** Which file the split view is showing: the plan's markdown, or its generated HTML sibling. */
+type PlanEditorSource = "md" | "html";
+type PlanEditorPane = "raw" | "rendered";
 type PlanFileKind = "markdown" | "html" | "text";
+
+/** How long raw-pane typing is allowed to run ahead of the rendered pane. */
+const RENDERED_SYNC_DEBOUNCE_MS = 250;
+
+const EMPTY_HTML_PREVIEW =
+	"<!doctype html><html><body style='font:14px sans-serif;color:#888;padding:16px'>Preview</body></html>";
 
 function planFileKind(path: string): PlanFileKind {
 	const lower = path.toLowerCase();
@@ -54,6 +67,60 @@ function fileTypeLabel(kind: PlanFileKind): string {
 	return "Markdown";
 }
 
+function SourceSwitch({
+	value,
+	htmlEnabled,
+	disabled,
+	onChange,
+	testId,
+}: {
+	value: PlanEditorSource;
+	htmlEnabled: boolean;
+	disabled?: boolean;
+	onChange: (next: PlanEditorSource) => void;
+	testId: string;
+}): ReactElement {
+	const options: ReadonlyArray<{ id: PlanEditorSource; label: string }> = [
+		{ id: "md", label: "MD" },
+		{ id: "html", label: "HTML" },
+	];
+	return (
+		<div
+			className="inline-flex items-center gap-0.5 rounded-md border border-border bg-surface-3 p-0.5"
+			data-testid={testId}
+		>
+			{options.map((option) => {
+				const optionDisabled = disabled || (option.id === "html" && !htmlEnabled);
+				return (
+					<button
+						key={option.id}
+						type="button"
+						aria-pressed={value === option.id}
+						disabled={optionDisabled}
+						title={
+							option.id === "html" && !htmlEnabled
+								? "Generate HTML first to enable this view."
+								: undefined
+						}
+						onClick={() => onChange(option.id)}
+						className={cn(
+							"rounded-[3px] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
+							value === option.id
+								? "bg-surface-1 text-text-primary"
+								: "text-text-tertiary",
+							optionDisabled
+								? "cursor-not-allowed opacity-40"
+								: "cursor-pointer hover:text-text-primary",
+						)}
+					>
+						{option.label}
+					</button>
+				);
+			})}
+		</div>
+	);
+}
+
 export interface PlanEditorViewProps {
 	plan: RuntimeSavedPlan;
 	workspaceId: string | null;
@@ -66,42 +133,78 @@ export function PlanEditorView({
 	onClose,
 }: PlanEditorViewProps): ReactElement {
 	const kind = useMemo(() => planFileKind(plan.path), [plan.path]);
-	const { content, updateContent, statusLabel, status, flush } =
-		usePlanEditorDocument(plan, workspaceId);
-	const [mode, setMode] = useState<PlanEditorMode>(kind === "html" ? "preview" : "rich");
-	const [generateOpen, setGenerateOpen] = useState(false);
-	const hasWarnedAboutRichModeRef = useRef(false);
+	/** The plan file itself is HTML — there is no markdown side to show or generate from. */
+	const isHtmlPlan = kind === "html";
+
+	const mdDoc = usePlanEditorDocument(plan, workspaceId);
+	const { sibling, setSibling } = usePlanHtmlSibling(isHtmlPlan ? null : plan, workspaceId);
+	const siblingDoc = usePlanEditorDocument(sibling, workspaceId);
+	/** For an HTML plan the main document *is* the HTML; otherwise it's the generated sibling. */
+	const htmlDoc = isHtmlPlan ? mdDoc : siblingDoc;
+
+	const [sourceState, setSourceState] = useState<PlanEditorSource>("md");
+	const source: PlanEditorSource = isHtmlPlan ? "html" : sourceState;
+	const [focusedPane, setFocusedPane] = useState<PlanEditorPane>("raw");
+	const [richFailed, setRichFailed] = useState(false);
+	const [logOpen, setLogOpen] = useState(false);
+
+	const generate = useHtmlGenerate();
+	const savedHtmlRef = useRef<string | null>(null);
+	const containerRef = useRef<HTMLDivElement>(null);
 	const textareaRef = useRef<HTMLTextAreaElement>(null);
-	const richEditorRef = useRef<Editor | null>(null);
+	const { rawPaneRatio, setRawPaneRatio } = usePlanEditorLayout();
+	const { startDrag } = useResizeDrag();
+
+	const activeDoc = source === "html" ? htmlDoc : mdDoc;
+	const htmlAvailable = isHtmlPlan || sibling !== null;
 
 	useEffect(() => {
-		setMode(kind === "html" ? "preview" : "rich");
-	}, [kind, plan.id]);
+		setSourceState("md");
+		setRichFailed(false);
+		savedHtmlRef.current = null;
+	}, [plan.id]);
+
+	// Rendered pane trails raw-pane typing so TipTap isn't rebuilt on every keystroke.
+	const [renderedMarkdown, setRenderedMarkdown] = useState(mdDoc.content);
+	useEffect(() => {
+		if (focusedPane !== "raw") {
+			setRenderedMarkdown(mdDoc.content);
+			return;
+		}
+		const timer = setTimeout(() => setRenderedMarkdown(mdDoc.content), RENDERED_SYNC_DEBOUNCE_MS);
+		return () => clearTimeout(timer);
+	}, [focusedPane, mdDoc.content]);
 
 	const applyTextCommand = useCallback(
 		(transform: (state: TextSelectionState) => TextSelectionState) => {
 			const textarea = textareaRef.current;
-			const selectionStart = textarea?.selectionStart ?? content.length;
-			const selectionEnd = textarea?.selectionEnd ?? content.length;
-			const next = transform({ value: content, selectionStart, selectionEnd });
-			updateContent(next.value);
+			const value = mdDoc.content;
+			const selectionStart = textarea?.selectionStart ?? value.length;
+			const selectionEnd = textarea?.selectionEnd ?? value.length;
+			const next = transform({ value, selectionStart, selectionEnd });
+			mdDoc.updateContent(next.value);
 			requestAnimationFrame(() => {
 				textarea?.focus();
 				textarea?.setSelectionRange(next.selectionStart, next.selectionEnd);
 			});
 		},
-		[content, updateContent],
+		[mdDoc],
 	);
+
+	const richEditorRef = useRef<Editor | null>(null);
+	const handleEditorReady = useCallback((editor: Editor | null) => {
+		richEditorRef.current = editor;
+	}, []);
 
 	const insertMarkdownAtCursor = useCallback(
 		(markdown: string) => {
-			if (mode === "rich" && richEditorRef.current) {
+			if (focusedPane === "rendered" && source === "md" && richEditorRef.current) {
 				insertMarkdownImage(richEditorRef.current, markdown, plan.id);
 				return;
 			}
 			applyTextCommand((state) => insertAtCursor(state, `${markdown}\n`));
 		},
-		[applyTextCommand, mode, plan.id],
+		[applyTextCommand, focusedPane, plan.id, source],
 	);
 
 	const {
@@ -112,70 +215,155 @@ export function PlanEditorView({
 		handleDragOver,
 	} = usePlanImagePaste(plan.id, workspaceId, insertMarkdownAtCursor);
 
-	const handleEditorReady = useCallback((editor: Editor | null) => {
-		richEditorRef.current = editor;
-	}, []);
-
-	const handleSwitchToPlain = useCallback(() => {
-		setMode("plain");
-	}, []);
-
-	const handleSwitchToPreview = useCallback(() => {
-		setMode("preview");
-	}, []);
-
-	const handleSwitchToRich = useCallback(() => {
-		if (kind === "html") {
-			return;
-		}
-		if (!hasWarnedAboutRichModeRef.current) {
-			hasWarnedAboutRichModeRef.current = true;
-			showAppToast({
-				intent: "warning",
-				message:
-					"Rich mode may reformat parts of the markdown file when you save.",
-			});
-		}
-		setMode("rich");
-	}, [kind]);
-
 	const handleRichEditorError = useCallback((error: Error) => {
-		setMode("plain");
+		setRichFailed(true);
+		setFocusedPane("raw");
 		showAppToast({
 			intent: "danger",
-			message:
-				error.message || "Rich editor failed. Switched to plain text editing.",
+			message: error.message || "Rich editor failed. Keep editing in the raw pane.",
 		});
 	}, []);
-
-	const handlePreviewError = useCallback((error: Error) => {
-		setMode("plain");
-		showAppToast({
-			intent: "danger",
-			message:
-				error.message || "Preview failed to render. Switched to plain text editing.",
-		});
-	}, []);
-
-	useEffect(() => {
-		if (kind === "html" || hasWarnedAboutRichModeRef.current) {
-			return;
-		}
-		hasWarnedAboutRichModeRef.current = true;
-		showAppToast({
-			intent: "warning",
-			message:
-				"Rich mode may reformat parts of the markdown file when you save.",
-		});
-	}, [kind]);
 
 	const handleClose = useCallback(() => {
-		void flush().then(onClose);
-	}, [flush, onClose]);
+		void Promise.all([mdDoc.flush(), siblingDoc.flush()]).then(onClose);
+	}, [mdDoc, onClose, siblingDoc]);
 
-	const showRich = kind !== "html" && mode === "rich";
-	const showPreview = mode === "preview";
-	const showPlain = mode === "plain" || (kind === "html" && mode !== "preview" && !showRich);
+	const handleGenerate = useCallback(
+		(templateId: string) => {
+			savedHtmlRef.current = null;
+			setLogOpen(false);
+			void generate.run({
+				templateId,
+				content: mdDoc.content,
+				format: kind === "text" ? "text" : "markdown",
+				planId: plan.id,
+			});
+		},
+		[generate, kind, mdDoc.content, plan.id],
+	);
+
+	// A finished stream is written straight to `<stem>.html`, which un-greys the HTML switch.
+	const generateStatus = generate.status;
+	const generatedHtml = generate.html;
+	useEffect(() => {
+		if (generateStatus !== "done" || generatedHtml.trim() === "") {
+			return;
+		}
+		if (savedHtmlRef.current === generatedHtml) {
+			return;
+		}
+		savedHtmlRef.current = generatedHtml;
+		void (async () => {
+			try {
+				const result = await getRuntimeTrpcClient(workspaceId).plans.writeSibling.mutate({
+					planId: plan.id,
+					ext: ".html",
+					content: generatedHtml,
+				});
+				if (!result.ok || !result.plan) {
+					showAppToast({
+						intent: "danger",
+						message: result.error ?? "Could not save the generated HTML.",
+					});
+					return;
+				}
+				setSibling(result.plan);
+				setSourceState("html");
+				showAppToast({ intent: "success", message: HTML_LABELS.saveSibling });
+			} catch (error) {
+				showAppToast({
+					intent: "danger",
+					message: error instanceof Error ? error.message : String(error),
+				});
+			}
+		})();
+	}, [generateStatus, generatedHtml, plan.id, setSibling, workspaceId]);
+
+	const generateError = generate.error;
+	useEffect(() => {
+		if (!generateError) {
+			return;
+		}
+		setLogOpen(true);
+		showAppToast({ intent: "danger", message: generateError });
+	}, [generateError]);
+
+	const handleResizeStart = useCallback(
+		(event: ReactMouseEvent<HTMLDivElement>) => {
+			const container = containerRef.current;
+			if (!container) {
+				return;
+			}
+			startDrag(event, {
+				axis: "x",
+				cursor: "ew-resize",
+				onMove: (pointer) => {
+					const rect = container.getBoundingClientRect();
+					if (rect.width <= 0) {
+						return;
+					}
+					setRawPaneRatio((pointer - rect.left) / rect.width);
+				},
+			});
+		},
+		[setRawPaneRatio, startDrag],
+	);
+
+	const isStreaming = generate.status === "running";
+	const showMarkdownTools = source === "md" && !isHtmlPlan;
+	const htmlSizeBytes = useMemo(
+		() => new TextEncoder().encode(generate.html).length,
+		[generate.html],
+	);
+
+	const renderedPaneBody = (): ReactElement => {
+		if (source === "html" || isStreaming) {
+			const html = isStreaming ? generate.html : htmlDoc.content;
+			return (
+				<iframe
+					title={HTML_LABELS.preview}
+					sandbox="allow-scripts"
+					srcDoc={html || EMPTY_HTML_PREVIEW}
+					className="min-h-0 w-full flex-1 border-0 bg-white"
+					data-testid="plan-editor-html-preview"
+				/>
+			);
+		}
+		if (richFailed) {
+			return (
+				<div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 px-4 text-center text-sm text-text-secondary">
+					<AlertTriangle size={18} className="text-status-red" aria-hidden />
+					<span>Rich rendering is unavailable. The raw pane still saves normally.</span>
+					<Button variant="ghost" size="sm" onClick={() => setRichFailed(false)}>
+						Try again
+					</Button>
+				</div>
+			);
+		}
+		return (
+			<PlanEditorErrorBoundary onError={handleRichEditorError}>
+				<Suspense
+					fallback={
+						<div className="flex flex-1 items-center justify-center">
+							<Spinner size={20} />
+						</div>
+					}
+				>
+					<PlanRichEditor
+						content={renderedMarkdown}
+						onChange={mdDoc.updateContent}
+						planId={plan.id}
+						disabled={mdDoc.status === "loading"}
+						onInsertImage={(file) => void uploadImageFile(file)}
+						onPaste={handlePaste}
+						onDrop={handleDrop}
+						onDragOver={handleDragOver}
+						onEditorReady={handleEditorReady}
+					/>
+				</Suspense>
+			</PlanEditorErrorBoundary>
+		);
+	};
 
 	return (
 		<div
@@ -201,22 +389,11 @@ export function PlanEditorView({
 					</span>
 				</div>
 				<div className="flex items-center gap-3">
-					{kind !== "html" ? (
-						<Button
-							variant="ghost"
-							size="sm"
-							icon={<FileCode2 size={14} />}
-							onClick={() => setGenerateOpen(true)}
-							data-testid="plan-editor-generate-html"
-						>
-							{HTML_LABELS.generate}
-						</Button>
-					) : null}
 					<div className="flex items-center gap-1.5 text-[11px] text-text-secondary min-w-[80px] justify-end">
-						{status === "loading" || status === "saving" || isUploading ? (
+						{activeDoc.status === "loading" || activeDoc.status === "saving" || isUploading ? (
 							<Spinner size={12} />
 						) : null}
-						<span>{isUploading ? "Uploading…" : statusLabel}</span>
+						<span>{isUploading ? "Uploading…" : activeDoc.statusLabel}</span>
 					</div>
 					<Button
 						variant="ghost"
@@ -228,122 +405,126 @@ export function PlanEditorView({
 				</div>
 			</div>
 
-			{showPlain && kind !== "html" ? (
-				<PlanMarkdownToolbar
-					disabled={status === "loading"}
-					onCommand={applyTextCommand}
-					onInsertImage={(file) => void uploadImageFile(file)}
-				/>
-			) : null}
-
-			<div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-				{showPreview && kind === "html" ? (
-					<iframe
-						title={HTML_LABELS.preview}
-						sandbox="allow-scripts"
-						srcDoc={content}
-						className="min-h-0 flex-1 w-full border-0 bg-white"
-						data-testid="plan-editor-html-preview"
-					/>
-				) : showPreview ? (
-					<div
-						className="flex min-h-0 flex-1 flex-col overflow-auto bg-surface-1"
-						data-testid="plan-editor-markdown-preview"
-					>
-						<PlanEditorErrorBoundary onError={handlePreviewError}>
-							<Suspense
-								fallback={
-									<div className="flex flex-1 items-center justify-center">
-										<Spinner size={20} />
-									</div>
-								}
-							>
-								<PlanRichPreview content={content} planId={plan.id} />
-							</Suspense>
-						</PlanEditorErrorBoundary>
+			<div ref={containerRef} className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
+				<div
+					className="flex min-h-0 min-w-0 flex-col overflow-hidden"
+					style={{ width: `${rawPaneRatio * 100}%` }}
+					onFocus={() => setFocusedPane("raw")}
+					data-testid="plan-editor-raw-pane"
+				>
+					<div className="flex shrink-0 items-center justify-between gap-2 border-b border-border bg-surface-2 px-2 py-1">
+						<span className="text-[11px] font-semibold uppercase tracking-wide text-text-tertiary">
+							{HTML_LABELS.source}
+						</span>
+						<SourceSwitch
+							value={source}
+							htmlEnabled={htmlAvailable}
+							disabled={isHtmlPlan || isStreaming}
+							onChange={setSourceState}
+							testId="plan-editor-raw-source-switch"
+						/>
 					</div>
-				) : showPlain ? (
+					{showMarkdownTools ? (
+						<PlanMarkdownToolbar
+							disabled={mdDoc.status === "loading"}
+							onCommand={applyTextCommand}
+							onInsertImage={(file) => void uploadImageFile(file)}
+						/>
+					) : null}
 					<textarea
 						ref={textareaRef}
-						value={content}
-						onChange={(event) => updateContent(event.currentTarget.value)}
-						onPaste={handlePaste}
-						onDrop={handleDrop}
-						onDragOver={handleDragOver}
-						disabled={status === "loading"}
+						value={activeDoc.content}
+						onChange={(event) => activeDoc.updateContent(event.currentTarget.value)}
+						onPaste={source === "md" ? handlePaste : undefined}
+						onDrop={source === "md" ? handleDrop : undefined}
+						onDragOver={source === "md" ? handleDragOver : undefined}
+						disabled={activeDoc.status === "loading"}
 						spellCheck={false}
-						className="min-h-0 flex-1 w-full resize-none border-0 bg-surface-1 px-3 py-2 font-mono text-[13px] leading-5 text-text-primary focus:outline-none disabled:opacity-50"
+						className="min-h-0 w-full flex-1 resize-none border-0 bg-surface-1 px-3 py-2 font-mono text-[13px] leading-5 text-text-primary focus:outline-none disabled:opacity-50"
 						data-testid="plan-editor-textarea"
 					/>
-				) : (
-					<PlanEditorErrorBoundary onError={handleRichEditorError}>
-						<Suspense
-							fallback={
-								<div className="flex flex-1 items-center justify-center">
-									<Spinner size={20} />
-								</div>
-							}
-						>
-							<PlanRichEditor
-								content={content}
-								onChange={updateContent}
-								planId={plan.id}
-								disabled={status === "loading"}
-								onInsertImage={(file) => void uploadImageFile(file)}
-								onPaste={handlePaste}
-								onDrop={handleDrop}
-								onDragOver={handleDragOver}
-								onEditorReady={handleEditorReady}
+				</div>
+
+				<ResizeHandle
+					orientation="vertical"
+					ariaLabel="Resize plan editor panes"
+					onMouseDown={handleResizeStart}
+				/>
+
+				<div
+					className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
+					onFocus={() => setFocusedPane("rendered")}
+					data-testid="plan-editor-rendered-pane"
+				>
+					<div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border bg-surface-2 px-2 py-1">
+						<div className="flex items-center gap-2">
+							<span className="text-[11px] font-semibold uppercase tracking-wide text-text-tertiary">
+								{HTML_LABELS.preview}
+							</span>
+							<SourceSwitch
+								value={source}
+								htmlEnabled={htmlAvailable}
+								disabled={isHtmlPlan || isStreaming}
+								onChange={setSourceState}
+								testId="plan-editor-rendered-source-switch"
 							/>
-						</Suspense>
-					</PlanEditorErrorBoundary>
-				)}
+						</div>
+						{!isHtmlPlan && source === "md" ? (
+							<PlanHtmlGenerateBar
+								status={generate.status}
+								startedAt={generate.startedAt}
+								firstByteAt={generate.firstByteAt}
+								doneAt={generate.doneAt}
+								htmlSizeBytes={htmlSizeBytes}
+								disabled={mdDoc.status === "loading"}
+								onGenerate={handleGenerate}
+								onCancel={generate.cancel}
+							/>
+						) : null}
+					</div>
+					{renderedPaneBody()}
+				</div>
 			</div>
 
-			<div className="flex items-center justify-between gap-3 border-t border-border bg-surface-1 px-3 py-1.5 shrink-0">
-				<div className="flex items-center gap-3">
-					{mode !== "plain" ? (
-						<button
-							type="button"
-							className="text-[12px] text-accent hover:underline cursor-pointer bg-transparent border-0 p-0"
-							onClick={handleSwitchToPlain}
-							data-testid="plan-editor-switch-to-plain"
-						>
-							{kind === "html" ? "Edit source" : "Switch to plain text editing"}
-						</button>
-					) : null}
-					{mode !== "preview" ? (
-						<button
-							type="button"
-							className="text-[12px] text-accent hover:underline cursor-pointer bg-transparent border-0 p-0"
-							onClick={handleSwitchToPreview}
-							data-testid="plan-editor-switch-to-preview"
-						>
-							{HTML_LABELS.preview}
-						</button>
-					) : null}
-					{kind !== "html" && mode !== "rich" ? (
-						<button
-							type="button"
-							className="text-[12px] text-accent hover:underline cursor-pointer bg-transparent border-0 p-0"
-							onClick={handleSwitchToRich}
-							data-testid="plan-editor-switch-to-rich"
-						>
-							Switch to rich text editing
-						</button>
+			{generate.log.length > 0 || generate.error ? (
+				<div className="shrink-0 border-t border-border bg-surface-1" data-testid="plan-editor-generate-log">
+					<button
+						type="button"
+						className="flex w-full items-center gap-2 px-3 py-1 text-left text-[11px] text-text-secondary cursor-pointer bg-transparent border-0"
+						onClick={() => setLogOpen((open) => !open)}
+					>
+						<span>
+							{logOpen ? "▾" : "▸"} {HTML_LABELS.log} ({generate.log.length})
+						</span>
+						{generate.error ? (
+							<span className="truncate text-status-red">{generate.error}</span>
+						) : null}
+					</button>
+					{logOpen ? (
+						<div className="max-h-32 overflow-auto bg-surface-2 px-3 py-2 font-mono text-[11px] leading-relaxed text-text-secondary">
+							{generate.log.length === 0 ? (
+								<div className="text-text-tertiary">{HTML_LABELS.noLog}</div>
+							) : (
+								generate.log.map((line, index) => (
+									// eslint-disable-next-line react/no-array-index-key
+									<div key={index} className="whitespace-pre-wrap break-words">
+										{line}
+									</div>
+								))
+							)}
+						</div>
 					) : null}
 				</div>
-				<span className="text-[11px] text-text-tertiary">{fileTypeLabel(kind)}</span>
-			</div>
+			) : null}
 
-			<HtmlGenerateDialog
-				open={generateOpen}
-				onOpenChange={setGenerateOpen}
-				planId={plan.id}
-				content={content}
-				format={kind === "text" ? "text" : "markdown"}
-				workspaceId={workspaceId}
-			/>
+			<div className="flex items-center justify-between gap-3 border-t border-border bg-surface-1 px-3 py-1.5 shrink-0">
+				<span className="text-[11px] text-text-tertiary">
+					{source === "html" && !isHtmlPlan && sibling ? sibling.path : plan.path}
+				</span>
+				<span className="text-[11px] text-text-tertiary">
+					{fileTypeLabel(source === "html" ? "html" : kind)}
+				</span>
+			</div>
 		</div>
 	);
 }
