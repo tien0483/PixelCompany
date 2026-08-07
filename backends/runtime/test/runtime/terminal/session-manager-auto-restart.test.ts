@@ -107,14 +107,77 @@ describe("TerminalSessionManager auto-restart", () => {
 			prompt: "Fix the bug",
 		});
 
-		manager.stopTaskSession("task-1");
+		const stopPromise = manager.stopTaskSession("task-1");
 		spawnedSessions[0]?.triggerExit(0);
-		await Promise.resolve();
-		await Promise.resolve();
+		await stopPromise;
 
 		expect(ptySessionSpawnMock).toHaveBeenCalledTimes(1);
 		expect(manager.getSummary("task-1")?.state).toBe("awaiting_review");
 		expect(manager.getSummary("task-1")?.pid).toBeNull();
+	});
+
+	it("stopTaskSession waits for the real process exit before resolving, so a following startTaskSession is not swallowed by the still-active guard", async () => {
+		const spawnedSessions: Array<ReturnType<typeof createMockPtySession>> = [];
+		ptySessionSpawnMock.mockImplementation((request: MockSpawnRequest) => {
+			const session = createMockPtySession(spawnedSessions.length === 0 ? 111 : 222, request);
+			spawnedSessions.push(session);
+			return session;
+		});
+
+		const manager = new TerminalSessionManager();
+		manager.attach("task-1", {
+			onState: vi.fn(),
+			onOutput: vi.fn(),
+			onExit: vi.fn(),
+		});
+
+		await manager.startTaskSession({
+			taskId: "task-1",
+			agentId: "claude",
+			binary: "claude",
+			args: [],
+			cwd: "/tmp/task-1",
+			prompt: "Fix the bug",
+			env: { MOCK_ACCOUNT: "account-a" },
+		});
+
+		// Simulate the 401 flow: the auth failure keeps the PTY "active" in awaiting_review.
+		spawnedSessions[0]?.triggerData("Unauthorized: please re-authenticate with Anthropic.\n");
+		expect(manager.getSummary("task-1")?.state).toBe("awaiting_review");
+
+		let stopResolved = false;
+		const stopPromise = manager.stopTaskSession("task-1").then(() => {
+			stopResolved = true;
+		});
+
+		// The kill signal was sent, but the mock PTY has not reported exit yet -
+		// stopTaskSession must not resolve until it does.
+		await Promise.resolve();
+		await Promise.resolve();
+		expect(stopResolved).toBe(false);
+
+		spawnedSessions[0]?.triggerExit(1);
+		await stopPromise;
+		expect(stopResolved).toBe(true);
+
+		// Restarting with a different account's env after stopTaskSession has resolved
+		// must actually spawn a new process, not be swallowed by the "still active" guard.
+		await manager.startTaskSession({
+			taskId: "task-1",
+			agentId: "claude",
+			binary: "claude",
+			args: [],
+			cwd: "/tmp/task-1",
+			prompt: "Fix the bug",
+			resumeFromPersistence: true,
+			env: { MOCK_ACCOUNT: "account-b" },
+		});
+
+		expect(ptySessionSpawnMock).toHaveBeenCalledTimes(2);
+		expect(ptySessionSpawnMock.mock.calls[1]?.[0]).toMatchObject({
+			env: expect.objectContaining({ MOCK_ACCOUNT: "account-b" }),
+		});
+		expect(manager.getSummary("task-1")?.pid).toBe(222);
 	});
 
 	it("does not restart Cursor sessions that exit after an invalid API key", async () => {

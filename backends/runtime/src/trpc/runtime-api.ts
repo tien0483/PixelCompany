@@ -438,7 +438,7 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 					};
 				}
 				const terminalManager = await deps.getScopedTerminalManager(workspaceScope);
-				const summary = terminalManager.stopTaskSession(body.taskId);
+				const summary = await terminalManager.stopTaskSession(body.taskId);
 				return {
 					ok: Boolean(summary),
 					summary,

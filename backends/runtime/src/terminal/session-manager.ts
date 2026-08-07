@@ -49,6 +49,8 @@ const MAX_WORKSPACE_TRUST_BUFFER_CHARS = 16_384;
 const MAX_RECENT_OUTPUT_CHARS = 12_288;
 const AUTO_RESTART_WINDOW_MS = 5_000;
 const MAX_AUTO_RESTARTS_PER_WINDOW = 3;
+// Safety cap so stopTaskSession() can't hang forever if a process ignores SIGTERM.
+const STOP_TASK_SESSION_EXIT_TIMEOUT_MS = 5_000;
 // TUI apps (Codex, OpenCode) can query OSC 10/11 before the browser terminal is attached
 // and ready to answer. We intercept those startup probes during early PTY output, synthesize
 // foreground/background color replies, then disable the filter once a live terminal listener
@@ -97,6 +99,8 @@ interface SessionEntry {
 	suppressAutoRestartOnExit: boolean;
 	autoRestartTimestamps: number[];
 	pendingAutoRestart: Promise<void> | null;
+	/** Resolved from the PTY `onExit` handler once `active` is nulled out; lets stopTaskSession() await the real exit instead of just the kill signal. */
+	exitWaiters: Set<() => void>;
 }
 
 export interface StartTaskSessionRequest {
@@ -325,6 +329,7 @@ export class TerminalSessionManager implements TerminalSessionService {
 				suppressAutoRestartOnExit: false,
 				autoRestartTimestamps: [],
 				pendingAutoRestart: null,
+				exitWaiters: new Set(),
 			});
 		}
 	}
@@ -620,6 +625,11 @@ export class TerminalSessionManager implements TerminalSessionService {
 					}
 					currentEntry.active = null;
 					this.emitSummary(summary);
+					const exitWaiters = Array.from(currentEntry.exitWaiters);
+					currentEntry.exitWaiters.clear();
+					for (const waiter of exitWaiters) {
+						waiter();
+					}
 					if (shouldAutoRestart) {
 						this.scheduleAutoRestart(currentEntry);
 					}
@@ -1156,7 +1166,7 @@ export class TerminalSessionManager implements TerminalSessionService {
 		return cloneSummary(summary);
 	}
 
-	stopTaskSession(taskId: string): RuntimeTaskSessionSummary | null {
+	async stopTaskSession(taskId: string): Promise<RuntimeTaskSessionSummary | null> {
 		const entry = this.entries.get(taskId);
 		if (!entry?.active) {
 			return entry ? cloneSummary(entry.summary) : null;
@@ -1171,6 +1181,20 @@ export class TerminalSessionManager implements TerminalSessionService {
 				// Best effort: cleanup failure is non-critical.
 			});
 		}
+		// Wait for the PTY's actual onExit before resolving, so callers that
+		// immediately follow up with startTaskSession() don't race the
+		// "still active" guard there and silently no-op the restart.
+		await new Promise<void>((resolve) => {
+			const timer = setTimeout(() => {
+				entry.exitWaiters.delete(waiter);
+				resolve();
+			}, STOP_TASK_SESSION_EXIT_TIMEOUT_MS);
+			const waiter = () => {
+				clearTimeout(timer);
+				resolve();
+			};
+			entry.exitWaiters.add(waiter);
+		});
 		return cloneSummary(entry.summary);
 	}
 
@@ -1217,6 +1241,7 @@ export class TerminalSessionManager implements TerminalSessionService {
 			suppressAutoRestartOnExit: false,
 			autoRestartTimestamps: [],
 			pendingAutoRestart: null,
+			exitWaiters: new Set(),
 		};
 		this.entries.set(taskId, created);
 		return created;

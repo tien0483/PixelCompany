@@ -530,7 +530,9 @@ export function createTerminalWebSocketBridge({
 			}
 
 			if (message.type === "stop") {
-				terminalManager.stopTaskSession(taskId);
+				void terminalManager.stopTaskSession(taskId).catch(() => {
+					// Best effort: WS stop is fire-and-forget from the client's perspective.
+				});
 				return;
 			}
 
