@@ -791,7 +791,7 @@ body.kb-dependency-link-mode {
 
 .kb-diff-gutter {
 	display: flex;
-	align-items: center;
+	align-items: flex-start;
 	justify-content: flex-end;
 	gap: 2px;
 	min-width: 2rem;
@@ -803,7 +803,7 @@ body.kb-dependency-link-mode {
 	align-items: center;
 	justify-content: center;
 	flex-shrink: 0;
-	align-self: center;
+	margin-top: 2px;
 	width: 14px;
 	height: 14px;
 	padding: 0;
@@ -821,6 +821,7 @@ body.kb-dependency-link-mode {
 	position: relative;
 	min-width: 2rem;
 	text-align: right;
+	font-family: var(--font-mono, monospace);
 	user-select: none;
 }
 
