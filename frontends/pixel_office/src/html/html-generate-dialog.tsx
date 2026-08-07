@@ -67,6 +67,11 @@ export function HtmlGenerateDialog({
 		}
 	}, [templates, selectedId]);
 
+	const selectedTemplate = useMemo(
+		() => templates.find((t) => t.id === selectedId) ?? null,
+		[templates, selectedId],
+	);
+
 	if (!open) {
 		return null;
 	}
@@ -120,11 +125,6 @@ export function HtmlGenerateDialog({
 			setSaving(false);
 		}
 	};
-
-	const selectedTemplate = useMemo(
-		() => templates.find((t) => t.id === selectedId) ?? null,
-		[templates, selectedId],
-	);
 
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange} contentClassName="max-w-6xl w-[95vw]">
