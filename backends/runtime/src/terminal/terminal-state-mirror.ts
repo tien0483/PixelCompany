@@ -12,6 +12,11 @@ export interface TerminalRestoreSnapshot {
 	rows: number;
 }
 
+export interface TerminalSnapshotOptions {
+	/** Cap on scrollback rows serialized, counted from the bottom of the buffer. Omit for the full buffer. */
+	maxScrollbackLines?: number;
+}
+
 interface TerminalStateMirrorOptions {
 	onInputResponse?: (data: string) => void;
 }
@@ -55,10 +60,17 @@ export class TerminalStateMirror {
 		});
 	}
 
-	async getSnapshot(): Promise<TerminalRestoreSnapshot> {
+	async getSnapshot(options: TerminalSnapshotOptions = {}): Promise<TerminalRestoreSnapshot> {
 		await this.operationQueue;
+		const serializeOptions =
+			options.maxScrollbackLines === undefined ? undefined : { scrollback: options.maxScrollbackLines };
 		return {
-			snapshot: this.serializeAddon.serialize(),
+			// `scrollback` limits how many rows of history are serialized,
+			// counted from the bottom of the buffer. Passing it (rather than
+			// slicing the resulting string) keeps escape sequences intact —
+			// a string slice could cut a sequence mid-way through and produce
+			// an unreplayable snapshot.
+			snapshot: this.serializeAddon.serialize(serializeOptions),
 			cols: this.terminal.cols,
 			rows: this.terminal.rows,
 		};
