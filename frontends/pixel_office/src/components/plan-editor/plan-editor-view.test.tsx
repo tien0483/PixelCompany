@@ -30,9 +30,9 @@ vi.mock("@/components/plan-editor/plan-rich-editor", () => ({
 	},
 }));
 
-vi.mock("@/components/plan-editor/plan-markdown-preview", () => ({
-	PlanMarkdownPreview: ({ content }: { content: string }) => (
-		<pre data-testid="plan-markdown-preview">{content}</pre>
+vi.mock("@/components/plan-editor/plan-rich-preview", () => ({
+	default: ({ content }: { content: string }) => (
+		<pre data-testid="plan-rich-preview">{content}</pre>
 	),
 }));
 
@@ -221,5 +221,29 @@ describe("PlanEditorView", () => {
 		});
 
 		expect(getTextarea(container).value).toBe("# **Roadmap**\n");
+	});
+
+	it("switches to the rich preview and mounts it with the current content", async () => {
+		await act(async () => {
+			root.render(
+				<TooltipProvider>
+					<PlanEditorView plan={PLAN} workspaceId="workspace-1" onClose={() => {}} />
+				</TooltipProvider>,
+			);
+		});
+		await flush();
+		await waitForSaved(container);
+
+		const switchToPreview = container.querySelector('[data-testid="plan-editor-switch-to-preview"]');
+		expect(switchToPreview).toBeInstanceOf(HTMLButtonElement);
+		await act(async () => {
+			(switchToPreview as HTMLButtonElement).click();
+		});
+		await flush();
+
+		const preview = container.querySelector('[data-testid="plan-rich-preview"]');
+		expect(preview).not.toBeNull();
+		expect(preview?.textContent).toBe("# Roadmap\n");
+		expect(container.querySelector('[data-testid="plan-rich-editor"]')).toBeNull();
 	});
 });

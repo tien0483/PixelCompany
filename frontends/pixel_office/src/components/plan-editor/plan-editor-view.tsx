@@ -17,7 +17,6 @@ import {
 	type TextSelectionState,
 } from "@/components/plan-editor/markdown-selection-commands";
 import { PlanEditorErrorBoundary } from "@/components/plan-editor/plan-editor-error-boundary";
-import { PlanMarkdownPreview } from "@/components/plan-editor/plan-markdown-preview";
 import { PlanMarkdownToolbar } from "@/components/plan-editor/plan-markdown-toolbar";
 import { insertMarkdownImage } from "@/components/plan-editor/plan-rich-markdown";
 import { usePlanEditorDocument } from "@/components/plan-editor/use-plan-editor-document";
@@ -30,6 +29,9 @@ import type { RuntimeSavedPlan } from "@/runtime/types";
 
 const PlanRichEditor = lazy(
 	() => import("@/components/plan-editor/plan-rich-editor"),
+);
+const PlanRichPreview = lazy(
+	() => import("@/components/plan-editor/plan-rich-preview"),
 );
 
 type PlanEditorMode = "rich" | "plain" | "preview";
@@ -146,6 +148,15 @@ export function PlanEditorView({
 		});
 	}, []);
 
+	const handlePreviewError = useCallback((error: Error) => {
+		setMode("plain");
+		showAppToast({
+			intent: "danger",
+			message:
+				error.message || "Preview failed to render. Switched to plain text editing.",
+		});
+	}, []);
+
 	useEffect(() => {
 		if (kind === "html" || hasWarnedAboutRichModeRef.current) {
 			return;
@@ -236,10 +247,20 @@ export function PlanEditorView({
 					/>
 				) : showPreview ? (
 					<div
-						className="min-h-0 flex-1 overflow-auto bg-surface-1 px-4 py-3"
+						className="flex min-h-0 flex-1 flex-col overflow-auto bg-surface-1"
 						data-testid="plan-editor-markdown-preview"
 					>
-						<PlanMarkdownPreview content={content} planId={plan.id} />
+						<PlanEditorErrorBoundary onError={handlePreviewError}>
+							<Suspense
+								fallback={
+									<div className="flex flex-1 items-center justify-center">
+										<Spinner size={20} />
+									</div>
+								}
+							>
+								<PlanRichPreview content={content} planId={plan.id} />
+							</Suspense>
+						</PlanEditorErrorBoundary>
 					</div>
 				) : showPlain ? (
 					<textarea
