@@ -98,6 +98,20 @@ function normalizeTemplateForComparison(value: string): string {
 	return value.replaceAll("\r\n", "\n").trim();
 }
 
+/** Repo-relative roots a project's local assets can come from. */
+type RuntimeWorkspaceLocalAssetRoot = "claude" | "agent";
+
+const ALL_LOCAL_ASSET_ROOTS: readonly RuntimeWorkspaceLocalAssetRoot[] = ["claude", "agent"];
+
+const LOCAL_ASSET_ROOT_LABELS: Record<RuntimeWorkspaceLocalAssetRoot, string> = {
+	claude: ".claude",
+	agent: ".agent",
+};
+
+function describeLocalAssetRoots(roots: readonly RuntimeWorkspaceLocalAssetRoot[]): string {
+	return roots.map((root) => LOCAL_ASSET_ROOT_LABELS[root]).join(" + ");
+}
+
 const GIT_PROMPT_VARIANT_OPTIONS: Array<{ value: TaskGitAction; label: string }> = [
 	{ value: "commit", label: "Commit" },
 	{ value: "pr", label: "Make PR" },
@@ -405,10 +419,15 @@ export function RuntimeSettingsDialog({
 	const [selectedPromptVariant, setSelectedPromptVariant] = useState<TaskGitAction>("commit");
 	const [copiedVariableToken, setCopiedVariableToken] = useState<string | null>(null);
 	const [saveError, setSaveError] = useState<string | null>(null);
-	// No backend query returns the current per-project toggle, so this is optimistic:
-	// it defaults off, and reflects whatever the setWorkspaceLocalAssets mutation returns.
+	// Read from the backend on open so the switch shows the selected project's saved
+	// state. It used to default to off every time, which read as "this project has
+	// local assets disabled" even when the project had enabled them.
 	const [localAssetsEnabled, setLocalAssetsEnabled] = useState(false);
+	const [localAssetsRoots, setLocalAssetsRoots] = useState<RuntimeWorkspaceLocalAssetRoot[]>([
+		...ALL_LOCAL_ASSET_ROOTS,
+	]);
 	const [localAssetsBusy, setLocalAssetsBusy] = useState(false);
+	const [syncCatalogBusy, setSyncCatalogBusy] = useState(false);
 	const [pendingShortcutScrollIndex, setPendingShortcutScrollIndex] = useState<number | null>(null);
 	const copiedVariableResetTimerRef = useRef<number | null>(null);
 	const shortcutsSectionRef = useRef<HTMLHeadingElement | null>(null);
@@ -612,27 +631,48 @@ export function RuntimeSettingsDialog({
 	]);
 
 	useEffect(() => {
-		if (!open) {
+		if (!open || !workspaceId) {
 			return;
 		}
-		setLocalAssetsEnabled(false);
+		let cancelled = false;
+		void getRuntimeTrpcClient(workspaceId)
+			.runtime.getWorkspaceLocalAssets.query({ workspaceId })
+			.then((setting) => {
+				if (cancelled) {
+					return;
+				}
+				setLocalAssetsEnabled(setting.enabled);
+				setLocalAssetsRoots(setting.roots);
+			})
+			.catch(() => {
+				// A failed read must not claim the project has assets enabled.
+				if (!cancelled) {
+					setLocalAssetsEnabled(false);
+					setLocalAssetsRoots([...ALL_LOCAL_ASSET_ROOTS]);
+				}
+			});
+		return () => {
+			cancelled = true;
+		};
 	}, [open, workspaceId]);
 
-	const handleLocalAssetsToggle = useCallback(
-		(nextEnabled: boolean) => {
+	/** Persist enabled + roots together; the backend normalizes an empty root list. */
+	const saveLocalAssets = useCallback(
+		(nextEnabled: boolean, nextRoots: RuntimeWorkspaceLocalAssetRoot[]) => {
 			if (!workspaceId) {
 				return;
 			}
 			setLocalAssetsBusy(true);
 			void getRuntimeTrpcClient(workspaceId)
-				.runtime.setWorkspaceLocalAssets.mutate({ workspaceId, enabled: nextEnabled })
+				.runtime.setWorkspaceLocalAssets.mutate({ workspaceId, enabled: nextEnabled, roots: nextRoots })
 				.then((result) => {
 					setLocalAssetsEnabled(result.enabled);
+					setLocalAssetsRoots(result.roots);
 					notifySkillInventoryChanged();
 					showAppToast({
 						intent: "success",
 						message: result.enabled
-							? "Now loading this project's local skills, agents, commands & workflows."
+							? `Now loading this project's ${describeLocalAssetRoots(result.roots)} assets.`
 							: "Stopped loading this project's local assets.",
 						timeout: 4000,
 					});
@@ -646,6 +686,70 @@ export function RuntimeSettingsDialog({
 				});
 		},
 		[workspaceId],
+	);
+
+	const handleLocalAssetsToggle = useCallback(
+		(nextEnabled: boolean) => {
+			saveLocalAssets(nextEnabled, localAssetsRoots);
+		},
+		[localAssetsRoots, saveLocalAssets],
+	);
+
+	/**
+	 * Reinstall every Manager catalog entry this project has enabled. Useful after a
+	 * fresh clone or a `git clean`, when the recorded set is intact but the files under
+	 * `<repo>/.claude` are gone.
+	 */
+	const handleSyncCatalogToProject = useCallback(() => {
+		if (!workspaceId) {
+			return;
+		}
+		setSyncCatalogBusy(true);
+		void getRuntimeTrpcClient(null)
+			.manager.syncFeaturesToProject.mutate({ workspaceId })
+			.then((result) => {
+				notifySkillInventoryChanged();
+				if (result.ok) {
+					showAppToast({
+						intent: "success",
+						message:
+							result.applied === 0
+								? "Nothing to sync — this project has no Manager entries enabled."
+								: `Reinstalled ${result.applied} Manager ${result.applied === 1 ? "entry" : "entries"} into this project.`,
+						timeout: 4000,
+					});
+					return;
+				}
+				showAppToast({
+					intent: "warning",
+					icon: "warning-sign",
+					message: result.error ?? `Could not reinstall: ${result.failed.join(", ")}`,
+					timeout: 7000,
+				});
+			})
+			.catch((error) => {
+				const message = error instanceof Error ? error.message : String(error);
+				showAppToast({ intent: "danger", icon: "warning-sign", message, timeout: 7000 });
+			})
+			.finally(() => {
+				setSyncCatalogBusy(false);
+			});
+	}, [workspaceId]);
+
+	const handleLocalAssetRootToggle = useCallback(
+		(root: RuntimeWorkspaceLocalAssetRoot, checked: boolean) => {
+			const next = ALL_LOCAL_ASSET_ROOTS.filter((candidate) =>
+				candidate === root ? checked : localAssetsRoots.includes(candidate),
+			);
+			// Clearing both roots would silently re-enable both on the backend, so treat
+			// "no roots" as turning the whole feature off instead.
+			if (next.length === 0) {
+				saveLocalAssets(false, [...ALL_LOCAL_ASSET_ROOTS]);
+				return;
+			}
+			saveLocalAssets(localAssetsEnabled, next);
+		},
+		[localAssetsEnabled, localAssetsRoots, saveLocalAssets],
 	);
 
 	useEffect(() => {
@@ -1405,9 +1509,19 @@ export function RuntimeSettingsDialog({
 						{config?.projectConfigPath ? <ExternalLink size={12} className="inline ml-1.5 align-middle" /> : null}
 					</p>
 					<div className="rounded-lg border border-border bg-surface-0 px-4 py-3 mb-4">
-						<h6 className="text-[12px] font-semibold uppercase tracking-wider text-text-secondary m-0 mb-2">
-							Local assets
-						</h6>
+						<div className="flex items-center justify-between mb-2">
+							<h6 className="text-[12px] font-semibold uppercase tracking-wider text-text-secondary m-0">
+								Local assets
+							</h6>
+							<Button
+								variant="ghost"
+								size="sm"
+								disabled={syncCatalogBusy || !workspaceId}
+								onClick={handleSyncCatalogToProject}
+							>
+								{syncCatalogBusy ? "Syncing…" : "Sync catalog to this project"}
+							</Button>
+						</div>
 						<div className="flex items-start gap-2">
 							<RadixSwitch.Root
 								checked={localAssetsEnabled}
@@ -1427,6 +1541,27 @@ export function RuntimeSettingsDialog({
 									launch card. Off by default so an attached repo can't expose its skills to run without
 									opt-in.
 								</p>
+								{localAssetsEnabled ? (
+									<div className="mt-2 flex flex-wrap items-center gap-3">
+										{ALL_LOCAL_ASSET_ROOTS.map((root) => (
+											<label
+												key={root}
+												className="flex items-center gap-1.5 text-[12px] text-text-secondary cursor-pointer"
+											>
+												<input
+													type="checkbox"
+													className="cursor-pointer"
+													checked={localAssetsRoots.includes(root)}
+													disabled={localAssetsBusy || !workspaceId}
+													onChange={(event) => {
+														handleLocalAssetRootToggle(root, event.target.checked);
+													}}
+												/>
+												<code>{LOCAL_ASSET_ROOT_LABELS[root]}</code>
+											</label>
+										))}
+									</div>
+								) : null}
 							</div>
 						</div>
 					</div>

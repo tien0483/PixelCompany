@@ -22,7 +22,7 @@ def bhag() -> str:
 
 
 def test_bhag_command_exists():
-    assert CMD.exists(), ".agent/manager/data/commands/bhag.md must exist"
+    assert CMD.exists(), "agent-data/catalog/commands/bhag.md must exist"
 
 
 def test_frontmatter_marks_it_deliberate_and_points_to_whats_next(bhag: str):

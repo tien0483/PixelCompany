@@ -64,6 +64,33 @@ export function findManagerRoot(): string | null {
 	return null;
 }
 
+function isCatalogRoot(dir: string): boolean {
+	return existsSync(join(dir, "skills")) || existsSync(join(dir, "packs.json"));
+}
+
+function isRuntimeRoot(dir: string): boolean {
+	return existsSync(join(dir, "hooks")) || existsSync(join(dir, "web"));
+}
+
+/**
+ * Manager's catalog and runtime assets live under `<repo>/agent-data/`, having moved
+ * out of `<repo>/.agent/manager/`. Probe the new location first and fall back to the
+ * old one so an un-migrated checkout still boots — matching the candidate order in
+ * `data_paths.py`, which resolves these same two roots on the Python side.
+ */
+function resolveAgentDataDir(
+	repoRoot: string,
+	agentDataName: string,
+	legacyName: string,
+	isRoot: (dir: string) => boolean,
+): string | null {
+	const candidates = [
+		join(repoRoot, "agent-data", agentDataName),
+		join(repoRoot, ".agent", "manager", legacyName),
+	];
+	return candidates.find((candidate) => isRoot(candidate)) ?? null;
+}
+
 function resolveManagerPort(configured: number | undefined): number {
 	if (configured !== undefined) {
 		return configured;
@@ -169,17 +196,10 @@ export async function startManagerProcess(deps: StartManagerProcessDependencies)
 	const python = resolvePythonBinary(managerBackendRoot);
 	log(`Starting Manager with interpreter: ${python}`);
 	const repoRoot = resolve(managerBackendRoot, "../..");
-	const agentManagerRoot = join(repoRoot, ".agent", "manager");
-	const agentCatalog = join(agentManagerRoot, "data");
-	const agentRuntime = join(agentManagerRoot, "runtime");
-	const catalogEnv =
-		existsSync(join(agentCatalog, "skills")) || existsSync(join(agentCatalog, "packs.json"))
-			? { PIXELOFFICE_AGENT_MANAGER_DATA: agentCatalog }
-			: {};
-	const runtimeEnv =
-		existsSync(join(agentRuntime, "hooks")) || existsSync(join(agentRuntime, "web"))
-			? { PIXELOFFICE_AGENT_MANAGER_RUNTIME: agentRuntime }
-			: {};
+	const agentCatalog = resolveAgentDataDir(repoRoot, "catalog", "data", isCatalogRoot);
+	const agentRuntime = resolveAgentDataDir(repoRoot, "runtime", "runtime", isRuntimeRoot);
+	const catalogEnv = agentCatalog === null ? {} : { PIXELOFFICE_AGENT_MANAGER_DATA: agentCatalog };
+	const runtimeEnv = agentRuntime === null ? {} : { PIXELOFFICE_AGENT_MANAGER_RUNTIME: agentRuntime };
 	let child: ChildProcess;
 	try {
 		child = spawn(

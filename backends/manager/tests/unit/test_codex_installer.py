@@ -385,7 +385,7 @@ def test_real_commands_generate_parseable_skill_frontmatter():
     name matching the stem and a non-empty description."""
     cmd_dir = CATALOG_ROOT / "commands"
     cmds = sorted(cmd_dir.glob("*.md"))
-    assert cmds, "catalog commands must be present under .agent/manager/data"
+    assert cmds, "catalog commands must be present under agent-data/catalog"
     checked = 0
     for cmd in cmds:
         if cmd.name in ins._CLAUDE_ONLY_COMMANDS:
@@ -1207,7 +1207,7 @@ def test_clone_website_skill_bundled_with_license_parses_and_ships_to_codex():
     skill with an em-dash-free description, both jacked adaptations present in the
     body, and NOT held back from Codex."""
     skill_md = _CLONE_WEBSITE_DIR / "SKILL.md"
-    assert skill_md.exists(), ".agent/manager/data/skills/clone-website/SKILL.md must exist"
+    assert skill_md.exists(), "agent-data/catalog/skills/clone-website/SKILL.md must exist"
     assert (_CLONE_WEBSITE_DIR / "LICENSE").exists(), (
         "vendored skill must ship its MIT LICENSE sidecar"
     )

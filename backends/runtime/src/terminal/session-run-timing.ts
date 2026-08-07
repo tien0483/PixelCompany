@@ -2,8 +2,8 @@ import type { RuntimeTaskSessionSummary } from "../core/api-contract";
 
 /** Bytes written to a live session to pause it — ESC interrupts the agent's current turn (like the keyboard). */
 export const PAUSE_INTERRUPT_INPUT = "\x1b";
-/** Bytes written to a live session to resume it — a "continue" prompt submitted with a newline. */
-export const PAUSE_RESUME_INPUT = "continue\n";
+/** Bytes written to a live session to resume it — a "continue" prompt submitted with Enter (`\r`, matching a real Enter keypress; `\n` is the Shift+Enter "insert linebreak, don't submit" byte). */
+export const PAUSE_RESUME_INPUT = "continue\r";
 
 /**
  * Active-run stopwatch for a task session.

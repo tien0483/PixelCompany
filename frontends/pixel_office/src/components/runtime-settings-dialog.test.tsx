@@ -150,6 +150,26 @@ vi.mock("@/runtime/runtime-config-query", () => ({
 	openFileOnHost: vi.fn(async () => undefined),
 }));
 
+const getWorkspaceLocalAssetsMock = vi.fn(async () => ({
+	enabled: false,
+	roots: ["claude", "agent"] as Array<"claude" | "agent">,
+}));
+const setWorkspaceLocalAssetsMock = vi.fn(
+	async (input: { workspaceId: string; enabled: boolean; roots?: Array<"claude" | "agent"> }) => ({
+		enabled: input.enabled,
+		roots: input.roots ?? (["claude", "agent"] as Array<"claude" | "agent">),
+	}),
+);
+
+vi.mock("@/runtime/trpc-client", () => ({
+	getRuntimeTrpcClient: () => ({
+		runtime: {
+			getWorkspaceLocalAssets: { query: getWorkspaceLocalAssetsMock },
+			setWorkspaceLocalAssets: { mutate: setWorkspaceLocalAssetsMock },
+		},
+	}),
+}));
+
 vi.mock("@/utils/notification-permission", () => ({
 	getBrowserNotificationPermission: () => "unsupported",
 	requestBrowserNotificationPermission: vi.fn(async () => "unsupported"),
@@ -217,6 +237,9 @@ describe("RuntimeSettingsDialog", () => {
 
 	beforeEach(() => {
 		resetLayoutCustomizationsMock.mockReset();
+		getWorkspaceLocalAssetsMock.mockClear();
+		setWorkspaceLocalAssetsMock.mockClear();
+		getWorkspaceLocalAssetsMock.mockResolvedValue({ enabled: false, roots: ["claude", "agent"] });
 		clineSetupSectionOnSavedRef.onSaved = null;
 		window.localStorage.clear();
 		document.documentElement.removeAttribute("data-theme");
@@ -387,5 +410,144 @@ describe("RuntimeSettingsDialog", () => {
 		});
 
 		expect(handleSaved).toHaveBeenCalledTimes(1);
+	});
+});
+
+/**
+ * The Local assets switch used to reset to off on every open — no backend read
+ * existed — so a project that had enabled its local assets still read as off.
+ */
+describe("RuntimeSettingsDialog local assets", () => {
+	let container: HTMLDivElement;
+	let root: Root;
+	let previousActEnvironment: boolean | undefined;
+
+	function localAssetsSwitch(): HTMLElement | null {
+		return document.body.querySelector<HTMLElement>(
+			'[aria-label="Load this project\'s local skills, agents, commands and workflows"]',
+		);
+	}
+
+	function rootCheckboxes(): HTMLInputElement[] {
+		return Array.from(document.body.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')).filter((input) =>
+			input.closest("label")?.textContent?.trim().startsWith("."),
+		);
+	}
+
+	async function render(workspaceId: string | null = "workspace-1") {
+		await act(async () => {
+			root.render(
+				<RuntimeSettingsDialog
+					open={true}
+					workspaceId={workspaceId}
+					initialConfig={savedClineOauthConfig}
+					onOpenChange={() => {}}
+				/>,
+			);
+		});
+	}
+
+	beforeEach(() => {
+		getWorkspaceLocalAssetsMock.mockClear();
+		setWorkspaceLocalAssetsMock.mockClear();
+		getWorkspaceLocalAssetsMock.mockResolvedValue({ enabled: false, roots: ["claude", "agent"] });
+		previousActEnvironment = (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean })
+			.IS_REACT_ACT_ENVIRONMENT;
+		(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+		container = document.createElement("div");
+		document.body.appendChild(container);
+		root = createRoot(container);
+	});
+
+	afterEach(() => {
+		act(() => {
+			root.unmount();
+		});
+		container.remove();
+		document.body.innerHTML = "";
+		if (previousActEnvironment === undefined) {
+			delete (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT;
+		} else {
+			(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT =
+				previousActEnvironment;
+		}
+	});
+
+	it("reads the selected project's saved state instead of defaulting to off", async () => {
+		getWorkspaceLocalAssetsMock.mockResolvedValue({ enabled: true, roots: ["claude", "agent"] });
+
+		await render();
+
+		expect(getWorkspaceLocalAssetsMock).toHaveBeenCalledWith({ workspaceId: "workspace-1" });
+		expect(localAssetsSwitch()?.getAttribute("data-state")).toBe("checked");
+	});
+
+	it("shows off when the project has not opted in", async () => {
+		await render();
+
+		expect(localAssetsSwitch()?.getAttribute("data-state")).toBe("unchecked");
+	});
+
+	it("does not query without a selected project", async () => {
+		await render(null);
+
+		expect(getWorkspaceLocalAssetsMock).not.toHaveBeenCalled();
+	});
+
+	it("falls back to off when the read fails rather than claiming assets are on", async () => {
+		getWorkspaceLocalAssetsMock.mockRejectedValueOnce(new Error("offline"));
+
+		await render();
+
+		expect(localAssetsSwitch()?.getAttribute("data-state")).toBe("unchecked");
+	});
+
+	it("reflects the saved roots in the checkboxes", async () => {
+		getWorkspaceLocalAssetsMock.mockResolvedValue({ enabled: true, roots: ["claude"] });
+
+		await render();
+
+		const checkboxes = rootCheckboxes();
+		expect(checkboxes).toHaveLength(2);
+		expect(checkboxes[0]?.checked).toBe(true);
+		expect(checkboxes[1]?.checked).toBe(false);
+	});
+
+	it("hides the root checkboxes while the feature is off", async () => {
+		await render();
+
+		expect(rootCheckboxes()).toHaveLength(0);
+	});
+
+	it("sends the chosen roots when one is unchecked", async () => {
+		getWorkspaceLocalAssetsMock.mockResolvedValue({ enabled: true, roots: ["claude", "agent"] });
+		await render();
+
+		await act(async () => {
+			rootCheckboxes()[1]?.click();
+		});
+
+		expect(setWorkspaceLocalAssetsMock).toHaveBeenCalledWith({
+			workspaceId: "workspace-1",
+			enabled: true,
+			roots: ["claude"],
+		});
+	});
+
+	it("turns the feature off rather than persisting an empty root list", async () => {
+		getWorkspaceLocalAssetsMock.mockResolvedValue({ enabled: true, roots: ["claude"] });
+		await render();
+
+		await act(async () => {
+			rootCheckboxes()[0]?.click();
+		});
+
+		// The backend normalizes an empty list back to both roots, so the only honest
+		// reading of "neither root selected" is the feature being off.
+		expect(setWorkspaceLocalAssetsMock).toHaveBeenCalledWith({
+			workspaceId: "workspace-1",
+			enabled: false,
+			roots: ["claude", "agent"],
+		});
 	});
 });
