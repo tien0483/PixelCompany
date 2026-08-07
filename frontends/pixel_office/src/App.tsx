@@ -1353,6 +1353,7 @@ export default function App(): ReactElement {
 										) : (
 											<HomeTriplePane
 												rightColumnOpen={isOfficeOpen}
+												onCollapse={handleToggleOffice}
 												center={
 													<KanbanBoard
 														data={board}

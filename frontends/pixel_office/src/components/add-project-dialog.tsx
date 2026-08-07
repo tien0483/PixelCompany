@@ -3,12 +3,13 @@ import { type ReactElement, useCallback, useEffect, useRef, useState } from "rea
 
 import { showAppToast } from "@/components/app-toaster";
 import { DirectoryAutocomplete } from "@/components/directory-autocomplete";
+import { RemoteFileBrowserDialog } from "@/components/remote-file-browser-dialog";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
 import { Dialog, DialogFooter, DialogHeader } from "@/components/ui/dialog";
 import { Spinner } from "@/components/ui/spinner";
 import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
-import { isLocalhostAccess } from "@/utils/localhost-detection";
+import { LocalStorageKey, readLocalStorageItem, writeLocalStorageItem } from "@/storage/local-storage-store";
 import { normalizeServerPath, toServerAbsolute } from "@/utils/server-path";
 
 type AddProjectTab = "path" | "clone";
@@ -52,6 +53,10 @@ export function AddProjectDialog({
 	const [cloneFolderName, setCloneFolderName] = useState("");
 	const [isCloning, setIsCloning] = useState(false);
 	const [isBrowsing, setIsBrowsing] = useState(false);
+	const [isBrowserOpen, setIsBrowserOpen] = useState(false);
+	const [lastBrowseFolder, setLastBrowseFolder] = useState<string | undefined>(
+		() => readLocalStorageItem(LocalStorageKey.AddProjectLastBrowseFolder) ?? undefined,
+	);
 	const [runtimeProbeError, setRuntimeProbeError] = useState<string | null>(null);
 	const pathInputRef = useRef<HTMLInputElement>(null);
 	const gitUrlInputRef = useRef<HTMLInputElement>(null);
@@ -69,6 +74,7 @@ export function AddProjectDialog({
 		setIsAddingByPath(false);
 		setIsCloning(false);
 		setIsBrowsing(false);
+		setIsBrowserOpen(false);
 		setPendingGitInitPath(initialGitInitPath ?? null);
 		setIsInitializingGit(false);
 		setRuntimeProbeError(null);
@@ -178,43 +184,35 @@ export function AddProjectDialog({
 		[currentProjectId, onOpenChange, onProjectAdded],
 	);
 
-	const handleBrowseNative = useCallback(async () => {
-		if (!isLocalhostAccess()) {
-			showAppToast({
-				intent: "warning",
-				message: "Native folder picker is only available when Kanban is opened on localhost.",
-				timeout: 5000,
-			});
-			return;
-		}
-		setIsBrowsing(true);
-		try {
-			const trpcClient = getRuntimeTrpcClient(currentProjectId);
-			const picked = await trpcClient.projects.pickDirectory.mutate();
-			if (!picked.ok || !picked.path) {
-				if (picked.error && !/no directory was selected/i.test(picked.error)) {
-					showAppToast({ intent: "danger", icon: "warning-sign", message: picked.error, timeout: 7000 });
+	const handleFolderPicked = useCallback(
+		async (path: string) => {
+			setIsBrowsing(true);
+			try {
+				const trpcClient = getRuntimeTrpcClient(currentProjectId);
+				const added = await trpcClient.projects.add.mutate({ path });
+				if (!added.ok || !added.project) {
+					if (added.requiresGitInitialization) {
+						setPendingGitInitPath(path);
+						setPathInput(path);
+						return;
+					}
+					throw new Error(added.error ?? "Could not add project.");
 				}
-				return;
+				onProjectAdded(added.project.id);
+				onOpenChange(false);
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error);
+				showAppToast({ intent: "danger", icon: "warning-sign", message, timeout: 7000 });
+			} finally {
+				setIsBrowsing(false);
 			}
-			const added = await trpcClient.projects.add.mutate({ path: picked.path });
-			if (!added.ok || !added.project) {
-				if (added.requiresGitInitialization) {
-					setPendingGitInitPath(picked.path);
-					setPathInput(picked.path);
-					return;
-				}
-				throw new Error(added.error ?? "Could not add project.");
-			}
-			onProjectAdded(added.project.id);
-			onOpenChange(false);
-		} catch (error) {
-			const message = error instanceof Error ? error.message : String(error);
-			showAppToast({ intent: "danger", icon: "warning-sign", message, timeout: 7000 });
-		} finally {
-			setIsBrowsing(false);
-		}
-	}, [currentProjectId, onOpenChange, onProjectAdded]);
+		},
+		[currentProjectId, onOpenChange, onProjectAdded],
+	);
+
+	const handleBrowseFolder = useCallback(() => {
+		setIsBrowserOpen(true);
+	}, []);
 
 	const handleClone = useCallback(async () => {
 		const trimmedUrl = gitUrlInput.trim();
@@ -350,7 +348,7 @@ export function AddProjectDialog({
 							onSubmitGitInit={() => {
 								if (pendingGitInitPath) void handleInitializeGit(pendingGitInitPath);
 							}}
-							onBrowseNative={() => void handleBrowseNative()}
+							onBrowseNative={handleBrowseFolder}
 							currentProjectId={currentProjectId}
 						/>
 					) : (
@@ -424,6 +422,18 @@ export function AddProjectDialog({
 					)}
 				</DialogFooter>
 			</Dialog>
+			<RemoteFileBrowserDialog
+				open={isBrowserOpen}
+				onOpenChange={setIsBrowserOpen}
+				workspaceId={currentProjectId}
+				initialPath={lastBrowseFolder}
+				onSelect={(path) => {
+					setIsBrowserOpen(false);
+					writeLocalStorageItem(LocalStorageKey.AddProjectLastBrowseFolder, path);
+					setLastBrowseFolder(path);
+					void handleFolderPicked(path);
+				}}
+			/>
 		</>
 	);
 }
@@ -486,27 +496,24 @@ function PathTabContent({
 					workspaceId={currentProjectId}
 				/>
 			</div>
-			{isLocalhostAccess() ? (
-				<div className="flex items-center gap-2">
-					<Button
-						type="button"
-						variant="default"
-						size="sm"
-						onClick={onBrowseNative}
-						disabled={isAddingByPath || isInitializingGit || isBrowsing}
-					>
-						{isBrowsing ? (
-							<>
-								<Spinner size={14} />
-								Browsing…
-							</>
-						) : (
-							"Browse folder…"
-						)}
-					</Button>
-					<span className="text-[11px] text-text-tertiary">Optional OS picker (runtime stays responsive)</span>
-				</div>
-			) : null}
+			<div className="flex items-center gap-2">
+				<Button
+					type="button"
+					variant="default"
+					size="sm"
+					onClick={onBrowseNative}
+					disabled={isAddingByPath || isInitializingGit || isBrowsing}
+				>
+					{isBrowsing ? (
+						<>
+							<Spinner size={14} />
+							Browsing…
+						</>
+					) : (
+						"Browse folder…"
+					)}
+				</Button>
+			</div>
 			{pendingGitInitPath !== null ? (
 				<div className="rounded-md border border-status-orange/30 bg-status-orange/5 px-3 py-2.5 flex flex-col gap-2">
 					<p className="text-[13px] text-text-primary">
