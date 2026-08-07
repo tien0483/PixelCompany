@@ -93,7 +93,7 @@ export function WorktreesDialog({
 		<Dialog
 			open={open}
 			onOpenChange={onOpenChange}
-			contentClassName="max-w-2xl"
+			size="lg"
 		>
 			<DialogHeader title="Worktrees">
 				<Button
@@ -238,7 +238,7 @@ export function ConflictsDialog({
 		<Dialog
 			open={open}
 			onOpenChange={onOpenChange}
-			contentClassName="max-w-2xl"
+			size="lg"
 		>
 			<DialogHeader
 				title="Resolve merge conflicts"

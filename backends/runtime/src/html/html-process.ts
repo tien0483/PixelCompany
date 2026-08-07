@@ -3,7 +3,7 @@
 // package or its build is missing, the board and office keep running and the
 // HTML surface reports offline.
 import { type ChildProcess, spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { connect } from "node:net";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -15,6 +15,7 @@ const DEFAULT_HTML_PORT = 8322;
 const PORT_PROBE_TIMEOUT_MS = 1_000;
 const STARTUP_TIMEOUT_MS = 20_000;
 const PORT_POLL_INTERVAL_MS = 250;
+const BUILD_ID_PROBE_TIMEOUT_MS = 2_000;
 
 export interface HtmlProcess {
 	/** Null when the sidecar was already listening or could not be started. */
@@ -111,6 +112,69 @@ async function waitForPort(
 	return false;
 }
 
+function readBuiltBuildId(nextPkg: string): string | null {
+	try {
+		const value = readFileSync(join(nextPkg, ".next", "BUILD_ID"), "utf8").trim();
+		return value.length > 0 ? value : null;
+	} catch {
+		return null;
+	}
+}
+
+async function fetchRunningBuildId(host: string, port: number): Promise<string | null> {
+	const controller = new AbortController();
+	const timer = setTimeout(() => controller.abort(), BUILD_ID_PROBE_TIMEOUT_MS);
+	try {
+		const response = await fetch(`http://${host}:${port}/api/build-id`, {
+			signal: controller.signal,
+		});
+		if (!response.ok) {
+			return null;
+		}
+		const parsed: unknown = await response.json();
+		const buildId =
+			typeof parsed === "object" && parsed !== null
+				? (parsed as { buildId?: unknown }).buildId
+				: null;
+		return typeof buildId === "string" && buildId.length > 0 ? buildId : null;
+	} catch {
+		return null;
+	} finally {
+		clearTimeout(timer);
+	}
+}
+
+/**
+ * The sidecar is spawned detached, so it outlives the runtime that started it.
+ * A later `next build` then rewrites `.next` underneath that orphan, and the
+ * old process keeps answering on the port with pre-rebuild code — templates
+ * still list, but `/api/prompt` starts failing. Comparing the build the process
+ * reports against the build on disk is what separates "already running, fine"
+ * from "already running, but wrong".
+ *
+ * Returns null when the comparison cannot be made (older sidecar without the
+ * `/api/build-id` route, unreadable `.next`); an unknown answer is not a stale
+ * one, so those cases keep the previous adopt-and-continue behaviour.
+ */
+async function findStaleSidecar(
+	host: string,
+	port: number,
+	nextPkg: string | null,
+): Promise<{ running: string; onDisk: string } | null> {
+	if (nextPkg === null) {
+		return null;
+	}
+	const onDisk = readBuiltBuildId(nextPkg);
+	if (onDisk === null) {
+		return null;
+	}
+	const running = await fetchRunningBuildId(host, port);
+	if (running === null || running === onDisk) {
+		return null;
+	}
+	return { running, onDisk };
+}
+
 function createNoopProcess(isAlreadyUp: boolean): HtmlProcess {
 	return {
 		pid: null,
@@ -128,18 +192,28 @@ export async function startHtmlProcess(deps: StartHtmlProcessDependencies): Prom
 	const port = resolveHtmlPort(deps.port);
 	const log = deps.log ?? (() => {});
 
+	const htmlRoot = deps.htmlRoot === undefined ? findHtmlRoot() : deps.htmlRoot;
+	const nextPkg = htmlRoot === null ? null : join(htmlRoot, "next");
+
 	if (await probePort(host, port)) {
+		const stale = await findStaleSidecar(host, port, nextPkg);
+		if (stale) {
+			deps.warn(
+				`HTML sidecar on ${host}:${port} is serving build ${stale.running}, but ${nextPkg}/.next holds ${stale.onDisk}.`,
+			);
+			deps.warn("  It is an orphan from an earlier launch; HTML generation will fail against it.");
+			deps.warn(`  Free the port and relaunch: node scripts/solo.mjs --restart`);
+			return createNoopProcess(true);
+		}
 		log(`HTML sidecar already listening on ${host}:${port} — using the running service.`);
 		return createNoopProcess(true);
 	}
 
-	const htmlRoot = deps.htmlRoot === undefined ? findHtmlRoot() : deps.htmlRoot;
-	if (!htmlRoot) {
+	if (nextPkg === null) {
 		deps.warn("HTML package not found next to the runtime — HTML templates stay offline.");
 		return createNoopProcess(false);
 	}
 
-	const nextPkg = join(htmlRoot, "next");
 	const nextBin = join(nextPkg, "node_modules", "next", "dist", "bin", "next");
 	if (!existsSync(nextBin)) {
 		deps.warn(`HTML sidecar next binary missing at ${nextBin}.`);

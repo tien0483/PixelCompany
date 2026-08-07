@@ -127,7 +127,7 @@ export function HtmlGenerateDialog({
 	};
 
 	return (
-		<Dialog open={open} onOpenChange={onOpenChange} contentClassName="max-w-6xl w-[95vw]">
+		<Dialog open={open} onOpenChange={onOpenChange} size="full">
 			<DialogHeader title={HTML_LABELS.generate} icon={<FileCode2 size={15} />}>
 				<div className="flex min-w-0 flex-1 items-center justify-end gap-2 px-2">
 					<span
@@ -189,7 +189,7 @@ export function HtmlGenerateDialog({
 				</div>
 				<div>{content.length.toLocaleString()} chars</div>
 			</div>
-			<DialogBody className="flex min-h-[460px] gap-0 p-0">
+			<DialogBody className="flex min-h-0 gap-0 p-0">
 				<div className="flex min-w-0 flex-1 flex-col border-r border-border">
 					<div className="shrink-0 border-b border-border px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-text-tertiary">
 						{HTML_LABELS.source}

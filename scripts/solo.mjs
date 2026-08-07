@@ -157,14 +157,40 @@ function freePort(port) {
 		});
 		return;
 	}
-	const lsof = spawnSync("sh", ["-c", `lsof -tiTCP:${port} -sTCP:LISTEN`], { encoding: "utf8" });
-	for (const pid of (lsof.stdout || "").split(/\s+/).filter((value) => /^\d+$/.test(value))) {
+	for (const pid of listenerPids(port)) {
 		try {
-			process.kill(Number(pid), "SIGKILL");
+			process.kill(pid, "SIGKILL");
 		} catch {
 			// already gone
 		}
 	}
+}
+
+/**
+ * `lsof` is the usual tool here but reports nothing for loopback listeners on
+ * some WSL2 kernels, which made `--restart` a silent no-op — an orphaned
+ * sidecar kept the port and every later rebuild was ignored. Fall through to
+ * `ss` and `fuser` so a port is actually freed wherever one of the three works.
+ */
+function listenerPids(port) {
+	const probes = [
+		`lsof -tiTCP:${port} -sTCP:LISTEN`,
+		`ss -ltnpH 'sport = :${port}' | grep -o 'pid=[0-9]*' | cut -d= -f2`,
+		`fuser -n tcp ${port} 2>/dev/null`,
+	];
+	const pids = new Set();
+	for (const probe of probes) {
+		const result = spawnSync("sh", ["-c", probe], { encoding: "utf8" });
+		for (const value of (result.stdout || "").split(/\s+/)) {
+			if (/^\d+$/.test(value)) {
+				pids.add(Number(value));
+			}
+		}
+		if (pids.size > 0) {
+			break;
+		}
+	}
+	return [...pids];
 }
 
 function portIsListening(port) {

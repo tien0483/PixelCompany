@@ -15,6 +15,8 @@ Vendored tree: `next/`, plus root `LICENSE` and `README.md`. Excluded: `cli/`, `
 | Added `next/src/lib/templates/build-edit-prompt.ts` | Lifted from deleted `convert/route.ts` for the diff-edit path. |
 | Patched `next/src/lib/templates/loader.ts` | Dropped `@/lib/skills/registry` marketplace merge (only coupling to deleted marketplace). |
 | Patched `next/src/lib/parsers/file.ts` | Narrow cast for `pdf.destroy` — unpdf typings omit it; blocks `next build` typecheck. |
+| Added `next/src/app/api/build-id/route.ts` | Reports the build this *process* serves, so the runtime can spot an orphaned sidecar still holding the port after a rebuild. |
+| Patched `next/next.config.ts` | `generateBuildId` + `env.HTML_ANYTHING_BUILD_ID` so `/api/build-id` and `.next/BUILD_ID` carry the same value for that comparison. |
 
 Apache-2.0 §4: `LICENSE` retained; this file marks modified/deleted paths.
 

@@ -9,10 +9,28 @@ import { cn } from "@/components/ui/cn";
 /* Dialog                                                              */
 /* ------------------------------------------------------------------ */
 
+export type DialogSize = "sm" | "md" | "lg" | "xl" | "full" | "custom";
+
+/**
+ * Width/height lives here, never in the base class string: `cn` is a plain join
+ * (no tailwind-merge), so a `max-w-*` in both places is decided by Tailwind's
+ * emission order, not by the caller. Callers pick a size; only `"custom"`
+ * hands sizing back to `contentClassName`.
+ */
+const DIALOG_SIZES: Record<DialogSize, string> = {
+	sm: "w-[90vw] max-w-md max-h-[85vh]",
+	md: "w-[90vw] max-w-lg max-h-[85vh]",
+	lg: "w-[90vw] max-w-2xl max-h-[85vh]",
+	xl: "w-[90vw] max-w-3xl max-h-[85vh]",
+	full: "w-[96vw] h-[92vh] max-h-[92vh]",
+	custom: "",
+};
+
 export function Dialog({
 	open,
 	onOpenChange,
 	children,
+	size = "md",
 	contentClassName,
 	contentAriaDescribedBy,
 	onEscapeKeyDown,
@@ -20,6 +38,7 @@ export function Dialog({
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 	children: ReactNode;
+	size?: DialogSize;
 	contentClassName?: string;
 	contentAriaDescribedBy?: string;
 	onEscapeKeyDown?: (event: KeyboardEvent) => void;
@@ -35,7 +54,8 @@ export function Dialog({
 					aria-describedby={contentAriaDescribedBy}
 					onEscapeKeyDown={onEscapeKeyDown}
 					className={cn(
-						"kb-dialog-content fixed left-1/2 top-1/2 z-50 w-[90vw] max-w-lg max-h-[85vh] flex flex-col rounded-lg border border-[#5A6572] bg-surface-1 shadow-2xl focus:outline-none",
+						"kb-dialog-content fixed left-1/2 top-1/2 z-50 flex flex-col rounded-lg border border-[#5A6572] bg-surface-1 shadow-2xl focus:outline-none",
+						DIALOG_SIZES[size],
 						contentClassName,
 					)}
 				>
@@ -57,7 +77,7 @@ export function DialogHeader({
 }): React.ReactElement {
 	return (
 		<div className="flex items-center justify-between px-2 py-2 max-md:px-3 max-md:py-3 bg-surface-2 border-b border-[#5A6572] shrink-0 rounded-t-lg">
-			<RadixDialog.Title className="flex items-center gap-2 text-sm font-semibold text-text-primary">
+			<RadixDialog.Title className="flex shrink-0 items-center gap-2 text-sm font-semibold text-text-primary whitespace-nowrap">
 				{icon ? <span className="text-text-secondary">{icon}</span> : null}
 				{title}
 			</RadixDialog.Title>
