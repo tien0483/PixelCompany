@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useState } from "react";
 import { showAppToast } from "@/components/app-toaster";
+import type { ReviewGitBranchedSubmit } from "@/components/board-card-review-git-actions";
 import {
 	type UseGitHistoryDataResult,
 	useGitHistoryData,
@@ -9,10 +10,7 @@ import {
 	deriveTaskBranchName,
 	type TaskGitAction,
 } from "@/git-actions/build-task-git-action-prompt";
-import {
-	resolveReviewCommitPath,
-} from "@/git-actions/review-commit-branch";
-import type { ReviewGitBranchedSubmit } from "@/components/board-card-review-git-actions";
+import { resolveReviewCommitPath } from "@/git-actions/review-commit-branch";
 import { isNativeClineAgentSelected } from "@/runtime/native-agent";
 import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
 import type {
@@ -102,6 +100,8 @@ export interface UseGitActionsResult {
 	clearGitActionError: () => void;
 	gitHistory: UseGitHistoryDataResult;
 	runGitAction: (action: RuntimeGitSyncAction) => Promise<void>;
+	isCleaningStash: boolean;
+	cleanStash: () => Promise<void>;
 	switchHomeBranch: (branch: string) => Promise<void>;
 	deleteHomeBranch: (branch: string) => Promise<void>;
 	createHomeBranch: (options: {
@@ -137,7 +137,10 @@ export interface UseGitActionsResult {
 	) => Promise<{ ok: boolean; url: string | null }>;
 	handleCommitTask: (taskId: string) => void;
 	handleOpenPrTask: (taskId: string) => void;
-	handleReviewCommitWithBranch: (taskId: string, input: ReviewGitBranchedSubmit) => void;
+	handleReviewCommitWithBranch: (
+		taskId: string,
+		input: ReviewGitBranchedSubmit,
+	) => void;
 	handleCancelReviewGitForm: (taskId: string) => void;
 	handleRetryReviewGitFollowOn: (taskId: string) => void;
 	handleOpenReviewGitForm: (taskId: string) => void;
@@ -185,13 +188,16 @@ export function useGitActions({
 	const [isMergingHomeBranch, setIsMergingHomeBranch] = useState(false);
 	const [isRebasingHomeBranch, setIsRebasingHomeBranch] = useState(false);
 	const [isPushingHomeBranch, setIsPushingHomeBranch] = useState(false);
-	const [mergeTaskLoadingById, setMergeTaskLoadingById] = useState<Record<string, boolean>>({});
-	const [reviewFollowOnById, setReviewFollowOnById] = useState<Record<string, ReviewFollowOnState>>(
-		{},
-	);
-	const [reviewGitRefsByTaskId, setReviewGitRefsByTaskId] = useState<Record<string, readonly string[]>>(
-		{},
-	);
+	const [isCleaningStash, setIsCleaningStash] = useState(false);
+	const [mergeTaskLoadingById, setMergeTaskLoadingById] = useState<
+		Record<string, boolean>
+	>({});
+	const [reviewFollowOnById, setReviewFollowOnById] = useState<
+		Record<string, ReviewFollowOnState>
+	>({});
+	const [reviewGitRefsByTaskId, setReviewGitRefsByTaskId] = useState<
+		Record<string, readonly string[]>
+	>({});
 	const [isDiscardingHomeWorkingChanges, setIsDiscardingHomeWorkingChanges] =
 		useState(false);
 	const [gitActionError, setGitActionError] = useState<{
@@ -413,11 +419,13 @@ export function useGitActions({
 									runtimeProjectConfig.commitPromptTemplateDefault,
 								openPrPromptTemplateDefault:
 									runtimeProjectConfig.openPrPromptTemplateDefault,
-								seamCommentTagTemplate: runtimeProjectConfig.seamCommentTagTemplate,
+								seamCommentTagTemplate:
+									runtimeProjectConfig.seamCommentTagTemplate,
 								seamCommentTagTemplateDefault:
 									runtimeProjectConfig.seamCommentTagTemplateDefault,
 								commitTrailerMode: runtimeProjectConfig.commitTrailerMode,
-								commitTrailerTemplate: runtimeProjectConfig.commitTrailerTemplate,
+								commitTrailerTemplate:
+									runtimeProjectConfig.commitTrailerTemplate,
 								commitTrailerTemplateDefault:
 									runtimeProjectConfig.commitTrailerTemplateDefault,
 							}
@@ -567,12 +575,14 @@ export function useGitActions({
 							statusMessage: "Cherry-picking…",
 						},
 					}));
-					const cherryPick = await trpcClient.workspace.cherryPickCommit.mutate({
-						taskId,
-						baseRef: followOn.baseRef,
-						commitHash,
-						targetBranch: followOn.officialBranch,
-					});
+					const cherryPick = await trpcClient.workspace.cherryPickCommit.mutate(
+						{
+							taskId,
+							baseRef: followOn.baseRef,
+							commitHash,
+							targetBranch: followOn.officialBranch,
+						},
+					);
 					if (!cherryPick.ok) {
 						setReviewFollowOnById((current) => ({
 							...current,
@@ -671,7 +681,10 @@ export function useGitActions({
 			let refNames: string[] = [];
 			try {
 				const trpcClient = getRuntimeTrpcClient(currentProjectId);
-				const refs = await trpcClient.workspace.getGitRefs.query({ taskId, baseRef });
+				const refs = await trpcClient.workspace.getGitRefs.query({
+					taskId,
+					baseRef,
+				});
 				refNames = (refs.refs ?? [])
 					.filter((ref) => ref.type === "branch")
 					.map((ref) => ref.name.replace(/^refs\/heads\//, ""))
@@ -679,7 +692,10 @@ export function useGitActions({
 			} catch {
 				refNames = [baseRef].filter(Boolean);
 			}
-			setReviewGitRefsByTaskId((current) => ({ ...current, [taskId]: refNames }));
+			setReviewGitRefsByTaskId((current) => ({
+				...current,
+				[taskId]: refNames,
+			}));
 			return refNames;
 		},
 		[currentProjectId],
@@ -725,7 +741,8 @@ export function useGitActions({
 					return;
 				}
 
-				const baselineHead = getTaskWorkspaceSnapshot(taskId)?.headCommit ?? null;
+				const baselineHead =
+					getTaskWorkspaceSnapshot(taskId)?.headCommit ?? null;
 				const kicked = await runTaskGitAction(taskId, "commit", "card", {
 					taskBranchOverride: resolved.promptTaskBranch,
 				});
@@ -733,7 +750,8 @@ export function useGitActions({
 					return;
 				}
 
-				const needsFollowOn = resolved.needsCherryPick || input.mode === "commit-and-push";
+				const needsFollowOn =
+					resolved.needsCherryPick || input.mode === "commit-and-push";
 				if (!needsFollowOn) {
 					showAppToast({
 						intent: "success",
@@ -755,11 +773,21 @@ export function useGitActions({
 					baseRef: selection.card.baseRef,
 					statusMessage: "Waiting for commit…",
 				};
-				setReviewFollowOnById((current) => ({ ...current, [taskId]: followOn }));
+				setReviewFollowOnById((current) => ({
+					...current,
+					[taskId]: followOn,
+				}));
 				await runReviewFollowOn(taskId, followOn);
 			})();
 		},
-		[board, currentProjectId, fetchReviewGitRefs, reviewGitRefsByTaskId, runReviewFollowOn, runTaskGitAction],
+		[
+			board,
+			currentProjectId,
+			fetchReviewGitRefs,
+			reviewGitRefsByTaskId,
+			runReviewFollowOn,
+			runTaskGitAction,
+		],
 	);
 
 	const handleCancelReviewGitForm = useCallback((taskId: string) => {
@@ -781,7 +809,9 @@ export function useGitActions({
 			void runReviewFollowOn(taskId, {
 				...followOn,
 				phase: followOn.commitHash ? "ready" : "waiting-commit",
-				statusMessage: followOn.commitHash ? "Retrying…" : "Waiting for commit…",
+				statusMessage: followOn.commitHash
+					? "Retrying…"
+					: "Waiting for commit…",
 			});
 		},
 		[reviewFollowOnById, runReviewFollowOn],
@@ -802,7 +832,6 @@ export function useGitActions({
 		}
 		return next;
 	}, [reviewFollowOnById]);
-
 
 	const mergeTaskBranch = useCallback(
 		async (taskId: string) => {
@@ -949,6 +978,45 @@ export function useGitActions({
 		],
 	);
 
+	const cleanStash = useCallback(async () => {
+		if (!currentProjectId || isCleaningStash) {
+			return;
+		}
+		setIsCleaningStash(true);
+		try {
+			const trpcClient = getRuntimeTrpcClient(currentProjectId);
+			const payload = await trpcClient.workspace.cleanStash.mutate();
+			if (!payload.ok) {
+				showAppToast({
+					intent: "danger",
+					icon: "warning-sign",
+					message: payload.error ?? "Failed to clean stash.",
+					timeout: 7000,
+				});
+				return;
+			}
+			showAppToast({
+				intent: "success",
+				icon: "tick",
+				message:
+					payload.clearedCount > 0
+						? `Cleared ${payload.clearedCount} stashed change${payload.clearedCount === 1 ? "" : "s"}.`
+						: "Stash is already empty.",
+				timeout: 4000,
+			});
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			showAppToast({
+				intent: "danger",
+				icon: "warning-sign",
+				message,
+				timeout: 7000,
+			});
+		} finally {
+			setIsCleaningStash(false);
+		}
+	}, [currentProjectId, isCleaningStash]);
+
 	const switchHomeBranch = useCallback(
 		async (branch: string) => {
 			const normalizedBranch = branch.trim();
@@ -1067,7 +1135,13 @@ export function useGitActions({
 	);
 
 	const createHomeBranch = useCallback(
-		async ({ newBranch, startPoint }: { newBranch: string; startPoint: string }) => {
+		async ({
+			newBranch,
+			startPoint,
+		}: {
+			newBranch: string;
+			startPoint: string;
+		}) => {
 			const normalizedBranch = newBranch.trim();
 			const normalizedStartPoint = startPoint.trim();
 			if (
@@ -1195,9 +1269,10 @@ export function useGitActions({
 			setIsMergingHomeBranch(true);
 			try {
 				const trpcClient = getRuntimeTrpcClient(currentProjectId);
-				const payload = await trpcClient.workspace.mergeBranchIntoCurrent.mutate({
-					branch: normalizedBranch,
-				});
+				const payload =
+					await trpcClient.workspace.mergeBranchIntoCurrent.mutate({
+						branch: normalizedBranch,
+					});
 				if (!payload.ok) {
 					if (payload.summary) {
 						setHomeGitSummary(payload.summary);
@@ -1344,7 +1419,12 @@ export function useGitActions({
 				setIsPushingHomeBranch(false);
 			}
 		},
-		[currentProjectId, isPushingHomeBranch, refreshGitHistory, refreshWorkspaceState],
+		[
+			currentProjectId,
+			isPushingHomeBranch,
+			refreshGitHistory,
+			refreshWorkspaceState,
+		],
 	);
 
 	const pushTaskBranch = useCallback(
@@ -1399,7 +1479,12 @@ export function useGitActions({
 				setIsPushingHomeBranch(false);
 			}
 		},
-		[currentProjectId, isPushingHomeBranch, refreshGitHistory, refreshWorkspaceState],
+		[
+			currentProjectId,
+			isPushingHomeBranch,
+			refreshGitHistory,
+			refreshWorkspaceState,
+		],
 	);
 
 	const discardHomeWorkingChanges = useCallback(async () => {
@@ -1680,6 +1765,8 @@ export function useGitActions({
 		},
 		gitHistory,
 		runGitAction,
+		isCleaningStash,
+		cleanStash,
 		switchHomeBranch,
 		deleteHomeBranch,
 		createHomeBranch,
