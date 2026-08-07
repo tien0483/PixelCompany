@@ -127,6 +127,37 @@ describe("reconcileHydratedSessionSummary", () => {
 		expect(result.pid).toBeNull();
 	});
 
+	it("pausedAt!=null + state:'failed' -> idle+paused, no process (invariant holds beyond the live-looking states)", () => {
+		const s = summary({
+			state: "failed",
+			pausedAt: 6_000,
+			pauseReason: "manual",
+			pid: 44,
+			runningSince: null,
+			exitCode: 1,
+			updatedAt: 6_000,
+		});
+		const result = reconcileHydratedSessionSummary(s, 20_000);
+		expect(result.state).toBe("idle");
+		expect(result.pid).toBeNull();
+		expect(result.pausedAt).toBe(6_000);
+	});
+
+	it("pausedAt!=null + state:'idle' -> idle+paused, no process (invariant holds, not just a fallback no-op)", () => {
+		const s = summary({
+			state: "idle",
+			pausedAt: 7_000,
+			pauseReason: "manual",
+			pid: 55,
+			runningSince: null,
+			updatedAt: 7_000,
+		});
+		const result = reconcileHydratedSessionSummary(s, 20_000);
+		expect(result.state).toBe("idle");
+		expect(result.pid).toBeNull();
+		expect(result.pausedAt).toBe(7_000);
+	});
+
 	it("does not inflate activeRunMs by the offline gap when reconciling a paused+running session", () => {
 		const s = summary({
 			state: "running",
@@ -135,19 +166,27 @@ describe("reconcileHydratedSessionSummary", () => {
 			activeRunMs: 2_000,
 			updatedAt: 5_000,
 		});
-		// App was closed for hours; now reconciled far in the future.
+		// App was closed for hours; now reconciled far in the future. The stopwatch should
+		// freeze at `updatedAt` (last known-alive write), banking only the real running
+		// segment (runningSince -> updatedAt), not the multi-hour app-closed gap.
 		const result = reconcileHydratedSessionSummary(s, 5_000 + 3 * 60 * 60 * 1000);
-		// freezeRunTimingPatch banks using runningSince, which was already frozen conceptually
-		// at pause time in real usage; here we assert the offline gap itself isn't added twice
-		// beyond what freezeRunTimingPatch computes from runningSince -> nowTs.
 		expect(result.runningSince).toBeNull();
-		expect(result.activeRunMs).toBe(2_000 + (3 * 60 * 60 * 1000 + 4_000));
+		expect(result.activeRunMs).toBe(2_000 + (5_000 - 1_000));
 	});
 
 	it("does not inflate activeRunMs by the offline gap for an unpaused running->interrupted reconcile", () => {
-		const s = summary({ state: "running", runningSince: 1_000, activeRunMs: 500, pausedAt: null });
+		const s = summary({
+			state: "running",
+			runningSince: 1_000,
+			activeRunMs: 500,
+			pausedAt: null,
+			updatedAt: 2_000,
+		});
+		// App crashed mid-run and stayed closed for 5 hours before this boot reconcile. Only
+		// the runningSince -> updatedAt segment (1s) is real running time; the 5-hour offline
+		// gap between updatedAt and the real reconcile-time nowTs must not be added.
 		const result = reconcileHydratedSessionSummary(s, 1_000 + 5 * 60 * 60 * 1000);
-		expect(result.activeRunMs).toBe(500 + 5 * 60 * 60 * 1000);
+		expect(result.activeRunMs).toBe(500 + (2_000 - 1_000));
 		expect(result.runningSince).toBeNull();
 	});
 
@@ -182,6 +221,7 @@ describe("toParkedSessionSummary", () => {
 			exitCode: 2,
 			reviewReason: "error",
 			activeRunMs: 1_000,
+			updatedAt: 50_000,
 		});
 		const nowTs = 50_000;
 		expect(toParkedSessionSummary(s, nowTs)).toEqual(reconcileHydratedSessionSummary(s, nowTs));
