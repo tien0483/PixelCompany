@@ -36,6 +36,7 @@ vi.mock("@hello-pangea/dnd", () => ({
 
 vi.mock("@/stores/workspace-metadata-store", () => ({
 	useTaskWorkspaceSnapshotValue: () => mockWorkspaceSnapshot,
+	useTaskWorkspaceInfoValue: () => null,
 }));
 
 vi.mock("@/utils/react-use", () => ({
@@ -912,5 +913,110 @@ describe("BoardCard", () => {
 
 		expect(container.textContent).toContain("Plan ready for review");
 		expect(container.textContent).not.toContain("Waiting for approval");
+	});
+
+	it("shows the offline-paused badge in the orange status color and routes the play button to onResumeEndedSession", async () => {
+		const onResume = vi.fn();
+		const onResumeEndedSession = vi.fn();
+		const onPause = vi.fn();
+
+		await act(async () => {
+			root.render(
+				<BoardCard
+					card={createCard()}
+					index={0}
+					columnId="in_progress"
+					sessionSummary={createSummary("interrupted", { pausedAt: 100, pid: null })}
+					onResume={onResume}
+					onResumeEndedSession={onResumeEndedSession}
+					onPause={onPause}
+				/>,
+			);
+		});
+
+		expect(container.textContent).toContain("Paused — session ended");
+		const badge = Array.from(container.querySelectorAll("span")).find((span) =>
+			span.textContent?.includes("Paused — session ended"),
+		);
+		expect(badge).toBeDefined();
+		expect(badge?.className).toContain("text-status-orange");
+
+		const playButton = container.querySelector('button[aria-label="Resume task"]');
+		expect(playButton).toBeInstanceOf(HTMLButtonElement);
+
+		await act(async () => {
+			playButton?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+			(playButton as HTMLButtonElement).click();
+		});
+
+		expect(onResumeEndedSession).toHaveBeenCalledWith("task-1");
+		expect(onResume).not.toHaveBeenCalled();
+		expect(onPause).not.toHaveBeenCalled();
+	});
+
+	it("routes the play button to the existing onResumeTask behavior when the session is paused but still live", async () => {
+		const onResume = vi.fn();
+		const onResumeEndedSession = vi.fn();
+		const onPause = vi.fn();
+
+		await act(async () => {
+			root.render(
+				<BoardCard
+					card={createCard()}
+					index={0}
+					columnId="in_progress"
+					sessionSummary={createSummary("interrupted", { pausedAt: 100, pid: 4242 })}
+					onResume={onResume}
+					onResumeEndedSession={onResumeEndedSession}
+					onPause={onPause}
+				/>,
+			);
+		});
+
+		expect(container.textContent).not.toContain("session ended");
+
+		const playButton = container.querySelector('button[aria-label="Resume task"]');
+		expect(playButton).toBeInstanceOf(HTMLButtonElement);
+
+		await act(async () => {
+			playButton?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+			(playButton as HTMLButtonElement).click();
+		});
+
+		expect(onResume).toHaveBeenCalledWith("task-1");
+		expect(onResumeEndedSession).not.toHaveBeenCalled();
+		expect(onPause).not.toHaveBeenCalled();
+	});
+
+	it("still routes the play button to onPause when the session is not paused", async () => {
+		const onResume = vi.fn();
+		const onResumeEndedSession = vi.fn();
+		const onPause = vi.fn();
+
+		await act(async () => {
+			root.render(
+				<BoardCard
+					card={createCard()}
+					index={0}
+					columnId="in_progress"
+					sessionSummary={createSummary("running")}
+					onResume={onResume}
+					onResumeEndedSession={onResumeEndedSession}
+					onPause={onPause}
+				/>,
+			);
+		});
+
+		const playButton = container.querySelector('button[aria-label="Pause task"]');
+		expect(playButton).toBeInstanceOf(HTMLButtonElement);
+
+		await act(async () => {
+			playButton?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+			(playButton as HTMLButtonElement).click();
+		});
+
+		expect(onPause).toHaveBeenCalledWith("task-1");
+		expect(onResume).not.toHaveBeenCalled();
+		expect(onResumeEndedSession).not.toHaveBeenCalled();
 	});
 });

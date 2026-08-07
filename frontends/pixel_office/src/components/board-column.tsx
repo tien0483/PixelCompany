@@ -25,6 +25,7 @@ export function BoardColumn({
 	onStartTask,
 	onPauseTask,
 	onResumeTask,
+	onResumeEndedSession,
 	onCancelAutoRun,
 	onDeleteTask,
 	onStartAllTasks,
@@ -73,6 +74,7 @@ export function BoardColumn({
 	onStartTask?: (taskId: string) => void;
 	onPauseTask?: (taskId: string) => void;
 	onResumeTask?: (taskId: string) => void;
+	onResumeEndedSession?: (taskId: string) => void;
 	onCancelAutoRun?: (taskId: string) => void;
 	onDeleteTask?: (taskId: string) => void;
 	onStartAllTasks?: () => void;
@@ -241,6 +243,7 @@ export function BoardColumn({
 										onStart={options?.suppressStart ? undefined : onStartTask}
 										onPause={onPauseTask}
 										onResume={onResumeTask}
+										onResumeEndedSession={onResumeEndedSession}
 										onCancelAutoRun={onCancelAutoRun}
 										onDelete={onDeleteTask}
 										onMoveToTrash={onMoveToTrashTask}

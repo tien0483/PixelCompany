@@ -48,7 +48,7 @@ function HookHarness({
 	onSummary?: (summary: RuntimeTaskSessionSummary) => void;
 	onConnectionReady?: (taskId: string) => void;
 }) {
-	const { containerRef } = usePersistentTerminalSession({
+	const { containerRef, restoreWasEmpty, staleRestore } = usePersistentTerminalSession({
 		taskId,
 		workspaceId,
 		enabled,
@@ -59,7 +59,13 @@ function HookHarness({
 		cursorColor: "cursor-color",
 	});
 
-	return <div ref={containerRef} />;
+	return (
+		<div
+			ref={containerRef}
+			data-restore-was-empty={restoreWasEmpty}
+			data-stale-restore={staleRestore}
+		/>
+	);
 }
 
 describe("usePersistentTerminalSession", () => {
@@ -207,5 +213,76 @@ describe("usePersistentTerminalSession", () => {
 				themeColors: getTerminalThemeColors("graphite"),
 			}),
 		);
+	});
+
+	it("surfaces restoreWasEmpty and staleRestore from the terminal's onRestoreState subscription", async () => {
+		type RestoreStateSubscriber = {
+			onRestoreState?: (state: { restoreWasEmpty: boolean; staleRestore: boolean }) => void;
+		};
+		let capturedSubscriber: RestoreStateSubscriber | null = null;
+		const terminal = {
+			...createPersistentTerminalMock(),
+			subscribe: vi.fn((subscriber: RestoreStateSubscriber) => {
+				capturedSubscriber = subscriber;
+				return vi.fn();
+			}),
+		};
+		ensurePersistentTerminalMock.mockReturnValue(terminal);
+
+		await act(async () => {
+			root.render(<HookHarness taskId="task-a" workspaceId="project-1" sessionStartedAt={100} />);
+		});
+
+		const containerElement = container.querySelector("div");
+		expect(containerElement?.getAttribute("data-restore-was-empty")).toBe("false");
+		expect(containerElement?.getAttribute("data-stale-restore")).toBe("false");
+
+		await act(async () => {
+			capturedSubscriber?.onRestoreState?.({ restoreWasEmpty: false, staleRestore: true });
+		});
+
+		const afterStale = container.querySelector("div");
+		expect(afterStale?.getAttribute("data-restore-was-empty")).toBe("false");
+		expect(afterStale?.getAttribute("data-stale-restore")).toBe("true");
+
+		await act(async () => {
+			capturedSubscriber?.onRestoreState?.({ restoreWasEmpty: true, staleRestore: false });
+		});
+
+		const afterEmpty = container.querySelector("div");
+		expect(afterEmpty?.getAttribute("data-restore-was-empty")).toBe("true");
+		expect(afterEmpty?.getAttribute("data-stale-restore")).toBe("false");
+	});
+
+	it("resets restoreWasEmpty and staleRestore when the terminal session is disabled", async () => {
+		type RestoreStateSubscriber = {
+			onRestoreState?: (state: { restoreWasEmpty: boolean; staleRestore: boolean }) => void;
+		};
+		let capturedSubscriber: RestoreStateSubscriber | null = null;
+		const terminal = {
+			...createPersistentTerminalMock(),
+			subscribe: vi.fn((subscriber: RestoreStateSubscriber) => {
+				capturedSubscriber = subscriber;
+				return vi.fn();
+			}),
+		};
+		ensurePersistentTerminalMock.mockReturnValue(terminal);
+
+		await act(async () => {
+			root.render(<HookHarness taskId="task-a" workspaceId="project-1" sessionStartedAt={100} enabled />);
+		});
+
+		await act(async () => {
+			capturedSubscriber?.onRestoreState?.({ restoreWasEmpty: true, staleRestore: false });
+		});
+		expect(container.querySelector("div")?.getAttribute("data-restore-was-empty")).toBe("true");
+
+		await act(async () => {
+			root.render(
+				<HookHarness taskId="task-a" workspaceId="project-1" sessionStartedAt={100} enabled={false} />,
+			);
+		});
+
+		expect(container.querySelector("div")?.getAttribute("data-restore-was-empty")).toBe("false");
 	});
 });

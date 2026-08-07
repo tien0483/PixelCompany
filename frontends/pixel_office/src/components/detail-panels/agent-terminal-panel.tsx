@@ -1,12 +1,13 @@
 import "@xterm/xterm/css/xterm.css";
 
-import { Command, Maximize2, MessageSquare, Minimize2, X } from "lucide-react";
+import { Command, Maximize2, MessageSquare, Minimize2, PauseCircle, Play, X } from "lucide-react";
 import type { MutableRefObject, ReactElement } from "react";
 import { useMemo } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { Tooltip } from "@/components/ui/tooltip";
+import { isSessionPausedOffline } from "@/runtime/session-status";
 import type { RuntimeTaskSessionSummary } from "@/runtime/types";
 import { useTaskWorkspaceSnapshotValue } from "@/stores/workspace-metadata-store";
 import { usePersistentTerminalSession } from "@/terminal/use-persistent-terminal-session";
@@ -17,7 +18,17 @@ interface AgentTerminalSessionControls {
 	containerRef: MutableRefObject<HTMLDivElement | null>;
 	isStopping: boolean;
 	lastError: string | null;
+	restoreWasEmpty: boolean;
 	stopTerminal: () => Promise<void>;
+}
+
+/** Shared "Resume agent" call-to-action for the paused-offline bar and the no-snapshot empty state below. */
+function ResumeEndedSessionButton({ onClick }: { onClick?: () => void }): ReactElement {
+	return (
+		<Button variant="primary" size="sm" icon={<Play size={14} />} onClick={onClick}>
+			Resume agent
+		</Button>
+	);
 }
 
 export interface AgentTerminalPanelProps {
@@ -50,6 +61,8 @@ export interface AgentTerminalPanelProps {
 	onSendAgentCommand?: () => void;
 	isExpanded?: boolean;
 	onToggleExpand?: () => void;
+	/** Resumes a session whose PTY has already exited (paused-offline) via `--continue`; called with this panel's own `taskId`. */
+	onResumeEndedSession?: (taskId: string) => void;
 }
 
 function describeState(summary: RuntimeTaskSessionSummary | null): string {
@@ -158,12 +171,19 @@ function AgentTerminalPanelLayout({
 	onSendAgentCommand,
 	isExpanded = false,
 	onToggleExpand,
+	onResumeEndedSession,
 	sessionControls,
 }: AgentTerminalPanelProps & { sessionControls: AgentTerminalSessionControls }): ReactElement {
-	const { containerRef, lastError, isStopping, clearTerminal, stopTerminal } = sessionControls;
+	const { containerRef, lastError, isStopping, restoreWasEmpty, clearTerminal, stopTerminal } = sessionControls;
 	const canStop = summary?.state === "running" || summary?.state === "awaiting_review";
 	const statusLabel = useMemo(() => describeState(summary), [summary]);
 	const statusTagStyle = useMemo(() => getStateTagStyle(summary), [summary]);
+	const isPausedOffline = summary ? isSessionPausedOffline(summary) : false;
+	const showEndedSessionEmptyState = isPausedOffline && restoreWasEmpty;
+	const showEndedSessionBar = isPausedOffline && !restoreWasEmpty;
+	const handleResumeEndedSession = () => {
+		onResumeEndedSession?.(taskId);
+	};
 	const agentLabel = useMemo(() => {
 		const normalizedCommand = agentCommand?.trim();
 		if (!normalizedCommand) {
@@ -290,12 +310,46 @@ function AgentTerminalPanelLayout({
 					</div>
 				</div>
 			) : null}
-			<div style={{ flex: "1 1 0", minHeight: 0, overflow: "hidden", padding: "3px 1.5px 3px 3px" }}>
+			{showEndedSessionBar ? (
+				<div
+					className="flex shrink-0 items-center justify-between gap-2 border-t border-status-orange/30 bg-status-orange/10 px-3 py-2"
+					data-testid="ended-session-bar"
+				>
+					<div className="flex items-center gap-2 text-[13px] text-text-secondary">
+						<PauseCircle size={14} className="text-status-orange" />
+						<span>Session ended — showing the last output</span>
+					</div>
+					<ResumeEndedSessionButton onClick={handleResumeEndedSession} />
+				</div>
+			) : null}
+			<div
+				style={{
+					flex: "1 1 0",
+					minHeight: 0,
+					overflow: "hidden",
+					padding: "3px 1.5px 3px 3px",
+					position: "relative",
+				}}
+			>
 				<div
 					ref={containerRef}
 					className="kb-terminal-container"
 					style={{ height: "100%", width: "100%", background: terminalBackgroundColor }}
 				/>
+				{showEndedSessionEmptyState ? (
+					<div
+						className="absolute inset-0 flex items-center justify-center bg-surface-1"
+						data-testid="ended-session-empty-state"
+					>
+						<div className="flex flex-col items-center gap-3 px-4 text-center">
+							<PauseCircle size={28} className="text-status-orange" />
+							<p className="m-0 text-[13px] text-text-secondary">
+								Session ended — showing the last output
+							</p>
+							<ResumeEndedSessionButton onClick={handleResumeEndedSession} />
+						</div>
+					</div>
+				) : null}
 			</div>
 			{lastError ? (
 				<div className="flex gap-2 rounded-none border-t border-status-red/30 bg-status-red/10 p-3 text-[13px] text-status-red">

@@ -3,6 +3,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CardDetailView } from "@/components/card-detail-view";
+import type { RuntimeManagerAccount, RuntimeTaskSessionSummary } from "@/runtime/types";
 import { LocalStorageKey } from "@/storage/local-storage-store";
 import { TERMINAL_THEME_COLORS } from "@/terminal/theme-colors";
 import type { BoardCard, BoardColumn, CardSelection } from "@/types";
@@ -125,6 +126,63 @@ function createCard(id: string): BoardCard {
 		baseRef: "main",
 		createdAt: 1,
 		updatedAt: 1,
+	};
+}
+
+function createSessionSummary(
+	overrides?: Partial<RuntimeTaskSessionSummary>,
+): RuntimeTaskSessionSummary {
+	return {
+		taskId: "task-1",
+		state: "idle",
+		agentId: "claude",
+		workspacePath: "/tmp/worktree",
+		pid: null,
+		startedAt: 1,
+		activeRunMs: 0,
+		runningSince: null,
+		pausedAt: null,
+		pauseReason: null,
+		updatedAt: 1,
+		lastOutputAt: 1,
+		reviewReason: null,
+		exitCode: null,
+		lastHookAt: 1,
+		latestHookActivity: null,
+		latestTurnCheckpoint: null,
+		previousTurnCheckpoint: null,
+		...overrides,
+	};
+}
+
+function createManagerAccount(
+	id: number,
+	provider: RuntimeManagerAccount["provider"] = "claude",
+): RuntimeManagerAccount {
+	return {
+		id,
+		provider,
+		email: `user${id}@example.com`,
+		displayName: null,
+		organizationName: null,
+		isActive: true,
+		fiveHourPercent: 10,
+		sevenDayPercent: 5,
+		fiveHourResetsAt: null,
+		sevenDayResetsAt: null,
+		usageCachedAt: null,
+		subscriptionType: null,
+		donateLimitPercent: 100,
+		donateLimitLocked: false,
+		pressure: 0.1,
+		nextRefreshAt: null,
+		canAutoSwap: true,
+		canTrackUsage: true,
+		hasCcToken: true,
+		ccNeedsAuth: false,
+		isActiveForProvider: true,
+		validationStatus: "valid",
+		lastError: null,
 	};
 }
 
@@ -1053,5 +1111,143 @@ describe("CardDetailView", () => {
 		expect(
 			container.querySelector('[data-testid="save-plan-panel"]'),
 		).toBeNull();
+	});
+
+	it("shows the resume-ended-session strip only when the session is paused offline, and calls onRestartTaskSession with the card id", async () => {
+		const onRestartTaskSession = vi.fn();
+
+		await act(async () => {
+			root.render(
+				<CardDetailView
+					selection={createSelection()}
+					currentProjectId="workspace-1"
+					sessionSummary={createSessionSummary({ pausedAt: 100, pid: null })}
+					taskSessions={{}}
+					onSessionSummary={() => {}}
+					onCardSelect={() => {}}
+					onTaskDragEnd={() => {}}
+					onMoveToTrash={() => {}}
+					bottomTerminalOpen={false}
+					bottomTerminalTaskId={null}
+					bottomTerminalSummary={null}
+					onBottomTerminalClose={() => {}}
+					onRestartTaskSession={onRestartTaskSession}
+				/>,
+			);
+		});
+
+		const strip = container.querySelector('[data-testid="resume-ended-session-strip"]');
+		expect(strip).not.toBeNull();
+		expect(strip?.textContent).toContain("Paused — session ended when the app closed");
+
+		const resumeButton = container.querySelector('[data-testid="resume-ended-session"]');
+		expect(resumeButton).toBeInstanceOf(HTMLButtonElement);
+
+		await act(async () => {
+			resumeButton?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+			(resumeButton as HTMLButtonElement).click();
+		});
+
+		expect(onRestartTaskSession).toHaveBeenCalledWith("task-1");
+	});
+
+	it("does not show the resume-ended-session strip for a live (non-paused-offline) session", async () => {
+		await act(async () => {
+			root.render(
+				<CardDetailView
+					selection={createSelection()}
+					currentProjectId="workspace-1"
+					sessionSummary={createSessionSummary({ state: "running" })}
+					taskSessions={{}}
+					onSessionSummary={() => {}}
+					onCardSelect={() => {}}
+					onTaskDragEnd={() => {}}
+					onMoveToTrash={() => {}}
+					bottomTerminalOpen={false}
+					bottomTerminalTaskId={null}
+					bottomTerminalSummary={null}
+					onBottomTerminalClose={() => {}}
+				/>,
+			);
+		});
+
+		expect(
+			container.querySelector('[data-testid="resume-ended-session-strip"]'),
+		).toBeNull();
+	});
+
+	it("does not show the resume-ended-session strip for a paused-but-live session (pid still set)", async () => {
+		await act(async () => {
+			root.render(
+				<CardDetailView
+					selection={createSelection()}
+					currentProjectId="workspace-1"
+					sessionSummary={createSessionSummary({ pausedAt: 100, pid: 4242 })}
+					taskSessions={{}}
+					onSessionSummary={() => {}}
+					onCardSelect={() => {}}
+					onTaskDragEnd={() => {}}
+					onMoveToTrash={() => {}}
+					bottomTerminalOpen={false}
+					bottomTerminalTaskId={null}
+					bottomTerminalSummary={null}
+					onBottomTerminalClose={() => {}}
+				/>,
+			);
+		});
+
+		expect(
+			container.querySelector('[data-testid="resume-ended-session-strip"]'),
+		).toBeNull();
+	});
+
+	it("still supports the existing account-mismatch restart button under its renamed onRestartTaskSession prop", async () => {
+		const onRestartTaskSession = vi.fn();
+		const selection = createSelection();
+		selection.card.agentId = "claude";
+		selection.card.managerAccountId = 1;
+
+		await act(async () => {
+			root.render(
+				<CardDetailView
+					selection={selection}
+					currentProjectId="workspace-1"
+					sessionSummary={createSessionSummary({
+						state: "running",
+						managerAccountId: 2,
+					})}
+					taskSessions={{}}
+					onSessionSummary={() => {}}
+					onCardSelect={() => {}}
+					onTaskDragEnd={() => {}}
+					onMoveToTrash={() => {}}
+					bottomTerminalOpen={false}
+					bottomTerminalTaskId={null}
+					bottomTerminalSummary={null}
+					onBottomTerminalClose={() => {}}
+					managerAccounts={[createManagerAccount(1), createManagerAccount(2)]}
+					onTaskManagerAccountChanged={() => {}}
+					onRestartTaskSession={onRestartTaskSession}
+					restartTaskLoadingById={{}}
+				/>,
+			);
+		});
+
+		// The account-mismatch button lives inside the collapsed "Task configuration"
+		// section; expand it first (it starts collapsed whenever a session exists).
+		const configToggle = container.querySelector('[data-testid="task-config-toggle"]');
+		expect(configToggle).toBeInstanceOf(HTMLButtonElement);
+		await act(async () => {
+			(configToggle as HTMLButtonElement).click();
+		});
+
+		const restartButton = container.querySelector('[data-testid="restart-task-with-account"]');
+		expect(restartButton).toBeInstanceOf(HTMLButtonElement);
+
+		await act(async () => {
+			(restartButton as HTMLButtonElement).click();
+		});
+
+		expect(onRestartTaskSession).toHaveBeenCalledWith("task-1");
 	});
 });

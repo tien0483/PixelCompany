@@ -8,6 +8,7 @@ import {
 	Maximize2,
 	MessageSquare,
 	Minimize2,
+	Play,
 	X,
 } from "lucide-react";
 import type { MouseEvent as ReactMouseEvent, ReactNode } from "react";
@@ -30,6 +31,7 @@ import { PlanMarkdownPreview } from "@/components/plan-editor/plan-markdown-prev
 import { TaskLaunchSettingsPicker } from "@/components/task-launch-settings";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
+import { Spinner } from "@/components/ui/spinner";
 import type { ClineChatActionResult } from "@/hooks/use-cline-chat-runtime-actions";
 import type { ClineChatMessage } from "@/hooks/use-cline-chat-session";
 import { useIsMobile } from "@/hooks/use-is-mobile";
@@ -44,6 +46,7 @@ import { ResizeHandle } from "@/resize/resize-handle";
 import { useCardDetailLayout } from "@/resize/use-card-detail-layout";
 import { useResizeDrag } from "@/resize/use-resize-drag";
 import { isNativeClineAgentSelected } from "@/runtime/native-agent";
+import { isSessionPausedOffline } from "@/runtime/session-status";
 import type {
 	RuntimeAgentId,
 	RuntimeClineReasoningEffort,
@@ -199,6 +202,7 @@ function BottomTerminalSection({
 	onCollapse,
 	isExpanded,
 	onToggleExpand,
+	onResumeEndedSession,
 }: {
 	taskId: string;
 	workspaceId: string | null;
@@ -215,6 +219,7 @@ function BottomTerminalSection({
 	onCollapse?: () => void;
 	isExpanded?: boolean;
 	onToggleExpand?: () => void;
+	onResumeEndedSession?: (taskId: string) => void;
 }): React.ReactElement {
 	return (
 		<ResizableBottomPane
@@ -243,6 +248,7 @@ function BottomTerminalSection({
 					onSendAgentCommand={onSendAgentCommand}
 					isExpanded={isExpanded}
 					onToggleExpand={onToggleExpand}
+					onResumeEndedSession={onResumeEndedSession}
 				/>
 			</div>
 		</ResizableBottomPane>
@@ -487,8 +493,9 @@ export function CardDetailView({
 	managerAccounts,
 	managerActiveAccountId = null,
 	onTaskManagerAccountChanged,
-	onRestartTaskWithAccount,
+	onRestartTaskSession,
 	restartTaskLoadingById,
+	onResumeEndedSession,
 	onTaskLaunchSettingsChanged,
 	onTaskAutoResumeOnUsageLimitChanged,
 	onSavePlan,
@@ -576,9 +583,11 @@ export function CardDetailView({
 		taskId: string,
 		managerAccountId: number | null,
 	) => void;
-	/** Stops the live session and relaunches it pinned to the task's newly-picked manager account. */
-	onRestartTaskWithAccount?: (taskId: string) => void;
+	/** Stops the live session and relaunches it pinned to the task's newly-picked manager account (also reused, unpinned, to resume a paused-offline session via `--continue`). */
+	onRestartTaskSession?: (taskId: string) => void;
 	restartTaskLoadingById?: Record<string, boolean>;
+	/** Resumes a paused-offline terminal-panel session; forwarded to the embedded/bottom `AgentTerminalPanel` instances. */
+	onResumeEndedSession?: (taskId: string) => void;
 	onTaskLaunchSettingsChanged?: (
 		taskId: string,
 		settings: RuntimeTaskLaunchSettings | null,
@@ -714,6 +723,9 @@ export function CardDetailView({
 		selection.column.id === "review" || selection.column.id === "in_progress";
 	const isTaskTerminalEnabled =
 		selection.column.id === "in_progress" || selection.column.id === "review";
+	const isSessionPausedOfflineForTask = sessionSummary
+		? isSessionPausedOffline(sessionSummary)
+		: false;
 	const effectiveTaskAgentId =
 		sessionSummary?.agentId ?? selection.card.agentId ?? selectedAgentId;
 	const taskManagerAccounts = useMemo(
@@ -953,6 +965,7 @@ export function CardDetailView({
 			terminalBackgroundColor={terminalThemeColors.surfacePrimary}
 			cursorColor={terminalThemeColors.textPrimary}
 			taskColumnId={selection.column.id}
+			onResumeEndedSession={onResumeEndedSession}
 		/>
 	);
 
@@ -1050,6 +1063,7 @@ export function CardDetailView({
 								onCollapse={onBottomTerminalCollapse}
 								isExpanded={isBottomTerminalExpanded}
 								onToggleExpand={onBottomTerminalToggleExpand}
+								onResumeEndedSession={onResumeEndedSession}
 							/>
 						</div>
 					) : null}
@@ -1079,6 +1093,7 @@ export function CardDetailView({
 							onStartTask={onStartTask}
 							onPauseTask={onPauseTask}
 							onResumeTask={onResumeTask}
+							onResumeEndedSession={onResumeEndedSession}
 							onCancelAutoRun={onCancelAutoRun}
 							onStartAllTasks={onStartAllTasks}
 							onClearTrash={onClearTrash}
@@ -1117,6 +1132,33 @@ export function CardDetailView({
 					</div>
 				) : (
 					<>
+						{isSessionPausedOfflineForTask ? (
+							<div
+								data-testid="resume-ended-session-strip"
+								className="flex shrink-0 items-center justify-between gap-2 border-b border-status-orange/30 bg-status-orange/10 px-3 py-2"
+							>
+								<p className="m-0 text-[12px] text-text-secondary">
+									Paused — session ended when the app closed. Resume to continue with full
+									history.
+								</p>
+								<Button
+									variant="primary"
+									size="sm"
+									data-testid="resume-ended-session"
+									icon={
+										restartTaskLoadingById?.[selection.card.id] ? (
+											<Spinner size={14} />
+										) : (
+											<Play size={14} />
+										)
+									}
+									disabled={restartTaskLoadingById?.[selection.card.id] === true}
+									onClick={() => onRestartTaskSession?.(selection.card.id)}
+								>
+									Resume agent
+								</Button>
+							</div>
+						) : null}
 						<Collapsible.Root
 							open={isTaskConfigExpanded}
 							onOpenChange={setIsTaskConfigExpanded}
@@ -1169,7 +1211,7 @@ export function CardDetailView({
 													restartTaskLoadingById?.[selection.card.id] === true
 												}
 												onClick={() =>
-													onRestartTaskWithAccount?.(selection.card.id)
+													onRestartTaskSession?.(selection.card.id)
 												}
 												className="text-[10px] text-accent underline underline-offset-2 disabled:opacity-50 disabled:no-underline"
 											>
@@ -1408,6 +1450,7 @@ export function CardDetailView({
 								onCollapse={onBottomTerminalCollapse}
 								isExpanded={isBottomTerminalExpanded}
 								onToggleExpand={onBottomTerminalToggleExpand}
+								onResumeEndedSession={onResumeEndedSession}
 							/>
 						) : null}
 					</>
