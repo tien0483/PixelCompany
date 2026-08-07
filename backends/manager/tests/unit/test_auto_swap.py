@@ -24,7 +24,8 @@ from manager.web.auto_swap import (
 
 def _acct(id, usage_5h=0, usage_7d=0, cc_token=True, active=True,
           failures=0, valid=True, auto_swap=True, resets_5h=None,
-          rate_limit_tier=None, subscription_type="max", resets_7d=None):
+          rate_limit_tier=None, subscription_type="max", resets_7d=None,
+          has_extra_usage=False):
     return {
         "id": id, "email": f"user{id}@test.com",
         "cached_usage_5h": usage_5h, "cached_usage_7d": usage_7d,
@@ -38,6 +39,7 @@ def _acct(id, usage_5h=0, usage_7d=0, cc_token=True, active=True,
         "priority": id - 1, "access_token": f"at_{id}",
         "rate_limit_tier": rate_limit_tier,
         "subscription_type": subscription_type,
+        "has_extra_usage": has_extra_usage,
     }
 
 
@@ -770,6 +772,22 @@ class TestPickBestTargetTierStrict:
                                   current_id=99, now=now)
         assert target["id"] == 2
 
+    def test_has_extra_usage_does_not_affect_ranking(self):
+        """has_extra_usage is reserve/emergency overage, display-only —
+        it must never sway which candidate pick_best_target() favors."""
+        from manager.web.auto_swap import pick_best_target
+        now = datetime(2026, 5, 4, 12, 0, tzinfo=timezone.utc)
+        active = _acct(99, resets_7d=_iso(now + timedelta(days=3)))
+        no_extra = _acct(1, usage_7d=50, has_extra_usage=False,
+                         resets_7d=_iso(now + timedelta(hours=12)))
+        with_extra = _acct(2, usage_7d=50, has_extra_usage=True,
+                           resets_7d=_iso(now + timedelta(hours=36)))
+        target = pick_best_target([active, no_extra, with_extra],
+                                  current_id=99, now=now)
+        # Earlier expiry (id 1) wins on its own merits; has_extra_usage
+        # on id 2 must not promote or demote either candidate.
+        assert target["id"] == 1
+
 
 class TestHas5hHeadroom:
     def test_has_room_when_below_90(self):
@@ -1079,6 +1097,25 @@ class TestShouldSwapNow:
         r = should_swap_now(active=active, best=None, burn_rate=br,
                             check_interval_min=5, now=now)
         assert r.startswith(REASON_PREFIX_BURN_RATE), r
+
+    def test_has_extra_usage_does_not_affect_swap_decision(self):
+        """has_extra_usage is reserve/emergency overage, display-only —
+        it must never change whether should_swap_now() departs or stays,
+        regardless of which account (active or candidate) has it set."""
+        from manager.web.auto_swap import should_swap_now
+        now = datetime(2026, 5, 4, 12, 0, tzinfo=timezone.utc)
+        active = _acct(1, usage_5h=20, usage_7d=80,
+                       resets_5h=_iso(now + timedelta(hours=2)),
+                       resets_7d=_iso(now + timedelta(days=3)))
+        same_tier = _acct(2, usage_5h=10, usage_7d=10,
+                          resets_7d=_iso(now + timedelta(days=3)))
+        baseline = should_swap_now(active=active, best=same_tier, now=now)
+        assert baseline is None
+
+        active["has_extra_usage"] = True
+        same_tier["has_extra_usage"] = True
+        with_extra = should_swap_now(active=active, best=same_tier, now=now)
+        assert with_extra == baseline
 
 
 class TestActiveTierHysteresis:
