@@ -1424,6 +1424,7 @@ body.kb-dependency-link-mode {
 }
 
 .kb-prose p {
+	font-size: 0.875rem;
 	line-height: 1.375;
 	color: var(--color-text-primary);
 }
@@ -1439,6 +1440,7 @@ body.kb-dependency-link-mode {
 }
 
 .kb-prose li {
+	font-size: 0.875rem;
 	color: var(--color-text-primary);
 	line-height: 1.375;
 }
@@ -1454,6 +1456,7 @@ body.kb-dependency-link-mode {
 .kb-prose blockquote {
 	border-left: 2px solid var(--color-border-bright);
 	padding-left: 0.75rem;
+	font-size: 0.875rem;
 	color: var(--color-text-secondary);
 }
 
@@ -1464,7 +1467,7 @@ body.kb-dependency-link-mode {
 }
 
 .kb-prose a {
-	color: var(--color-accent);
+	color: var(--color-accent-2);
 	text-decoration: underline;
 }
 
@@ -1472,7 +1475,7 @@ body.kb-dependency-link-mode {
 	border-radius: var(--radius-md);
 	background: var(--color-surface-2);
 	padding: 0.125rem 0.25rem;
-	font-family: var(--font-mono, monospace);
+	font-family: var(--font-mono);
 	font-size: 0.75rem;
 }
 
@@ -1500,6 +1503,7 @@ body.kb-dependency-link-mode {
 .kb-prose td {
 	border: 1px solid var(--color-border);
 	padding: 0.375rem 0.5rem;
+	font-size: 0.875rem;
 	text-align: left;
 }
 
