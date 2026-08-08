@@ -116,6 +116,7 @@ function parseTemplate(raw: unknown): RuntimeHtmlTemplate | null {
 		scenario: readString(raw, "scenario") ?? "marketing",
 		aspectHint: readString(raw, "aspectHint") ?? "",
 		tags,
+		...(raw.allowRead === true ? { allowRead: true } : {}),
 		...(featured !== null ? { featured } : {}),
 		...(recommended !== null ? { recommended } : {}),
 		...(parseExample(raw.example) ? { example: parseExample(raw.example) } : {}),

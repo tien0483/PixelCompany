@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { templateSkillsDir } from "@/lib/agent-data-root";
+import type { DesignDirectivesMode, PromptLanguage } from "./shared";
 
 /**
  * File-based skill registry, modelled on nexu-io/open-design's daemon layout
@@ -32,6 +33,12 @@ export type SkillFrontmatter = {
   featured?: number;
   recommended?: number;
   tags?: string[];
+  /** `none` opts out of the house design brief — the skill body owns design. */
+  design_directives?: string;
+  /** `en` emits the shared preamble in English instead of Chinese. */
+  prompt_language?: string;
+  /** `true` lets the agent Read local files the content references. */
+  allow_read?: boolean;
   // sample / preview metadata — only present when example.{md,html} ships alongside
   example_id?: string;
   example_name?: string;
@@ -76,6 +83,16 @@ export type SkillMeta = {
    */
   recommended?: number;
   tags: string[];
+  /** Which shared design brief to prepend. Defaults to `default`. */
+  designDirectives: DesignDirectivesMode;
+  /** Language of the shared preamble. Defaults to `zh`. */
+  language: PromptLanguage;
+  /**
+   * Whether the agent may Read files under its working directory. The runtime
+   * turns this into an explicit `--allowedTools` list, so it has to reach the
+   * client — it is not a prompt-only concern.
+   */
+  allowRead: boolean;
   example?: SkillExampleMeta;
 };
 
@@ -115,6 +132,11 @@ function parseFrontmatter(raw: string): { fm: SkillFrontmatter; body: string } {
         if (Number.isFinite(n)) fm.recommended = n;
         break;
       }
+      case "allow_read": {
+        const lowered = val.toLowerCase();
+        if (lowered === "true" || lowered === "false") fm.allow_read = lowered === "true";
+        break;
+      }
       case "tags": {
         const arr = /^\[(.*)\]$/.exec(val);
         if (arr) {
@@ -134,6 +156,8 @@ function parseFrontmatter(raw: string): { fm: SkillFrontmatter; body: string } {
       case "category":
       case "scenario":
       case "aspect_hint":
+      case "design_directives":
+      case "prompt_language":
       case "example_id":
       case "example_name":
       case "example_format":
@@ -167,6 +191,9 @@ function fmToMeta(id: string, fm: SkillFrontmatter, hasHtml: boolean, hasMd: boo
     scenario: fm.scenario ?? "marketing",
     aspectHint: fm.aspect_hint ?? "",
     tags: Array.isArray(fm.tags) ? fm.tags : [],
+    designDirectives: fm.design_directives === "none" ? "none" : "default",
+    language: fm.prompt_language === "en" ? "en" : "zh",
+    allowRead: fm.allow_read === true,
   };
   if (typeof fm.featured === "number") meta.featured = fm.featured;
   if (typeof fm.recommended === "number") meta.recommended = fm.recommended;

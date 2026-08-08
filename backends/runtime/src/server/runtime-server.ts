@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { createServer, type IncomingMessage } from "node:http";
 import { createServer as createHttpsServer } from "node:https";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import { createHTTPHandler } from "@trpc/server/adapters/standalone";
 import { handleClineMcpOauthCallback } from "../cline-sdk/cline-mcp-runtime-service";
@@ -52,7 +52,7 @@ import {
 	validatePasscode,
 	validateSession,
 } from "../security/passcode-manager";
-import { readSavedPlanAsset } from "../state/saved-plans";
+import { findSavedPlanById, readSavedPlanAsset } from "../state/saved-plans";
 import { loadWorkspaceContextById, loadWorkspaceState } from "../state/workspace-state";
 import { runAgentOneShot } from "../terminal/agent-oneshot";
 import type { TerminalSessionManager } from "../terminal/session-manager";
@@ -687,6 +687,21 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 					return;
 				}
 
+				// A template that reads its input's images (`allowRead`) needs a working
+				// directory to read them relative to: plan markdown references assets as
+				// `<plan-stem>.assets/<file>`, which only resolves next to the plan file.
+				// An explicit `cwd` from the caller still wins; an unknown plan falls back
+				// to the runtime's own cwd, exactly as before. Resolved before the SSE
+				// headers go out so a lookup failure can still answer with JSON.
+				let agentCwd = input.cwd;
+				if (!agentCwd && input.planId) {
+					const plan = await findSavedPlanById(input.planId).catch(() => null);
+					if (plan) {
+						agentCwd = dirname(plan.path);
+					}
+				}
+				const allowedTools = promptResult.value.template.allowRead ? ["Read", "Glob"] : undefined;
+
 				res.writeHead(200, {
 					"Content-Type": "text/event-stream; charset=utf-8",
 					"Cache-Control": "no-cache, no-transform",
@@ -704,8 +719,9 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 				await runAgentOneShot({
 					agentId: "claude",
 					prompt: promptResult.value.prompt,
-					cwd: input.cwd,
+					cwd: agentCwd,
 					model: input.model,
+					allowedTools,
 					signal: abortCtl.signal,
 					onEvent: (event) => {
 						send(event.type, event);
