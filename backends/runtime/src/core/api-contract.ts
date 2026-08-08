@@ -1249,6 +1249,21 @@ export const RuntimeHtmlGenerateRequestSchema = z.object({
 export type RuntimeHtmlGenerateRequest = z.infer<typeof RuntimeHtmlGenerateRequestSchema>;
 
 /**
+ * Brief expansion: the pass that runs *before* generation, turning rough notes
+ * plus the plan's pasted images into a structured brief. `planId` is required —
+ * it is what locates the images and the agent's cwd — and no template prompt is
+ * involved, so there is no sidecar round-trip and no `editFrom*` pair.
+ */
+export const RuntimeHtmlBriefRequestSchema = z.object({
+	planId: z.string().min(1),
+	content: z.string().min(1),
+	templateId: z.string().optional(),
+	model: z.string().optional(),
+	managerAccountId: z.number().int().positive().optional(),
+});
+export type RuntimeHtmlBriefRequest = z.infer<typeof RuntimeHtmlBriefRequestSchema>;
+
+/**
  * Which steps the colleague-facing usage form renders: `authorize` asks for a
  * usage-share percentage first, `cc` skips straight to authorize + paste code.
  */

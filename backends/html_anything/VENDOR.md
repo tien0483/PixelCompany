@@ -17,6 +17,8 @@ Vendored tree: `next/`, plus root `LICENSE` and `README.md`. Excluded: `cli/`, `
 | Patched `next/src/lib/parsers/file.ts` | Narrow cast for `pdf.destroy` — unpdf typings omit it; blocks `next build` typecheck. |
 | Added `next/src/app/api/build-id/route.ts` | Reports the build this *process* serves, so the runtime can spot an orphaned sidecar still holding the port after a rebuild. |
 | Patched `next/next.config.ts` | `generateBuildId` + `env.HTML_ANYTHING_BUILD_ID` so `/api/build-id` and `.next/BUILD_ID` carry the same value for that comparison. |
+| Patched `next/src/lib/templates/shared.ts` — narrowed the tool ban | Upstream forbids "任何文件系统工具", which bans `Read` too, so a plan's pasted screenshot could never be looked at and annotated redesigns silently ignored the image. Now only write/exec tools are banned, and `Read` is allowed strictly on the paths the caller appends (`backends/runtime/src/html/html-prompt-augment.ts`). |
+| Patched `next/src/lib/templates/shared.ts` — `data:` images | The output-side ban on external image URLs also blocked embedding the user's own reference image. Inline base64 `data:` URIs are now allowed; arbitrary external URLs stay banned, and the artifact stays a self-contained single file. |
 
 Apache-2.0 §4: `LICENSE` retained; this file marks modified/deleted paths.
 
