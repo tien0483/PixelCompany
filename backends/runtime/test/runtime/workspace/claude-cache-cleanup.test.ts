@@ -1,4 +1,4 @@
-import { mkdirSync, readdirSync, utimesSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -74,5 +74,38 @@ describe("claude-cache-cleanup", () => {
 		const result = await cleanClaudeCache({ claudeHomeDir, days: 7, includeTranscripts: true, dryRun: false });
 		expect(result.cleaned.some((item) => item.tier === "transcript")).toBe(true);
 		expect(readdirSync(join(claudeHomeDir, "projects", "some-project"))).not.toContain("old-session.jsonl");
+	});
+
+	it("does not follow a symlinked directory inside an allowlisted subdir to delete files outside the allowlist", async () => {
+		// Simulate a symlink planted inside the safe-tier `cache/` dir that points
+		// at the protected `accounts/` directory (not in the allowlist). If the
+		// scanner followed it, `accounts/secret.json` would be deleted for real.
+		symlinkSync(join(claudeHomeDir, "accounts"), join(claudeHomeDir, "cache", "evil-link"), "dir");
+
+		const result = await cleanClaudeCache({ claudeHomeDir, days: 7, includeTranscripts: false, dryRun: false });
+		expect(result.ok).toBe(true);
+
+		// Nothing reachable only through the symlink should appear as cleaned or skipped.
+		expect(result.cleaned.some((item) => item.path.includes("evil-link"))).toBe(false);
+		expect(result.cleaned.some((item) => item.path.includes("secret.json"))).toBe(false);
+		expect(result.skipped.some((item) => item.path.includes("secret.json"))).toBe(false);
+
+		// The protected file must survive untouched.
+		expect(readdirSync(join(claudeHomeDir, "accounts"))).toContain("secret.json");
+
+		// Legitimate allowlisted cleanup still happens as normal.
+		expect(readdirSync(join(claudeHomeDir, "cache"))).not.toContain("old.json");
+	});
+
+	it("surfaces an error instead of a fake success when the claude home directory itself is missing", async () => {
+		const missingHomeDir = join(claudeHomeDir, "does-not-exist");
+
+		const status = await getClaudeCacheStatus({ claudeHomeDir: missingHomeDir });
+		expect(status.ok).toBe(false);
+		expect(status.error).toBeTruthy();
+
+		const result = await cleanClaudeCache({ claudeHomeDir: missingHomeDir, days: 7, includeTranscripts: false, dryRun: true });
+		expect(result.ok).toBe(false);
+		expect(result.error).toBeTruthy();
 	});
 });

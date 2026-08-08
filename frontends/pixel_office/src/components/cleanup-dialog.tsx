@@ -14,6 +14,7 @@ import {
 import type { RuntimeClaudeCacheCleanResponse, RuntimeCleanMergedWorktreesResponse } from "@/runtime/types";
 
 const SAFE_AGE_DAYS = 7;
+const PREVIEW_ITEM_LIMIT = 20;
 
 function formatBytes(bytes: number): string {
 	if (bytes < 1024) return `${bytes} B`;
@@ -41,15 +42,26 @@ export function CleanupDialog({
 
 	const loadStatus = useCallback(() => {
 		void (async () => {
-			try {
-				const [status, worktreeDryRun] = await Promise.all([
-					fetchClaudeCacheStatus(workspaceId),
-					cleanRuntimeMergedWorktrees(workspaceId, { dryRun: true }),
-				]);
-				setClaudeStatus(status);
-				setWorktreeCount(worktreeDryRun.cleanedTaskIds.length);
-			} catch (error) {
-				notifyError(error instanceof Error ? error.message : String(error));
+			// These two calls are independent: the Claude-cache status is
+			// workspace-independent while the worktree dry run is workspace-scoped
+			// and can fail/throw when no project is open. Use `allSettled` so a
+			// failure on one side doesn't discard a successful result on the other
+			// (`Promise.all` would reject as soon as either promise rejected).
+			const [statusResult, worktreeResult] = await Promise.allSettled([
+				fetchClaudeCacheStatus(workspaceId),
+				cleanRuntimeMergedWorktrees(workspaceId, { dryRun: true }),
+			]);
+			if (statusResult.status === "fulfilled") {
+				setClaudeStatus(statusResult.value);
+			} else {
+				notifyError(statusResult.reason instanceof Error ? statusResult.reason.message : String(statusResult.reason));
+			}
+			if (worktreeResult.status === "fulfilled") {
+				setWorktreeCount(worktreeResult.value.cleanedTaskIds.length);
+			} else {
+				notifyError(
+					worktreeResult.reason instanceof Error ? worktreeResult.reason.message : String(worktreeResult.reason),
+				);
 			}
 		})();
 	}, [workspaceId]);
@@ -68,6 +80,27 @@ export function CleanupDialog({
 		},
 		[onOpenChange],
 	);
+
+	// Any checkbox change invalidates whatever preview was shown before it (the
+	// preview reflects a specific combination of checked categories/options, and
+	// a stale preview would no longer match what Confirm is about to delete).
+	const handleClaudeCheckedChange = useCallback((checked: boolean | "indeterminate") => {
+		setClaudeChecked(checked === true);
+		setClaudePreview(null);
+		setWorktreePreview(null);
+	}, []);
+
+	const handleTranscriptsCheckedChange = useCallback((checked: boolean | "indeterminate") => {
+		setIncludeTranscripts(checked === true);
+		setClaudePreview(null);
+		setWorktreePreview(null);
+	}, []);
+
+	const handleWorktreesCheckedChange = useCallback((checked: boolean | "indeterminate") => {
+		setWorktreesChecked(checked === true);
+		setClaudePreview(null);
+		setWorktreePreview(null);
+	}, []);
 
 	const canPreview = claudeChecked || worktreesChecked;
 
@@ -95,13 +128,31 @@ export function CleanupDialog({
 		void (async () => {
 			setIsBusy(true);
 			try {
+				// Both backends report failure via `{ ok: false, error }` rather than
+				// throwing, so a resolved promise is not itself proof of success —
+				// only report "Cleanup complete" once every response we actually
+				// invoked (for a checked category) came back `ok: true`.
+				const failures: string[] = [];
+				let invokedAny = false;
 				if (claudeChecked) {
-					await cleanClaudeCache(workspaceId, { days: SAFE_AGE_DAYS, includeTranscripts, dryRun: false });
+					invokedAny = true;
+					const result = await cleanClaudeCache(workspaceId, { days: SAFE_AGE_DAYS, includeTranscripts, dryRun: false });
+					if (!result.ok) {
+						failures.push(result.error ?? "Claude cache cleanup failed");
+					}
 				}
 				if (worktreesChecked) {
-					await cleanRuntimeMergedWorktrees(workspaceId);
+					invokedAny = true;
+					const result = await cleanRuntimeMergedWorktrees(workspaceId);
+					if (!result.ok) {
+						failures.push(result.error ?? "Worktree cleanup failed");
+					}
 				}
-				showAppToast({ intent: "success", message: "Cleanup complete" });
+				if (failures.length > 0) {
+					notifyError(failures.join(" "));
+				} else if (invokedAny) {
+					showAppToast({ intent: "success", message: "Cleanup complete" });
+				}
 				setClaudePreview(null);
 				setWorktreePreview(null);
 				setClaudeChecked(false);
@@ -124,7 +175,7 @@ export function CleanupDialog({
 					<RadixCheckbox.Root
 						data-testid="cleanup-claude-checkbox"
 						checked={claudeChecked}
-						onCheckedChange={(checked) => setClaudeChecked(checked === true)}
+						onCheckedChange={handleClaudeCheckedChange}
 						className="flex h-3.5 w-3.5 items-center justify-center rounded-sm border border-border-bright bg-surface-3 data-[state=checked]:bg-accent data-[state=checked]:border-accent"
 					>
 						<RadixCheckbox.Indicator>
@@ -144,7 +195,7 @@ export function CleanupDialog({
 						checked={includeTranscripts}
 						disabled={!claudeChecked}
 						data-disabled={!claudeChecked ? "" : undefined}
-						onCheckedChange={(checked) => setIncludeTranscripts(checked === true)}
+						onCheckedChange={handleTranscriptsCheckedChange}
 						className="flex h-3.5 w-3.5 items-center justify-center rounded-sm border border-border-bright bg-surface-3 data-[state=checked]:bg-accent data-[state=checked]:border-accent disabled:cursor-default disabled:opacity-40"
 					>
 						<RadixCheckbox.Indicator>
@@ -157,7 +208,7 @@ export function CleanupDialog({
 					<RadixCheckbox.Root
 						data-testid="cleanup-worktrees-checkbox"
 						checked={worktreesChecked}
-						onCheckedChange={(checked) => setWorktreesChecked(checked === true)}
+						onCheckedChange={handleWorktreesCheckedChange}
 						className="flex h-3.5 w-3.5 items-center justify-center rounded-sm border border-border-bright bg-surface-3 data-[state=checked]:bg-accent data-[state=checked]:border-accent"
 					>
 						<RadixCheckbox.Indicator>
@@ -169,13 +220,71 @@ export function CleanupDialog({
 				</label>
 
 				{claudePreview ? (
-					<div className="rounded-md border border-border bg-surface-2 p-3 text-xs text-text-secondary">
-						<p>Claude cache: {claudePreview.cleaned.length} item(s) would be removed.</p>
+					<div className="rounded-md border border-border bg-surface-2 p-3 text-xs text-text-secondary space-y-2">
+						<div>
+							<p className="text-text-primary">
+								Claude cache: {claudePreview.cleaned.length} item(s) would be removed.
+							</p>
+							<ul className="mt-1 max-h-40 space-y-0.5 overflow-y-auto">
+								{claudePreview.cleaned.slice(0, PREVIEW_ITEM_LIMIT).map((item) => (
+									<li key={item.path} className="truncate" title={item.path}>
+										{item.path} ({formatBytes(item.sizeBytes)})
+									</li>
+								))}
+								{claudePreview.cleaned.length > PREVIEW_ITEM_LIMIT ? (
+									<li>+{claudePreview.cleaned.length - PREVIEW_ITEM_LIMIT} more</li>
+								) : null}
+							</ul>
+						</div>
+						{claudePreview.skipped.length > 0 ? (
+							<div>
+								<p className="text-text-primary">Skipped ({claudePreview.skipped.length}):</p>
+								<ul className="mt-1 max-h-40 space-y-0.5 overflow-y-auto">
+									{claudePreview.skipped.slice(0, PREVIEW_ITEM_LIMIT).map((item) => (
+										<li key={item.path} className="truncate" title={item.path}>
+											{item.path} — kept, because {item.reason}
+										</li>
+									))}
+									{claudePreview.skipped.length > PREVIEW_ITEM_LIMIT ? (
+										<li>+{claudePreview.skipped.length - PREVIEW_ITEM_LIMIT} more</li>
+									) : null}
+								</ul>
+							</div>
+						) : null}
 					</div>
 				) : null}
 				{worktreePreview ? (
-					<div className="rounded-md border border-border bg-surface-2 p-3 text-xs text-text-secondary">
-						<p>Worktrees: {worktreePreview.cleanedTaskIds.length} would be removed.</p>
+					<div className="rounded-md border border-border bg-surface-2 p-3 text-xs text-text-secondary space-y-2">
+						<div>
+							<p className="text-text-primary">
+								Worktrees: {worktreePreview.cleanedTaskIds.length} would be removed.
+							</p>
+							<ul className="mt-1 max-h-40 space-y-0.5 overflow-y-auto">
+								{worktreePreview.cleanedTaskIds.slice(0, PREVIEW_ITEM_LIMIT).map((taskId) => (
+									<li key={taskId} className="truncate" title={taskId}>
+										{taskId}
+									</li>
+								))}
+								{worktreePreview.cleanedTaskIds.length > PREVIEW_ITEM_LIMIT ? (
+									<li>+{worktreePreview.cleanedTaskIds.length - PREVIEW_ITEM_LIMIT} more</li>
+								) : null}
+							</ul>
+						</div>
+						{worktreePreview.skipped.length > 0 ? (
+							<div>
+								<p className="text-text-primary">Skipped ({worktreePreview.skipped.length}):</p>
+								<ul className="mt-1 max-h-40 space-y-0.5 overflow-y-auto">
+									{worktreePreview.skipped.slice(0, PREVIEW_ITEM_LIMIT).map((item) => (
+										<li key={item.taskId} className="truncate" title={item.branch || item.taskId}>
+											{item.branch || item.taskId} — kept, because {item.reason}
+										</li>
+									))}
+									{worktreePreview.skipped.length > PREVIEW_ITEM_LIMIT ? (
+										<li>+{worktreePreview.skipped.length - PREVIEW_ITEM_LIMIT} more</li>
+									) : null}
+								</ul>
+							</div>
+						) : null}
 					</div>
 				) : null}
 			</DialogBody>

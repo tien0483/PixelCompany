@@ -1,6 +1,7 @@
-import { readdir, rm, stat } from "node:fs/promises";
+import type { Dirent } from "node:fs";
+import { lstat, readdir, realpath, rm, stat } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, sep } from "node:path";
 
 import type {
 	RuntimeClaudeCacheCleanRequest,
@@ -15,34 +16,50 @@ interface ScannedFile {
 	path: string;
 	sizeBytes: number;
 	ageMs: number;
+	/** The top-level allowlisted directory this file was discovered under (used for escape checks). */
+	rootDir: string;
 }
 
 function resolveClaudeHomeDir(claudeHomeDir?: string): string {
 	return claudeHomeDir ?? join(homedir(), ".claude");
 }
 
+/**
+ * Recursively walks `rootDir`, collecting real (non-symlink) files reachable
+ * only through real (non-symlink) directories. Symlinked directories and
+ * symlinked files are never followed/collected, so a symlink placed inside an
+ * allowlisted directory cannot be used to smuggle files from outside the
+ * allowlist into scan results.
+ */
 async function walkFiles(rootDir: string): Promise<ScannedFile[]> {
 	const results: ScannedFile[] = [];
-	let entries: string[];
-	try {
-		entries = await readdir(rootDir, { recursive: true } as never);
-	} catch {
-		return results;
-	}
 	const now = Date.now();
-	for (const entry of entries) {
-		const fullPath = join(rootDir, entry);
-		let fileStat: { isDirectory: () => boolean; size: number; mtimeMs: number };
+
+	async function walkDir(dir: string): Promise<void> {
+		let entries: Dirent[];
 		try {
-			fileStat = await stat(fullPath);
+			entries = await readdir(dir, { withFileTypes: true });
 		} catch {
-			continue;
+			return;
 		}
-		if (fileStat.isDirectory()) {
-			continue;
+		for (const entry of entries) {
+			const fullPath = join(dir, entry.name);
+			if (entry.isDirectory() && !entry.isSymbolicLink()) {
+				await walkDir(fullPath);
+				continue;
+			}
+			if (entry.isFile() && !entry.isSymbolicLink()) {
+				try {
+					const fileStat = await lstat(fullPath);
+					results.push({ path: fullPath, sizeBytes: fileStat.size, ageMs: now - fileStat.mtimeMs, rootDir });
+				} catch {
+					// File disappeared between readdir and lstat; nothing to record.
+				}
+			}
 		}
-		results.push({ path: fullPath, sizeBytes: fileStat.size, ageMs: now - fileStat.mtimeMs });
 	}
+
+	await walkDir(rootDir);
 	return results;
 }
 
@@ -60,12 +77,30 @@ async function scanTranscriptTier(claudeHomeDir: string): Promise<ScannedFile[]>
 	return files.filter((file) => file.path.endsWith(".jsonl"));
 }
 
+async function claudeHomeDirExists(claudeHomeDir: string): Promise<boolean> {
+	try {
+		return (await stat(claudeHomeDir)).isDirectory();
+	} catch {
+		return false;
+	}
+}
+
 export async function getClaudeCacheStatus(options?: {
 	claudeHomeDir?: string;
 	days?: number;
 }): Promise<RuntimeClaudeCacheStatusResponse> {
 	try {
 		const claudeHomeDir = resolveClaudeHomeDir(options?.claudeHomeDir);
+		if (!(await claudeHomeDirExists(claudeHomeDir))) {
+			return {
+				ok: false,
+				safeItemCount: 0,
+				safeSizeBytes: 0,
+				transcriptItemCount: 0,
+				transcriptSizeBytes: 0,
+				error: "~/.claude not found",
+			};
+		}
 		const ageCutoffMs = (options?.days ?? DEFAULT_SAFE_AGE_DAYS) * 24 * 60 * 60 * 1000;
 		const safeFiles = (await scanSafeTier(claudeHomeDir)).filter((file) => file.ageMs > ageCutoffMs);
 		const transcriptFiles = (await scanTranscriptTier(claudeHomeDir)).filter((file) => file.ageMs > ageCutoffMs);
@@ -93,6 +128,9 @@ export async function cleanClaudeCache(
 ): Promise<RuntimeClaudeCacheCleanResponse> {
 	try {
 		const claudeHomeDir = resolveClaudeHomeDir(options.claudeHomeDir);
+		if (!(await claudeHomeDirExists(claudeHomeDir))) {
+			return { ok: false, cleaned: [], skipped: [], error: "~/.claude not found" };
+		}
 		const ageCutoffMs = (options.days ?? DEFAULT_SAFE_AGE_DAYS) * 24 * 60 * 60 * 1000;
 
 		const candidates: { file: ScannedFile; tier: "safe" | "transcript" }[] = [];
@@ -118,6 +156,18 @@ export async function cleanClaudeCache(
 				continue;
 			}
 			try {
+				// Belt-and-braces: even though the walker never follows symlinks,
+				// re-resolve the real path right before deleting and confirm it is
+				// still rooted under the allowlisted directory it was discovered in.
+				const [resolvedRoot, resolvedPath] = await Promise.all([
+					realpath(candidate.file.rootDir),
+					realpath(candidate.file.path),
+				]);
+				const escapesAllowlist = resolvedPath !== resolvedRoot && !resolvedPath.startsWith(resolvedRoot + sep);
+				if (escapesAllowlist) {
+					skipped.push({ path: candidate.file.path, reason: "Path escapes allowlisted directory" });
+					continue;
+				}
 				await rm(candidate.file.path, { force: true });
 				cleaned.push({ path: candidate.file.path, sizeBytes: candidate.file.sizeBytes, tier: candidate.tier });
 			} catch (error) {

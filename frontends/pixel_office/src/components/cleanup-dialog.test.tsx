@@ -8,6 +8,10 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 const mockGetClaudeCacheStatus = vi.fn();
 const mockCleanClaudeCache = vi.fn();
 const mockCleanMergedWorktrees = vi.fn();
+const { mockNotifyError, mockShowAppToast } = vi.hoisted(() => ({
+	mockNotifyError: vi.fn(),
+	mockShowAppToast: vi.fn(),
+}));
 
 vi.mock("@/runtime/trpc-client", () => ({
 	getRuntimeTrpcClient: () => ({
@@ -19,6 +23,11 @@ vi.mock("@/runtime/trpc-client", () => ({
 			cleanMergedWorktrees: { mutate: mockCleanMergedWorktrees },
 		},
 	}),
+}));
+
+vi.mock("@/components/app-toaster", () => ({
+	notifyError: mockNotifyError,
+	showAppToast: mockShowAppToast,
 }));
 
 function flush() {
@@ -45,6 +54,8 @@ describe("CleanupDialog", () => {
 		});
 		mockCleanClaudeCache.mockReset();
 		mockCleanMergedWorktrees.mockReset().mockResolvedValue({ ok: true, cleanedTaskIds: [], skipped: [] });
+		mockNotifyError.mockReset();
+		mockShowAppToast.mockReset();
 	});
 
 	afterEach(() => {
@@ -160,5 +171,81 @@ describe("CleanupDialog", () => {
 		expect(mockCleanClaudeCache).toHaveBeenCalledWith(
 			expect.objectContaining({ dryRun: false, includeTranscripts: false }),
 		);
+	});
+
+	it("clears a shown preview when a checkbox changes afterward, instead of leaving it stale", async () => {
+		mockCleanClaudeCache.mockResolvedValue({
+			ok: true,
+			cleaned: [{ path: "/home/x/.claude/cache/stale-preview-marker.json", sizeBytes: 100, tier: "safe" }],
+			skipped: [],
+		});
+
+		await act(async () => {
+			root.render(
+				<TooltipProvider>
+					<CleanupDialog open={true} onOpenChange={() => {}} workspaceId={null} />
+				</TooltipProvider>,
+			);
+		});
+		await flush();
+
+		const claudeCheckbox = document.body.querySelector('[data-testid="cleanup-claude-checkbox"]') as HTMLElement;
+		await act(async () => {
+			claudeCheckbox.click();
+		});
+		await flush();
+
+		const previewButton = document.body.querySelector('[data-testid="cleanup-preview-button"]') as HTMLButtonElement;
+		await act(async () => {
+			previewButton.click();
+		});
+		await flush();
+
+		expect(document.body.textContent).toContain("stale-preview-marker.json");
+
+		// Checking a second checkbox (transcripts) after the preview was shown
+		// must invalidate it — Confirm would otherwise delete more than the
+		// preview described.
+		const transcriptsCheckbox = document.body.querySelector('[data-testid="cleanup-transcripts-checkbox"]') as HTMLElement;
+		await act(async () => {
+			transcriptsCheckbox.click();
+		});
+		await flush();
+
+		expect(document.body.textContent).not.toContain("stale-preview-marker.json");
+	});
+
+	it("reports failure instead of a success toast when a checked category's backend call returns ok: false", async () => {
+		mockCleanClaudeCache.mockResolvedValue({ ok: true, cleaned: [], skipped: [] });
+		mockCleanMergedWorktrees.mockImplementation((input?: { dryRun?: boolean }) => {
+			if (input?.dryRun) {
+				return Promise.resolve({ ok: true, cleanedTaskIds: [], skipped: [] });
+			}
+			return Promise.resolve({ ok: false, cleanedTaskIds: [], skipped: [], error: "worktree cleanup boom" });
+		});
+
+		await act(async () => {
+			root.render(
+				<TooltipProvider>
+					<CleanupDialog open={true} onOpenChange={() => {}} workspaceId={null} />
+				</TooltipProvider>,
+			);
+		});
+		await flush();
+
+		const worktreesCheckbox = document.body.querySelector('[data-testid="cleanup-worktrees-checkbox"]') as HTMLElement;
+		await act(async () => {
+			worktreesCheckbox.click();
+		});
+		await flush();
+
+		const confirmButton = document.body.querySelector('[data-testid="cleanup-confirm-button"]') as HTMLButtonElement;
+		await act(async () => {
+			confirmButton.click();
+		});
+		await flush();
+
+		expect(mockNotifyError).toHaveBeenCalledWith(expect.stringContaining("worktree cleanup boom"));
+		expect(mockShowAppToast).not.toHaveBeenCalledWith(expect.objectContaining({ message: "Cleanup complete" }));
 	});
 });

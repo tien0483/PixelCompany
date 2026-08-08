@@ -1276,7 +1276,7 @@ export default function App(): ReactElement {
 						onOpenDebugDialog={
 							debugModeEnabled ? handleOpenDebugDialog : undefined
 						}
-						onOpenCleanup={handleOpenCleanupDialog}
+						onOpenCleanup={hasNoProjects ? undefined : handleOpenCleanupDialog}
 						shortcuts={shortcuts}
 						selectedShortcutLabel={selectedShortcutLabel}
 						onSelectShortcutLabel={handleSelectShortcutLabel}
