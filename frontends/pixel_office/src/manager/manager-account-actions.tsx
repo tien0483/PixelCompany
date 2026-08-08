@@ -312,7 +312,7 @@ export function ManagerAccountActions({
 					}
 					aria-label={account.isActive ? `Deactivate ${label}` : `Activate ${label}`}
 				>
-					{account.isActive ? "On" : "Off"}
+					{account.isActive ? "Off" : "On"}
 				</Button>
 			</ActionTooltip>
 			{canReorder ? (
