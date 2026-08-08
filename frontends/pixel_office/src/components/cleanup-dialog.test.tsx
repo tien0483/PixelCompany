@@ -56,6 +56,36 @@ describe("CleanupDialog", () => {
 		delete (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT;
 	});
 
+	it("loads Claude cache status and worktree count when the dialog transitions from closed to open", async () => {
+		await act(async () => {
+			root.render(
+				<TooltipProvider>
+					<CleanupDialog open={false} onOpenChange={() => {}} workspaceId={null} />
+				</TooltipProvider>,
+			);
+		});
+		await flush();
+
+		// Closed dialog must not have loaded anything yet.
+		expect(mockGetClaudeCacheStatus).not.toHaveBeenCalled();
+		expect(mockCleanMergedWorktrees).not.toHaveBeenCalled();
+
+		// Parent flips `open` externally (this is how Task 5's useCleanupTools hook
+		// opens this dialog — no Trigger involved), so the load must come from a
+		// `useEffect` reacting to the `open` prop, not from `onOpenChange`.
+		await act(async () => {
+			root.render(
+				<TooltipProvider>
+					<CleanupDialog open={true} onOpenChange={() => {}} workspaceId={null} />
+				</TooltipProvider>,
+			);
+		});
+		await flush();
+
+		expect(mockGetClaudeCacheStatus).toHaveBeenCalledTimes(1);
+		expect(mockCleanMergedWorktrees).toHaveBeenCalledTimes(1);
+	});
+
 	it("disables the transcripts checkbox until the Claude row is checked, and Preview until something is checked", async () => {
 		await act(async () => {
 			root.render(

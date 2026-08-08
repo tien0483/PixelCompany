@@ -1,6 +1,6 @@
 import * as RadixCheckbox from "@radix-ui/react-checkbox";
 import { Check, Trash2 } from "lucide-react";
-import { type ReactElement, useCallback, useState } from "react";
+import { type ReactElement, useCallback, useEffect, useState } from "react";
 
 import { notifyError, showAppToast } from "@/components/app-toaster";
 import { Button } from "@/components/ui/button";
@@ -54,16 +54,19 @@ export function CleanupDialog({
 		})();
 	}, [workspaceId]);
 
+	useEffect(() => {
+		if (open) {
+			setClaudePreview(null);
+			setWorktreePreview(null);
+			loadStatus();
+		}
+	}, [open, loadStatus]);
+
 	const handleOpenChange = useCallback(
 		(nextOpen: boolean) => {
 			onOpenChange(nextOpen);
-			if (nextOpen) {
-				setClaudePreview(null);
-				setWorktreePreview(null);
-				loadStatus();
-			}
 		},
-		[onOpenChange, loadStatus],
+		[onOpenChange],
 	);
 
 	const canPreview = claudeChecked || worktreesChecked;
