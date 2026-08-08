@@ -10,7 +10,7 @@
 
 | Change | Status | Notes |
 |--------|--------|-------|
-| Add `--json` flag to `round_tool.py` status subcommand | Planned (Task 2) | Currently text-only output; will be enhanced in Phase 1 sidecar to support JSON output |
+| Add `--json` flag to `round_tool.py` status subcommand | Applied (Task 2) | `round_tool.py status --json` now prints a structured `{claims, checks, rounds, currentRound, roundInfo, staleGreens}` dict and returns before the text-mode prints; default (no `--json`) text output is unchanged. Used by `server/ops.py`'s `op_round_status`. |
 
 ## Known Quirks (Not Modified)
 

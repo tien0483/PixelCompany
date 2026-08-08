@@ -119,21 +119,38 @@ def cmd_check(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_status(_args: argparse.Namespace) -> int:
+def cmd_status(args: argparse.Namespace) -> int:
     data = load()
     rnd = current_round(data)
-    print(f'{len(data["entries"])} claims, '
-          f'{sum(len(e["checks"]) for e in data["entries"])} checks, '
-          f'{len(data.get("rounds", []))} round(s); current = {rnd}')
-    for r in data.get('rounds', []):
-        touched = sum(1 for e in data['entries']
-                      for c in e['checks'] if c.get('round') == r['round'])
-        print(f'  round {r["round"]} ({r["at"]}): {touched} checks — {r["trigger"][:80]}')
     stale_greens = [
         e for e in data['entries']
         if max(e['checks'], key=lambda c: (c.get('round', 0), c.get('at', '')))
         .get('round', 0) < rnd
     ]
+    rounds_info = []
+    for r in data.get('rounds', []):
+        touched = sum(1 for e in data['entries']
+                      for c in e['checks'] if c.get('round') == r['round'])
+        rounds_info.append({
+            'round': r['round'], 'at': r['at'], 'trigger': r['trigger'], 'touched': touched,
+        })
+
+    if getattr(args, 'json', False):
+        print(json.dumps({
+            'claims': len(data['entries']),
+            'checks': sum(len(e['checks']) for e in data['entries']),
+            'rounds': len(data.get('rounds', [])),
+            'currentRound': rnd,
+            'roundInfo': rounds_info,
+            'staleGreens': len(stale_greens),
+        }))
+        return 0
+
+    print(f'{len(data["entries"])} claims, '
+          f'{sum(len(e["checks"]) for e in data["entries"])} checks, '
+          f'{len(data.get("rounds", []))} round(s); current = {rnd}')
+    for r in rounds_info:
+        print(f'  round {r["round"]} ({r["at"]}): {r["touched"]} checks — {r["trigger"][:80]}')
     print(f'  {len(stale_greens)} claims not re-checked in round {rnd} '
           f'(their green is older than this round)')
     return 0
@@ -168,6 +185,7 @@ def main() -> int:
     ck.set_defaults(func=cmd_check)
 
     st = sub.add_parser('status', help='rounds, checks, and which claims are behind')
+    st.add_argument('--json', action='store_true', help='structured output instead of text')
     st.set_defaults(func=cmd_status)
 
     args = ap.parse_args()
