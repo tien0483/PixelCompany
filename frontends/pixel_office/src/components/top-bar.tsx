@@ -21,6 +21,7 @@ import {
 	Play,
 	Plus,
 	Settings,
+	SlidersHorizontal,
 	Terminal,
 	Trash2,
 } from "lucide-react";
@@ -467,6 +468,7 @@ export function TopBar({
 	onOpenSettings,
 	showDebugButton,
 	onOpenDebugDialog,
+	onOpenStack,
 	onOpenCleanup,
 	shortcuts,
 	selectedShortcutLabel,
@@ -515,6 +517,7 @@ export function TopBar({
 	onOpenSettings?: (section?: SettingsSection) => void;
 	showDebugButton?: boolean;
 	onOpenDebugDialog?: () => void;
+	onOpenStack?: () => void;
 	onOpenCleanup?: () => void;
 	shortcuts?: RuntimeProjectShortcut[];
 	selectedShortcutLabel?: string | null;
@@ -870,8 +873,27 @@ export function TopBar({
 									</Button>
 								</Tooltip>
 							) : null}
+							{onOpenStack ? (
+								<Tooltip
+									side="bottom"
+									content="Agent stack switchboard (UA, RTK, Caveman, Headroom, CCR, DevTools)"
+								>
+									<Button
+										variant="ghost"
+										size="sm"
+										icon={<SlidersHorizontal size={16} />}
+										onClick={onOpenStack}
+										aria-label="Agent stack"
+										data-testid="open-stack-dialog-button"
+										className="ml-2"
+									/>
+								</Tooltip>
+							) : null}
 							{onOpenCleanup ? (
-								<Tooltip side="bottom" content="Clean up Claude cache and runtime worktrees">
+								<Tooltip
+									side="bottom"
+									content="Clean up Claude cache and runtime worktrees"
+								>
 									<Button
 										variant="ghost"
 										size="sm"
@@ -941,6 +963,16 @@ export function TopBar({
 											? "Hide watch and office column"
 											: "Show watch and office column"
 									}
+									className={MOBILE_TOUCH_TARGET}
+								/>
+							) : null}
+							{onOpenStack ? (
+								<Button
+									variant="ghost"
+									size="sm"
+									icon={<SlidersHorizontal size={16} />}
+									onClick={onOpenStack}
+									aria-label="Agent stack"
 									className={MOBILE_TOUCH_TARGET}
 								/>
 							) : null}

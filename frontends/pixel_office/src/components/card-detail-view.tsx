@@ -36,12 +36,12 @@ import type { ClineChatActionResult } from "@/hooks/use-cline-chat-runtime-actio
 import type { ClineChatMessage } from "@/hooks/use-cline-chat-session";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useSavePlanFromSession } from "@/hooks/use-save-plan-from-session";
+import { useStackDevtools } from "@/hooks/use-stack-devtools";
 import {
 	filterManagerAccountsForAgent,
 	shouldClearManagerAccountPin,
 	TaskAccountPicker,
 } from "@/manager/task-account-picker";
-import { useClineApiSeats } from "@/runtime/use-cline-api-seats";
 import { ResizableBottomPane } from "@/resize/resizable-bottom-pane";
 import { ResizeHandle } from "@/resize/resize-handle";
 import { useCardDetailLayout } from "@/resize/use-card-detail-layout";
@@ -60,6 +60,7 @@ import type {
 	RuntimeTaskSessionSummary,
 	RuntimeWorkspaceChangesMode,
 } from "@/runtime/types";
+import { useClineApiSeats } from "@/runtime/use-cline-api-seats";
 import { useRuntimeWorkspaceChanges } from "@/runtime/use-runtime-workspace-changes";
 import { useTaskWorkspaceStateVersionValue } from "@/stores/workspace-metadata-store";
 import { trackPlanSaved } from "@/telemetry/events";
@@ -352,6 +353,13 @@ function DiffModeButton({
 	);
 }
 
+/**
+ * Views the diff panel can show. "devtools" hosts the agent-stack DevTools
+ * dashboard alongside All Changes / Last Turn, so per-session token and subagent
+ * activity sits next to the diff for that session instead of in a separate tab.
+ */
+type DiffPanelView = "changes" | "plan" | "devtools";
+
 function DiffToolbar({
 	mode,
 	onModeChange,
@@ -359,6 +367,7 @@ function DiffToolbar({
 	onToggleExpand,
 	hideExpand,
 	planReady,
+	devtoolsReady,
 	activeView,
 	onViewChange,
 }: {
@@ -368,8 +377,9 @@ function DiffToolbar({
 	onToggleExpand: () => void;
 	hideExpand?: boolean;
 	planReady?: boolean;
-	activeView: "changes" | "plan";
-	onViewChange: (view: "changes" | "plan") => void;
+	devtoolsReady?: boolean;
+	activeView: DiffPanelView;
+	onViewChange: (view: DiffPanelView) => void;
 }): React.ReactElement {
 	return (
 		<div className="flex items-center gap-1 border-b border-divider px-2 py-1">
@@ -408,6 +418,14 @@ function DiffToolbar({
 						onClick={() => onViewChange("plan")}
 					>
 						Plan
+					</DiffModeButton>
+				) : null}
+				{devtoolsReady ? (
+					<DiffModeButton
+						active={activeView === "devtools"}
+						onClick={() => onViewChange("devtools")}
+					>
+						DevTools
 					</DiffModeButton>
 				) : null}
 			</div>
@@ -614,9 +632,9 @@ export function CardDetailView({
 	>(new Map());
 	const [diffMode, setDiffMode] =
 		useState<RuntimeWorkspaceChangesMode>("working_copy");
-	const [diffPanelView, setDiffPanelView] = useState<"changes" | "plan">(
-		"changes",
-	);
+	const [diffPanelView, setDiffPanelView] = useState<DiffPanelView>("changes");
+	// Only poll the switchboard while a session detail is actually open.
+	const { devtoolsUrl } = useStackDevtools(true);
 	const wasPlanReadyRef = useRef(false);
 	const [isDiffExpanded, setIsDiffExpanded] = useState(false);
 	const [savedPlanTextKey, setSavedPlanTextKey] = useState<string | null>(null);
@@ -643,6 +661,13 @@ export function CardDetailView({
 			setDiffPanelView("changes");
 		}
 	}, [planReadyForSave, diffPanelView]);
+	// Same guard for DevTools: if the daemon goes down while its tab is open, fall
+	// back to the diff rather than leaving a dead iframe on screen.
+	useEffect(() => {
+		if (!devtoolsUrl && diffPanelView === "devtools") {
+			setDiffPanelView("changes");
+		}
+	}, [devtoolsUrl, diffPanelView]);
 	const {
 		taskCardsPanelRatio,
 		setTaskCardsPanelRatio,
@@ -1146,8 +1171,8 @@ export function CardDetailView({
 								className="flex shrink-0 items-center justify-between gap-2 border-b border-status-orange/30 bg-status-orange/10 px-3 py-2"
 							>
 								<p className="m-0 text-[12px] text-text-secondary">
-									Paused — session ended when the app closed. Resume to continue with full
-									history.
+									Paused — session ended when the app closed. Resume to continue
+									with full history.
 								</p>
 								<Button
 									variant="primary"
@@ -1160,7 +1185,9 @@ export function CardDetailView({
 											<Play size={14} />
 										)
 									}
-									disabled={restartTaskLoadingById?.[selection.card.id] === true}
+									disabled={
+										restartTaskLoadingById?.[selection.card.id] === true
+									}
 									onClick={() => onRestartTaskSession?.(selection.card.id)}
 								>
 									Resume agent
@@ -1322,21 +1349,31 @@ export function CardDetailView({
 								className="flex min-h-0 min-w-0 flex-col"
 								style={{ width: isDiffExpanded ? "100%" : diffPanelPercent }}
 							>
-								{isRuntimeAvailable || (planReadyForSave && planTextForSave) ? (
+								{isRuntimeAvailable ||
+								(planReadyForSave && planTextForSave) ||
+								devtoolsUrl ? (
 									<DiffToolbar
 										mode={diffMode}
 										onModeChange={setDiffMode}
 										isExpanded={isDiffExpanded}
 										onToggleExpand={handleToggleDiffExpand}
 										planReady={Boolean(planReadyForSave && planTextForSave)}
+										devtoolsReady={Boolean(devtoolsUrl)}
 										activeView={diffPanelView}
 										onViewChange={setDiffPanelView}
 									/>
 								) : null}
 								<div className="flex min-h-0 flex-1">
-									{diffPanelView === "plan" &&
-									planReadyForSave &&
-									planTextForSave ? (
+									{diffPanelView === "devtools" && devtoolsUrl ? (
+										<iframe
+											src={devtoolsUrl}
+											title="Claude DevTools"
+											data-testid="detail-devtools-frame"
+											className="min-h-0 min-w-0 flex-1 border-0"
+										/>
+									) : diffPanelView === "plan" &&
+										planReadyForSave &&
+										planTextForSave ? (
 										<div className="flex min-h-0 flex-1 flex-col overflow-hidden">
 											<div className="flex shrink-0 items-center justify-between gap-2 border-b border-border px-3 py-2">
 												<span className="text-[12px] font-medium text-text-primary">

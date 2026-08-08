@@ -30,6 +30,7 @@ import {
 	RuntimeSettingsDialog,
 	type RuntimeSettingsSection,
 } from "@/components/runtime-settings-dialog";
+import { StackControlDialog } from "@/components/stack-control-dialog";
 import { StartupOnboardingDialog } from "@/components/startup-onboarding-dialog";
 import { TaskCreateDialog } from "@/components/task-create-dialog";
 import { TaskInlineCreateCard } from "@/components/task-inline-create-card";
@@ -69,6 +70,7 @@ import { useReviewReadyNotifications } from "@/hooks/use-review-ready-notificati
 import { useReviewStalenessAlert } from "@/hooks/use-review-staleness-alert";
 import { useSavedPlans } from "@/hooks/use-saved-plans";
 import { useShortcutActions } from "@/hooks/use-shortcut-actions";
+import { useStackControl } from "@/hooks/use-stack-control";
 import { useStartupOnboarding } from "@/hooks/use-startup-onboarding";
 import {
 	ensureBranchOptionPresent,
@@ -107,8 +109,8 @@ import {
 	applyTaskDetailClineSettingsChange,
 	clearTaskAutoRun,
 	findCardSelection,
-	setTaskLaunchSettings,
 	setTaskApiSeat,
+	setTaskLaunchSettings,
 	setTaskManagerAccount,
 } from "@/state/board-state";
 import { isTaskInChain } from "@/state/chain-groups";
@@ -252,6 +254,11 @@ export default function App(): ReactElement {
 		handleOpenCleanupDialog,
 		handleCleanupDialogOpenChange,
 	} = useCleanupTools();
+	const {
+		isStackDialogOpen,
+		handleOpenStackDialog,
+		handleStackDialogOpenChange,
+	} = useStackControl();
 	const {
 		markConnectionReady: markTerminalConnectionReady,
 		prepareWaitForConnection: prepareWaitForTerminalConnectionReady,
@@ -996,7 +1003,10 @@ export default function App(): ReactElement {
 	);
 
 	const handleTaskApiSeatChanged = useCallback(
-		(taskId: string, seat: { providerId: string; modelId: string | null } | null) => {
+		(
+			taskId: string,
+			seat: { providerId: string; modelId: string | null } | null,
+		) => {
 			setBoard((currentBoard) => {
 				const result = setTaskApiSeat(currentBoard, taskId, seat);
 				return result.updated ? result.board : currentBoard;
@@ -1276,6 +1286,7 @@ export default function App(): ReactElement {
 						onOpenDebugDialog={
 							debugModeEnabled ? handleOpenDebugDialog : undefined
 						}
+						onOpenStack={handleOpenStackDialog}
 						onOpenCleanup={hasNoProjects ? undefined : handleOpenCleanupDialog}
 						shortcuts={shortcuts}
 						selectedShortcutLabel={selectedShortcutLabel}
@@ -1401,7 +1412,9 @@ export default function App(): ReactElement {
 														onStartTask={handleStartTaskFromBoard}
 														onPauseTask={pauseTaskSession}
 														onResumeTask={resumeTaskSession}
-														onResumeEndedSession={handleRestartTaskWithCurrentAccount}
+														onResumeEndedSession={
+															handleRestartTaskWithCurrentAccount
+														}
 														onCancelAutoRun={handleCancelAutoRun}
 														onDeleteTask={handleDeleteBacklogTask}
 														onStartAllTasks={
@@ -1513,7 +1526,9 @@ export default function App(): ReactElement {
 													}
 													isExpanded={isHomeTerminalExpanded}
 													onToggleExpand={handleToggleExpandHomeTerminal}
-													onResumeEndedSession={handleRestartTaskWithCurrentAccount}
+													onResumeEndedSession={
+														handleRestartTaskWithCurrentAccount
+													}
 												/>
 											</div>
 										</ResizableBottomPane>
@@ -1687,6 +1702,12 @@ export default function App(): ReactElement {
 					open={isCleanupDialogOpen}
 					onOpenChange={handleCleanupDialogOpenChange}
 					workspaceId={currentProjectId}
+				/>
+				{/* Workspace-independent: the switchboard state lives in the agent-stack
+					sandbox, not in the open project. */}
+				<StackControlDialog
+					open={isStackDialogOpen}
+					onOpenChange={handleStackDialogOpenChange}
 				/>
 				<CommitComposerDialog
 					open={isCommitDialogOpen}

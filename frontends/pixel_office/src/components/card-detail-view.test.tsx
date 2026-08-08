@@ -3,7 +3,10 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CardDetailView } from "@/components/card-detail-view";
-import type { RuntimeManagerAccount, RuntimeTaskSessionSummary } from "@/runtime/types";
+import type {
+	RuntimeManagerAccount,
+	RuntimeTaskSessionSummary,
+} from "@/runtime/types";
 import { LocalStorageKey } from "@/storage/local-storage-store";
 import { TERMINAL_THEME_COLORS } from "@/terminal/theme-colors";
 import type { BoardCard, BoardColumn, CardSelection } from "@/types";
@@ -103,6 +106,16 @@ vi.mock("@/hooks/use-save-plan-from-session", () => ({
 vi.mock("@/components/app-toaster", () => ({
 	showAppToast: mockShowAppToast,
 	notifyError: vi.fn(),
+}));
+
+// The DevTools tab is driven by the agent-stack switchboard, which is not running
+// in tests; mockDevtoolsUrl stands in for its resolved dashboard URL.
+const { mockDevtoolsUrl } = vi.hoisted(() => ({
+	mockDevtoolsUrl: { current: null as string | null },
+}));
+
+vi.mock("@/hooks/use-stack-devtools", () => ({
+	useStackDevtools: () => ({ devtoolsUrl: mockDevtoolsUrl.current }),
 }));
 
 vi.mock("@/telemetry/events", () => ({
@@ -305,6 +318,7 @@ describe("CardDetailView", () => {
 			},
 			isRuntimeAvailable: true,
 		});
+		mockDevtoolsUrl.current = null;
 	});
 
 	afterEach(() => {
@@ -1136,15 +1150,23 @@ describe("CardDetailView", () => {
 			);
 		});
 
-		const strip = container.querySelector('[data-testid="resume-ended-session-strip"]');
+		const strip = container.querySelector(
+			'[data-testid="resume-ended-session-strip"]',
+		);
 		expect(strip).not.toBeNull();
-		expect(strip?.textContent).toContain("Paused — session ended when the app closed");
+		expect(strip?.textContent).toContain(
+			"Paused — session ended when the app closed",
+		);
 
-		const resumeButton = container.querySelector('[data-testid="resume-ended-session"]');
+		const resumeButton = container.querySelector(
+			'[data-testid="resume-ended-session"]',
+		);
 		expect(resumeButton).toBeInstanceOf(HTMLButtonElement);
 
 		await act(async () => {
-			resumeButton?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+			resumeButton?.dispatchEvent(
+				new MouseEvent("mousedown", { bubbles: true }),
+			);
 			(resumeButton as HTMLButtonElement).click();
 		});
 
@@ -1235,13 +1257,17 @@ describe("CardDetailView", () => {
 
 		// The account-mismatch button lives inside the collapsed "Task configuration"
 		// section; expand it first (it starts collapsed whenever a session exists).
-		const configToggle = container.querySelector('[data-testid="task-config-toggle"]');
+		const configToggle = container.querySelector(
+			'[data-testid="task-config-toggle"]',
+		);
 		expect(configToggle).toBeInstanceOf(HTMLButtonElement);
 		await act(async () => {
 			(configToggle as HTMLButtonElement).click();
 		});
 
-		const restartButton = container.querySelector('[data-testid="restart-task-with-account"]');
+		const restartButton = container.querySelector(
+			'[data-testid="restart-task-with-account"]',
+		);
 		expect(restartButton).toBeInstanceOf(HTMLButtonElement);
 
 		await act(async () => {
@@ -1249,5 +1275,93 @@ describe("CardDetailView", () => {
 		});
 
 		expect(onRestartTaskSession).toHaveBeenCalledWith("task-1");
+	});
+
+	function renderDetail() {
+		return act(async () => {
+			root.render(
+				<CardDetailView
+					selection={createSelection()}
+					currentProjectId="workspace-1"
+					sessionSummary={null}
+					taskSessions={{}}
+					onSessionSummary={() => {}}
+					onCardSelect={() => {}}
+					onTaskDragEnd={() => {}}
+					onMoveToTrash={() => {}}
+					bottomTerminalOpen={false}
+					bottomTerminalTaskId={null}
+					bottomTerminalSummary={null}
+					onBottomTerminalClose={() => {}}
+				/>,
+			);
+		});
+	}
+
+	function findTabByLabel(label: string): HTMLButtonElement | null {
+		return (
+			Array.from(container.querySelectorAll("button")).find(
+				(button) => button.textContent?.trim() === label,
+			) ?? null
+		);
+	}
+
+	it("omits the DevTools tab when the stack dashboard is unavailable", async () => {
+		mockDevtoolsUrl.current = null;
+		await renderDetail();
+
+		// All Changes / Last Turn must still be there — an absent sandbox should not
+		// disturb the existing toolbar.
+		expect(findTabByLabel("All Changes")).toBeInstanceOf(HTMLButtonElement);
+		expect(findTabByLabel("Last Turn")).toBeInstanceOf(HTMLButtonElement);
+		expect(findTabByLabel("DevTools")).toBeNull();
+		expect(
+			container.querySelector('[data-testid="detail-devtools-frame"]'),
+		).toBeNull();
+	});
+
+	it("shows a DevTools tab beside All Changes / Last Turn that swaps in the dashboard", async () => {
+		mockDevtoolsUrl.current = "http://127.0.0.1:3001/";
+		await renderDetail();
+
+		const devtoolsTab = findTabByLabel("DevTools");
+		expect(devtoolsTab).toBeInstanceOf(HTMLButtonElement);
+		// Not shown until selected: the diff stays the default view.
+		expect(
+			container.querySelector('[data-testid="detail-devtools-frame"]'),
+		).toBeNull();
+
+		await act(async () => {
+			(devtoolsTab as HTMLButtonElement).click();
+		});
+
+		const frame = container.querySelector(
+			'[data-testid="detail-devtools-frame"]',
+		);
+		expect(frame).toBeInstanceOf(HTMLIFrameElement);
+		expect((frame as HTMLIFrameElement).getAttribute("src")).toBe(
+			"http://127.0.0.1:3001/",
+		);
+	});
+
+	it("falls back to the diff when the dashboard goes away while its tab is open", async () => {
+		mockDevtoolsUrl.current = "http://127.0.0.1:3001/";
+		await renderDetail();
+		await act(async () => {
+			(findTabByLabel("DevTools") as HTMLButtonElement).click();
+		});
+		expect(
+			container.querySelector('[data-testid="detail-devtools-frame"]'),
+		).toBeInstanceOf(HTMLIFrameElement);
+
+		// Daemon stops: the tab disappears and the panel must not keep a dead iframe.
+		mockDevtoolsUrl.current = null;
+		await renderDetail();
+
+		expect(findTabByLabel("DevTools")).toBeNull();
+		expect(
+			container.querySelector('[data-testid="detail-devtools-frame"]'),
+		).toBeNull();
+		expect(findTabByLabel("All Changes")).toBeInstanceOf(HTMLButtonElement);
 	});
 });
