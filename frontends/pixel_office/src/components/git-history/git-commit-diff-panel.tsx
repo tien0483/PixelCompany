@@ -3,6 +3,7 @@ import { type MouseEvent as ReactMouseEvent, useCallback, useEffect, useMemo, us
 import { FileTreePanel } from "@/components/detail-panels/file-tree-panel";
 import {
 	buildUnifiedDiffRows,
+	isLargeFileDiff,
 	parsePatchToRows,
 	ReadOnlyUnifiedDiff,
 	truncatePathMiddle,
@@ -341,9 +342,10 @@ export function GitCommitDiffPanel({
 					}}
 				>
 					{filePaths.map((path) => {
-						const isExpanded = expandedPaths[path] ?? true;
 						const stats = diffSource ? getFileStats(diffSource, path) : { additions: 0, deletions: 0 };
-						const rows = diffSource ? getFileRows(diffSource, path) : [];
+						const isLarge = isLargeFileDiff(stats.additions, stats.deletions);
+						const isExpanded = expandedPaths[path] ?? !isLarge;
+						const rows = diffSource && isExpanded ? getFileRows(diffSource, path) : [];
 						const commitFile = getCommitFile(diffSource, path);
 						const isBinaryFile = isBinaryFilePath(path);
 
@@ -364,7 +366,7 @@ export function GitCommitDiffPanel({
 										const container = scrollContainerRef.current;
 										const sectionEl = sectionElementsRef.current[path];
 										const previousTop = sectionEl?.getBoundingClientRect().top ?? null;
-										const nextExpanded = !(expandedPaths[path] ?? true);
+										const nextExpanded = !(expandedPaths[path] ?? !isLarge);
 										suppressScrollSyncUntilRef.current = Date.now() + 250;
 										setExpandedPaths((prev) => ({ ...prev, [path]: nextExpanded }));
 										requestAnimationFrame(() => {
@@ -392,6 +394,14 @@ export function GitCommitDiffPanel({
 										{stats.deletions > 0 ? <span className="text-status-red">-{stats.deletions}</span> : null}
 										{stats.additions === 0 && stats.deletions === 0 && isBinaryFile ? (
 											<span className="text-text-tertiary">Binary</span>
+										) : null}
+										{isLarge && !isExpanded ? (
+											<span
+												className="ml-2 text-text-tertiary"
+												title={`${stats.additions + stats.deletions} changed lines — collapsed by default to avoid a slow render`}
+											>
+												Large diff
+											</span>
 										) : null}
 									</span>
 								</button>
