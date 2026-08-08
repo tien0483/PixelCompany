@@ -36,6 +36,14 @@ export interface RunAgentOneShotInput {
 	model?: string;
 	signal?: AbortSignal;
 	onEvent: (event: AgentOneShotEvent) => void;
+	/**
+	 * Tools the agent may use without a permission prompt. A one-shot `-p` run
+	 * has no UI to answer a prompt with, so an unexpected one would stall the
+	 * SSE stream until the request is cancelled — templates that need file
+	 * access (mockup images) pass an explicit allowlist instead of relying on
+	 * `--permission-mode auto` to decide.
+	 */
+	allowedTools?: string[];
 	/** Extra env merged after pin + process.env. */
 	env?: Record<string, string | undefined>;
 	/** When provided, used instead of calling resolveManagerAccountPin internally. */
@@ -57,7 +65,7 @@ function resolveClaudeBinary(): string {
 	return binary;
 }
 
-function buildClaudeArgv(model?: string): string[] {
+function buildClaudeArgv(model?: string, allowedTools?: string[]): string[] {
 	return [
 		"-p",
 		"--output-format",
@@ -66,6 +74,7 @@ function buildClaudeArgv(model?: string): string[] {
 		"--include-partial-messages",
 		"--permission-mode",
 		"auto",
+		...(allowedTools && allowedTools.length > 0 ? ["--allowedTools", allowedTools.join(",")] : []),
 		...(model ? ["--model", model] : []),
 	];
 }
@@ -104,7 +113,7 @@ export async function runAgentOneShot(input: RunAgentOneShotInput): Promise<{ co
 		return { code: 1 };
 	}
 
-	const argv = buildClaudeArgv(input.model);
+	const argv = buildClaudeArgv(input.model, input.allowedTools);
 	const childEnv: NodeJS.ProcessEnv = {
 		...process.env,
 		...pin.env,

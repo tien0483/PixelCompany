@@ -53,7 +53,14 @@ export async function POST(req: NextRequest) {
           oldHtml: editFromHtml,
           format,
         })
-      : assemblePrompt({ body: skill.body, content, format });
+      : assemblePrompt({
+          body: skill.body,
+          content,
+          format,
+          designDirectives: skill.designDirectives,
+          language: skill.language,
+          allowRead: skill.allowRead,
+        });
 
   return NextResponse.json({
     prompt,
@@ -69,6 +76,9 @@ export async function POST(req: NextRequest) {
       featured: skill.featured,
       recommended: skill.recommended,
       tags: skill.tags,
+      // The runtime turns this into an explicit `--allowedTools` list, so it has
+      // to travel with the prompt rather than staying a server-side detail.
+      allowRead: skill.allowRead,
       example: skill.example,
     },
   });
