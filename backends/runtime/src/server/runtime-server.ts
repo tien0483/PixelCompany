@@ -18,7 +18,16 @@ import type {
 	RuntimeUpdateStatusResponse,
 	RuntimeWorkspaceStateResponse,
 } from "../core/api-contract";
-import { RuntimeHtmlBriefRequestSchema, RuntimeHtmlGenerateRequestSchema } from "../core/api-contract";
+import {
+	RuntimeDocAuditRequestSchema,
+	RuntimeDocRoundRequestSchema,
+	RuntimeHtmlBriefRequestSchema,
+	RuntimeHtmlGenerateRequestSchema,
+} from "../core/api-contract";
+import { DOC_SKILL_ALLOWED_TOOLS, resolveDocSkillAgentCwd } from "../doc-skill/doc-skill-agent-args";
+import { BUILD_REQUEST_TIMEOUT_MS, type DocSkillClient } from "../doc-skill/doc-skill-client";
+import { findDocSkillRoot } from "../doc-skill/doc-skill-process";
+import { buildDocAuditPrompt, buildDocRoundPrompt, loadDocSkillText } from "../doc-skill/doc-skill-prompts";
 import {
 	buildKanbanRuntimeUrl,
 	getKanbanRuntimeHost,
@@ -60,6 +69,7 @@ import { resolveHtmlAgentCwd, resolveHtmlAllowedTools } from "../html/html-agent
 import type { TerminalSessionManager } from "../terminal/session-manager";
 import { createTerminalWebSocketBridge } from "../terminal/ws-server";
 import { type RuntimeTrpcContext, type RuntimeTrpcWorkspaceScope, runtimeAppRouter } from "../trpc/app-router";
+import { createDocSkillApi } from "../trpc/doc-skill-api";
 import { createHooksApi } from "../trpc/hooks-api";
 import { createHtmlApi } from "../trpc/html-api";
 import { createManagerApi } from "../trpc/manager-api";
@@ -82,6 +92,7 @@ export interface CreateRuntimeServerDependencies {
 	runtimeStateHub: RuntimeStateHub;
 	manager: { client: ManagerClient; monitor: ManagerMonitor };
 	html: { client: HtmlClient };
+	docSkill: { client: DocSkillClient };
 	warn: (message: string) => void;
 	ensureTerminalManagerForWorkspace: (workspaceId: string, repoPath: string) => Promise<TerminalSessionManager>;
 	resolveInteractiveShellCommand: () => { binary: string; args: string[] };
@@ -263,6 +274,9 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 	});
 	const htmlApi = createHtmlApi({
 		client: deps.html.client,
+	});
+	const docSkillApi = createDocSkillApi({
+		client: deps.docSkill.client,
 	});
 
 	/**
@@ -487,6 +501,7 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 			}),
 			managerApi,
 			htmlApi,
+			docSkillApi,
 		};
 	};
 
@@ -844,6 +859,178 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 					// no UI to answer a permission prompt, so the grant is explicit — and
 					// only when there is actually an image to open.
 					allowedTools: resolveHtmlAllowedTools(briefAssetCount > 0),
+					signal: abortCtl.signal,
+					onEvent: (event) => {
+						send(event.type, event);
+					},
+					pinInput: buildHtmlAgentPinInput(input.managerAccountId),
+				});
+				if (!res.writableEnded) {
+					res.end();
+				}
+				return;
+			}
+			if (pathname.startsWith("/api/doc-skill-proxy/")) {
+				const docSkillPath = pathname.slice("/api/doc-skill-proxy".length) || "/";
+				const query = requestUrl.search;
+				const method = (req.method ?? "GET").toUpperCase();
+				let body: string | null = null;
+				if (method !== "GET" && method !== "HEAD") {
+					try {
+						body = await readRequestBody(req, 1024 * 1024);
+					} catch {
+						res.writeHead(413, { "Content-Type": "application/json; charset=utf-8" });
+						res.end(JSON.stringify({ error: "Request body too large" }));
+						return;
+					}
+				}
+				const contentType =
+					typeof req.headers["content-type"] === "string" ? req.headers["content-type"] : null;
+				// Build proxies (POST .../build) can take up to ~120s server-side; give this
+				// passthrough enough headroom rather than the client's default short timeout.
+				const timeoutMs = docSkillPath.endsWith("/build") ? BUILD_REQUEST_TIMEOUT_MS : undefined;
+				const proxied = await deps.docSkill.client.proxyRequest(
+					method,
+					`${docSkillPath}${query}`,
+					body,
+					contentType,
+					timeoutMs,
+				);
+				res.writeHead(proxied.status, {
+					"Content-Type": proxied.contentType,
+					"Cache-Control": "no-store",
+				});
+				res.end(proxied.body);
+				return;
+			}
+			if (pathname === "/api/doc-skill/audit" && (req.method ?? "GET").toUpperCase() === "POST") {
+				let rawBody: string;
+				try {
+					rawBody = await readRequestBody(req, 1024 * 1024);
+				} catch {
+					res.writeHead(413, { "Content-Type": "application/json; charset=utf-8" });
+					res.end(JSON.stringify({ error: "Request body too large" }));
+					return;
+				}
+				let parsedBody: unknown;
+				try {
+					parsedBody = JSON.parse(rawBody);
+				} catch {
+					res.writeHead(400, { "Content-Type": "application/json; charset=utf-8" });
+					res.end(JSON.stringify({ error: "invalid JSON body" }));
+					return;
+				}
+				const parsed = RuntimeDocAuditRequestSchema.safeParse(parsedBody);
+				if (!parsed.success) {
+					res.writeHead(400, { "Content-Type": "application/json; charset=utf-8" });
+					res.end(JSON.stringify({ error: parsed.error.message }));
+					return;
+				}
+				const input = parsed.data;
+
+				const docSkillRoot = findDocSkillRoot();
+				const skillText = docSkillRoot ? loadDocSkillText(docSkillRoot) : null;
+				if (!skillText) {
+					res.writeHead(500, { "Content-Type": "application/json; charset=utf-8" });
+					res.end(JSON.stringify({ error: "Docs skill bundle not found next to the runtime." }));
+					return;
+				}
+				const prompt = buildDocAuditPrompt({
+					skillText,
+					targetRepo: input.targetRepo,
+					workspaceDir: input.workspaceDir,
+					focus: input.focus,
+				});
+
+				res.writeHead(200, {
+					"Content-Type": "text/event-stream; charset=utf-8",
+					"Cache-Control": "no-cache, no-transform",
+					Connection: "keep-alive",
+					"X-Accel-Buffering": "no",
+				});
+
+				const abortCtl = new AbortController();
+				req.on("close", () => abortCtl.abort());
+				const send = (event: string, data: unknown) => {
+					if (res.writableEnded) return;
+					res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+				};
+
+				await runAgentOneShot({
+					agentId: "claude",
+					prompt,
+					cwd: resolveDocSkillAgentCwd({ targetRepo: input.targetRepo }),
+					model: input.model,
+					allowedTools: DOC_SKILL_ALLOWED_TOOLS,
+					signal: abortCtl.signal,
+					onEvent: (event) => {
+						send(event.type, event);
+					},
+					pinInput: buildHtmlAgentPinInput(input.managerAccountId),
+				});
+				if (!res.writableEnded) {
+					res.end();
+				}
+				return;
+			}
+			if (pathname === "/api/doc-skill/round" && (req.method ?? "GET").toUpperCase() === "POST") {
+				let rawBody: string;
+				try {
+					rawBody = await readRequestBody(req, 1024 * 1024);
+				} catch {
+					res.writeHead(413, { "Content-Type": "application/json; charset=utf-8" });
+					res.end(JSON.stringify({ error: "Request body too large" }));
+					return;
+				}
+				let parsedBody: unknown;
+				try {
+					parsedBody = JSON.parse(rawBody);
+				} catch {
+					res.writeHead(400, { "Content-Type": "application/json; charset=utf-8" });
+					res.end(JSON.stringify({ error: "invalid JSON body" }));
+					return;
+				}
+				const parsed = RuntimeDocRoundRequestSchema.safeParse(parsedBody);
+				if (!parsed.success) {
+					res.writeHead(400, { "Content-Type": "application/json; charset=utf-8" });
+					res.end(JSON.stringify({ error: parsed.error.message }));
+					return;
+				}
+				const input = parsed.data;
+
+				const docSkillRoot = findDocSkillRoot();
+				const skillText = docSkillRoot ? loadDocSkillText(docSkillRoot) : null;
+				if (!skillText) {
+					res.writeHead(500, { "Content-Type": "application/json; charset=utf-8" });
+					res.end(JSON.stringify({ error: "Docs skill bundle not found next to the runtime." }));
+					return;
+				}
+				const prompt = buildDocRoundPrompt({
+					skillText,
+					targetRepo: input.targetRepo,
+					workspaceDir: input.workspaceDir,
+				});
+
+				res.writeHead(200, {
+					"Content-Type": "text/event-stream; charset=utf-8",
+					"Cache-Control": "no-cache, no-transform",
+					Connection: "keep-alive",
+					"X-Accel-Buffering": "no",
+				});
+
+				const abortCtl = new AbortController();
+				req.on("close", () => abortCtl.abort());
+				const send = (event: string, data: unknown) => {
+					if (res.writableEnded) return;
+					res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+				};
+
+				await runAgentOneShot({
+					agentId: "claude",
+					prompt,
+					cwd: resolveDocSkillAgentCwd({ targetRepo: input.targetRepo }),
+					model: input.model,
+					allowedTools: DOC_SKILL_ALLOWED_TOOLS,
 					signal: abortCtl.signal,
 					onEvent: (event) => {
 						send(event.type, event);

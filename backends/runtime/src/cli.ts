@@ -402,6 +402,8 @@ async function startServer(): Promise<{
 		{ startManagerProcess },
 		{ createHtmlClient },
 		{ startHtmlProcess },
+		{ createDocSkillClient },
+		{ startDocSkillProcess },
 		{ describeRuntimeHomeMigration, migrateRuntimeHome },
 	] = await Promise.all([
 		import("./projects/project-path.js"),
@@ -417,6 +419,8 @@ async function startServer(): Promise<{
 		import("./manager/manager-process.js"),
 		import("./html/html-client.js"),
 		import("./html/html-process.js"),
+		import("./doc-skill/doc-skill-client.js"),
+		import("./doc-skill/doc-skill-process.js"),
 		import("./state/runtime-home-migration.js"),
 	]);
 
@@ -492,6 +496,19 @@ async function startServer(): Promise<{
 			console.warn(`[kanban] ${message}`);
 		},
 	});
+	const DocSkillProcess = await startDocSkillProcess({
+		warn: (message) => {
+			console.warn(`[kanban] ${message}`);
+		},
+		log: (message) => {
+			console.log(`[kanban] ${message}`);
+		},
+	});
+	const DocSkillClient = createDocSkillClient({
+		warn: (message) => {
+			console.warn(`[kanban] ${message}`);
+		},
+	});
 	runtimeStateHub = createRuntimeStateHub({
 		workspaceRegistry,
 		ManagerMonitor,
@@ -522,6 +539,7 @@ async function startServer(): Promise<{
 		runtimeStateHub: runtimeHub,
 		manager: { client: ManagerClient, monitor: ManagerMonitor },
 		html: { client: HtmlClient },
+		docSkill: { client: DocSkillClient },
 		warn: (message) => {
 			console.warn(`[kanban] ${message}`);
 		},
@@ -584,6 +602,7 @@ async function startServer(): Promise<{
 		// Only stops a Manager we spawned; an externally managed service is left alone.
 		await ManagerProcess.close();
 		await HtmlProcess.close();
+		await DocSkillProcess.close();
 	};
 
 	const shutdown = async (options?: { skipSessionCleanup?: boolean }) => {

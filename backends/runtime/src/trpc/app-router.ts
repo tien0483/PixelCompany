@@ -51,6 +51,9 @@ import type {
 	RuntimeDebugResetAllStateResponse,
 	RuntimeDirectoryListRequest,
 	RuntimeDirectoryListResponse,
+	RuntimeDocProject,
+	RuntimeDocProjectCreateRequest,
+	RuntimeDocSkillStatus,
 	RuntimeFeaturebaseTokenResponse,
 	RuntimeGitBlameRequest,
 	RuntimeGitBlameResponse,
@@ -192,6 +195,9 @@ import type {
 	RuntimeWorktreeEnsureResponse,
 } from "../core/api-contract";
 import {
+	RuntimeDocProjectCreateRequestSchema,
+	RuntimeDocProjectSchema,
+	RuntimeDocSkillStatusSchema,
 	type RuntimeHtmlStatus,
 	RuntimeHtmlStatusSchema,
 	type RuntimeHtmlTemplate,
@@ -725,6 +731,11 @@ export interface RuntimeTrpcContext {
 		status: () => Promise<RuntimeHtmlStatus>;
 		templates: () => Promise<RuntimeHtmlTemplate[]>;
 		templateExample: (id: string) => Promise<RuntimeHtmlTemplateExample | null>;
+	};
+	docSkillApi: {
+		status: () => Promise<RuntimeDocSkillStatus>;
+		projects: () => Promise<RuntimeDocProject[]>;
+		createProject: (input: RuntimeDocProjectCreateRequest) => Promise<RuntimeDocProject>;
 	};
 }
 
@@ -1554,6 +1565,20 @@ export const runtimeAppRouter = t.router({
 			.output(RuntimeHtmlTemplateExampleSchema.nullable())
 			.query(async ({ ctx, input }) => {
 				return await ctx.htmlApi.templateExample(input.id);
+			}),
+	}),
+	docSkill: t.router({
+		status: t.procedure.output(RuntimeDocSkillStatusSchema).query(async ({ ctx }) => {
+			return await ctx.docSkillApi.status();
+		}),
+		projects: t.procedure.output(RuntimeDocProjectSchema.array()).query(async ({ ctx }) => {
+			return await ctx.docSkillApi.projects();
+		}),
+		createProject: t.procedure
+			.input(RuntimeDocProjectCreateRequestSchema)
+			.output(RuntimeDocProjectSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.docSkillApi.createProject(input);
 			}),
 	}),
 });
