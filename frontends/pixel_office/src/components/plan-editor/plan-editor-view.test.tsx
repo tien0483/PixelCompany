@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { PlanEditorView } from "@/components/plan-editor/plan-editor-view";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { HTML_LABELS } from "@/html/html-labels";
 import type { RuntimeSavedPlan } from "@/runtime/types";
 
 const mockReadQuery = vi.fn();
@@ -30,8 +31,9 @@ vi.mock("@/runtime/trpc-client", () => ({
 	}),
 }));
 
+const mockShowAppToast = vi.fn();
 vi.mock("@/components/app-toaster", () => ({
-	showAppToast: vi.fn(),
+	showAppToast: (...args: unknown[]) => mockShowAppToast(...args),
 }));
 
 vi.mock("@/components/plan-editor/plan-rich-editor", () => ({
@@ -135,6 +137,7 @@ describe("PlanEditorView", () => {
 		mockListQuery.mockReset().mockResolvedValue({ ok: true, plans: [PLAN] });
 		mockHtmlStatusQuery.mockReset().mockResolvedValue({ online: false });
 		mockHtmlTemplatesQuery.mockReset().mockResolvedValue([]);
+		mockShowAppToast.mockReset();
 	});
 
 	afterEach(() => {
@@ -254,6 +257,18 @@ describe("PlanEditorView", () => {
 			return new Response(body, { status: 200 });
 		}
 
+		/** `done` with no preceding `delta` at all — a stream that produced nothing. */
+		function emptyStreamResponse(): Response {
+			const body = new ReadableStream<Uint8Array>({
+				start(controller) {
+					const encoder = new TextEncoder();
+					controller.enqueue(encoder.encode(`event: done\ndata: ${JSON.stringify({ code: 0 })}\n\n`));
+					controller.close();
+				},
+			});
+			return new Response(body, { status: 200 });
+		}
+
 		beforeEach(() => {
 			mockHtmlStatusQuery.mockResolvedValue({ online: true });
 			mockHtmlTemplatesQuery.mockResolvedValue([TEMPLATE]);
@@ -327,6 +342,42 @@ describe("PlanEditorView", () => {
 			const value = getTextarea(container).value;
 			expect(value.startsWith("# Roadmap")).toBe(true);
 			expect(value.indexOf("# Roadmap")).toBeLessThan(value.indexOf("# Brief"));
+		});
+
+		it("surfaces an error toast instead of a silent no-op when the brief finishes empty", async () => {
+			fetchMock.mockImplementation(() => Promise.resolve(emptyStreamResponse()));
+			await render(PLAN);
+			await flush();
+			await waitFor(() => !getButton("plan-html-brief-run").disabled, "enabled expand");
+
+			await act(async () => {
+				getButton("plan-html-brief-run").click();
+			});
+			await waitFor(
+				() => mockShowAppToast.mock.calls.some((call) => call[0]?.message === HTML_LABELS.expandEmpty),
+				"empty-brief toast",
+			);
+
+			expect(mockShowAppToast).toHaveBeenCalledWith({ intent: "danger", message: HTML_LABELS.expandEmpty });
+			expect(getTextarea(container).value).toBe("# Roadmap\n");
+		});
+
+		it("surfaces an error toast instead of a silent no-op when generation finishes empty", async () => {
+			fetchMock.mockImplementation(() => Promise.resolve(emptyStreamResponse()));
+			await render(PLAN);
+			await flush();
+			await waitFor(() => !getButton("plan-html-generate-run").disabled, "loaded templates");
+
+			await act(async () => {
+				getButton("plan-html-generate-run").click();
+			});
+			await waitFor(
+				() => mockShowAppToast.mock.calls.some((call) => call[0]?.message === HTML_LABELS.generateEmpty),
+				"empty-generate toast",
+			);
+
+			expect(mockShowAppToast).toHaveBeenCalledWith({ intent: "danger", message: HTML_LABELS.generateEmpty });
+			expect(mockWriteSiblingMutate).not.toHaveBeenCalled();
 		});
 
 		it("expands even while the template sidecar is offline", async () => {

@@ -300,7 +300,16 @@ export function PlanEditorView({
 	const briefStatus = brief.status;
 	const briefText = brief.text;
 	useEffect(() => {
-		if (briefStatus !== "done" || briefText.trim() === "") {
+		if (briefStatus !== "done") {
+			return;
+		}
+		if (briefText.trim() === "") {
+			if (savedBriefRef.current === briefText) {
+				return;
+			}
+			savedBriefRef.current = briefText;
+			setLogOpen(true);
+			showAppToast({ intent: "danger", message: HTML_LABELS.expandEmpty });
 			return;
 		}
 		if (savedBriefRef.current === briefText) {
@@ -324,7 +333,16 @@ export function PlanEditorView({
 	const generateStatus = generate.status;
 	const generatedHtml = generate.text;
 	useEffect(() => {
-		if (generateStatus !== "done" || generatedHtml.trim() === "") {
+		if (generateStatus !== "done") {
+			return;
+		}
+		if (generatedHtml.trim() === "") {
+			if (savedHtmlRef.current === generatedHtml) {
+				return;
+			}
+			savedHtmlRef.current = generatedHtml;
+			setLogOpen(true);
+			showAppToast({ intent: "danger", message: HTML_LABELS.generateEmpty });
 			return;
 		}
 		if (savedHtmlRef.current === generatedHtml) {
