@@ -1205,6 +1205,13 @@ export const RuntimeHtmlTemplateSchema = z.object({
 	featured: z.number().optional(),
 	recommended: z.number().optional(),
 	tags: z.array(z.string()),
+	/**
+	 * The template asked for filesystem reads (`allow_read: true` in its
+	 * SKILL.md) because its input references local files — e.g. mockup images
+	 * the plan editor stored in the plan's own `.assets/` folder. The generate
+	 * handler turns this into an explicit `--allowedTools` list.
+	 */
+	allowRead: z.boolean().optional(),
 	example: RuntimeHtmlTemplateExampleMetaSchema.optional(),
 });
 export type RuntimeHtmlTemplate = z.infer<typeof RuntimeHtmlTemplateSchema>;

@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Waste Gas HEX Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
+<style>
+  :root{
+    --navy:#072b4b; --blue:#0084ff; --green:#3fb950; --grey:#c6ccd4;
+    --ink:#111827; --muted:#6b7280; --line:rgba(0,0,0,.06);
+    --card-shadow:0 1px 3px rgba(0,0,0,.12),0 1px 2px rgba(0,0,0,.24);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:"Segoe UI",system-ui,-apple-system,sans-serif;color:var(--ink);
+       background:linear-gradient(180deg,#eef4fb,#f7fbff);min-height:100vh}
+  .app{display:flex;min-height:100vh}
+  .side{width:280px;flex:0 0 280px;background:var(--navy);color:#fff;display:flex;flex-direction:column;padding:16px 12px}
+  .brand{display:flex;align-items:center;gap:10px;padding:6px 4px 22px}
+  .mark{width:26px;height:26px;border-radius:6px;background:var(--blue);display:grid;place-items:center;font-weight:800;font-size:13px}
+  .word{font-weight:800;font-size:20px;letter-spacing:.06em}
+  .nav a{display:flex;align-items:center;gap:12px;height:44px;padding:0 16px;border-radius:10px;
+         color:#fff;text-decoration:none;font-size:15px;font-weight:500}
+  .nav a.on{background:var(--blue)}
+  .nav a:hover{background:rgba(255,255,255,.08)}
+  .foot{margin-top:auto;padding-top:14px;border-top:1px solid rgba(255,255,255,.12);text-align:center}
+  .ver{font-size:13px;color:rgba(255,255,255,.75);margin-bottom:10px}
+  .btn{background:var(--blue);color:#fff;border:0;border-radius:6px;padding:9px 14px;font-size:13px;font-weight:600;font-family:inherit;cursor:pointer;width:100%}
+  main{flex:1;min-width:0;padding:22px 24px 40px}
+  h1{margin:0 0 18px;font-size:32px;font-weight:700}
+  .card{background:#fff;border:1px solid var(--line);border-radius:8px;box-shadow:var(--card-shadow);padding:18px}
+  .ttl{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);
+       display:flex;align-items:center;gap:6px;margin-bottom:14px}
+  .q{display:inline-grid;place-items:center;width:14px;height:14px;border:1px solid #c3cbd6;border-radius:50%;
+     font-size:9px;color:var(--muted);cursor:help}
+  .trains{display:grid;gap:16px}
+  .units{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  .unit{display:grid;grid-template-columns:1fr 118px 1fr;gap:10px;align-items:center}
+  .tile{position:relative;height:64px;border-radius:10px;display:grid;place-items:center;
+        font-weight:800;font-size:15px;color:#1b1b1b;border:1px solid rgba(0,0,0,.12);cursor:pointer}
+  .tile:focus-visible{outline:3px solid var(--blue);outline-offset:2px}
+  .cell{background:#e8f5e9;border:1px solid #cfe4d1;border-radius:6px;padding:6px 8px;text-align:center;
+        font-size:12px;font-weight:700}
+  .cap{font-size:9.5px;font-weight:600;color:#3d4a5c;line-height:1.2;text-align:center;padding:2px 0}
+  .mid{display:grid;gap:6px}
+  .status{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);margin-top:6px;justify-content:center}
+  .sq{width:11px;height:11px;border-radius:3px;display:inline-block}
+  .pop{position:absolute;left:50%;transform:translateX(-50%);bottom:calc(100% + 12px);width:236px;z-index:5;
+       background:#fff;border:1px solid #d7dee7;border-radius:8px;box-shadow:0 8px 24px rgba(9,30,66,.18);padding:12px}
+  .pop[hidden]{display:none}
+  .pop:after{content:"";position:absolute;top:100%;left:50%;transform:translateX(-50%);
+             border:7px solid transparent;border-top-color:#fff}
+  .pop h4{margin:0 0 2px;font-size:13px}
+  .pop .sub{font-size:11px;color:var(--muted);margin-bottom:6px}
+  .pop .spark{height:78px}
+  .pop .close{position:absolute;top:6px;right:8px;border:0;background:none;color:var(--muted);font-size:14px;cursor:pointer;font-family:inherit}
+  .legend{display:flex;gap:18px;align-items:center;font-size:12px;color:var(--muted)}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="side">
+    <div class="brand"><span class="mark">A</span><span class="word">AKSELOS</span></div>
+    <nav class="nav">
+      <a class="on" href="#"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/></svg>Home</a>
+    </nav>
+    <!-- (5) Consolidate view: both trains on one page, so the Train 1 / Train 2 selector is gone. -->
+    <div class="foot">
+      <div class="ver">Version 3.0</div>
+      <button class="btn">Go To Monitor</button>
+    </div>
+  </aside>
+
+  <main>
+    <h1>Waste Gas HEX Dashboard</h1>
+
+    <div class="trains">
+      <section class="card">
+        <div class="ttl">Train 1 <span class="q" title="One representative HEX per ASU — A/B/C/D share the same sensor">?</span>
+          <span class="legend" style="margin-left:auto">
+            <span><span class="sq" style="background:var(--green)"></span> Operational</span>
+            <span><span class="sq" style="background:var(--grey)"></span> Non-operational</span>
+          </span>
+        </div>
+        <div class="units">
+          <div class="unit">
+            <div>
+              <div class="tile" style="background:#f4761f" tabindex="0" data-pop="p1" data-mock="true">2E-2146A</div>
+              <div class="status"><span class="sq" style="background:var(--green)"></span>Operational</div>
+              <div class="pop" id="p1" hidden>
+                <button class="close" aria-label="Close">×</button>
+                <h4>2E-2146A</h4>
+                <div class="sub">Cumulative fatigue damage</div>
+                <div class="spark" id="s1"></div>
+                <div class="sub">Now: 60.00 % · 145.98 MPa</div>
+              </div>
+            </div>
+            <div class="mid">
+              <div class="cell">145.98</div>
+              <div class="cap">Von-Mises Stress (MPa)</div>
+              <div class="cell">60.00</div>
+              <div class="cap">Fatigue Damage (%)</div>
+            </div>
+            <div>
+              <div class="tile" style="background:#e8f125" tabindex="0" data-pop="p2" data-mock="true">2E-2146B</div>
+              <div class="status"><span class="sq" style="background:var(--green)"></span>Operational</div>
+              <div class="pop" id="p2" hidden>
+                <button class="close" aria-label="Close">×</button>
+                <h4>2E-2146B</h4>
+                <div class="sub">Cumulative fatigue damage</div>
+                <div class="spark" id="s2"></div>
+                <div class="sub">Now: 35.80 % · 135.25 MPa</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="unit">
+            <div>
+              <div class="tile" style="background:#e8f125" tabindex="0" data-mock="true">2E-2246A</div>
+              <div class="status"><span class="sq" style="background:var(--grey)"></span>Non-operational</div>
+            </div>
+            <div class="mid">
+              <div class="cell">138.99</div>
+              <div class="cap">Von-Mises Stress (MPa)</div>
+              <div class="cell">43.20</div>
+              <div class="cap">Fatigue Damage (%)</div>
+            </div>
+            <div>
+              <div class="tile" style="background:#f5a623" tabindex="0" data-mock="true">2E-2246B</div>
+              <div class="status"><span class="sq" style="background:var(--green)"></span>Operational</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="ttl">Train 2 <span class="q" title="One representative HEX per ASU">?</span></div>
+        <div class="units">
+          <div class="unit">
+            <div>
+              <div class="tile" style="background:#7ed957" tabindex="0" data-mock="true">2E-2346A</div>
+              <div class="status"><span class="sq" style="background:var(--green)"></span>Operational</div>
+            </div>
+            <div class="mid">
+              <div class="cell">136.25</div>
+              <div class="cap">Von-Mises Stress (MPa)</div>
+              <div class="cell">25.20</div>
+              <div class="cap">Fatigue Damage (%)</div>
+            </div>
+            <div>
+              <div class="tile" style="background:#7ed957" tabindex="0" data-mock="true">2E-2346B</div>
+              <div class="status"><span class="sq" style="background:var(--green)"></span>Operational</div>
+            </div>
+          </div>
+          <div class="unit">
+            <div>
+              <div class="tile" style="background:#e8f125" tabindex="0" data-mock="true">2E-2446A</div>
+              <div class="status"><span class="sq" style="background:var(--green)"></span>Operational</div>
+            </div>
+            <div class="mid">
+              <div class="cell">158.06</div>
+              <div class="cap">Von-Mises Stress (MPa)</div>
+              <div class="cell">39.20</div>
+              <div class="cap">Fatigue Damage (%)</div>
+            </div>
+            <div>
+              <div class="tile" style="background:#e8f125" tabindex="0" data-mock="true">2E-2446B</div>
+              <div class="status"><span class="sq" style="background:var(--grey)"></span>Non-operational</div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+    <!-- (3) Removed: Monitor Category donut, Von-Mises bar chart, Accumulated Fatigue bar chart. -->
+  </main>
+</div>
+
+<script>
+// (4) Pop-ups anchored beside their tile — no centred modal, grid never reflows.
+const spark = (el, data, colour) => echarts.init(el).setOption({
+  color:["#5470c6"], textStyle:{fontFamily:"Segoe UI, sans-serif"},
+  grid:{left:30,right:8,top:8,bottom:20},
+  xAxis:{type:"category", data:data.map((_,i)=>"C"+(i+1)), axisLabel:{color:"#464646",fontSize:8},
+         axisLine:{lineStyle:{color:"#ccc"}}},
+  yAxis:{type:"value", axisLabel:{color:"#464646",fontSize:8}, splitLine:{lineStyle:{color:"#ccc"}}},
+  series:[{type:"line", data:data, smooth:true, symbol:"none", lineStyle:{width:1.8, color:colour}, areaStyle:{opacity:.12, color:colour}}]
+});
+
+let open = null;
+const close = () => { if (open) { open.hidden = true; open = null; } };
+document.querySelectorAll(".tile[data-pop]").forEach(tile => {
+  const pop = document.getElementById(tile.dataset.pop);
+  const toggle = () => {
+    const wasOpen = open === pop;
+    close();
+    if (!wasOpen) { pop.hidden = false; open = pop; echarts.getInstanceByDom(pop.querySelector(".spark"))?.resize(); }
+  };
+  tile.addEventListener("click", toggle);
+  tile.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); } });
+  pop.querySelector(".close").addEventListener("click", close);
+});
+document.addEventListener("keydown", e => { if (e.key === "Escape") close(); });
+
+// data-mock="true" — illustrative damage accumulation per cycle
+spark(document.getElementById("s1"), [12,19,27,35,42,49,55,60], "#e8402a");
+spark(document.getElementById("s2"), [6,11,16,21,26,30,33,35.8], "#5470c6");
+</script>
+</body>
+</html>

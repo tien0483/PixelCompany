@@ -52,9 +52,10 @@ import {
 	validatePasscode,
 	validateSession,
 } from "../security/passcode-manager";
-import { readSavedPlanAsset } from "../state/saved-plans";
+import { findSavedPlanById, readSavedPlanAsset } from "../state/saved-plans";
 import { loadWorkspaceContextById, loadWorkspaceState } from "../state/workspace-state";
 import { runAgentOneShot } from "../terminal/agent-oneshot";
+import { resolveHtmlAgentCwd, resolveHtmlAllowedTools } from "../html/html-agent-args";
 import type { TerminalSessionManager } from "../terminal/session-manager";
 import { createTerminalWebSocketBridge } from "../terminal/ws-server";
 import { type RuntimeTrpcContext, type RuntimeTrpcWorkspaceScope, runtimeAppRouter } from "../trpc/app-router";
@@ -687,6 +688,12 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 					return;
 				}
 
+				// Resolved before the SSE headers go out so a plan-lookup failure can
+				// still answer with JSON instead of corrupting the stream.
+				const plan = input.planId ? await findSavedPlanById(input.planId).catch(() => null) : null;
+				const agentCwd = resolveHtmlAgentCwd({ cwd: input.cwd, planPath: plan?.path });
+				const allowedTools = resolveHtmlAllowedTools(promptResult.value.template.allowRead);
+
 				res.writeHead(200, {
 					"Content-Type": "text/event-stream; charset=utf-8",
 					"Cache-Control": "no-cache, no-transform",
@@ -704,8 +711,9 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 				await runAgentOneShot({
 					agentId: "claude",
 					prompt: promptResult.value.prompt,
-					cwd: input.cwd,
+					cwd: agentCwd,
 					model: input.model,
+					allowedTools,
 					signal: abortCtl.signal,
 					onEvent: (event) => {
 						send(event.type, event);

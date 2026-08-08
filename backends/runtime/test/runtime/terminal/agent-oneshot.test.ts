@@ -103,6 +103,34 @@ describe("runAgentOneShot", () => {
 		expect(events.some((event) => event.type === "done")).toBe(true);
 	});
 
+	it("passes an explicit --allowedTools list when one is supplied", async () => {
+		const child = createFakeChild();
+		spawnMock.mockReturnValue(child);
+		resolveManagerAccountPin.mockResolvedValue({ env: {}, accountId: null, warning: null });
+
+		const running = runAgentOneShot({
+			agentId: "claude",
+			prompt: "read the mockup",
+			cwd: "/tmp/plans",
+			allowedTools: ["Read", "Glob"],
+			onEvent: () => {},
+			pinInput: { getAccountLaunchDir: async () => null },
+		});
+
+		await vi.waitFor(() => {
+			expect(spawnMock).toHaveBeenCalled();
+		});
+
+		const [, argv] = spawnMock.mock.calls[0] as [string, string[]];
+		// A one-shot -p run cannot answer a permission prompt, so the allowlist is
+		// explicit rather than left to --permission-mode auto.
+		expect(argv).toContain("--allowedTools");
+		expect(argv[argv.indexOf("--allowedTools") + 1]).toBe("Read,Glob");
+
+		child.emit("close", 0);
+		await running;
+	});
+
 	it("fails loudly when the pinned seat is blocked", async () => {
 		resolveManagerAccountPin.mockResolvedValue({
 			env: {},

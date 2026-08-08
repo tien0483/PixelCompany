@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Yasref DCU D-0006 Dashboard — Process Monitoring</title>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
+<style>
+  :root{
+    --navy:#072b4b; --blue:#0084ff; --green:#3fb950; --amber:#d29922; --red:#f85149;
+    --ink:#111827; --muted:#6b7280; --line:rgba(0,0,0,.06);
+    --card-shadow:0 1px 3px rgba(0,0,0,.12),0 1px 2px rgba(0,0,0,.24);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:"Segoe UI",system-ui,-apple-system,sans-serif;color:var(--ink);
+       background:linear-gradient(180deg,#eef4fb,#f7fbff);min-height:100vh}
+  .app{display:flex;min-height:100vh}
+  .side{width:280px;flex:0 0 280px;background:var(--navy);color:#fff;display:flex;flex-direction:column;padding:16px 12px}
+  .brand{display:flex;align-items:center;gap:10px;padding:6px 4px 22px}
+  .mark{width:26px;height:26px;border-radius:6px;background:var(--blue);display:grid;place-items:center;font-weight:800;font-size:13px}
+  .word{font-weight:800;font-size:20px;letter-spacing:.06em}
+  .beta{background:#fff;color:var(--navy);border-radius:6px;font-size:11px;font-weight:700;padding:2px 7px}
+  .collapse{margin-left:auto;opacity:.7;font-size:15px}
+  .nav a{display:flex;align-items:center;gap:12px;height:44px;padding:0 16px;border-radius:10px;
+         color:#fff;text-decoration:none;font-size:15px;font-weight:500}
+  .nav a+a{margin-top:4px}
+  .nav a:hover{background:rgba(255,255,255,.08)}
+  .nav a.on{background:var(--blue)}
+  .nav .chev{margin-left:auto;opacity:.6;font-size:12px}
+  .kids{margin:4px 0 4px 22px;padding-left:10px;border-left:2px solid rgba(255,255,255,.18)}
+  .kids a{height:40px;font-size:14px}
+  .foot{margin-top:auto;padding-top:14px;border-top:1px solid rgba(255,255,255,.12)}
+  .foot a{display:flex;align-items:center;gap:12px;height:44px;padding:0 16px;color:#fff;text-decoration:none;font-size:15px}
+  .tf{padding:10px 16px 2px;font-size:12px;color:rgba(255,255,255,.55)}
+  main{flex:1;min-width:0;padding:22px 24px 40px}
+  .head{display:flex;align-items:flex-start;gap:24px;margin-bottom:18px}
+  h1{margin:0;font-size:32px;font-weight:700}
+  .stat{margin-left:auto;display:flex;gap:24px;align-items:center;text-align:right}
+  .stat .lab{font-size:12px;color:var(--muted)}
+  .stat .val{font-size:14px;color:var(--muted);margin-top:2px}
+  .btn{background:var(--blue);color:#fff;border:0;border-radius:6px;padding:9px 14px;font-size:13px;font-weight:600;font-family:inherit;cursor:pointer}
+  .card{background:#fff;border:1px solid var(--line);border-radius:8px;box-shadow:var(--card-shadow);padding:18px}
+  .ttl{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);
+       display:flex;align-items:center;gap:6px}
+  .ttl .tools{margin-left:auto;display:flex;gap:8px;color:#9aa3af}
+  .q{display:inline-grid;place-items:center;width:14px;height:14px;border:1px solid #c3cbd6;border-radius:50%;
+     font-size:9px;color:var(--muted);cursor:help}
+  .grid{display:grid;grid-template-columns:1fr 1fr 1fr 1.05fr;gap:14px;margin-bottom:14px}
+  .limit{border-left:4px solid var(--green)}
+  .limit .v{font-size:26px;font-weight:700;margin:10px 0 8px}
+  .meta{font-size:11px;color:var(--muted);line-height:1.7}
+  .dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:6px}
+  .exc{display:flex;gap:22px;margin-top:10px;padding-top:10px;border-top:1px solid var(--line);font-size:11px;color:var(--muted)}
+  .exc b{color:var(--green)}
+  .body2{display:grid;grid-template-columns:1fr 1fr 1.05fr;gap:14px}
+  .chart{height:210px}
+  .row{display:flex;align-items:center;gap:10px;font-size:13px;margin-top:12px}
+  .row label{font-size:13px;color:var(--muted);min-width:64px}
+  select,input{font-family:inherit;font-size:13px;padding:8px 10px;border:1px solid #d7dee7;border-radius:6px;background:#fff;color:var(--ink);width:100%}
+  .dates{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}
+  .dates .cap{font-size:13px;font-weight:600;margin-bottom:6px}
+  input[type=range]{accent-color:var(--blue);padding:0;border:0}
+  .pill{border:0;border-radius:999px;padding:7px 16px;font-family:inherit;font-size:12px;font-weight:600;background:#eef1f5;color:var(--muted);cursor:pointer}
+  .pill.on{background:var(--navy);color:#fff}
+  .empty{display:grid;place-items:center;height:150px;color:#9aa3af;font-size:14px}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="side">
+    <div class="brand"><span class="mark">A</span><span class="word">AKSELOS</span><span class="beta">Beta</span><span class="collapse">◧</span></div>
+    <nav class="nav">
+      <a href="#"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/></svg>Home</a>
+      <a class="on" href="#"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8"/></svg>Process Monitoring</a>
+      <a href="#"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M7 12l3-3 3 3 4-5"/></svg>SPM Monitoring<span class="chev">⌄</span></a>
+      <div class="kids">
+        <a href="#">Fatigue Status</a>
+        <a href="#">Crack Status</a>
+      </div>
+      <a href="#"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l8 4v10l-8 4-8-4V7z"/></svg>Asset Integrity<span class="chev">›</span></a>
+    </nav>
+    <div class="foot">
+      <a href="#"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg>Logout</a>
+      <div class="tf">Time format: DD/MM/YYYY HH:mm:ss</div>
+    </div>
+  </aside>
+
+  <main>
+    <div class="head">
+      <h1>Yasref DCU D-0006 Dashboard</h1>
+      <div class="stat">
+        <div><div class="lab">Data Connectivity</div><div class="val">⊗ Disconnected</div></div>
+        <div><div class="lab">Asset Status</div><div class="val">⊗ Unknown</div></div>
+        <button class="btn">Inspect Last Cycle</button>
+      </div>
+    </div>
+
+    <section class="grid">
+      <div class="card limit">
+        <div class="ttl">Max. temperature <span class="q" title="Highest reading in the selected window">?</span></div>
+        <div class="v">44.15 °C</div>
+        <div class="meta"><span class="dot" style="background:var(--green)"></span>Inside DOW (limit 505°C)<br>Sensor: 113TI6164A.PV</div>
+        <div class="exc"><span>30d exc: <b>0</b></span><span>90d exc: <b>0</b></span></div>
+      </div>
+      <div class="card limit">
+        <div class="ttl">Max. pressure <span class="q" title="Highest reading in the selected window">?</span></div>
+        <div class="v">-0.00 Barg</div>
+        <div class="meta"><span class="dot" style="background:var(--green)"></span>Inside DOW (limit 11.73 Barg)<br>Sensor: 113PI6160C.PV</div>
+        <div class="exc"><span>30d exc: <b>0</b></span><span>90d exc: <b>0</b></span></div>
+      </div>
+      <div class="card" style="border-left:4px solid var(--blue)">
+        <div class="ttl">Max. coke level <span class="q" title="Highest level reading">?</span></div>
+        <div class="v" style="font-size:26px;font-weight:700;margin:10px 0 8px">27.43 %</div>
+        <div class="meta">Sensor: 113LI6101.PV</div>
+      </div>
+      <div class="card">
+        <div class="ttl">Time information <span class="q" title="Window applied to every chart on this page">?</span>
+          <span class="tools" style="text-transform:none;letter-spacing:0;font-weight:400">Latest Update: 02/04/2026</span></div>
+        <div class="row"><label>Duration:</label><select><option>Last 7 days</option><option>Last 30 days</option><option>Last 90 days</option></select></div>
+        <div class="dates">
+          <div><div class="cap">From date</div><input value="26/03/2026"></div>
+          <div><div class="cap">To date</div><input value="02/04/2026"></div>
+        </div>
+        <input type="range" min="0" max="100" value="100" style="margin-top:14px">
+      </div>
+    </section>
+
+    <section class="body2">
+      <div class="card">
+        <div class="ttl">Thermocouples <span class="q" title="All thermocouples over the window">?</span>
+          <span class="tools"><span title="Download CSV">⤓</span><span title="Show as table">☰</span></span></div>
+        <div id="temp" class="chart"></div>
+      </div>
+      <div class="card">
+        <div class="ttl">Coke level <span class="q" title="Level signal over the window">?</span>
+          <span class="tools"><span title="Download CSV">⤓</span><span title="Show as table">☰</span></span></div>
+        <div id="coke" class="chart"></div>
+      </div>
+      <div class="card">
+        <div class="ttl">Sensor's location <span class="q" title="Physical position of each sensor">?</span></div>
+        <svg viewBox="0 0 300 220" width="100%" height="210" role="img" aria-label="Vessel elevation with sensor pins">
+          <rect x="112" y="24" width="60" height="150" rx="28" fill="#c9ccd1" stroke="#a7abb1"/>
+          <ellipse cx="142" cy="24" rx="30" ry="9" fill="#d5d8dc" stroke="#a7abb1"/>
+          <g stroke="#7b8794"><line x1="132" y1="10" x2="132" y2="20"/><line x1="142" y1="7" x2="142" y2="20"/><line x1="152" y1="10" x2="152" y2="20"/></g>
+          <rect x="130" y="174" width="24" height="16" fill="#9aa3af"/>
+          <circle cx="115" cy="140" r="5" fill="#fac858" stroke="#b9932f"/>
+          <circle cx="115" cy="158" r="5" fill="#fac858" stroke="#b9932f"/>
+          <g font-family="Segoe UI" font-size="8" fill="#374151">
+            <rect x="180" y="132" width="74" height="14" fill="#fff" stroke="#d7dee7"/><text x="184" y="142">113TI6164A.PV</text>
+            <rect x="226" y="132" width="70" height="14" fill="#fff" stroke="#d7dee7"/><text x="230" y="142">113TI6164D.PV</text>
+            <rect x="180" y="150" width="74" height="14" fill="#fff" stroke="#d7dee7"/><text x="184" y="160">113TI6164B.PV</text>
+            <rect x="226" y="150" width="70" height="14" fill="#fff" stroke="#d7dee7"/><text x="230" y="160">113TI6164C.PV</text>
+          </g>
+          <g transform="translate(46,182)" font-family="Segoe UI" font-size="8">
+            <line x1="0" y1="0" x2="0" y2="-22" stroke="#5470c6" stroke-width="2"/><text x="-16" y="-26" fill="#5470c6">Vertical Up</text>
+            <line x1="0" y1="0" x2="-20" y2="12" stroke="#ee6666" stroke-width="2"/><text x="-42" y="20" fill="#ee6666">North</text>
+            <line x1="0" y1="0" x2="22" y2="12" stroke="#3ba272" stroke-width="2"/><text x="24" y="20" fill="#3ba272">West</text>
+          </g>
+        </svg>
+      </div>
+      <div class="card">
+        <div class="ttl">Pressure sensor <span class="q" title="Pressure over the window">?</span>
+          <span class="tools"><span title="Download CSV">⤓</span><span title="Show as table">☰</span></span></div>
+        <div id="press" class="chart"></div>
+      </div>
+      <div class="card" style="grid-column:span 2">
+        <div class="ttl">DOW exceedance log <span class="q" title="Every excursion outside the design operating window">?</span>
+          <span class="tools" style="gap:6px">
+            <button class="pill">Temperature</button><button class="pill on">Pressure</button>
+          </span></div>
+        <div class="meta" style="margin-top:8px">Parameter: Pressure | DOW limit: 11.73 Barg | last 90 days</div>
+        <div class="empty">No exceedance data in the last 90 days</div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script>
+const PALETTE = ["#5470c6","#91cc75","#fac858","#ee6666","#73c0de","#3ba272","#fc8452","#9a60b4","#ea7ccc"];
+const DAYS = ["26/03/2026","27/03/2026","28/03/2026","29/03/2026","30/03/2026","31/03/2026","01/04/2026","02/04/2026"];
+
+function base(name, unit, data, limit, color){
+  return {
+    color: PALETTE,
+    textStyle:{fontFamily:"Segoe UI, sans-serif"},
+    grid:{left:60,right:18,top:26,bottom:64},
+    tooltip:{trigger:"axis"},
+    xAxis:{type:"category", data:DAYS, name:"Date", nameLocation:"middle", nameGap:30,
+           nameTextStyle:{fontWeight:"bold",fontFamily:"Segoe UI, sans-serif"},
+           axisLabel:{color:"#464646",fontSize:10}, axisLine:{lineStyle:{color:"#ccc"}}},
+    yAxis:{type:"value", name:name+" ["+unit+"]", nameLocation:"middle", nameGap:42, nameRotate:90,
+           nameTextStyle:{fontWeight:"bold",fontFamily:"Segoe UI, sans-serif"},
+           axisLabel:{color:"#464646",fontSize:10}, splitLine:{lineStyle:{color:"#ccc"}}},
+    dataZoom:[{type:"slider", bottom:12, height:16, borderColor:"#c9d6e8", fillerColor:"rgba(84,112,198,.18)"}],
+    series:[{
+      type:"line", data:data, smooth:false, symbol:"none", lineStyle:{width:1.6, color:color},
+      markLine: limit==null ? undefined : {
+        silent:true, symbol:"none",
+        lineStyle:{type:"dashed", color:"#4c9aff"},
+        label:{formatter:"Max Design: "+limit, color:"#4c9aff", fontWeight:"bold", position:"insideEndTop"},
+        data:[{yAxis:limit}]
+      }
+    }]
+  };
+}
+
+// data-mock="true" — plausible traces, not real plant data
+echarts.init(document.getElementById("temp")).setOption(
+  Object.assign(base("Temperature","DegC",[41.2,42.8,43.5,42.1,44.1,43.0,43.6,44.2],505,"#ee6666"),
+                {yAxis:{...base("Temperature","DegC",[],505).yAxis, max:520}}));
+
+const coke=[]; for(let i=0;i<160;i++){coke.push(+( -2 + Math.sin(i/6)*3 + (i%17===0?12:0) + (i%5)*0.8 ).toFixed(2));}
+echarts.init(document.getElementById("coke")).setOption({
+  ...base("Coke level","%",coke,null,"#5470c6"),
+  xAxis:{...base("Coke level","%",[],null).xAxis, data:coke.map((_,i)=>DAYS[Math.floor(i/20)])}
+});
+
+echarts.init(document.getElementById("press")).setOption(
+  base("Pressure","Barg",[-0.02,-0.01,-0.03,-0.02,-0.01,-0.02,-0.03,-0.01],11.73,"#fac858"));
+
+addEventListener("resize",()=>document.querySelectorAll(".chart").forEach(el=>echarts.getInstanceByDom(el)?.resize()));
+</script>
+</body>
+</html>
