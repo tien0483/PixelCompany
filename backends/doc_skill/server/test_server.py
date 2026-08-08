@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 import pathlib
 import tempfile
+import threading
 import unittest
 
 import ops
@@ -91,6 +92,30 @@ class RegistryRoundTripTests(unittest.TestCase):
     def test_adopt_rejects_traversal_same_as_register(self) -> None:
         with self.assertRaises(registry.PathError):
             registry.adopt_project(str(self.target_repo), '../../etc', path=self.state_path)
+
+    def test_concurrent_registrations_are_not_lost(self) -> None:
+        """Regression test for the load->modify->save race: N threads register_project() at once
+        against the same state file; every one of them must survive to the final registry. Before
+        the `_LOCK` fix, two threads could both load the same on-disk snapshot, each append their
+        own record to their in-memory copy, and whichever saved last would silently overwrite the
+        other's — this asserts none go missing."""
+        n = 16
+        for i in range(n):
+            (self.target_repo / f'ws{i}').mkdir()
+
+        def worker(i: int) -> None:
+            registry.register_project(f'Project {i}', str(self.target_repo), f'ws{i}',
+                                      path=self.state_path)
+
+        threads = [threading.Thread(target=worker, args=(i,)) for i in range(n)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        listed = registry.list_projects(path=self.state_path)
+        self.assertEqual(len(listed), n, 'a concurrent register_project() call was lost')
+        self.assertEqual({p['name'] for p in listed}, {f'Project {i}' for i in range(n)})
 
 
 class StaticTraversalTests(unittest.TestCase):

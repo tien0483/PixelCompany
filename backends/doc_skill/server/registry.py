@@ -17,8 +17,16 @@ import hashlib
 import json
 import os
 import pathlib
+import tempfile
+import threading
 
 DEFAULT_STATE_PATH = pathlib.Path.home() / '.agent' / 'doc-skill' / 'projects.json'
+
+# Guards every read-modify-write sequence against `ThreadingHTTPServer`'s real concurrent request
+# threads (e.g. two `POST /api/projects` calls, or a `POST` racing a `DELETE`, both loading the same
+# on-disk snapshot and one silently clobbering the other's change on save). Reentrant because
+# `adopt_project` calls `register_project`, which also takes the lock, from the same thread.
+_LOCK = threading.RLock()
 
 
 class PathError(ValueError):
@@ -42,9 +50,29 @@ def load_registry(path: pathlib.Path | str | None = None) -> dict:
 
 
 def save_registry(data: dict, path: pathlib.Path | str | None = None) -> None:
+    """Writes the registry atomically: temp file in the same directory, then `os.replace`.
+
+    `os.replace` is an atomic rename on POSIX and Windows, so a reader (or a process kill) never
+    observes a partially-written file — the old contents remain visible until the new file is fully
+    written and flushed. Callers that mutate the registry must hold `_LOCK` around their whole
+    load-modify-save sequence; this function alone only makes a single save atomic, not a
+    read-modify-write pair against concurrent writers.
+    """
     p = _state_path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps(data, indent=2) + '\n', encoding='utf-8')
+    fd, tmp_name = tempfile.mkstemp(dir=str(p.parent), prefix='.projects-', suffix='.json.tmp')
+    try:
+        with os.fdopen(fd, 'w', encoding='utf-8') as f:
+            f.write(json.dumps(data, indent=2) + '\n')
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_name, str(p))
+    except BaseException:
+        try:
+            os.unlink(tmp_name)
+        except OSError:
+            pass
+        raise
 
 
 def list_projects(path: pathlib.Path | str | None = None) -> list[dict]:
@@ -110,10 +138,11 @@ def register_project(name: str, target_repo: str, workspace_dir: str, tagline: s
         'tagline': tagline or '',
         'createdAt': _now_iso(),
     }
-    data = load_registry(path)
-    data['projects'] = [p for p in data['projects'] if p['id'] != record['id']]
-    data['projects'].append(record)
-    save_registry(data, path)
+    with _LOCK:
+        data = load_registry(path)
+        data['projects'] = [p for p in data['projects'] if p['id'] != record['id']]
+        data['projects'].append(record)
+        save_registry(data, path)
     return record
 
 
@@ -142,8 +171,9 @@ def adopt_project(target_repo: str, workspace_dir: str, name: str | None = None,
 
 def unregister_project(project_id: str, path: pathlib.Path | str | None = None) -> bool:
     """Removes the project from the registry JSON only — never touches files on disk."""
-    data = load_registry(path)
-    before = len(data['projects'])
-    data['projects'] = [p for p in data['projects'] if p['id'] != project_id]
-    save_registry(data, path)
-    return len(data['projects']) != before
+    with _LOCK:
+        data = load_registry(path)
+        before = len(data['projects'])
+        data['projects'] = [p for p in data['projects'] if p['id'] != project_id]
+        save_registry(data, path)
+        return len(data['projects']) != before
