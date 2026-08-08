@@ -69,6 +69,7 @@ import {
 } from "../state/workspace-state";
 import { resolveTaskCwd } from "../workspace/task-worktree";
 import { captureTaskTurnCheckpoint } from "../workspace/turn-checkpoints";
+import { cleanClaudeCache, getClaudeCacheStatus } from "../workspace/claude-cache-cleanup";
 import type { RuntimeTrpcContext, RuntimeTrpcWorkspaceScope } from "./app-router";
 
 export interface CreateRuntimeApiDependencies {
@@ -899,6 +900,12 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 		},
 		runUpdateNow: async () => {
 			return await deps.runUpdateNow();
+		},
+		getClaudeCacheStatus: async () => {
+			return await getClaudeCacheStatus();
+		},
+		cleanClaudeCache: async (input) => {
+			return await cleanClaudeCache(input);
 		},
 	};
 }

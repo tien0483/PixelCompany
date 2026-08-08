@@ -6,6 +6,9 @@ import { initTRPC, TRPCError } from "@trpc/server";
 import { z } from "zod";
 import type {
 	RuntimeAgentModelInventory,
+	RuntimeClaudeCacheCleanRequest,
+	RuntimeClaudeCacheCleanResponse,
+	RuntimeClaudeCacheStatusResponse,
 	RuntimeCleanMergedWorktreesRequest,
 	RuntimeCleanMergedWorktreesResponse,
 	RuntimeCleanStashResponse,
@@ -230,6 +233,9 @@ import {
 	RuntimeManagerUsageAuthSessionCreateResponseSchema,
 	RuntimeManagerUsageOverviewSchema,
 	runtimeAgentModelInventorySchema,
+	runtimeClaudeCacheCleanRequestSchema,
+	runtimeClaudeCacheCleanResponseSchema,
+	runtimeClaudeCacheStatusResponseSchema,
 	runtimeCleanMergedWorktreesRequestSchema,
 	runtimeCleanMergedWorktreesResponseSchema,
 	runtimeCleanStashResponseSchema,
@@ -524,6 +530,8 @@ export interface RuntimeTrpcContext {
 		getUpdateStatus: (scope: RuntimeTrpcWorkspaceScope | null) => Promise<RuntimeUpdateStatusResponse>;
 		getHostEnvironment: (scope: RuntimeTrpcWorkspaceScope | null) => Promise<RuntimeHostEnvironmentResponse>;
 		runUpdateNow: (scope: RuntimeTrpcWorkspaceScope | null) => Promise<RuntimeRunUpdateResponse>;
+		getClaudeCacheStatus: () => Promise<RuntimeClaudeCacheStatusResponse>;
+		cleanClaudeCache: (input: RuntimeClaudeCacheCleanRequest) => Promise<RuntimeClaudeCacheCleanResponse>;
 	};
 	workspaceApi: {
 		loadGitSummary: (
@@ -1022,6 +1030,15 @@ export const runtimeAppRouter = t.router({
 		runUpdateNow: t.procedure.output(runtimeRunUpdateResponseSchema).mutation(async ({ ctx }) => {
 			return await ctx.runtimeApi.runUpdateNow(ctx.workspaceScope);
 		}),
+		getClaudeCacheStatus: t.procedure.output(runtimeClaudeCacheStatusResponseSchema).query(async ({ ctx }) => {
+			return await ctx.runtimeApi.getClaudeCacheStatus();
+		}),
+		cleanClaudeCache: t.procedure
+			.input(runtimeClaudeCacheCleanRequestSchema)
+			.output(runtimeClaudeCacheCleanResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.runtimeApi.cleanClaudeCache(input);
+			}),
 	}),
 	workspace: t.router({
 		getGitSummary: workspaceProcedure
