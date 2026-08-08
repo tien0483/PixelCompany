@@ -6,6 +6,7 @@ import { initTRPC, TRPCError } from "@trpc/server";
 import { z } from "zod";
 import type {
 	RuntimeAgentModelInventory,
+	RuntimeCleanMergedWorktreesRequest,
 	RuntimeCleanMergedWorktreesResponse,
 	RuntimeCleanStashResponse,
 	RuntimeClineAccountBalanceResponse,
@@ -229,6 +230,7 @@ import {
 	RuntimeManagerUsageAuthSessionCreateResponseSchema,
 	RuntimeManagerUsageOverviewSchema,
 	runtimeAgentModelInventorySchema,
+	runtimeCleanMergedWorktreesRequestSchema,
 	runtimeCleanMergedWorktreesResponseSchema,
 	runtimeCleanStashResponseSchema,
 	runtimeClineAccountBalanceResponseSchema,
@@ -581,7 +583,10 @@ export interface RuntimeTrpcContext {
 			input: RuntimeGitCommitRequest,
 		) => Promise<RuntimeGitCommitResponse>;
 		listWorktrees: (scope: RuntimeTrpcWorkspaceScope) => Promise<RuntimeGitWorktreeInventoryResponse>;
-		cleanMergedWorktrees: (scope: RuntimeTrpcWorkspaceScope) => Promise<RuntimeCleanMergedWorktreesResponse>;
+		cleanMergedWorktrees: (
+			scope: RuntimeTrpcWorkspaceScope,
+			input?: RuntimeCleanMergedWorktreesRequest,
+		) => Promise<RuntimeCleanMergedWorktreesResponse>;
 		cleanStash: (scope: RuntimeTrpcWorkspaceScope) => Promise<RuntimeCleanStashResponse>;
 		getBlame: (scope: RuntimeTrpcWorkspaceScope, input: RuntimeGitBlameRequest) => Promise<RuntimeGitBlameResponse>;
 		getMergeConflicts: (
@@ -1107,9 +1112,10 @@ export const runtimeAppRouter = t.router({
 			return await ctx.workspaceApi.listWorktrees(ctx.workspaceScope);
 		}),
 		cleanMergedWorktrees: workspaceProcedure
+			.input(runtimeCleanMergedWorktreesRequestSchema.optional())
 			.output(runtimeCleanMergedWorktreesResponseSchema)
-			.mutation(async ({ ctx }) => {
-				return await ctx.workspaceApi.cleanMergedWorktrees(ctx.workspaceScope);
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.workspaceApi.cleanMergedWorktrees(ctx.workspaceScope, input ?? undefined);
 			}),
 		cleanStash: workspaceProcedure.output(runtimeCleanStashResponseSchema).mutation(async ({ ctx }) => {
 			return await ctx.workspaceApi.cleanStash(ctx.workspaceScope);

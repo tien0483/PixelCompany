@@ -2527,6 +2527,11 @@ export const runtimeGitWorktreeInventoryResponseSchema = z.object({
 });
 export type RuntimeGitWorktreeInventoryResponse = z.infer<typeof runtimeGitWorktreeInventoryResponseSchema>;
 
+export const runtimeCleanMergedWorktreesRequestSchema = z.object({
+	dryRun: z.boolean().optional(),
+});
+export type RuntimeCleanMergedWorktreesRequest = z.infer<typeof runtimeCleanMergedWorktreesRequestSchema>;
+
 export const runtimeCleanMergedWorktreesSkippedEntrySchema = z.object({
 	taskId: z.string(),
 	branch: z.string(),
