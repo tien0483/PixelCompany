@@ -2549,6 +2549,11 @@ export const runtimeGitWorktreeInventoryResponseSchema = z.object({
 });
 export type RuntimeGitWorktreeInventoryResponse = z.infer<typeof runtimeGitWorktreeInventoryResponseSchema>;
 
+export const runtimeCleanMergedWorktreesRequestSchema = z.object({
+	dryRun: z.boolean().optional(),
+});
+export type RuntimeCleanMergedWorktreesRequest = z.infer<typeof runtimeCleanMergedWorktreesRequestSchema>;
+
 export const runtimeCleanMergedWorktreesSkippedEntrySchema = z.object({
 	taskId: z.string(),
 	branch: z.string(),
@@ -2563,6 +2568,44 @@ export const runtimeCleanMergedWorktreesResponseSchema = z.object({
 	error: z.string().optional(),
 });
 export type RuntimeCleanMergedWorktreesResponse = z.infer<typeof runtimeCleanMergedWorktreesResponseSchema>;
+
+export const runtimeClaudeCacheStatusResponseSchema = z.object({
+	ok: z.boolean(),
+	safeItemCount: z.number(),
+	safeSizeBytes: z.number(),
+	transcriptItemCount: z.number(),
+	transcriptSizeBytes: z.number(),
+	error: z.string().optional(),
+});
+export type RuntimeClaudeCacheStatusResponse = z.infer<typeof runtimeClaudeCacheStatusResponseSchema>;
+
+export const runtimeClaudeCacheCleanRequestSchema = z.object({
+	days: z.number().optional(),
+	includeTranscripts: z.boolean(),
+	dryRun: z.boolean(),
+});
+export type RuntimeClaudeCacheCleanRequest = z.infer<typeof runtimeClaudeCacheCleanRequestSchema>;
+
+export const runtimeClaudeCacheCleanedItemSchema = z.object({
+	path: z.string(),
+	sizeBytes: z.number(),
+	tier: z.enum(["safe", "transcript"]),
+});
+export type RuntimeClaudeCacheCleanedItem = z.infer<typeof runtimeClaudeCacheCleanedItemSchema>;
+
+export const runtimeClaudeCacheSkippedItemSchema = z.object({
+	path: z.string(),
+	reason: z.string(),
+});
+export type RuntimeClaudeCacheSkippedItem = z.infer<typeof runtimeClaudeCacheSkippedItemSchema>;
+
+export const runtimeClaudeCacheCleanResponseSchema = z.object({
+	ok: z.boolean(),
+	cleaned: z.array(runtimeClaudeCacheCleanedItemSchema),
+	skipped: z.array(runtimeClaudeCacheSkippedItemSchema),
+	error: z.string().optional(),
+});
+export type RuntimeClaudeCacheCleanResponse = z.infer<typeof runtimeClaudeCacheCleanResponseSchema>;
 
 export const runtimeGitPullRequestRequestSchema = z.object({
 	title: z.string(),

@@ -4,6 +4,10 @@
 import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
 import type {
 	RuntimeAgentId,
+	RuntimeClaudeCacheCleanRequest,
+	RuntimeClaudeCacheCleanResponse,
+	RuntimeClaudeCacheStatusResponse,
+	RuntimeCleanMergedWorktreesRequest,
 	RuntimeCleanMergedWorktreesResponse,
 	RuntimeCleanStashResponse,
 	RuntimeClineAccountBalanceResponse,
@@ -344,11 +348,25 @@ export async function fetchRuntimeWorktrees(
 	return await trpcClient.workspace.listWorktrees.query();
 }
 
+export async function fetchClaudeCacheStatus(workspaceId: string | null): Promise<RuntimeClaudeCacheStatusResponse> {
+	const trpcClient = getRuntimeTrpcClient(workspaceId);
+	return await trpcClient.runtime.getClaudeCacheStatus.query();
+}
+
+export async function cleanClaudeCache(
+	workspaceId: string | null,
+	input: RuntimeClaudeCacheCleanRequest,
+): Promise<RuntimeClaudeCacheCleanResponse> {
+	const trpcClient = getRuntimeTrpcClient(workspaceId);
+	return await trpcClient.runtime.cleanClaudeCache.mutate(input);
+}
+
 export async function cleanRuntimeMergedWorktrees(
 	workspaceId: string | null,
+	input?: RuntimeCleanMergedWorktreesRequest,
 ): Promise<RuntimeCleanMergedWorktreesResponse> {
 	const trpcClient = getRuntimeTrpcClient(workspaceId);
-	return await trpcClient.workspace.cleanMergedWorktrees.mutate();
+	return await trpcClient.workspace.cleanMergedWorktrees.mutate(input);
 }
 
 export async function cleanRuntimeStash(

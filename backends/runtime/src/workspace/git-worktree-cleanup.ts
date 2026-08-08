@@ -9,11 +9,14 @@ import { deleteTaskWorktree } from "./task-worktree";
  * Removes task worktrees whose branch is fully merged into its recorded base
  * ref. Safety mirrors `git branch -d`: a branch only qualifies once every one
  * of its commits is an ancestor of the base ref, so nothing in-flight is lost.
+ * With `dryRun: true`, every eligibility check still runs but no worktree or
+ * branch is actually deleted — the same response shape doubles as a preview.
  */
 export async function cleanMergedWorktrees(options: {
 	repoPath: string;
 	workspaceId: string;
 	board: RuntimeBoardData;
+	dryRun?: boolean;
 }): Promise<RuntimeCleanMergedWorktreesResponse> {
 	const entries = await listActiveBranchEntries(options.workspaceId);
 	const cleanedTaskIds: string[] = [];
@@ -37,6 +40,11 @@ export async function cleanMergedWorktrees(options: {
 		]);
 		if (!ancestorCheck.ok) {
 			skipped.push({ taskId: entry.taskId, branch: entry.branch, reason: "Not merged into its base ref." });
+			continue;
+		}
+
+		if (options.dryRun) {
+			cleanedTaskIds.push(entry.taskId);
 			continue;
 		}
 

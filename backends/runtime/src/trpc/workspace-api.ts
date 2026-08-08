@@ -643,15 +643,16 @@ export function createWorkspaceApi(deps: CreateWorkspaceApiDependencies): Runtim
 				return { ok: false, worktrees: [], error: error instanceof Error ? error.message : String(error) };
 			}
 		},
-		cleanMergedWorktrees: async (workspaceScope) => {
+		cleanMergedWorktrees: async (workspaceScope, input) => {
 			try {
 				const { board } = await loadWorkspaceState(workspaceScope.workspacePath);
 				const response = await cleanMergedWorktrees({
 					repoPath: workspaceScope.workspacePath,
 					workspaceId: workspaceScope.workspaceId,
 					board,
+					dryRun: input?.dryRun,
 				});
-				if (response.cleanedTaskIds.length > 0) {
+				if (!input?.dryRun && response.cleanedTaskIds.length > 0) {
 					void deps.broadcastRuntimeWorkspaceStateUpdated(
 						workspaceScope.workspaceId,
 						workspaceScope.workspacePath,

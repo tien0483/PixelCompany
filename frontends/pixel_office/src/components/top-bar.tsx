@@ -22,6 +22,7 @@ import {
 	Plus,
 	Settings,
 	Terminal,
+	Trash2,
 } from "lucide-react";
 import { useState } from "react";
 import { OpenWorkspaceButton } from "@/components/open-workspace-button";
@@ -466,6 +467,7 @@ export function TopBar({
 	onOpenSettings,
 	showDebugButton,
 	onOpenDebugDialog,
+	onOpenCleanup,
 	shortcuts,
 	selectedShortcutLabel,
 	onSelectShortcutLabel,
@@ -513,6 +515,7 @@ export function TopBar({
 	onOpenSettings?: (section?: SettingsSection) => void;
 	showDebugButton?: boolean;
 	onOpenDebugDialog?: () => void;
+	onOpenCleanup?: () => void;
 	shortcuts?: RuntimeProjectShortcut[];
 	selectedShortcutLabel?: string | null;
 	onSelectShortcutLabel?: (shortcutLabel: string) => void;
@@ -867,6 +870,18 @@ export function TopBar({
 									</Button>
 								</Tooltip>
 							) : null}
+							{onOpenCleanup ? (
+								<Tooltip side="bottom" content="Clean up Claude cache and runtime worktrees">
+									<Button
+										variant="ghost"
+										size="sm"
+										icon={<Trash2 size={16} />}
+										onClick={onOpenCleanup}
+										aria-label="Cleanup"
+										className="ml-2"
+									/>
+								</Tooltip>
+							) : null}
 							{onToggleTerminal ? (
 								<Tooltip
 									side="bottom"
@@ -926,6 +941,16 @@ export function TopBar({
 											? "Hide watch and office column"
 											: "Show watch and office column"
 									}
+									className={MOBILE_TOUCH_TARGET}
+								/>
+							) : null}
+							{onOpenCleanup ? (
+								<Button
+									variant="ghost"
+									size="sm"
+									icon={<Trash2 size={16} />}
+									onClick={onOpenCleanup}
+									aria-label="Cleanup"
 									className={MOBILE_TOUCH_TARGET}
 								/>
 							) : null}

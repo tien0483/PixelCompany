@@ -161,6 +161,38 @@ describe("TopBar script shortcut onboarding", () => {
 
 		expect(onOpenSettings).toHaveBeenCalledTimes(1);
 	});
+
+	it("renders the Cleanup button when onOpenCleanup is provided", async () => {
+		const onOpenCleanup = vi.fn();
+
+		await act(async () => {
+			root.render(
+				<TooltipProvider>
+					<TopBar
+						openTargetOptions={[]}
+						selectedOpenTargetId="vscode"
+						onSelectOpenTarget={() => {}}
+						openPlatformOverride="auto"
+						onSelectOpenPlatform={() => {}}
+						detectedOpenPlatform={null}
+						onOpenWorkspace={() => {}}
+						canOpenWorkspace={false}
+						isOpeningWorkspace={false}
+						shortcuts={[]}
+						onOpenCleanup={onOpenCleanup}
+					/>
+				</TooltipProvider>,
+			);
+		});
+
+		const cleanupButton = container.querySelector('[aria-label="Cleanup"]') as HTMLButtonElement | null;
+		expect(cleanupButton).not.toBeNull();
+
+		await act(async () => {
+			cleanupButton?.click();
+		});
+		expect(onOpenCleanup).toHaveBeenCalledTimes(1);
+	});
 });
 
 describe("TopBar home git cluster", () => {

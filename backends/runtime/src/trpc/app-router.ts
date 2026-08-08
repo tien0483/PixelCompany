@@ -6,6 +6,10 @@ import { initTRPC, TRPCError } from "@trpc/server";
 import { z } from "zod";
 import type {
 	RuntimeAgentModelInventory,
+	RuntimeClaudeCacheCleanRequest,
+	RuntimeClaudeCacheCleanResponse,
+	RuntimeClaudeCacheStatusResponse,
+	RuntimeCleanMergedWorktreesRequest,
 	RuntimeCleanMergedWorktreesResponse,
 	RuntimeCleanStashResponse,
 	RuntimeClineAccountBalanceResponse,
@@ -229,6 +233,10 @@ import {
 	RuntimeManagerUsageAuthSessionCreateResponseSchema,
 	RuntimeManagerUsageOverviewSchema,
 	runtimeAgentModelInventorySchema,
+	runtimeClaudeCacheCleanRequestSchema,
+	runtimeClaudeCacheCleanResponseSchema,
+	runtimeClaudeCacheStatusResponseSchema,
+	runtimeCleanMergedWorktreesRequestSchema,
 	runtimeCleanMergedWorktreesResponseSchema,
 	runtimeCleanStashResponseSchema,
 	runtimeClineAccountBalanceResponseSchema,
@@ -522,6 +530,8 @@ export interface RuntimeTrpcContext {
 		getUpdateStatus: (scope: RuntimeTrpcWorkspaceScope | null) => Promise<RuntimeUpdateStatusResponse>;
 		getHostEnvironment: (scope: RuntimeTrpcWorkspaceScope | null) => Promise<RuntimeHostEnvironmentResponse>;
 		runUpdateNow: (scope: RuntimeTrpcWorkspaceScope | null) => Promise<RuntimeRunUpdateResponse>;
+		getClaudeCacheStatus: () => Promise<RuntimeClaudeCacheStatusResponse>;
+		cleanClaudeCache: (input: RuntimeClaudeCacheCleanRequest) => Promise<RuntimeClaudeCacheCleanResponse>;
 	};
 	workspaceApi: {
 		loadGitSummary: (
@@ -581,7 +591,10 @@ export interface RuntimeTrpcContext {
 			input: RuntimeGitCommitRequest,
 		) => Promise<RuntimeGitCommitResponse>;
 		listWorktrees: (scope: RuntimeTrpcWorkspaceScope) => Promise<RuntimeGitWorktreeInventoryResponse>;
-		cleanMergedWorktrees: (scope: RuntimeTrpcWorkspaceScope) => Promise<RuntimeCleanMergedWorktreesResponse>;
+		cleanMergedWorktrees: (
+			scope: RuntimeTrpcWorkspaceScope,
+			input?: RuntimeCleanMergedWorktreesRequest,
+		) => Promise<RuntimeCleanMergedWorktreesResponse>;
 		cleanStash: (scope: RuntimeTrpcWorkspaceScope) => Promise<RuntimeCleanStashResponse>;
 		getBlame: (scope: RuntimeTrpcWorkspaceScope, input: RuntimeGitBlameRequest) => Promise<RuntimeGitBlameResponse>;
 		getMergeConflicts: (
@@ -1017,6 +1030,15 @@ export const runtimeAppRouter = t.router({
 		runUpdateNow: t.procedure.output(runtimeRunUpdateResponseSchema).mutation(async ({ ctx }) => {
 			return await ctx.runtimeApi.runUpdateNow(ctx.workspaceScope);
 		}),
+		getClaudeCacheStatus: t.procedure.output(runtimeClaudeCacheStatusResponseSchema).query(async ({ ctx }) => {
+			return await ctx.runtimeApi.getClaudeCacheStatus();
+		}),
+		cleanClaudeCache: t.procedure
+			.input(runtimeClaudeCacheCleanRequestSchema)
+			.output(runtimeClaudeCacheCleanResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.runtimeApi.cleanClaudeCache(input);
+			}),
 	}),
 	workspace: t.router({
 		getGitSummary: workspaceProcedure
@@ -1107,9 +1129,10 @@ export const runtimeAppRouter = t.router({
 			return await ctx.workspaceApi.listWorktrees(ctx.workspaceScope);
 		}),
 		cleanMergedWorktrees: workspaceProcedure
+			.input(runtimeCleanMergedWorktreesRequestSchema.optional())
 			.output(runtimeCleanMergedWorktreesResponseSchema)
-			.mutation(async ({ ctx }) => {
-				return await ctx.workspaceApi.cleanMergedWorktrees(ctx.workspaceScope);
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.workspaceApi.cleanMergedWorktrees(ctx.workspaceScope, input ?? undefined);
 			}),
 		cleanStash: workspaceProcedure.output(runtimeCleanStashResponseSchema).mutation(async ({ ctx }) => {
 			return await ctx.workspaceApi.cleanStash(ctx.workspaceScope);
