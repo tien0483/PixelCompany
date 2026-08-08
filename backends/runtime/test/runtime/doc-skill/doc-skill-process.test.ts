@@ -81,8 +81,11 @@ describe("startDocSkillProcess — root discovery via the docSkillRoot override"
 			port,
 		});
 
-		// The fake root has no real `server` package, so python3 fails fast to
-		// import it — but that failure must never be reported as "not found".
+		// A valid marker means the process object reflects a real spawn attempt...
+		expect(proc.spawned).toBe(true);
+		expect(proc.pid).not.toBeNull();
+		// ...even though the fake root has no real `server` package, so python3
+		// fails fast to import it — that failure must never be reported as "not found".
 		expect(warn.some((message) => message.includes("package not found"))).toBe(false);
 		await proc.close();
 	});
@@ -197,6 +200,31 @@ describe("startDocSkillProcess — port resolution precedence", () => {
 			await proc.close();
 		} finally {
 			await close();
+		}
+	});
+
+	it("falls back to the default port 8323 when neither env var nor an explicit port is given", async () => {
+		// Bind the literal default port so the adopt path's "already listening on
+		// host:port" observation proves the resolver landed on 8323 specifically,
+		// not just "some" port. A real dev sidecar could theoretically already
+		// occupy 8323 — if so this test fails loudly on `listen`, which is a
+		// clearer signal than silently skipping.
+		const server = createServer();
+		await new Promise<void>((resolvePromise, reject) => {
+			server.once("error", reject);
+			server.listen(8323, "127.0.0.1", () => resolvePromise());
+		});
+		try {
+			const log: string[] = [];
+			const proc = await withEnv({ PIXELOFFICE_DOCSKILL_URL: undefined, PIXELOFFICE_DOCSKILL_PORT: undefined }, () =>
+				startDocSkillProcess({ warn: () => {}, log: (message) => log.push(message), docSkillRoot: null }),
+			);
+			expect(proc.spawned).toBe(false);
+			await expect(proc.ready).resolves.toBe(true);
+			expect(log.some((line) => line.includes("127.0.0.1:8323"))).toBe(true);
+			await proc.close();
+		} finally {
+			await new Promise<void>((resolvePromise) => server.close(() => resolvePromise()));
 		}
 	});
 });
