@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { resolveHtmlAgentCwd, resolveHtmlAllowedTools } from "../../../src/html/html-agent-args.js";
+import { HTML_NO_TOOLS, resolveHtmlAgentCwd, resolveHtmlAllowedTools } from "../../../src/html/html-agent-args.js";
 
 /**
  * These two decisions are what let a template read the mockup images its input
@@ -31,5 +31,14 @@ describe("resolveHtmlAllowedTools", () => {
 	it("grants nothing otherwise", () => {
 		expect(resolveHtmlAllowedTools(false)).toBeUndefined();
 		expect(resolveHtmlAllowedTools(undefined)).toBeUndefined();
+	});
+
+	it("falls back to whenDenied instead of undefined when the caller supplies one", () => {
+		expect(resolveHtmlAllowedTools(false, HTML_NO_TOOLS)).toEqual(["Read"]);
+		expect(resolveHtmlAllowedTools(undefined, HTML_NO_TOOLS)).toEqual(["Read"]);
+	});
+
+	it("still prefers the read grant over whenDenied when the template asked", () => {
+		expect(resolveHtmlAllowedTools(true, HTML_NO_TOOLS)).toEqual(["Read", "Glob"]);
 	});
 });

@@ -323,12 +323,20 @@ const PLAN_ASSET_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp"]
  *
  * `planDir` doubles as the agent's cwd, which is what makes the relative
  * `<stem>.assets/foo.png` links inside the markdown resolvable on the agent side.
- * Remote links (`http(s):`) and inline `data:` URIs are skipped: nothing to open.
+ * Remote links (`http(s):`) and inline `data:` URIs are excluded from BOTH lists:
+ * there is nothing local to open, so they are not "unresolved" — they simply
+ * never become a Read grant.
+ *
+ * Every other link that fails to resolve (bad extension, escapes the plan's
+ * `<stem>.assets/` folder, or does not exist on disk) is collected into
+ * `unresolvedLinks` instead of being dropped silently — the brief prompt tells
+ * the model about these so it stops reaching for a Read tool it was never
+ * granted for a path it can't open anyway.
  */
 export async function resolvePlanImageAssets(
 	planId: string,
 	markdown: string,
-): Promise<{ planDir: string; assetPaths: string[] }> {
+): Promise<{ planDir: string; assetPaths: string[]; unresolvedLinks: string[] }> {
 	const entry = await findSavedPlanById(planId);
 	if (!entry) {
 		throw new Error(`Plan "${planId}" was not found in the library.`);
@@ -336,7 +344,16 @@ export async function resolvePlanImageAssets(
 	const planDir = dirname(entry.path);
 	const assetsDir = getPlanAssetsDir(entry);
 	const seen = new Set<string>();
+	const flaggedUnresolved = new Set<string>();
 	const assetPaths: string[] = [];
+	const unresolvedLinks: string[] = [];
+	const flagUnresolved = (link: string) => {
+		if (flaggedUnresolved.has(link)) {
+			return;
+		}
+		flaggedUnresolved.add(link);
+		unresolvedLinks.push(link);
+	};
 	for (const match of markdown.matchAll(MARKDOWN_IMAGE_PATTERN)) {
 		const rawLink = match[1];
 		if (!rawLink || /^[a-z][a-z0-9+.-]*:/i.test(rawLink)) {
@@ -344,20 +361,27 @@ export async function resolvePlanImageAssets(
 		}
 		const link = decodeURI(rawLink);
 		if (!PLAN_ASSET_EXTENSIONS.has(extname(link).toLowerCase())) {
+			flagUnresolved(link);
 			continue;
 		}
 		// Links are written relative to the plan file, and assets always live in
 		// `<stem>.assets/`; resolving from the plan dir covers both spellings.
 		const resolvedPath = resolve(planDir, link);
-		if (!isPathWithinRoot(assetsDir, resolvedPath) || seen.has(resolvedPath)) {
+		if (!isPathWithinRoot(assetsDir, resolvedPath)) {
+			flagUnresolved(link);
+			continue;
+		}
+		if (seen.has(resolvedPath)) {
 			continue;
 		}
 		seen.add(resolvedPath);
 		if (await pathExists(resolvedPath)) {
 			assetPaths.push(resolvedPath);
+		} else {
+			flagUnresolved(link);
 		}
 	}
-	return { planDir, assetPaths };
+	return { planDir, assetPaths, unresolvedLinks };
 }
 
 export async function readSavedPlanAsset(

@@ -131,6 +131,110 @@ describe("runAgentOneShot", () => {
 		await running;
 	});
 
+	it("emits an error before done when the child exits non-zero", async () => {
+		const child = createFakeChild();
+		spawnMock.mockReturnValue(child);
+		resolveManagerAccountPin.mockResolvedValue({ env: {}, accountId: null, warning: null });
+
+		const events: Array<{ type: string; message?: string }> = [];
+		const running = runAgentOneShot({
+			agentId: "claude",
+			prompt: "make html",
+			onEvent: (event) => events.push(event),
+			pinInput: { getAccountLaunchDir: async () => null },
+		});
+
+		await vi.waitFor(() => {
+			expect(spawnMock).toHaveBeenCalled();
+		});
+
+		child.emit("close", 7);
+		const result = await running;
+
+		expect(result.code).toBe(7);
+		const errorIndex = events.findIndex((event) => event.type === "error");
+		const doneIndex = events.findIndex((event) => event.type === "done");
+		expect(errorIndex).toBeGreaterThanOrEqual(0);
+		expect(doneIndex).toBeGreaterThan(errorIndex);
+		expect(events[errorIndex]?.message).toBe("Claude exited with code 7");
+	});
+
+	it("does not emit a second error for the exit code once the watchdog already emitted one", async () => {
+		vi.useFakeTimers();
+		try {
+			const child = createFakeChild();
+			spawnMock.mockReturnValue(child);
+			resolveManagerAccountPin.mockResolvedValue({ env: {}, accountId: null, warning: null });
+
+			const events: Array<{ type: string; message?: string }> = [];
+			const running = runAgentOneShot({
+				agentId: "claude",
+				prompt: "make html",
+				idleTimeoutMs: 5000,
+				onEvent: (event) => events.push(event),
+				pinInput: { getAccountLaunchDir: async () => null },
+			});
+
+			await vi.waitFor(() => {
+				expect(spawnMock).toHaveBeenCalled();
+			});
+
+			await vi.advanceTimersByTimeAsync(5000);
+
+			expect(child.kill).toHaveBeenCalled();
+			expect(events.some((event) => event.type === "error")).toBe(true);
+
+			child.emit("close", 1);
+			const result = await running;
+
+			expect(result.code).toBe(1);
+			const errorEvents = events.filter((event) => event.type === "error");
+			expect(errorEvents).toHaveLength(1);
+			expect(errorEvents[0]?.message).toBe("Agent produced no output for 5s — cancelled.");
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("cancels and kills the child when no output arrives before the idle timeout", async () => {
+		vi.useFakeTimers();
+		try {
+			const child = createFakeChild();
+			spawnMock.mockReturnValue(child);
+			resolveManagerAccountPin.mockResolvedValue({ env: {}, accountId: null, warning: null });
+
+			const events: Array<{ type: string; message?: string }> = [];
+			const running = runAgentOneShot({
+				agentId: "claude",
+				prompt: "make html",
+				idleTimeoutMs: 120_000,
+				onEvent: (event) => events.push(event),
+				pinInput: { getAccountLaunchDir: async () => null },
+			});
+
+			await vi.waitFor(() => {
+				expect(spawnMock).toHaveBeenCalled();
+			});
+
+			await vi.advanceTimersByTimeAsync(120_000);
+
+			expect(child.kill).toHaveBeenCalledTimes(1);
+			expect(
+				events.some(
+					(event) =>
+						event.type === "error" && event.message === "Agent produced no output for 120s — cancelled.",
+				),
+			).toBe(true);
+
+			child.emit("close", null);
+			const result = await running;
+			expect(result.code).toBeNull();
+			expect(events.at(-1)).toEqual({ type: "done", code: null });
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	it("fails loudly when the pinned seat is blocked", async () => {
 		resolveManagerAccountPin.mockResolvedValue({
 			env: {},

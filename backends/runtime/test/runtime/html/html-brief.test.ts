@@ -45,6 +45,7 @@ describe("buildBriefPrompt", () => {
 		promptMasterBody: SKILL_BODY,
 		content: "Customer hates the dashboard. Wants KPI cards.",
 		assetPaths: [] as string[],
+		unresolvedLinks: [] as string[],
 	};
 
 	it("carries the skill body, the user's plan and every heading of the output contract", () => {
@@ -90,5 +91,22 @@ describe("buildBriefPrompt", () => {
 
 	it("names the selected template so the brief is shaped for it", () => {
 		expect(buildBriefPrompt({ ...base, templateId: "live-dashboard" })).toContain("live-dashboard");
+	});
+
+	it("emits a could-not-be-opened block when unresolvedLinks is non-empty", () => {
+		const prompt = buildBriefPrompt({
+			...base,
+			unresolvedLinks: ["roadmap.assets/missing.png", "roadmap.assets/escaped.png"],
+		});
+
+		expect(prompt).toContain("could not be opened");
+		expect(prompt).toContain("roadmap.assets/missing.png");
+		expect(prompt).toContain("roadmap.assets/escaped.png");
+		expect(prompt).toContain("Do NOT attempt to read them");
+		expect(prompt).toContain("referenced image not available");
+	});
+
+	it("says nothing about unresolved links when there are none", () => {
+		expect(buildBriefPrompt(base)).not.toContain("could not be opened");
 	});
 });

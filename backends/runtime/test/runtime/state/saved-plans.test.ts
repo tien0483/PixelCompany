@@ -255,16 +255,17 @@ describe("plan assets", () => {
 			expect(resolved.assetPaths).toEqual([join(folder, "roadmap.assets", "dashboard-1.png")]);
 		});
 
-		it("drops links that escape the assets directory", async () => {
+		it("drops links that escape the assets directory into unresolvedLinks, not assetPaths", async () => {
 			const { planId } = await importPlanWithMarkdown("# Roadmap\n");
 			await writeSavedPlanAsset(planId, { data: ONE_PIXEL_PNG_BASE64, mimeType: "image/png" });
 
 			const resolved = await resolvePlanImageAssets(planId, "![escape](../../../etc/passwd.png)");
 
 			expect(resolved.assetPaths).toEqual([]);
+			expect(resolved.unresolvedLinks).toEqual(["../../../etc/passwd.png"]);
 		});
 
-		it("skips remote and inline links, and files that are not on disk", async () => {
+		it("skips remote and inline links entirely, but reports a missing on-disk file as unresolved", async () => {
 			const { planId } = await importPlanWithMarkdown("# Roadmap\n");
 
 			const resolved = await resolvePlanImageAssets(
@@ -277,6 +278,18 @@ describe("plan assets", () => {
 			);
 
 			expect(resolved.assetPaths).toEqual([]);
+			expect(resolved.unresolvedLinks).toEqual(["roadmap.assets/never-written.png"]);
+		});
+
+		it("does not report a duplicate missing link twice", async () => {
+			const { planId } = await importPlanWithMarkdown("# Roadmap\n");
+
+			const resolved = await resolvePlanImageAssets(
+				planId,
+				"![gone](roadmap.assets/never-written.png)\n![gone again](roadmap.assets/never-written.png)",
+			);
+
+			expect(resolved.unresolvedLinks).toEqual(["roadmap.assets/never-written.png"]);
 		});
 
 		it("lists a repeated image once", async () => {

@@ -44,6 +44,20 @@ export interface RunAgentOneShotInput {
 	 * `--permission-mode auto` to decide.
 	 */
 	allowedTools?: string[];
+	/**
+	 * Hard ceiling on the whole run, regardless of output. Guards against a
+	 * process that keeps producing output (or keeps resetting the idle timer)
+	 * without ever finishing.
+	 */
+	timeoutMs?: number;
+	/**
+	 * Cancels the run if no stdout/stderr line arrives for this long. This is
+	 * the watchdog for the actual stall this module exists to prevent: a
+	 * one-shot `-p` run that silently blocks on a permission prompt it has no
+	 * UI to answer produces no output at all, so an idle timer — reset on
+	 * every line — is what notices.
+	 */
+	idleTimeoutMs?: number;
 	/** Extra env merged after pin + process.env. */
 	env?: Record<string, string | undefined>;
 	/** When provided, used instead of calling resolveManagerAccountPin internally. */
@@ -164,6 +178,57 @@ export async function runAgentOneShot(input: RunAgentOneShotInput): Promise<{ co
 		}
 	}
 
+	// Guards the stall this module exists to prevent: a one-shot `-p` run has no
+	// UI to answer an unexpected permission prompt, so it can sit forever
+	// producing nothing. Once one watchdog fires, only its own error is kept —
+	// a killed child's non-zero exit must not also emit "Claude exited with
+	// code 1" as if that were a fresh, separate failure.
+	let errorEmitted = false;
+	const emitError = (message: string) => {
+		if (errorEmitted) {
+			return;
+		}
+		errorEmitted = true;
+		input.onEvent({ type: "error", message });
+	};
+
+	let idleTimer: ReturnType<typeof setTimeout> | undefined;
+	const clearIdleTimer = () => {
+		if (idleTimer) {
+			clearTimeout(idleTimer);
+			idleTimer = undefined;
+		}
+	};
+	const resetIdleTimer = () => {
+		if (input.idleTimeoutMs === undefined) {
+			return;
+		}
+		clearIdleTimer();
+		idleTimer = setTimeout(() => {
+			const idleSeconds = Math.round(input.idleTimeoutMs! / 1000);
+			emitError(`Agent produced no output for ${idleSeconds}s — cancelled.`);
+			try {
+				child.kill();
+			} catch {
+				// already gone
+			}
+		}, input.idleTimeoutMs);
+	};
+	resetIdleTimer();
+
+	let hardTimer: ReturnType<typeof setTimeout> | undefined;
+	if (input.timeoutMs !== undefined) {
+		hardTimer = setTimeout(() => {
+			const totalSeconds = Math.round(input.timeoutMs! / 1000);
+			emitError(`Agent ran for ${totalSeconds}s without finishing — cancelled.`);
+			try {
+				child.kill();
+			} catch {
+				// already gone
+			}
+		}, input.timeoutMs);
+	}
+
 	child.stdin?.write(input.prompt);
 	child.stdin?.end();
 
@@ -171,6 +236,7 @@ export async function runAgentOneShot(input: RunAgentOneShotInput): Promise<{ co
 	if (child.stdout) {
 		const rl = createInterface({ input: child.stdout });
 		rl.on("line", (line) => {
+			resetIdleTimer();
 			input.onEvent({ type: "raw", line });
 			for (const part of parse(line)) {
 				if (part.kind === "delta") {
@@ -186,13 +252,14 @@ export async function runAgentOneShot(input: RunAgentOneShotInput): Promise<{ co
 	if (child.stderr) {
 		const rlErr = createInterface({ input: child.stderr });
 		rlErr.on("line", (line) => {
+			resetIdleTimer();
 			input.onEvent({ type: "stderr", text: line });
 		});
 	}
 
 	const code = await new Promise<number | null>((resolvePromise) => {
 		child.once("error", (error) => {
-			input.onEvent({ type: "error", message: error.message });
+			emitError(error.message);
 			resolvePromise(1);
 		});
 		child.once("close", (exitCode) => {
@@ -200,8 +267,15 @@ export async function runAgentOneShot(input: RunAgentOneShotInput): Promise<{ co
 		});
 	});
 
+	clearIdleTimer();
+	if (hardTimer) {
+		clearTimeout(hardTimer);
+	}
 	if (input.signal) {
 		input.signal.removeEventListener("abort", onAbort);
+	}
+	if (code !== 0 && !errorEmitted) {
+		input.onEvent({ type: "error", message: `Claude exited with code ${code}` });
 	}
 	input.onEvent({ type: "done", code });
 	return { code };
