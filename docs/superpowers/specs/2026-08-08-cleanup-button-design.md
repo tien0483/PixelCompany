@@ -10,12 +10,14 @@ Reference: [hoangvu12/claude-clean](https://github.com/hoangvu12/claude-clean) �
 
 Two independent cleanup domains behind one UI entry point:
 
-1. **Runtime worktrees** (existing, no backend changes) — `workspace.cleanMergedWorktrees` tRPC mutation (`backends/runtime/src/trpc/workspace-api.ts:646`, schema in `backends/runtime/src/core/api-contract.ts:2530-2543`) deletes task worktrees whose branch is fully merged, skipping worktrees shared by live chain members or with unmerged branches. Frontend helper `cleanRuntimeMergedWorktrees` (`frontends/pixel_office/src/runtime/runtime-config-query.ts:347-352`) already exists but is unused. We add a companion read-only list query (existing `listWorktrees` inventory) for the modal's preview, and wire the mutation to the new UI.
+1. **Runtime worktrees** (existing logic, small extension) — `workspace.cleanMergedWorktrees` tRPC mutation (`backends/runtime/src/trpc/workspace-api.ts:646`, schema in `backends/runtime/src/core/api-contract.ts:2530-2543`) deletes task worktrees whose branch is fully merged, skipping worktrees shared by live chain members or with unmerged branches. Frontend helper `cleanRuntimeMergedWorktrees` (`frontends/pixel_office/src/runtime/runtime-config-query.ts:347-352`) already exists but is unused. Correction from the earlier draft: the raw `listWorktrees` inventory has no merge-eligibility info (it's just git worktree paths/branches), so it can't drive a preview by itself. Instead, `cleanMergedWorktrees` (module + tRPC mutation) gains an optional `dryRun` flag: when set, it still runs every eligibility check (shared chain member, missing base ref, merge-base ancestry) but skips the actual `deleteTaskWorktree`/branch-delete calls and the state-update broadcast — so the same `{ ok, cleanedTaskIds, skipped }` response shape doubles as a preview ("would clean" vs "would skip, because...") with no new schema fields needed.
 
 2. **Claude cache/logs** (new) — `backends/runtime/src/workspace/claude-cache-cleanup.ts`, same shape as `git-worktree-cleanup.ts`:
-   - Scans `~/.claude`, categorizes entries into safe tier (debug logs, tool-result cache, shell snapshots, file history, temp files) and transcript tier (session transcripts).
-   - Age filter: safe tier defaults to >7 days old (matches claude-clean); "active" files (mtime within threshold) are treated as in-use and skipped regardless of tier.
-   - Hard-excludes protected paths: config, credentials, settings, global instructions, memory directory — these are never scanned for deletion candidates.
+   - Scans an explicit allowlist of subdirectories under `~/.claude` rather than the whole tree — confirmed against a real `~/.claude` layout, which also holds this repo's own unrelated app data (`jacked-*.db`/`.log`, `manager.db*`, `accounts/`, `skills/`, `plugins/`, `plans/`, `.cc-writes/`, etc.) that a blanket scan would wrongly treat as candidates:
+     - Safe tier: `cache/` (tool-result cache), `paste-cache/` (clipboard content), `shell-snapshots/` (shell env snapshots), `file-history/` (file history).
+     - Transcript tier: `projects/**/*.jsonl` (session transcripts).
+     - Everything else under `~/.claude` (config, credentials, settings, `CLAUDE.md`, `backups/`, `sessions/`, `tasks/`, `session-env/`, and this repo's own `jacked-*`/`manager.db*` files) is never scanned — protected by omission, not by a delete-time check.
+   - Age filter: safe tier defaults to >7 days old (matches claude-clean); files newer than the cutoff are treated as in-use and skipped regardless of tier.
    - Two tRPC procedures mirror the worktree pair:
      - `claudeCache.status` — read-only, returns categorized counts/sizes.
      - `claudeCache.clean({ days, includeTranscripts, dryRun })` — `dryRun: true` returns the same shape as `status` scoped to what-would-be-deleted (no fs writes); `dryRun: false` deletes and returns per-item results, with per-item failures recorded as `skipped` (reason) rather than aborting the batch.
@@ -29,7 +31,7 @@ Two independent cleanup domains behind one UI entry point:
   - A nested checkbox "Include session transcripts" appears under the Claude row, disabled until that row is checked.
 - "Preview" (enabled once ≥1 row is checked):
   - For Claude cache: calls `claudeCache.clean({ dryRun: true, includeTranscripts, days: 7 })`, renders the returned item list with sizes.
-  - For worktrees: no dry-run mutation needed — the inventory list already distinguishes merged/mergeable worktrees from skip-worthy ones, so preview renders that list directly.
+  - For worktrees: calls `workspace.cleanMergedWorktrees({ dryRun: true })`, renders `cleanedTaskIds` as "would remove" and `skipped` as "kept, because...".
 - "Confirm delete" runs the real mutation(s) for checked categories only, shows a toast per category (removed count/size, skipped count with reasons), then re-runs both status queries to refresh the modal in place (it stays open).
 - Closing the modal at any point (before confirm) makes no changes.
 
