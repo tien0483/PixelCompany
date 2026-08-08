@@ -17,6 +17,9 @@ const FALLBACK_TPL = {
   scenario: "marketing",
   aspectHint: "",
   tags: [] as string[],
+  designDirectives: "default",
+  language: "zh",
+  allowRead: false,
 } satisfies TemplateDef;
 
 const STATUS_DOT: Record<ConvertStatus, { color: string; key: DictKey; live: boolean }> = {

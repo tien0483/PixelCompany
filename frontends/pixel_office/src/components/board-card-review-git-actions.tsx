@@ -171,7 +171,7 @@ export function BoardCardReviewGitActions({
 						className={INPUT_CLASS}
 						placeholder={baseRefHint || "official-branch"}
 						value={officialBranch}
-						onMouseDown={stopEvent}
+						onMouseDown={(e) => e.stopPropagation()}
 						onClick={stopEvent}
 						onChange={(event) => {
 							setOfficialBranch(event.target.value);

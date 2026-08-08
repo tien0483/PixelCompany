@@ -11,7 +11,6 @@ import {
 	PROMPT_MASTER_SKILL_RELATIVE_PATH,
 	stripFrontmatter,
 } from "../../../src/html/html-brief";
-import { augmentHtmlPrompt } from "../../../src/html/html-prompt-augment";
 
 const SKILL_BODY = "# Prompt Master\n\nExtract intent across 9 dimensions.";
 
@@ -68,6 +67,12 @@ describe("buildBriefPrompt", () => {
 		expect(prompt.indexOf(SKILL_BODY)).toBeLessThan(prompt.indexOf(base.content));
 	});
 
+	it("bans the write tools the Read grant sits next to", () => {
+		expect(buildBriefPrompt({ ...base, assetPaths: ["/plans/a.png"] })).toContain(
+			"Write / Edit / MultiEdit / Bash",
+		);
+	});
+
 	it("instructs the agent to read every image it was given", () => {
 		const assetPaths = ["/plans/roadmap.assets/old-dashboard.png", "/plans/roadmap.assets/notes.png"];
 
@@ -85,25 +90,5 @@ describe("buildBriefPrompt", () => {
 
 	it("names the selected template so the brief is shaped for it", () => {
 		expect(buildBriefPrompt({ ...base, templateId: "live-dashboard" })).toContain("live-dashboard");
-	});
-});
-
-describe("augmentHtmlPrompt", () => {
-	it("returns the prompt untouched when there is nothing to read", () => {
-		expect(augmentHtmlPrompt("PROMPT", { assetPaths: [] })).toBe("PROMPT");
-	});
-
-	it("appends the readable paths after the template prompt", () => {
-		const augmented = augmentHtmlPrompt("PROMPT", { assetPaths: ["/plans/roadmap.assets/shot.png"] });
-
-		expect(augmented.startsWith("PROMPT")).toBe(true);
-		expect(augmented).toContain("/plans/roadmap.assets/shot.png");
-		expect(augmented).toContain("Read");
-	});
-
-	it("restates the write/exec tool ban it is loosening around", () => {
-		const augmented = augmentHtmlPrompt("PROMPT", { assetPaths: ["/plans/a.png"] });
-
-		expect(augmented).toContain("Write / Edit / MultiEdit / Bash / Create");
 	});
 });

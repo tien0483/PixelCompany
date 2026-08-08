@@ -19,6 +19,7 @@ import {
 	computeHunks,
 	DiffRowText,
 	getHighlightedLineHtml,
+	isLargeFileDiff,
 	resolvePrismGrammar,
 	resolvePrismLanguage,
 	truncatePathMiddle,
@@ -1085,7 +1086,8 @@ export function DiffViewerPanel({
 						}}
 					>
 						{groupedByPath.map((group) => {
-							const isExpanded = expandedPaths[group.path] ?? true;
+							const isLarge = isLargeFileDiff(group.added, group.removed);
+							const isExpanded = expandedPaths[group.path] ?? !isLarge;
 							const hasBinaryEntry = group.entries.some(
 								(entry) => entry.isBinary,
 							);
@@ -1112,7 +1114,7 @@ export function DiffViewerPanel({
 												const previousTop =
 													sectionEl?.getBoundingClientRect().top ?? null;
 												const nextExpanded = !(
-													expandedPaths[group.path] ?? true
+													expandedPaths[group.path] ?? !isLarge
 												);
 												suppressScrollSyncUntilRef.current = Date.now() + 250;
 												setExpandedPaths((prev) => ({
@@ -1152,6 +1154,14 @@ export function DiffViewerPanel({
 												hasBinaryEntry ? (
 													<span className="ml-2 text-text-tertiary">
 														Binary
+													</span>
+												) : null}
+												{isLarge && !isExpanded ? (
+													<span
+														className="ml-2 text-text-tertiary"
+														title={`${group.added + group.removed} changed lines — collapsed by default to avoid a slow render`}
+													>
+														Large diff
 													</span>
 												) : null}
 											</span>
