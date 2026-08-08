@@ -9,6 +9,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AddProjectDialog } from "@/components/add-project-dialog";
 import { notifyError, showAppToast } from "@/components/app-toaster";
 import { CardDetailView } from "@/components/card-detail-view";
+import { CleanupDialog } from "@/components/cleanup-dialog";
 import { ClearTrashDialog } from "@/components/clear-trash-dialog";
 import { DebugDialog } from "@/components/debug-dialog";
 import { AgentTerminalPanel } from "@/components/detail-panels/agent-terminal-panel";
@@ -51,6 +52,7 @@ import { RuntimeDisconnectedFallback } from "@/hooks/runtime-disconnected-fallba
 import { useAppHotkeys } from "@/hooks/use-app-hotkeys";
 import { useBacklogAutorunScheduler } from "@/hooks/use-backlog-autorun-scheduler";
 import { useBoardInteractions } from "@/hooks/use-board-interactions";
+import { useCleanupTools } from "@/hooks/use-cleanup-tools";
 import { useDebugTools } from "@/hooks/use-debug-tools";
 import { useDetailTaskNavigation } from "@/hooks/use-detail-task-navigation";
 import { useDocumentVisibility } from "@/hooks/use-document-visibility";
@@ -245,6 +247,11 @@ export default function App(): ReactElement {
 		settingsRuntimeProjectConfig,
 		onOpenStartupOnboardingDialog: handleOpenStartupOnboardingDialog,
 	});
+	const {
+		isCleanupDialogOpen,
+		handleOpenCleanupDialog,
+		handleCleanupDialogOpenChange,
+	} = useCleanupTools();
 	const {
 		markConnectionReady: markTerminalConnectionReady,
 		prepareWaitForConnection: prepareWaitForTerminalConnectionReady,
@@ -1269,6 +1276,7 @@ export default function App(): ReactElement {
 						onOpenDebugDialog={
 							debugModeEnabled ? handleOpenDebugDialog : undefined
 						}
+						onOpenCleanup={handleOpenCleanupDialog}
 						shortcuts={shortcuts}
 						selectedShortcutLabel={selectedShortcutLabel}
 						onSelectShortcutLabel={handleSelectShortcutLabel}
@@ -1674,6 +1682,11 @@ export default function App(): ReactElement {
 					isResetAllStatePending={isResetAllStatePending}
 					onShowStartupOnboardingDialog={handleShowStartupOnboardingDialog}
 					onResetAllState={handleResetAllState}
+				/>
+				<CleanupDialog
+					open={isCleanupDialogOpen}
+					onOpenChange={handleCleanupDialogOpenChange}
+					workspaceId={currentProjectId}
 				/>
 				<CommitComposerDialog
 					open={isCommitDialogOpen}
