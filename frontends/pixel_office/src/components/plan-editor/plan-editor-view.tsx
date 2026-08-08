@@ -28,7 +28,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
 import { Spinner } from "@/components/ui/spinner";
 import { HTML_LABELS } from "@/html/html-labels";
-import { useHtmlGenerate } from "@/html/use-html-generate";
+import { useHtmlBrief, useHtmlGenerate } from "@/html/use-html-agent-stream";
 import { ResizeHandle } from "@/resize/resize-handle";
 import { usePlanEditorLayout } from "@/resize/use-plan-editor-layout";
 import { useResizeDrag } from "@/resize/use-resize-drag";
@@ -149,7 +149,15 @@ export function PlanEditorView({
 	const [logOpen, setLogOpen] = useState(false);
 
 	const generate = useHtmlGenerate();
+	const brief = useHtmlBrief();
 	const savedHtmlRef = useRef<string | null>(null);
+	/**
+	 * The markdown the current `<stem>.html` was generated from. Refine diffs against
+	 * it, so it must be the text the agent actually saw — not whatever the user has
+	 * typed since.
+	 */
+	const lastGeneratedContentRef = useRef<string | null>(null);
+	const savedBriefRef = useRef<string | null>(null);
 	const containerRef = useRef<HTMLDivElement>(null);
 	const textareaRef = useRef<HTMLTextAreaElement>(null);
 	const { rawPaneRatio, setRawPaneRatio } = usePlanEditorLayout();
@@ -162,6 +170,8 @@ export function PlanEditorView({
 		setSourceState("md");
 		setRichFailed(false);
 		savedHtmlRef.current = null;
+		lastGeneratedContentRef.current = null;
+		savedBriefRef.current = null;
 	}, [plan.id]);
 
 	// Rendered pane trails raw-pane typing so TipTap isn't rebuilt on every keystroke.
@@ -232,6 +242,7 @@ export function PlanEditorView({
 		(templateId: string) => {
 			savedHtmlRef.current = null;
 			setLogOpen(false);
+			lastGeneratedContentRef.current = mdDoc.content;
 			void generate.run({
 				templateId,
 				content: mdDoc.content,
@@ -242,9 +253,76 @@ export function PlanEditorView({
 		[generate, kind, mdDoc.content, plan.id],
 	);
 
+	/**
+	 * Same endpoint, but carrying the accepted HTML and the markdown it came from,
+	 * which switches the prompt service to its diff-edit branch. Regenerating from
+	 * scratch for a five-line change throws away a design the customer already
+	 * signed off on.
+	 */
+	const handleRefine = useCallback(
+		(templateId: string) => {
+			const currentHtml = htmlDoc.content;
+			if (!currentHtml.trim()) {
+				showAppToast({ intent: "warning", message: HTML_LABELS.refineNeedsHtml });
+				return;
+			}
+			savedHtmlRef.current = null;
+			setLogOpen(false);
+			const editFromContent = lastGeneratedContentRef.current ?? mdDoc.content;
+			lastGeneratedContentRef.current = mdDoc.content;
+			void generate.run({
+				templateId,
+				content: mdDoc.content,
+				format: kind === "text" ? "text" : "markdown",
+				planId: plan.id,
+				editFromHtml: currentHtml,
+				editFromContent,
+			});
+		},
+		[generate, htmlDoc.content, kind, mdDoc.content, plan.id],
+	);
+
+	const handleExpand = useCallback(
+		(templateId: string | null) => {
+			savedBriefRef.current = null;
+			setLogOpen(false);
+			void brief.run({
+				planId: plan.id,
+				content: mdDoc.content,
+				...(templateId ? { templateId } : {}),
+			});
+		},
+		[brief, mdDoc.content, plan.id],
+	);
+
+	// The brief is appended, never substituted: the user's own notes stay above it so
+	// they can see what the expansion did with them before generating.
+	const briefStatus = brief.status;
+	const briefText = brief.text;
+	useEffect(() => {
+		if (briefStatus !== "done" || briefText.trim() === "") {
+			return;
+		}
+		if (savedBriefRef.current === briefText) {
+			return;
+		}
+		savedBriefRef.current = briefText;
+		mdDoc.updateContent(`${mdDoc.content.replace(/\s*$/, "")}\n\n---\n\n${briefText.trim()}\n`);
+		showAppToast({ intent: "success", message: HTML_LABELS.expandDone });
+	}, [briefStatus, briefText, mdDoc]);
+
+	const briefError = brief.error;
+	useEffect(() => {
+		if (!briefError) {
+			return;
+		}
+		setLogOpen(true);
+		showAppToast({ intent: "danger", message: briefError });
+	}, [briefError]);
+
 	// A finished stream is written straight to `<stem>.html`, which un-greys the HTML switch.
 	const generateStatus = generate.status;
-	const generatedHtml = generate.html;
+	const generatedHtml = generate.text;
 	useEffect(() => {
 		if (generateStatus !== "done" || generatedHtml.trim() === "") {
 			return;
@@ -310,15 +388,18 @@ export function PlanEditorView({
 	);
 
 	const isStreaming = generate.status === "running";
+	// One log panel for both passes — whichever ran last is what the user is debugging.
+	const agentLog = useMemo(() => [...brief.log, ...generate.log], [brief.log, generate.log]);
+	const agentError = generate.error ?? brief.error;
 	const showMarkdownTools = source === "md" && !isHtmlPlan;
 	const htmlSizeBytes = useMemo(
-		() => new TextEncoder().encode(generate.html).length,
-		[generate.html],
+		() => new TextEncoder().encode(generate.text).length,
+		[generate.text],
 	);
 
 	const renderedPaneBody = (): ReactElement => {
 		if (source === "html" || isStreaming) {
-			const html = isStreaming ? generate.html : htmlDoc.content;
+			const html = isStreaming ? generate.text : htmlDoc.content;
 			return (
 				<iframe
 					title={HTML_LABELS.preview}
@@ -472,13 +553,18 @@ export function PlanEditorView({
 						{!isHtmlPlan && source === "md" ? (
 							<PlanHtmlGenerateBar
 								status={generate.status}
+								briefStatus={brief.status}
 								startedAt={generate.startedAt}
 								firstByteAt={generate.firstByteAt}
 								doneAt={generate.doneAt}
 								htmlSizeBytes={htmlSizeBytes}
+								canRefine={htmlAvailable && htmlDoc.content.trim().length > 0}
+								canExpand={!plan.missing}
 								disabled={mdDoc.status === "loading"}
+								onExpand={handleExpand}
 								onGenerate={handleGenerate}
-								onCancel={generate.cancel}
+								onRefine={handleRefine}
+								onCancel={brief.status === "running" ? brief.cancel : generate.cancel}
 							/>
 						) : null}
 					</div>
@@ -486,7 +572,7 @@ export function PlanEditorView({
 				</div>
 			</div>
 
-			{generate.log.length > 0 || generate.error ? (
+			{agentLog.length > 0 || agentError ? (
 				<div className="shrink-0 border-t border-border bg-surface-1" data-testid="plan-editor-generate-log">
 					<button
 						type="button"
@@ -494,18 +580,18 @@ export function PlanEditorView({
 						onClick={() => setLogOpen((open) => !open)}
 					>
 						<span>
-							{logOpen ? "▾" : "▸"} {HTML_LABELS.log} ({generate.log.length})
+							{logOpen ? "▾" : "▸"} {HTML_LABELS.log} ({agentLog.length})
 						</span>
-						{generate.error ? (
-							<span className="truncate text-status-red">{generate.error}</span>
+						{agentError ? (
+							<span className="truncate text-status-red">{agentError}</span>
 						) : null}
 					</button>
 					{logOpen ? (
 						<div className="max-h-32 overflow-auto bg-surface-2 px-3 py-2 font-mono text-[11px] leading-relaxed text-text-secondary">
-							{generate.log.length === 0 ? (
+							{agentLog.length === 0 ? (
 								<div className="text-text-tertiary">{HTML_LABELS.noLog}</div>
 							) : (
-								generate.log.map((line, index) => (
+								agentLog.map((line, index) => (
 									// eslint-disable-next-line react/no-array-index-key
 									<div key={index} className="whitespace-pre-wrap break-words">
 										{line}

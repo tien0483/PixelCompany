@@ -1,4 +1,4 @@
-import { Sparkles, Zap } from "lucide-react";
+import { ListChecks, Sparkles, Wand2, Zap } from "lucide-react";
 import { type ReactElement, useEffect, useMemo, useState } from "react";
 
 import { showAppToast } from "@/components/app-toaster";
@@ -7,17 +7,25 @@ import { cn } from "@/components/ui/cn";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Spinner } from "@/components/ui/spinner";
 import { HTML_LABELS } from "@/html/html-labels";
-import type { HtmlGenerateStatus } from "@/html/use-html-generate";
+import type { HtmlStreamStatus } from "@/html/use-html-agent-stream";
 import { useHtmlTemplates } from "@/html/use-html-templates";
 
 export interface PlanHtmlGenerateBarProps {
-	status: HtmlGenerateStatus;
+	status: HtmlStreamStatus;
+	/** Brief expansion runs on its own stream; the bar only needs its liveness. */
+	briefStatus: HtmlStreamStatus;
 	startedAt: number | null;
 	firstByteAt: number | null;
 	doneAt: number | null;
 	htmlSizeBytes: number;
+	/** False until the plan has a generated HTML sibling to edit. */
+	canRefine: boolean;
+	/** False for an unsaved plan, whose images are not on disk yet. */
+	canExpand: boolean;
 	disabled?: boolean;
+	onExpand: (templateId: string | null) => void;
 	onGenerate: (templateId: string) => void;
+	onRefine: (templateId: string) => void;
 	onCancel: () => void;
 }
 
@@ -36,18 +44,24 @@ function formatBytes(bytes: number): string {
  */
 export function PlanHtmlGenerateBar({
 	status,
+	briefStatus,
 	startedAt,
 	firstByteAt,
 	doneAt,
 	htmlSizeBytes,
+	canRefine,
+	canExpand,
 	disabled,
+	onExpand,
 	onGenerate,
+	onRefine,
 	onCancel,
 }: PlanHtmlGenerateBarProps): ReactElement {
 	const { online, templates, loading } = useHtmlTemplates();
 	const [selectedId, setSelectedId] = useState<string | null>(null);
 	const [tick, setTick] = useState(0);
 	const isRunning = status === "running";
+	const isExpanding = briefStatus === "running";
 
 	useEffect(() => {
 		if (!isRunning) return;
@@ -76,6 +90,14 @@ export function PlanHtmlGenerateBar({
 			return;
 		}
 		onGenerate(selectedId);
+	};
+
+	const handleRefine = () => {
+		if (!selectedId) {
+			showAppToast({ intent: "warning", message: HTML_LABELS.pickTemplate });
+			return;
+		}
+		onRefine(selectedId);
 	};
 
 	return (
@@ -125,16 +147,41 @@ export function PlanHtmlGenerateBar({
 					</Button>
 				</>
 			) : (
-				<Button
-					variant="primary"
-					size="sm"
-					icon={<Zap size={13} />}
-					disabled={!selectedId || !online || loading || disabled}
-					onClick={handleGenerate}
-					data-testid="plan-html-generate-run"
-				>
-					{HTML_LABELS.convert}
-				</Button>
+				<>
+					{/* Expansion never touches the sidecar, so it stays usable while templates are offline. */}
+					<Button
+						variant="default"
+						size="sm"
+						icon={isExpanding ? <Spinner size={13} /> : <ListChecks size={13} />}
+						disabled={!canExpand || isExpanding || disabled}
+						onClick={() => onExpand(selectedId)}
+						title={canExpand ? HTML_LABELS.expandHint : HTML_LABELS.expandNeedsPlan}
+						data-testid="plan-html-brief-run"
+					>
+						{isExpanding ? HTML_LABELS.expanding : HTML_LABELS.expand}
+					</Button>
+					<Button
+						variant="primary"
+						size="sm"
+						icon={<Zap size={13} />}
+						disabled={!selectedId || !online || loading || disabled}
+						onClick={handleGenerate}
+						data-testid="plan-html-generate-run"
+					>
+						{HTML_LABELS.convert}
+					</Button>
+					<Button
+						variant="default"
+						size="sm"
+						icon={<Wand2 size={13} />}
+						disabled={!canRefine || !selectedId || !online || loading || disabled}
+						onClick={handleRefine}
+						title={canRefine ? HTML_LABELS.refineHint : HTML_LABELS.refineNeedsHtml}
+						data-testid="plan-html-refine-run"
+					>
+						{HTML_LABELS.refine}
+					</Button>
+				</>
 			)}
 			{startedAt !== null ? (
 				<span className="hidden items-center gap-2 font-mono text-[10px] uppercase tracking-wide text-text-tertiary xl:inline-flex">
