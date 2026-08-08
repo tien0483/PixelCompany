@@ -72,6 +72,7 @@ describe("PlanRichEditor", () => {
 		expect(container.querySelector("button")).not.toBeNull();
 		expect(container.textContent).toMatch(/Roadmap/i);
 		expect(editorInstance).not.toBeNull();
+		expect(container.querySelector(".kb-prose")).not.toBeNull();
 
 		await act(async () => {
 			editorInstance?.commands.insertContent(" edited");

@@ -52,7 +52,7 @@ export function PlanMarkdownPreview({ content, planId }: { content: string; plan
 		return <span className="text-text-secondary" />;
 	}
 	return (
-		<div className="kb-markdown min-w-0">
+		<div className="kb-markdown kb-prose min-w-0">
 			<ReactMarkdown
 				remarkPlugins={[remarkGfm]}
 				rehypePlugins={[rehypeRaw, [rehypeSanitize, planMarkdownSanitizeSchema]]}
