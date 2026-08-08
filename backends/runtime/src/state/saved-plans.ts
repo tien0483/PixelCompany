@@ -311,6 +311,55 @@ export async function writeSavedPlanAsset(
 	return `${basename(assetsDir)}/${fileName}`;
 }
 
+const MARKDOWN_IMAGE_PATTERN = /!\[[^\]]*\]\(\s*([^)\s]+)/g;
+
+/** Extension allowlist for what the agent is told it may open — mirrors PLAN_ASSET_MIME_TYPES. */
+const PLAN_ASSET_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp"]);
+
+/**
+ * Absolute, existing, in-sandbox paths for every `![](…)` image a plan's markdown
+ * references — what HTML generation hands the agent so it can actually *look* at
+ * a pasted screenshot instead of reading a path as prose.
+ *
+ * `planDir` doubles as the agent's cwd, which is what makes the relative
+ * `<stem>.assets/foo.png` links inside the markdown resolvable on the agent side.
+ * Remote links (`http(s):`) and inline `data:` URIs are skipped: nothing to open.
+ */
+export async function resolvePlanImageAssets(
+	planId: string,
+	markdown: string,
+): Promise<{ planDir: string; assetPaths: string[] }> {
+	const entry = await findSavedPlanById(planId);
+	if (!entry) {
+		throw new Error(`Plan "${planId}" was not found in the library.`);
+	}
+	const planDir = dirname(entry.path);
+	const assetsDir = getPlanAssetsDir(entry);
+	const seen = new Set<string>();
+	const assetPaths: string[] = [];
+	for (const match of markdown.matchAll(MARKDOWN_IMAGE_PATTERN)) {
+		const rawLink = match[1];
+		if (!rawLink || /^[a-z][a-z0-9+.-]*:/i.test(rawLink)) {
+			continue;
+		}
+		const link = decodeURI(rawLink);
+		if (!PLAN_ASSET_EXTENSIONS.has(extname(link).toLowerCase())) {
+			continue;
+		}
+		// Links are written relative to the plan file, and assets always live in
+		// `<stem>.assets/`; resolving from the plan dir covers both spellings.
+		const resolvedPath = resolve(planDir, link);
+		if (!isPathWithinRoot(assetsDir, resolvedPath) || seen.has(resolvedPath)) {
+			continue;
+		}
+		seen.add(resolvedPath);
+		if (await pathExists(resolvedPath)) {
+			assetPaths.push(resolvedPath);
+		}
+	}
+	return { planDir, assetPaths };
+}
+
 export async function readSavedPlanAsset(
 	planId: string,
 	relativePath: string,

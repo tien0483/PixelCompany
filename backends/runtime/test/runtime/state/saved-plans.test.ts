@@ -18,6 +18,7 @@ import {
 	readSavedPlanAsset,
 	readSavedPlanContent,
 	removeSavedPlan,
+	resolvePlanImageAssets,
 	writeSavedPlanAsset,
 	writeSavedPlanContent,
 	writeSavedPlanSibling,
@@ -228,6 +229,70 @@ describe("plan assets", () => {
 		await writeSavedPlanAsset(planId, { data: ONE_PIXEL_PNG_BASE64, mimeType: "image/png" });
 
 		await expect(readSavedPlanAsset(planId, "../../../etc/passwd")).rejects.toThrow(/access denied/i);
+	});
+
+	describe("resolvePlanImageAssets", () => {
+		async function importPlanWithMarkdown(markdown: string): Promise<{ planId: string; folder: string }> {
+			const folder = join(runtimeHome.path, "plans");
+			await mkdir(folder, { recursive: true });
+			await writeFile(join(folder, "roadmap.md"), markdown, "utf8");
+			const imported = await importPlansFromFolder(folder);
+			return { planId: imported.added[0]!.id, folder };
+		}
+
+		it("returns the plan directory and the absolute path of each linked image", async () => {
+			const { planId, folder } = await importPlanWithMarkdown("# Roadmap\n");
+			const relativePath = await writeSavedPlanAsset(planId, {
+				data: ONE_PIXEL_PNG_BASE64,
+				mimeType: "image/png",
+				name: "dashboard.png",
+			});
+			await writeSavedPlanContent(planId, `# Roadmap\n\n![old dashboard](${relativePath})\n`);
+
+			const resolved = await resolvePlanImageAssets(planId, `![old dashboard](${relativePath})`);
+
+			expect(resolved.planDir).toBe(folder);
+			expect(resolved.assetPaths).toEqual([join(folder, "roadmap.assets", "dashboard-1.png")]);
+		});
+
+		it("drops links that escape the assets directory", async () => {
+			const { planId } = await importPlanWithMarkdown("# Roadmap\n");
+			await writeSavedPlanAsset(planId, { data: ONE_PIXEL_PNG_BASE64, mimeType: "image/png" });
+
+			const resolved = await resolvePlanImageAssets(planId, "![escape](../../../etc/passwd.png)");
+
+			expect(resolved.assetPaths).toEqual([]);
+		});
+
+		it("skips remote and inline links, and files that are not on disk", async () => {
+			const { planId } = await importPlanWithMarkdown("# Roadmap\n");
+
+			const resolved = await resolvePlanImageAssets(
+				planId,
+				[
+					"![remote](https://example.com/shot.png)",
+					"![inline](data:image/png;base64,AAAA)",
+					"![gone](roadmap.assets/never-written.png)",
+				].join("\n"),
+			);
+
+			expect(resolved.assetPaths).toEqual([]);
+		});
+
+		it("lists a repeated image once", async () => {
+			const { planId, folder } = await importPlanWithMarkdown("# Roadmap\n");
+			const relativePath = await writeSavedPlanAsset(planId, {
+				data: ONE_PIXEL_PNG_BASE64,
+				mimeType: "image/png",
+			});
+
+			const resolved = await resolvePlanImageAssets(
+				planId,
+				`![a](${relativePath})\n![a again](${relativePath})`,
+			);
+
+			expect(resolved.assetPaths).toEqual([join(folder, "roadmap.assets", "pasted-1.png")]);
+		});
 	});
 });
 

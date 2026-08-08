@@ -218,6 +218,128 @@ describe("PlanEditorView", () => {
 		expect(getTextarea(container).value).toBe("# **Roadmap**\n");
 	});
 
+	describe("expand and refine", () => {
+		const TEMPLATE = {
+			id: "dashboard",
+			zhName: "仪表板",
+			enName: "Admin Dashboard",
+			emoji: "🎛️",
+			description: "",
+			category: "dashboard",
+			scenario: "operations",
+			aspectHint: "",
+			tags: [],
+		};
+
+		let fetchMock: ReturnType<typeof vi.fn>;
+
+		function getButton(testId: string): HTMLButtonElement {
+			const button = container.querySelector(`[data-testid="${testId}"]`);
+			if (!(button instanceof HTMLButtonElement)) {
+				throw new Error(`${testId} not found`);
+			}
+			return button;
+		}
+
+		/** One SSE frame, then done — enough to drive the hook to a terminal state. */
+		function streamResponse(text: string): Response {
+			const body = new ReadableStream<Uint8Array>({
+				start(controller) {
+					const encoder = new TextEncoder();
+					controller.enqueue(encoder.encode(`event: delta\ndata: ${JSON.stringify({ text })}\n\n`));
+					controller.enqueue(encoder.encode(`event: done\ndata: ${JSON.stringify({ code: 0 })}\n\n`));
+					controller.close();
+				},
+			});
+			return new Response(body, { status: 200 });
+		}
+
+		beforeEach(() => {
+			mockHtmlStatusQuery.mockResolvedValue({ online: true });
+			mockHtmlTemplatesQuery.mockResolvedValue([TEMPLATE]);
+			fetchMock = vi.fn().mockImplementation(() => Promise.resolve(streamResponse("<h1>New</h1>")));
+			vi.stubGlobal("fetch", fetchMock);
+		});
+
+		afterEach(() => {
+			vi.unstubAllGlobals();
+		});
+
+		it("keeps Refine disabled until generated HTML exists", async () => {
+			await render(PLAN);
+			await flush();
+			await waitFor(() => !getButton("plan-html-generate-run").disabled, "loaded templates");
+
+			expect(getButton("plan-html-refine-run").disabled).toBe(true);
+		});
+
+		it("refines from the existing HTML instead of regenerating it", async () => {
+			mockListQuery.mockResolvedValue({ ok: true, plans: [PLAN, HTML_SIBLING] });
+			await render(PLAN);
+			await flush();
+			await waitFor(() => !getButton("plan-html-refine-run").disabled, "enabled refine");
+
+			await act(async () => {
+				getButton("plan-html-refine-run").click();
+			});
+
+			expect(fetchMock).toHaveBeenCalledTimes(1);
+			const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+			expect(url).toBe("/api/html/generate");
+			expect(JSON.parse(init.body as string)).toMatchObject({
+				templateId: TEMPLATE.id,
+				planId: PLAN.id,
+				editFromHtml: "<h1>Generated</h1>",
+				editFromContent: "# Roadmap\n",
+			});
+		});
+
+		it("generates without the edit pair on a first run", async () => {
+			await render(PLAN);
+			await flush();
+			await waitFor(() => !getButton("plan-html-generate-run").disabled, "loaded templates");
+
+			await act(async () => {
+				getButton("plan-html-generate-run").click();
+			});
+
+			const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+			const body = JSON.parse(init.body as string) as Record<string, unknown>;
+			expect(body.editFromHtml).toBeUndefined();
+			expect(body.editFromContent).toBeUndefined();
+		});
+
+		it("appends the expanded brief below the user's own notes", async () => {
+			fetchMock.mockImplementation(() => Promise.resolve(streamResponse("# Brief\n\n## Goal\nShip it.")));
+			await render(PLAN);
+			await flush();
+			await waitFor(() => !getButton("plan-html-brief-run").disabled, "enabled expand");
+
+			await act(async () => {
+				getButton("plan-html-brief-run").click();
+			});
+			await waitFor(
+				() => getTextarea(container).value.includes("## Goal"),
+				"brief appended to the raw pane",
+			);
+
+			expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/html/brief");
+			const value = getTextarea(container).value;
+			expect(value.startsWith("# Roadmap")).toBe(true);
+			expect(value.indexOf("# Roadmap")).toBeLessThan(value.indexOf("# Brief"));
+		});
+
+		it("expands even while the template sidecar is offline", async () => {
+			mockHtmlStatusQuery.mockResolvedValue({ online: false });
+			mockHtmlTemplatesQuery.mockResolvedValue([]);
+			await render(PLAN);
+			await flush();
+
+			expect(getButton("plan-html-brief-run").disabled).toBe(false);
+			expect(getButton("plan-html-generate-run").disabled).toBe(true);
+		});
+	});
+
 	it("pins html plans to the HTML source with no generation bar", async () => {
 		mockReadQuery.mockResolvedValue({
 			ok: true,

@@ -23,4 +23,12 @@ export const HTML_LABELS = {
 	online: "Online",
 	offlineShort: "Offline",
 	noLog: "No log output yet.",
+	expand: "Expand brief",
+	expandHint: "Reads the plan's images and rewrites the notes as a structured brief. Review it before generating.",
+	expanding: "Expanding…",
+	expandDone: "Brief added below your notes.",
+	expandNeedsPlan: "Save the plan first — expansion reads its images from disk.",
+	refine: "Refine",
+	refineHint: "Edits the HTML you already have instead of regenerating it from scratch.",
+	refineNeedsHtml: "Generate HTML once before refining it.",
 } as const;

@@ -18,7 +18,7 @@ import type {
 	RuntimeUpdateStatusResponse,
 	RuntimeWorkspaceStateResponse,
 } from "../core/api-contract";
-import { RuntimeHtmlGenerateRequestSchema } from "../core/api-contract";
+import { RuntimeHtmlBriefRequestSchema, RuntimeHtmlGenerateRequestSchema } from "../core/api-contract";
 import {
 	buildKanbanRuntimeUrl,
 	getKanbanRuntimeHost,
@@ -27,6 +27,7 @@ import {
 	getKanbanRuntimeTls,
 	isKanbanRemoteHost,
 } from "../core/runtime-endpoint";
+import { buildBriefPrompt, loadPromptMasterBody } from "../html/html-brief";
 import type { HtmlClient, HtmlPromptFailure } from "../html/html-client";
 import {
 	createUsageResumeScheduler,
@@ -52,7 +53,7 @@ import {
 	validatePasscode,
 	validateSession,
 } from "../security/passcode-manager";
-import { findSavedPlanById, readSavedPlanAsset } from "../state/saved-plans";
+import { findSavedPlanById, readSavedPlanAsset, resolvePlanImageAssets } from "../state/saved-plans";
 import { loadWorkspaceContextById, loadWorkspaceState } from "../state/workspace-state";
 import { runAgentOneShot } from "../terminal/agent-oneshot";
 import { resolveHtmlAgentCwd, resolveHtmlAllowedTools } from "../html/html-agent-args";
@@ -263,6 +264,56 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 	const htmlApi = createHtmlApi({
 		client: deps.html.client,
 	});
+
+	/**
+	 * Account-pin wiring shared by every one-shot HTML agent route (`/api/html/brief`,
+	 * `/api/html/generate`). Both spend the same Claude seat, so both resolve it the
+	 * same way — pinned account when the caller names one, the Manager's active
+	 * Claude account otherwise.
+	 */
+	const buildHtmlAgentPinInput = (
+		managerAccountId?: number,
+	): NonNullable<Parameters<typeof runAgentOneShot>[0]["pinInput"]> => ({
+		managerAccountId,
+		getAccountLaunchDir: async (accountId) => (await managerApi.getAccountLaunchDir({ accountId })) ?? null,
+		getAccountProvider: async (accountId) => await managerApi.getAccountProvider(accountId),
+		resolveActiveClaudeAccountId: async () => {
+			const snapshot = deps.manager.monitor.getState();
+			if (!snapshot) return null;
+			return pickDefaultClaudeAccountId({
+				accounts: snapshot.accounts,
+				activeAccountId: snapshot.activeAccountId,
+			});
+		},
+		resolveLiveActiveClaudeAccountId: async () => deps.manager.monitor.getState()?.activeAccountId ?? null,
+		getPinnedAccount: async (accountId) => {
+			const snapshot = deps.manager.monitor.getState();
+			const account = snapshot?.accounts.find((entry) => entry.id === accountId);
+			return account ? toManagerDonateAccount(account) : null;
+		},
+	});
+
+	/**
+	 * Which images the brief pass may open, and where to run it.
+	 *
+	 * Generation gets its cwd from `resolveHtmlAgentCwd` and its Read grant from
+	 * the template's `allow_read`; expansion has no template to ask, and its whole
+	 * job is to look at the screenshots, so it names the paths explicitly. A plan
+	 * that has gone missing must not sink the run — the notes alone still expand.
+	 */
+	const resolveBriefPlanContext = async (
+		planId: string,
+		content: string,
+	): Promise<{ cwd?: string; assetPaths: string[] }> => {
+		try {
+			const { planDir, assetPaths } = await resolvePlanImageAssets(planId, content);
+			return { cwd: planDir, assetPaths };
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			deps.warn(`Brief expansion could not resolve plan ${planId}: ${message}`);
+			return { assetPaths: [] };
+		}
+	};
 
 	const runtimeApiDeps: Parameters<typeof createRuntimeApi>[0] = {
 		getActiveWorkspaceId: deps.workspaceRegistry.getActiveWorkspaceId,
@@ -687,7 +738,6 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 					res.end(JSON.stringify({ error }));
 					return;
 				}
-
 				// Resolved before the SSE headers go out so a plan-lookup failure can
 				// still answer with JSON instead of corrupting the stream.
 				const plan = input.planId ? await findSavedPlanById(input.planId).catch(() => null) : null;
@@ -718,26 +768,87 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 					onEvent: (event) => {
 						send(event.type, event);
 					},
-					pinInput: {
-						managerAccountId: input.managerAccountId,
-						getAccountLaunchDir: async (accountId) =>
-							(await managerApi.getAccountLaunchDir({ accountId })) ?? null,
-						getAccountProvider: async (accountId) => await managerApi.getAccountProvider(accountId),
-						resolveActiveClaudeAccountId: async () => {
-							const snapshot = deps.manager.monitor.getState();
-							if (!snapshot) return null;
-							return pickDefaultClaudeAccountId({
-								accounts: snapshot.accounts,
-								activeAccountId: snapshot.activeAccountId,
-							});
-						},
-						resolveLiveActiveClaudeAccountId: async () => deps.manager.monitor.getState()?.activeAccountId ?? null,
-						getPinnedAccount: async (accountId) => {
-							const snapshot = deps.manager.monitor.getState();
-							const account = snapshot?.accounts.find((entry) => entry.id === accountId);
-							return account ? toManagerDonateAccount(account) : null;
-						},
+					pinInput: buildHtmlAgentPinInput(input.managerAccountId),
+				});
+				if (!res.writableEnded) {
+					res.end();
+				}
+				return;
+			}
+			if (pathname === "/api/html/brief" && (req.method ?? "GET").toUpperCase() === "POST") {
+				let rawBody: string;
+				try {
+					rawBody = await readRequestBody(req, 2 * 1024 * 1024);
+				} catch {
+					res.writeHead(413, { "Content-Type": "application/json; charset=utf-8" });
+					res.end(JSON.stringify({ error: "Request body too large" }));
+					return;
+				}
+				let parsedBody: unknown;
+				try {
+					parsedBody = JSON.parse(rawBody);
+				} catch {
+					res.writeHead(400, { "Content-Type": "application/json; charset=utf-8" });
+					res.end(JSON.stringify({ error: "invalid JSON body" }));
+					return;
+				}
+				const parsed = RuntimeHtmlBriefRequestSchema.safeParse(parsedBody);
+				if (!parsed.success) {
+					res.writeHead(400, { "Content-Type": "application/json; charset=utf-8" });
+					res.end(JSON.stringify({ error: parsed.error.message }));
+					return;
+				}
+				const input = parsed.data;
+				// No sidecar round-trip: expansion runs before a template is involved,
+				// so a dead sidecar must not block it.
+				let briefPrompt: string;
+				let briefCwd: string | undefined;
+				let briefAssetCount = 0;
+				try {
+					const planContext = await resolveBriefPlanContext(input.planId, input.content);
+					briefCwd = planContext.cwd;
+					briefAssetCount = planContext.assetPaths.length;
+					briefPrompt = buildBriefPrompt({
+						promptMasterBody: await loadPromptMasterBody(),
+						content: input.content,
+						assetPaths: planContext.assetPaths,
+						...(input.templateId ? { templateId: input.templateId } : {}),
+					});
+				} catch (error) {
+					const message = error instanceof Error ? error.message : String(error);
+					res.writeHead(500, { "Content-Type": "application/json; charset=utf-8" });
+					res.end(JSON.stringify({ error: message }));
+					return;
+				}
+
+				res.writeHead(200, {
+					"Content-Type": "text/event-stream; charset=utf-8",
+					"Cache-Control": "no-cache, no-transform",
+					Connection: "keep-alive",
+					"X-Accel-Buffering": "no",
+				});
+
+				const abortCtl = new AbortController();
+				req.on("close", () => abortCtl.abort());
+				const send = (event: string, data: unknown) => {
+					if (res.writableEnded) return;
+					res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+				};
+
+				await runAgentOneShot({
+					agentId: "claude",
+					prompt: briefPrompt,
+					cwd: briefCwd,
+					model: input.model,
+					// Same reasoning as a template's `allow_read`: a one-shot `-p` run has
+					// no UI to answer a permission prompt, so the grant is explicit — and
+					// only when there is actually an image to open.
+					allowedTools: resolveHtmlAllowedTools(briefAssetCount > 0),
+					signal: abortCtl.signal,
+					onEvent: (event) => {
+						send(event.type, event);
 					},
+					pinInput: buildHtmlAgentPinInput(input.managerAccountId),
 				});
 				if (!res.writableEnded) {
 					res.end();
