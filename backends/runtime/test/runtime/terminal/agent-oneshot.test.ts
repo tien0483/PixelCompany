@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import { Readable } from "node:stream";
+import { PassThrough, Readable } from "node:stream";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const spawnMock = vi.fn();
@@ -230,6 +230,111 @@ describe("runAgentOneShot", () => {
 			const result = await running;
 			expect(result.code).toBeNull();
 			expect(events.at(-1)).toEqual({ type: "done", code: null });
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("resets the idle timer on output, surviving the original deadline, then cancels once truly idle", async () => {
+		vi.useFakeTimers();
+		try {
+			const child = createFakeChild();
+			const stdout = new PassThrough();
+			child.stdout = stdout as unknown as Readable;
+			spawnMock.mockReturnValue(child);
+			resolveManagerAccountPin.mockResolvedValue({ env: {}, accountId: null, warning: null });
+
+			const events: Array<{ type: string; message?: string }> = [];
+			const running = runAgentOneShot({
+				agentId: "claude",
+				prompt: "make html",
+				idleTimeoutMs: 5000,
+				onEvent: (event) => events.push(event),
+				pinInput: { getAccountLaunchDir: async () => null },
+			});
+
+			await vi.waitFor(() => {
+				expect(spawnMock).toHaveBeenCalled();
+			});
+
+			// A line arrives just before the original 5s deadline would fire.
+			await vi.advanceTimersByTimeAsync(4000);
+			stdout.write("still working\n");
+			await vi.waitFor(() => {
+				expect(events.some((event) => event.type === "raw")).toBe(true);
+			});
+
+			// Push past what would have been the original deadline (4000 + 1200 = 5200ms
+			// elapsed) — the run must survive, since the line above reset the timer.
+			await vi.advanceTimersByTimeAsync(1200);
+			expect(child.kill).not.toHaveBeenCalled();
+			expect(events.some((event) => event.type === "error")).toBe(false);
+
+			// Now go quiet for a full idle window measured from the last line (reached at
+			// 4000 + 5000 = 9000ms elapsed; we're already at 5200ms, so 3800ms more).
+			await vi.advanceTimersByTimeAsync(3800);
+			expect(child.kill).toHaveBeenCalledTimes(1);
+			expect(
+				events.some(
+					(event) =>
+						event.type === "error" && event.message === "Agent produced no output for 5s — cancelled.",
+				),
+			).toBe(true);
+
+			stdout.end();
+			child.emit("close", null);
+			await running;
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("cancels via the hard timeout even while output keeps arriving (idle timer never fires)", async () => {
+		vi.useFakeTimers();
+		try {
+			const child = createFakeChild();
+			const stdout = new PassThrough();
+			child.stdout = stdout as unknown as Readable;
+			spawnMock.mockReturnValue(child);
+			resolveManagerAccountPin.mockResolvedValue({ env: {}, accountId: null, warning: null });
+
+			const events: Array<{ type: string; message?: string }> = [];
+			const running = runAgentOneShot({
+				agentId: "claude",
+				prompt: "make html",
+				idleTimeoutMs: 100_000,
+				timeoutMs: 10_000,
+				onEvent: (event) => events.push(event),
+				pinInput: { getAccountLaunchDir: async () => null },
+			});
+
+			await vi.waitFor(() => {
+				expect(spawnMock).toHaveBeenCalled();
+			});
+
+			// Output arrives well within the (generous) idle window, proving the idle
+			// timer is not what eventually cancels this run.
+			await vi.advanceTimersByTimeAsync(5000);
+			stdout.write("still working\n");
+			await vi.waitFor(() => {
+				expect(events.some((event) => event.type === "raw")).toBe(true);
+			});
+			expect(child.kill).not.toHaveBeenCalled();
+
+			// The hard ceiling elapses regardless of the recent output.
+			await vi.advanceTimersByTimeAsync(5000);
+			expect(child.kill).toHaveBeenCalledTimes(1);
+			expect(
+				events.some(
+					(event) =>
+						event.type === "error" &&
+						event.message === "Agent ran for 10s without finishing — cancelled.",
+				),
+			).toBe(true);
+
+			stdout.end();
+			child.emit("close", null);
+			await running;
 		} finally {
 			vi.useRealTimers();
 		}
