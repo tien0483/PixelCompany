@@ -1312,6 +1312,7 @@ export default function App(): ReactElement {
 						>
 							{editingPlan ? (
 								<PlanEditorView
+									key={editingPlan.id}
 									plan={editingPlan}
 									workspaceId={currentProjectId}
 									onClose={() => setEditingPlan(null)}

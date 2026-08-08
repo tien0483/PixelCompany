@@ -63,6 +63,13 @@ const HTML_PLAN: RuntimeSavedPlan = {
 	addedAt: 0,
 };
 
+const PLAN2: RuntimeSavedPlan = {
+	id: "plan-2",
+	name: "plan-2",
+	path: "/tmp/plan-2.md",
+	addedAt: 0,
+};
+
 function flush(): Promise<void> {
 	return act(async () => {
 		await Promise.resolve();
@@ -114,7 +121,13 @@ describe("PlanEditorView", () => {
 		return act(async () => {
 			root.render(
 				<TooltipProvider>
-					<PlanEditorView plan={plan} workspaceId="workspace-1" onClose={() => {}} />
+					{/*
+					 * `key={plan.id}` mirrors the real App.tsx render call (`key={editingPlan.id}`,
+					 * task 3c) — in production a plan switch always remounts, so the regression test
+					 * for the cross-plan leak should exercise that same remount rather than a bare
+					 * prop swap on a surviving instance, which is not a shape the shipped app produces.
+					 */}
+					<PlanEditorView key={plan.id} plan={plan} workspaceId="workspace-1" onClose={() => {}} />
 				</TooltipProvider>,
 			);
 		});
@@ -128,7 +141,9 @@ describe("PlanEditorView", () => {
 			Promise.resolve(
 				planId === HTML_SIBLING.id
 					? { ok: true, plan: HTML_SIBLING, content: "<h1>Generated</h1>" }
-					: { ok: true, plan: PLAN, content: "# Roadmap\n" },
+					: planId === PLAN2.id
+						? { ok: true, plan: PLAN2, content: "# Plan 2\n" }
+						: { ok: true, plan: PLAN, content: "# Roadmap\n" },
 			),
 		);
 		mockWriteMutate.mockReset().mockResolvedValue({ ok: true, plan: PLAN });
@@ -378,6 +393,74 @@ describe("PlanEditorView", () => {
 
 			expect(mockShowAppToast).toHaveBeenCalledWith({ intent: "danger", message: HTML_LABELS.generateEmpty });
 			expect(mockWriteSiblingMutate).not.toHaveBeenCalled();
+		});
+
+		it("does not leak a completed brief into the next plan after switching", async () => {
+			fetchMock.mockImplementation(() =>
+				Promise.resolve(streamResponse("# Brief\n\n## Goal\nShip it.")),
+			);
+			await render(PLAN);
+			await flush();
+			await waitFor(() => !getButton("plan-html-brief-run").disabled, "enabled expand");
+
+			await act(async () => {
+				getButton("plan-html-brief-run").click();
+			});
+			await waitFor(
+				() => getTextarea(container).value.includes("## Goal"),
+				"brief appended to plan 1",
+			);
+
+			// Same component instance, just a new `plan` prop — mirrors switching plans
+			// without a remount, which is exactly the shape of the original bug.
+			await render(PLAN2);
+			await flush();
+			await waitFor(
+				() => getTextarea(container).value === "# Plan 2\n",
+				"plan 2 content loaded without the old brief",
+			);
+
+			expect(getTextarea(container).value).not.toContain("## Goal");
+
+			// Let any pending autosave fire so a leaked write would actually surface.
+			await act(async () => {
+				await new Promise((resolveWait) => setTimeout(resolveWait, 600));
+			});
+
+			expect(
+				mockWriteMutate.mock.calls.some(
+					(call) =>
+						(call[0] as { planId?: string; content?: string })?.planId === PLAN2.id &&
+						(call[0] as { content?: string })?.content?.includes("## Goal"),
+				),
+			).toBe(false);
+		});
+
+		it("does not write a generated-HTML sibling for the next plan using the old plan's HTML", async () => {
+			mockListQuery.mockResolvedValue({ ok: true, plans: [PLAN, HTML_SIBLING] });
+			fetchMock.mockImplementation(() => Promise.resolve(streamResponse("<h1>Old plan HTML</h1>")));
+			await render(PLAN);
+			await flush();
+			await waitFor(() => !getButton("plan-html-generate-run").disabled, "loaded templates");
+
+			await act(async () => {
+				getButton("plan-html-generate-run").click();
+			});
+			await waitFor(
+				() => mockWriteSiblingMutate.mock.calls.length > 0,
+				"sibling written for plan 1",
+			);
+			mockWriteSiblingMutate.mockClear();
+
+			await render(PLAN2);
+			await flush();
+			await waitFor(
+				() => getTextarea(container).value === "# Plan 2\n",
+				"plan 2 content loaded without the old HTML",
+			);
+
+			expect(mockWriteSiblingMutate).not.toHaveBeenCalled();
+			expect(container.querySelector('[data-testid="plan-editor-html-preview"]')).toBeNull();
 		});
 
 		it("expands even while the template sidecar is offline", async () => {

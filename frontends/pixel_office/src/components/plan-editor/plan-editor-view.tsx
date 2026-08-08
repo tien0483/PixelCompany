@@ -172,7 +172,12 @@ export function PlanEditorView({
 		savedHtmlRef.current = null;
 		lastGeneratedContentRef.current = null;
 		savedBriefRef.current = null;
-	}, [plan.id]);
+		// Without this, a stale "done" stream from the previous plan survives the
+		// switch and the completion effects below re-fire, writing plan A's brief/HTML
+		// into plan B's files.
+		brief.reset();
+		generate.reset();
+	}, [plan.id, brief.reset, generate.reset]);
 
 	// Rendered pane trails raw-pane typing so TipTap isn't rebuilt on every keystroke.
 	const [renderedMarkdown, setRenderedMarkdown] = useState(mdDoc.content);

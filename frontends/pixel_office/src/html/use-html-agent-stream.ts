@@ -60,6 +60,18 @@ export function useHtmlAgentStream<TRequest>(endpoint: string) {
 		setState((prev) => ({ ...prev, status: "idle" }));
 	}, []);
 
+	/**
+	 * Full teardown for a plan switch: abort any in-flight request and drop back to
+	 * the pristine initial state. Unlike `cancel()`, this also clears `text`/`status`
+	 * so a stale "done" stream from the previous plan can't be mistaken for the new
+	 * plan's content when the completion effects re-fire.
+	 */
+	const reset = useCallback(() => {
+		abortRef.current?.abort();
+		abortRef.current = null;
+		setState(INITIAL);
+	}, []);
+
 	const run = useCallback(
 		async (req: TRequest) => {
 			abortRef.current?.abort();
@@ -183,7 +195,7 @@ export function useHtmlAgentStream<TRequest>(endpoint: string) {
 		[endpoint],
 	);
 
-	return { ...state, run, cancel };
+	return { ...state, run, cancel, reset };
 }
 
 /** Template → single-file HTML document. */
