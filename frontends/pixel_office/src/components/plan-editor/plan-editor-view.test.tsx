@@ -488,4 +488,29 @@ describe("PlanEditorView", () => {
 		expect(container.querySelector('[data-testid="plan-html-generate-bar"]')).toBeNull();
 		expect(getHtmlSwitchButton(container).disabled).toBe(true);
 	});
+
+	it("shows an empty-file hint in the rendered pane when the successfully-loaded document is empty", async () => {
+		mockReadQuery.mockResolvedValue({ ok: true, plan: PLAN, content: "" });
+		await render(PLAN);
+		await flush();
+		await waitFor(
+			() => container.textContent?.includes("This plan file is empty.") === true,
+			"empty file message",
+		);
+
+		expect(container.querySelector('[data-testid="plan-rich-editor"]')).toBeNull();
+		expect(container.textContent).toContain("This plan file is empty.");
+
+		// Typing a character should dismiss the message by re-rendering the rich editor
+		await act(async () => {
+			setTextareaValue(getTextarea(container), "x");
+		});
+		// The rendered pane debounces for 250ms, so wait for it to catch up
+		await act(async () => {
+			await new Promise((resolveWait) => setTimeout(resolveWait, 300));
+		});
+
+		expect(container.querySelector('[data-testid="plan-rich-editor"]')).not.toBeNull();
+		expect(container.textContent?.includes("This plan file is empty.")).toBe(false);
+	});
 });

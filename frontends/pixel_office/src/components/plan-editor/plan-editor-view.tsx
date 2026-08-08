@@ -444,6 +444,13 @@ export function PlanEditorView({
 				</div>
 			);
 		}
+		if (mdDoc.status === "saved" && mdDoc.content === "") {
+			return (
+				<div className="flex min-h-0 flex-1 flex-col items-center justify-center px-4 text-center text-sm text-text-tertiary">
+					<span>This plan file is empty.</span>
+				</div>
+			);
+		}
 		return (
 			<PlanEditorErrorBoundary onError={handleRichEditorError}>
 				<Suspense
