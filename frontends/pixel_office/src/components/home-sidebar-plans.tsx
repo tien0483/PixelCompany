@@ -5,6 +5,7 @@ import { showAppToast } from "@/components/app-toaster";
 import { RemoteFileBrowserDialog } from "@/components/remote-file-browser-dialog";
 import { cn } from "@/components/ui/cn";
 import { Spinner } from "@/components/ui/spinner";
+import { useNativeDirectoryPicker } from "@/hooks/use-native-directory-picker";
 import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
 import type { RuntimeSavedPlan } from "@/runtime/types";
 import { LocalStorageKey, readLocalStorageItem, writeLocalStorageItem } from "@/storage/local-storage-store";
@@ -43,6 +44,7 @@ export function HomeSidebarPlansPanel({
 	const [plans, setPlans] = useState<RuntimeSavedPlan[]>([]);
 	const [isLoading, setIsLoading] = useState(true);
 	const [isImporting, setIsImporting] = useState(false);
+	const [isPickingFolder, setIsPickingFolder] = useState(false);
 	const [isBrowserOpen, setIsBrowserOpen] = useState(false);
 	const [lastImportFolder, setLastImportFolder] = useState<string | undefined>(
 		() => readLocalStorageItem(LocalStorageKey.PlansLastImportFolder) ?? undefined,
@@ -143,6 +145,31 @@ export function HomeSidebarPlansPanel({
 		[refreshPlans, workspaceId],
 	);
 
+	const { pickDirectory } = useNativeDirectoryPicker(workspaceId);
+
+	const handleAddFromFolder = useCallback(async () => {
+		setIsPickingFolder(true);
+		try {
+			const result = await pickDirectory();
+			if (result.path) {
+				writeLocalStorageItem(LocalStorageKey.PlansLastImportFolder, result.path);
+				setLastImportFolder(result.path);
+				await handleImportFolder(result.path);
+				return;
+			}
+			if (result.unavailable) {
+				showAppToast({
+					intent: "warning",
+					message: "No native folder picker is available on this system. Use the file browser instead.",
+				});
+				setIsBrowserOpen(true);
+			}
+			// Clean cancellation (path: null, no unavailable flag): do nothing.
+		} finally {
+			setIsPickingFolder(false);
+		}
+	}, [handleImportFolder, pickDirectory]);
+
 	const handleRemove = useCallback(
 		async (planId: string) => {
 			try {
@@ -230,11 +257,11 @@ export function HomeSidebarPlansPanel({
 				<button
 					type="button"
 					className="kb-project-row flex cursor-pointer items-center gap-1.5 rounded-md text-text-secondary hover:text-text-primary px-2 py-1.5 disabled:opacity-40"
-					onClick={() => setIsBrowserOpen(true)}
-					disabled={isImporting}
+					onClick={handleAddFromFolder}
+					disabled={isImporting || isPickingFolder}
 					data-testid="sidebar-plans-add-from-folder"
 				>
-					{isImporting ? <Spinner size={14} /> : <Plus size={14} className="shrink-0" />}
+					{isImporting || isPickingFolder ? <Spinner size={14} /> : <Plus size={14} className="shrink-0" />}
 					<span className="text-sm">Add from folder</span>
 					<FolderOpen size={12} className="ml-auto opacity-60" />
 				</button>

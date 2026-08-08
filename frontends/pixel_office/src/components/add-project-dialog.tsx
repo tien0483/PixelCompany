@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
 import { Dialog, DialogFooter, DialogHeader } from "@/components/ui/dialog";
 import { Spinner } from "@/components/ui/spinner";
+import { useNativeDirectoryPicker } from "@/hooks/use-native-directory-picker";
 import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
 import { LocalStorageKey, readLocalStorageItem, writeLocalStorageItem } from "@/storage/local-storage-store";
 import { normalizeServerPath, toServerAbsolute } from "@/utils/server-path";
@@ -210,9 +211,31 @@ export function AddProjectDialog({
 		[currentProjectId, onOpenChange, onProjectAdded],
 	);
 
-	const handleBrowseFolder = useCallback(() => {
-		setIsBrowserOpen(true);
-	}, []);
+	const { pickDirectory } = useNativeDirectoryPicker(currentProjectId);
+
+	const handleBrowseFolder = useCallback(async () => {
+		setIsBrowsing(true);
+		try {
+			const result = await pickDirectory();
+			if (result.path) {
+				setPendingGitInitPath(null);
+				setPathInput(result.path);
+				return;
+			}
+			if (result.unavailable) {
+				showAppToast({
+					intent: "warning",
+					icon: "warning-sign",
+					message: "No native folder picker is available on this system. Use the file browser instead.",
+					timeout: 6000,
+				});
+				setIsBrowserOpen(true);
+			}
+			// Clean cancellation (path: null, no unavailable flag): do nothing.
+		} finally {
+			setIsBrowsing(false);
+		}
+	}, [pickDirectory]);
 
 	const handleClone = useCallback(async () => {
 		const trimmedUrl = gitUrlInput.trim();
