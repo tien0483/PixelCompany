@@ -1,5 +1,30 @@
 # PixelOffice-v2
 
+## Agent stack
+
+Installed at `backends/agent_stack`, symlinked into every task worktree. Two
+tools are available without any setup:
+
+**`understand-chat` — codebase questions.** When a question spans three or more
+files ("how does X work", "what calls Y", "where does Z get set"), check for
+`.ua/knowledge-graph.json` first:
+
+- Graph present → answer via the `understand-chat` skill instead of opening files
+  one by one.
+- Graph absent → answer normally, and mention once that `/understand` would build
+  the graph. Do **not** run `/understand` unprompted: a full build reads the whole
+  repo and is expensive. It also redirects worktree output to the main repo root,
+  so one build serves every task.
+
+**`rtk` — token-compressing CLI proxy.** On PATH in every runtime-spawned agent
+session. Prefer it for shell commands with bulky output — `rtk git status`,
+`rtk tsc`, `rtk lint`, `rtk test`, `rtk grep`. It only helps for *shell* commands:
+the Read/Grep/Glob tools never pass through it, so keep using those for file
+reads. `rtk gain` shows what it saved.
+
+Proxy routing (Headroom/CCR) is deliberately NOT applied to task agents — see
+`backends/runtime/src/stack/stack-process.ts` for why.
+
 ## Harness: PixelOffice merge
 
 **Goal:** Unified monorepo (`frontends/pixel_office` + `backends/runtime` + `backends/manager`) with three-pane home and Claude-only Manager OAuth.
@@ -25,6 +50,7 @@
 | 2026-08-01 | npm → pnpm migration | Root + workspaces | Per-worktree `npm install` was duplicating full downloads/disk per agent worktree; pnpm's content-addressable store (`~/.pnpm-store`) shares packages across worktrees. `pnpm-workspace.yaml` holds `packages`, `overrides` (single `zod@4.4.3` — see [[pnpm-prepublish-quirk]]), and `allowBuilds`. Root `package.json` keeps its legacy `"workspaces"` field untouched (pnpm ignores it, cosmetic) per user request — edits to any `package.json` are user-denied for Claude, so dependency/manifest changes must go through `pnpm`/`npm` CLI commands, never the Edit tool. |
 | 2026-08-01 | post-checkout hook guard | Scripts | `git worktree add` (task worktree creation) fires the `post-checkout` hook **before** the runtime symlinks `node_modules` into the new worktree, so `scripts/rebuild-ui-if-changed.sh` ran `npx vite build` with no deps → `ERR_MODULE_NOT_FOUND: @tailwindcss/vite` → non-zero hook exit aborted worktree creation, leaving a symlink-less shell and every backlog task failing at start. Script now early-exits when `frontends/pixel_office/node_modules` is absent. |
 | 2026-08-07 | Immutable task baseRef + push | Runtime + UI | Persist worktree base ref in branch registry at creation; merge/UI use that over editable card metadata. Git view gains "Push to remote". Chain followers surface the root's locked base ref. |
+| 2026-08-09 | Agent stack moved in-tree | Backends + scripts + gitignore | `~/agent-stack-sandbox` → `backends/agent_stack`. Half the stack already shipped in-repo (Stack Control dialog + client, `link-stack-skills.mjs`, `solo.mjs` probe), so a fresh clone had UI for a backend it could not install. Runtime now spawns the switchboard headless (`src/stack/stack-process.ts`, mirroring `manager-process.ts`) — but never exports the proxy env for spawned agents: `activate-stack.sh` sets `ANTHROPIC_API_KEY=sk-dummy-key-for-sandbox` and CCR ships no credentials, so inherited routing would fail every task agent with `Authentication failed`. Payload dirs are gitignored *so that* `syncIgnoredPathsIntoWorktree` symlinks them into each task worktree (UA skills + `bin/rtk` per task, no 2 GB copy). venv rebuilt as `.venv` via `uv sync` — console-script shebangs are absolute, so a venv cannot be moved. |
 
 ## Commit & PR message style
 - Do not add `Co-Authored-By: Claude ...` trailer to commits in this repo.

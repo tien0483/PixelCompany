@@ -10,6 +10,7 @@
  *   npm run solo -- --restart # free the ports first
  *   npm run solo -- --skip-build   # fail if missing, warn+serve if stale
  *   npm run solo -- --build        # always rebuild first
+ *   npm run solo -- --no-stack-link # do not link agent-stack skills into .claude/skills
  */
 import { connect } from "node:net";
 import { constants as fsConstants, existsSync } from "node:fs";
@@ -18,6 +19,7 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn, spawnSync } from "node:child_process";
+import { linkStackSkills, reportStackSkills } from "./link-stack-skills.mjs";
 
 const MIN_NODE_MAJOR = 22;
 const __filename = fileURLToPath(import.meta.url);
@@ -132,6 +134,13 @@ const viteCli = resolveDependencyEntry(webUiRoot, "vite", "bin", "vite.js");
 const RUNTIME_PORT = Number(process.env.PIXELOFFICE_PORT ?? 3484);
 const MANAGER_PORT = Number(process.env.MANAGER_PORT ?? process.env.JACKED_PORT ?? 8321);
 const HTML_PORT = Number(process.env.PIXELOFFICE_HTML_PORT ?? 8322);
+/**
+ * The agent-stack switchboard, backing the Stack Control dialog
+ * (frontends/pixel_office/src/stack/stack-control-client.ts). Owned by the
+ * runtime, not by this script — probed here only to report an already-running
+ * instance, e.g. one started by a shell that sourced activate-stack.sh.
+ */
+const STACK_CONTROL_PORT = Number(process.env.STACK_UI_PORT ?? 8000);
 
 const args = process.argv.slice(2);
 const restart = args.includes("--restart");
@@ -140,6 +149,7 @@ const skipBuild = args.includes("--skip-build");
  * never run against a stale bundle after a UI source change. */
 const forceBuild = args.includes("--build");
 const noOpen = args.includes("--no-open");
+const noStackLink = args.includes("--no-stack-link");
 
 function freePort(port) {
 	if (isWindows) {
@@ -335,7 +345,34 @@ function buildUi() {
 	}
 }
 
+/**
+ * Non-fatal by design: a machine without the agent-stack sandbox must still be
+ * able to run the app, so every failure here degrades to a warning.
+ */
+async function wireAgentStack() {
+	if (noStackLink) {
+		return;
+	}
+	let summary;
+	try {
+		summary = linkStackSkills();
+		reportStackSkills(summary);
+	} catch (error) {
+		console.warn(`  Agent stack: skill linking failed — ${error.message}`);
+		return;
+	}
+	// No warning when the port is quiet: the runtime spawns the switchboard itself
+	// (backends/runtime/src/stack/stack-process.ts) a moment after this runs, so a
+	// closed port here is the normal cold-start state, not a fault. A switchboard
+	// that never comes up is reported by the runtime, which knows why.
+	if (summary.present && (await portIsListening(STACK_CONTROL_PORT))) {
+		console.log(`Agent stack switchboard: already up on ${STACK_CONTROL_PORT}.`);
+	}
+}
+
 async function main() {
+	await wireAgentStack();
+
 	if (restart) {
 		console.log(`Freeing ports ${RUNTIME_PORT}, ${MANAGER_PORT}, ${HTML_PORT}...`);
 		freePort(RUNTIME_PORT);

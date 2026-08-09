@@ -12,11 +12,11 @@ import { registerTaskCommand } from "./commands/task";
 import { loadGlobalRuntimeConfig, loadRuntimeConfig } from "./config/runtime-config";
 import type { RuntimeCommandRunResponse } from "./core/api-contract";
 import { createGitProcessEnv } from "./core/git-process-env";
-import { detectHostEnvironment } from "./core/host-environment";
 import {
 	installGracefulShutdownHandlers,
 	shouldSuppressImmediateDuplicateShutdownSignals,
 } from "./core/graceful-shutdown";
+import { detectHostEnvironment } from "./core/host-environment";
 import {
 	buildKanbanRuntimeUrl,
 	clearKanbanRuntimeTls,
@@ -402,6 +402,7 @@ async function startServer(): Promise<{
 		{ startManagerProcess },
 		{ createHtmlClient },
 		{ startHtmlProcess },
+		{ startStackProcess },
 		{ describeRuntimeHomeMigration, migrateRuntimeHome },
 	] = await Promise.all([
 		import("./projects/project-path.js"),
@@ -417,6 +418,7 @@ async function startServer(): Promise<{
 		import("./manager/manager-process.js"),
 		import("./html/html-client.js"),
 		import("./html/html-process.js"),
+		import("./stack/stack-process.js"),
 		import("./state/runtime-home-migration.js"),
 	]);
 
@@ -490,6 +492,17 @@ async function startServer(): Promise<{
 	const HtmlClient = createHtmlClient({
 		warn: (message) => {
 			console.warn(`[kanban] ${message}`);
+		},
+	});
+	// The agent-stack switchboard backs the Stack Control dialog in the top bar.
+	// Absent on any checkout that never installed the stack, which is why a
+	// missing package is logged rather than warned about.
+	const StackProcess = await startStackProcess({
+		warn: (message) => {
+			console.warn(`[kanban] ${message}`);
+		},
+		log: (message) => {
+			console.log(`[kanban] ${message}`);
 		},
 	});
 	runtimeStateHub = createRuntimeStateHub({
@@ -584,6 +597,9 @@ async function startServer(): Promise<{
 		// Only stops a Manager we spawned; an externally managed service is left alone.
 		await ManagerProcess.close();
 		await HtmlProcess.close();
+		// Same rule for the switchboard: a shell that sourced activate-stack.sh owns
+		// its own daemon and must survive the runtime exiting.
+		await StackProcess.close();
 	};
 
 	const shutdown = async (options?: { skipSessionCleanup?: boolean }) => {

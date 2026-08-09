@@ -4,20 +4,16 @@
  */
 import { type ChildProcess, spawn } from "node:child_process";
 import { createInterface } from "node:readline";
-
+import { RUNTIME_AGENT_CATALOG } from "../core/agent-catalog";
+import { buildWindowsCmdArgsArray, resolveWindowsComSpec, shouldUseWindowsCmdLaunch } from "../core/windows-cmd-launch";
+import { makeParser } from "../html/html-stream-parser";
 import {
-	buildWindowsCmdArgsArray,
-	resolveWindowsComSpec,
-	shouldUseWindowsCmdLaunch,
-} from "../core/windows-cmd-launch";
-import {
-	resolveManagerAccountPin,
 	type ManagerAccountPin,
 	type ResolveManagerAccountPinInput,
+	resolveManagerAccountPin,
 } from "../manager/manager-account-pin";
-import { makeParser } from "../html/html-stream-parser";
+import { withStackBinOnPath } from "../stack/stack-paths";
 import { isBinaryAvailableOnPath } from "./command-discovery";
-import { RUNTIME_AGENT_CATALOG } from "../core/agent-catalog";
 
 export type AgentOneShotEvent =
 	| { type: "start"; agent: string; model?: string }
@@ -58,9 +54,7 @@ function resolveClaudeBinary(): string {
 	const entry = RUNTIME_AGENT_CATALOG.find((agent) => agent.id === "claude");
 	const binary = entry?.binary ?? "claude";
 	if (!isBinaryAvailableOnPath(binary)) {
-		throw new Error(
-			`Claude Code binary "${binary}" is not available on PATH. Install Claude Code to generate HTML.`,
-		);
+		throw new Error(`Claude Code binary "${binary}" is not available on PATH. Install Claude Code to generate HTML.`);
 	}
 	return binary;
 }
@@ -114,11 +108,13 @@ export async function runAgentOneShot(input: RunAgentOneShotInput): Promise<{ co
 	}
 
 	const argv = buildClaudeArgv(input.model, input.allowedTools);
-	const childEnv: NodeJS.ProcessEnv = {
+	// Same stack PATH as an interactive session (see buildTerminalEnvironment):
+	// a one-shot agent should have the same tooling as a long-running one.
+	const childEnv: NodeJS.ProcessEnv = withStackBinOnPath({
 		...process.env,
 		...pin.env,
 		...input.env,
-	};
+	});
 
 	const useCmd = shouldUseWindowsCmdLaunch(binary, process.platform, childEnv);
 	let child: ChildProcess;

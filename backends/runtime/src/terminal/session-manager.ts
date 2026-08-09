@@ -11,6 +11,7 @@ import type {
 	RuntimeTaskSessionSummary,
 	RuntimeTaskTurnCheckpoint,
 } from "../core/api-contract";
+import { withStackBinOnPath } from "../stack/stack-paths";
 import { detectAgentAuthFailure } from "./agent-auth-failure";
 import {
 	type AgentAdapterLaunchInput,
@@ -271,13 +272,15 @@ function formatShellSpawnFailure(binary: string, error: unknown): string {
 function buildTerminalEnvironment(
 	...sources: Array<Record<string, string | undefined> | undefined>
 ): Record<string, string | undefined> {
-	return {
+	// withStackBinOnPath last: a caller-supplied PATH in `sources` should still
+	// get the stack's binaries, and it is a no-op when no stack is installed.
+	return withStackBinOnPath({
 		...process.env,
 		...Object.assign({}, ...sources),
 		COLORTERM: "truecolor",
 		TERM: "xterm-256color",
 		TERM_PROGRAM: "kanban",
-	};
+	});
 }
 
 function hasCodexInteractivePrompt(text: string): boolean {
