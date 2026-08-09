@@ -73,6 +73,10 @@ const OMNIROUTE_SETTINGS = {
 describe("resolveLaunchConfig – custom provider registration", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+		// An OmniRoute key or host id inherited from the developer's shell would mask the
+		// keyless case and pin the host provider to something other than the default.
+		delete process.env.OMNIROUTE_API_KEY;
+		delete process.env.OMNIROUTE_HOST_PROVIDER_ID;
 		mkdirSync(settingsDir, { recursive: true });
 		providerMocks.hasProvider.mockReturnValue(false);
 		providerMocks.getLastUsedProviderSettings.mockReturnValue(OMNIROUTE_SETTINGS);
@@ -106,7 +110,8 @@ describe("resolveLaunchConfig – custom provider registration", () => {
 
 		const launchConfig = await service.resolveLaunchConfig({ providerIdOverride: "omniroute" });
 
-		expect(launchConfig.providerId).toBe("omniroute");
+		// The agent gateway only resolves built-in ids, so the seat streams under one.
+		expect(launchConfig.providerId).toBe("openrouter");
 		expect(providerMocks.addLocalProvider).toHaveBeenCalledWith(
 			expect.anything(),
 			expect.objectContaining({
@@ -127,5 +132,29 @@ describe("resolveLaunchConfig – custom provider registration", () => {
 		await service.resolveLaunchConfig({ providerIdOverride: "omniroute" });
 
 		expect(providerMocks.addLocalProvider).not.toHaveBeenCalled();
+	});
+
+	// Home chat and task chat resolve with no overrides at all, so the selected seat — not
+	// an override — has to decide whether the OmniRoute path runs.
+	it("takes the OmniRoute path for the selected seat when no override is passed", async () => {
+		const service = createClineProviderService();
+
+		const launchConfig = await service.resolveLaunchConfig();
+
+		expect(launchConfig.providerId).toBe("openrouter");
+		expect(launchConfig.baseUrl).toBe("http://127.0.0.1:8400/v1");
+		expect(launchConfig.apiKey).toBe("sk-omniroute-test");
+		expect(launchConfig.modelId).toBe("auto/best-coding");
+	});
+
+	it("fails a keyless OmniRoute seat instead of starting a chat that 401s", async () => {
+		const { apiKey: _apiKey, ...keyless } = OMNIROUTE_SETTINGS;
+		providerMocks.getLastUsedProviderSettings.mockReturnValue(keyless);
+		providerMocks.getProviderSettings.mockImplementation((providerId: string) =>
+			providerId === "omniroute" ? keyless : undefined,
+		);
+		const service = createClineProviderService();
+
+		await expect(service.resolveLaunchConfig()).rejects.toThrow(/OmniRoute requires an API key/);
 	});
 });
