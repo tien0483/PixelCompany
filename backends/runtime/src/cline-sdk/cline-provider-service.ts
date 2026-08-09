@@ -39,6 +39,7 @@ import {
 	addSdkCustomProvider,
 	completeClineDeviceAuth as completeSdkDeviceAuth,
 	deleteSdkCustomProvider,
+	ensureSdkCustomProviderRegistered,
 	fetchSdkClineAccountBalance,
 	fetchSdkClineAccountProfile,
 	fetchSdkClineUserRemoteConfig,
@@ -534,6 +535,18 @@ export function createClineProviderService() {
 		reasoningEffortOverride?: RuntimeClineReasoningEffort | null;
 	}): Promise<ResolvedClineLaunchConfig> {
 		const targetProviderId = (overrides?.providerIdOverride ?? "").trim().toLowerCase();
+		// A seat can be added to models.json by another process (or a hand edit) while this
+		// runtime is up, in which case the SDK registry still does not know it and the task
+		// would die mid-turn with "Unknown or disabled provider <id>".
+		await ensureSdkCustomProviderRegistered(targetProviderId || getProviderSettingsSummary().providerId || "").catch(
+			(error: unknown) => {
+				LOGGER.log("Could not re-register a stored custom provider before launch.", {
+					severity: "warn",
+					providerId: targetProviderId,
+					errorMessage: error instanceof Error ? error.message : String(error),
+				});
+			},
+		);
 		if (targetProviderId === OMNIROUTE_PROVIDER_ID) {
 			const savedSettings = getSdkProviderSettings(OMNIROUTE_PROVIDER_ID);
 			const baseUrl = resolveOmniRouteBaseUrl(savedSettings);

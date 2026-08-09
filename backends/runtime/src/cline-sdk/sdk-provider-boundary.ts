@@ -460,6 +460,46 @@ export async function addSdkCustomProvider(input: AddSdkCustomProviderInput): Pr
 	await ensureCustomProvidersLoaded(providerManager);
 }
 
+/**
+ * Guarantees a user-added provider is present in the SDK's in-memory registry before a
+ * launch resolves a model against it.
+ *
+ * `ensureCustomProvidersLoaded` memoizes on the models.json path, so it replays that file
+ * exactly once per process: an endpoint added to models.json afterwards by anything other
+ * than this process's `addSdkCustomProvider` (another runtime instance, a hand edit, the
+ * update fallback below) stays unregistered until a restart, and the task dies with
+ * "Unknown or disabled provider <id>". Re-adding the stored entry re-registers it; the
+ * write is the same content, and the saved API key is carried over so the seat keeps its
+ * credentials.
+ */
+export async function ensureSdkCustomProviderRegistered(providerId: string): Promise<void> {
+	const normalizedProviderId = providerId.trim().toLowerCase();
+	if (!normalizedProviderId || ClineCore.Llms.hasProvider(normalizedProviderId)) {
+		return;
+	}
+	const entry = (await readModelsRegistry()).providers[normalizedProviderId];
+	if (!entry) {
+		return;
+	}
+	const models = Object.keys(entry.models).filter((modelId) => modelId.trim().length > 0);
+	if (models.length === 0) {
+		return;
+	}
+	const settings = getSdkProviderSettings(normalizedProviderId);
+	await addSdkCustomProvider({
+		providerId: normalizedProviderId,
+		name: entry.provider.name,
+		baseUrl: entry.provider.baseUrl,
+		apiKey: settings?.apiKey ?? null,
+		...(settings?.headers ? { headers: settings.headers as Record<string, string> } : {}),
+		...(typeof settings?.timeout === "number" ? { timeoutMs: settings.timeout } : {}),
+		models,
+		defaultModelId: entry.provider.defaultModelId ?? null,
+		modelsSourceUrl: entry.provider.modelsSourceUrl ?? null,
+		...(entry.provider.capabilities ? { capabilities: entry.provider.capabilities } : {}),
+	});
+}
+
 export async function updateSdkCustomProvider(input: UpdateSdkCustomProviderInput): Promise<void> {
 	const updateLocalProvider = (
 		ClineCore as {
