@@ -423,6 +423,51 @@ describe("TaskAgentModelPicker – auto-reset invalid model selection", () => {
 		});
 	});
 
+	it("keeps a seat pin that names the default provider and model", async () => {
+		// Picking an API seat writes an explicit providerId/modelId pin. When those match the
+		// inherited defaults, the option lists represent them only as the "" row, so the pin
+		// must still render as the selection instead of the dropdown's empty state — and must
+		// not be rewritten to whichever model happens to sort first.
+		const onClineSettingsChange = vi.fn();
+		const { TaskAgentModelPicker } = await import("@/components/task-agent-model-picker");
+
+		await act(async () =>
+			renderUi(
+				<TaskAgentModelPicker
+					agentId={"cline" as RuntimeAgentId}
+					onAgentIdChange={() => {}}
+					clineSettings={createTaskClineSettings({
+						providerId: "omniroute",
+						modelId: "auto/best-coding",
+					})}
+					onClineSettingsChange={onClineSettingsChange}
+					agentOptions={[{ value: "", label: "Cline" }]}
+					clineProviderOptions={[{ value: "", label: "OmniRoute" }]}
+					clineModelOptions={[
+						{ value: "", label: "auto/best-coding" },
+						{ value: "aug/fable-5", label: "aug/fable-5" },
+					]}
+					effectiveDefaultModelId="auto/best-coding"
+					isLoadingProviders={false}
+					isLoadingModels={false}
+					defaultAgentId={"cline" as RuntimeAgentId}
+					defaultProviderId="omniroute"
+				/>,
+			),
+		);
+
+		expect(onClineSettingsChange).not.toHaveBeenCalled();
+
+		const settingsTrigger = [...container.querySelectorAll("button")].find((button) =>
+			button.textContent?.includes("Cline model settings"),
+		);
+		await act(async () => settingsTrigger?.click());
+
+		expect(container.textContent).toContain("OmniRoute");
+		expect(container.textContent).not.toContain("No providers available");
+		expect(container.textContent).not.toContain("aug/fable-5");
+	});
+
 	it("does not reset when the selected model exists in the options list", async () => {
 		const onClineSettingsChange = vi.fn();
 		const modelOptions = [

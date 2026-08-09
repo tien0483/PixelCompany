@@ -5,6 +5,7 @@ const PROVIDER_LABELS: Record<RuntimeManagerProvider, string> = {
 	codex: "Codex",
 	cursor: "Cursor",
 	antigravity: "Antigravity",
+	omniroute: "OmniRoute",
 };
 
 export function managerProviderLabel(provider: RuntimeManagerProvider): string {

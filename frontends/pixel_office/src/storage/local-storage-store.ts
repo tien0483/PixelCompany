@@ -2,6 +2,8 @@ export enum LocalStorageKey {
 	TaskStartInPlanMode = "kanban.task-start-in-plan-mode",
 	TaskAutoReviewEnabled = "kanban.task-auto-review-enabled",
 	TaskAutoReviewMode = "kanban.task-auto-review-mode",
+	/** Whether the native Cline chat panel renders model reasoning ("thinking") text. Defaults to visible. */
+	ClineShowReasoning = "kanban.cline-show-reasoning",
 	AgentTipsDismissed = "kanban.agent-tips-dismissed",
 	TaskCreatePrimaryStartAction = "kanban.task-create-primary-start-action",
 	BottomTerminalPaneHeight = "kanban.bottom-terminal-pane-height",

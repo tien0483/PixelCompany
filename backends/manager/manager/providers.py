@@ -1,4 +1,4 @@
-﻿"""Per-provider capability registry.
+"""Per-provider capability registry.
 
 jacked manages accounts for several CLIs, and they are not equally safe to
 automate. Claude and Codex keep a swappable credential file. Antigravity mints a
@@ -32,6 +32,7 @@ PROVIDER_CLAUDE = "claude"
 PROVIDER_CODEX = "codex"
 PROVIDER_CURSOR = "cursor"
 PROVIDER_ANTIGRAVITY = "antigravity"
+PROVIDER_OMNIROUTE = "omniroute"
 
 
 @dataclass(frozen=True)
@@ -76,6 +77,13 @@ _REGISTRY: dict[str, ProviderCapabilities] = {
         # stored refresh token, so a swap never invalidates work in flight.
         can_auto_swap   = True,
     ),
+    PROVIDER_OMNIROUTE: ProviderCapabilities(
+        provider  = PROVIDER_OMNIROUTE,
+        label     = "OmniRoute",
+        credential_kind = CREDENTIAL_FILE,
+        can_track_usage = True,
+        can_auto_swap   = True,
+    ),
     PROVIDER_CURSOR: ProviderCapabilities(
         provider  = PROVIDER_CURSOR,
         label     = "Cursor",
@@ -100,6 +108,7 @@ KNOWN_PROVIDERS: tuple[str, ...] = (
     PROVIDER_CLAUDE,
     PROVIDER_CODEX,
     PROVIDER_ANTIGRAVITY,
+    PROVIDER_OMNIROUTE,
     PROVIDER_CURSOR,
 )
 

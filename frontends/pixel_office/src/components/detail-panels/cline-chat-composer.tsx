@@ -1,4 +1,4 @@
-import { AlertTriangle, ArrowBigUp, Command, Pause, SendHorizontal } from "lucide-react";
+import { AlertTriangle, ArrowBigUp, Brain, Command, Pause, SendHorizontal } from "lucide-react";
 import {
 	type ClipboardEvent,
 	type DragEvent,
@@ -67,6 +67,9 @@ export function ClineChatComposer({
 	isModelSaving = false,
 	modelPickerDisabled = false,
 	isSending = false,
+	showReasoningToggle = true,
+	isReasoningVisible = true,
+	onReasoningVisibilityChange,
 	warningMessage = null,
 	attachmentWarningMessage = null,
 	workspaceId = null,
@@ -97,6 +100,9 @@ export function ClineChatComposer({
 	isModelSaving?: boolean;
 	modelPickerDisabled?: boolean;
 	isSending?: boolean;
+	showReasoningToggle?: boolean;
+	isReasoningVisible?: boolean;
+	onReasoningVisibilityChange?: (visible: boolean) => void;
 	warningMessage?: string | null;
 	attachmentWarningMessage?: string | null;
 	workspaceId?: string | null;
@@ -509,6 +515,25 @@ export function ClineChatComposer({
 					/>
 				</div>
 				<div className="ml-auto flex shrink-0 items-center gap-2">
+					{showReasoningToggle ? (
+						<Tooltip
+							side="top"
+							content={isReasoningVisible ? "Hide reasoning" : "Show reasoning"}
+						>
+							<Button
+								variant="default"
+								size="sm"
+								className={cn(
+									"h-7 w-7 rounded-full border-border-bright bg-surface-4 p-0 hover:bg-surface-3",
+									isReasoningVisible ? "text-text-primary" : "text-text-tertiary",
+								)}
+								aria-label={isReasoningVisible ? "Hide reasoning" : "Show reasoning"}
+								aria-pressed={isReasoningVisible}
+								icon={<Brain size={14} />}
+								onClick={() => onReasoningVisibilityChange?.(!isReasoningVisible)}
+							/>
+						</Tooltip>
+					) : null}
 					{showModeToggle ? (
 						<Tooltip
 							side="top"

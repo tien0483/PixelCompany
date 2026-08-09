@@ -48,6 +48,22 @@ stack_port_up() {
 	PY
 }
 
+# stack_wait_port <port> <name> — block until a just-started daemon is listening.
+# Uses bash's /dev/tcp rather than stack_port_up because this polls up to 50
+# times and a python3 process per probe would cost more than the wait itself.
+stack_wait_port() {
+	local port="$1" name="$2" i=0
+	while [ "$i" -lt 50 ]; do
+		if (: <"/dev/tcp/127.0.0.1/$port") 2>/dev/null; then
+			return 0
+		fi
+		sleep 0.1
+		i=$((i + 1))
+	done
+	echo "   $name did not open port $port within 5s — see logs/$name.log" >&2
+	return 1
+}
+
 # Track daemons by pidfile, not by matching process text. `pgrep -f uvicorn`
 # would hit any unrelated uvicorn on the box (this machine runs one for another
 # project) plus the grep's own shell; and an env-var marker like
@@ -152,7 +168,11 @@ export ANTHROPIC_BASE_URL="http://127.0.0.1:$STACK_UI_PORT"
 # directly it swaps in STACK_UPSTREAM_ANTHROPIC_API_KEY server-side, so no live
 # credential is exported into the session.
 export ANTHROPIC_API_KEY="sk-dummy-key-for-sandbox"
-export CLAUDE_CODE_SUBAGENT_MODEL="${CLAUDE_CODE_SUBAGENT_MODEL:-openrouter,deepseek/deepseek-chat}"
+# CLAUDE_CODE_SUBAGENT_MODEL is deliberately left alone. It used to default to
+# `openrouter,deepseek/deepseek-chat`, which only resolves if CCR has an
+# openrouter provider configured — the shipped config-router.json does not, so
+# the default silently pointed every subagent at a provider that does not exist.
+# Set it yourself if you have the routing to back it up.
 
 # --- 5. daemons -------------------------------------------------------------
 echo "Agent Stack Sandbox — starting daemons"
@@ -204,6 +224,19 @@ if [ -n "$(stack_flag ENABLE_DEVTOOLS)" ]; then
 	else
 		stack_start_daemon devtools claude-devtools claude-devtools --port "$STACK_DEVTOOLS_PORT"
 	fi
+fi
+
+# --- 6. wait for the hops that are actually in the request path -------------
+# ANTHROPIC_BASE_URL was exported back in section 4, so a `claude` launched in
+# the same breath as this script would otherwise fire its first request at a
+# port that is still binding: the switchboard answers 502, Claude Code retries
+# with backoff, and a daemon that came up 300ms late reads as a hang.
+stack_wait_port "$STACK_UI_PORT" switchboard
+if [ -n "$(stack_flag ENABLE_CCR)" ] && stack_daemon_running ccr; then
+	stack_wait_port "$STACK_CCR_PORT" ccr
+fi
+if [ -n "$(stack_flag ENABLE_HEADROOM)" ] && stack_daemon_running headroom; then
+	stack_wait_port "$STACK_HEADROOM_PORT" headroom
 fi
 
 echo

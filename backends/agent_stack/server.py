@@ -22,6 +22,8 @@ import json
 import os
 import socket
 import tempfile
+import time
+from contextlib import asynccontextmanager
 
 import httpx
 from fastapi import FastAPI, Request
@@ -62,15 +64,21 @@ UPSTREAM_KEY = os.environ.get("STACK_UPSTREAM_ANTHROPIC_API_KEY", "")
 
 DEVTOOLS_PORT = 3001
 
-# Hop-by-hop and length/encoding headers must not be forwarded verbatim:
-# httpx recomputes them, and a stale content-length truncates streamed bodies.
+# Hop-by-hop and length headers must not be forwarded verbatim: httpx recomputes
+# them, and a stale content-length truncates streamed bodies.
+#
+# accept-encoding and content-encoding are deliberately NOT stripped. The body is
+# relayed byte-for-byte via aiter_raw(), so it stays in whatever encoding the
+# upstream chose; dropping content-encoding while forwarding still-gzipped bytes
+# hands the client a payload it cannot decode. Passing the caller's
+# accept-encoding through keeps that negotiation between the two real endpoints
+# instead of letting httpx advertise encodings the caller never asked for.
 STRIP_REQUEST_HEADERS = {
     "host",
     "content-length",
     "transfer-encoding",
     "connection",
     "keep-alive",
-    "accept-encoding",
     "proxy-authenticate",
     "proxy-authorization",
     "te",
@@ -79,7 +87,6 @@ STRIP_REQUEST_HEADERS = {
 }
 STRIP_RESPONSE_HEADERS = {
     "content-length",
-    "content-encoding",
     "transfer-encoding",
     "connection",
     "keep-alive",
@@ -87,7 +94,28 @@ STRIP_RESPONSE_HEADERS = {
 
 DEFAULT_FLAGS = {k: True for k in FLAG_KEYS}
 
-app = FastAPI(title="Agent Stack Sandbox")
+# No global timeout on read: model responses stream for minutes.
+UPSTREAM_TIMEOUT = httpx.Timeout(connect=15.0, read=None, write=60.0, pool=15.0)
+
+# One client for the whole process, not one per request. Every AsyncClient owns
+# its own connection pool, so building one per call discarded keep-alive and
+# paid a fresh TLS handshake on every direct-to-Anthropic request.
+HTTP: httpx.AsyncClient | None = None
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    global HTTP
+    HTTP = httpx.AsyncClient(timeout=UPSTREAM_TIMEOUT, follow_redirects=False)
+    try:
+        yield
+    finally:
+        client, HTTP = HTTP, None
+        if client is not None:
+            await client.aclose()
+
+
+app = FastAPI(title="Agent Stack Sandbox", lifespan=lifespan)
 
 # The switchboard is also rendered inside PixelOffice (TopBar, next to
 # Office/Cleanup), which is served from a different local origin, so the JSON
@@ -129,21 +157,43 @@ def save_flags(flags: dict) -> None:
         raise
 
 
-def resolve_route(flags: dict) -> tuple[str, list[str]]:
+def resolve_route(flags: dict, live: dict | None = None) -> tuple[str, list[str]]:
     """Return (upstream base URL, human-readable chain).
 
     Headroom fronts CCR when both are on. Headroom alone still gets used — it
     proxies to Anthropic itself — rather than being silently bypassed.
+
+    `live` maps hop name -> is-the-port-open. When supplied, a hop whose flag is
+    on but whose daemon is down is dropped from the route instead of being
+    dialled: a dead loopback port turns every request into a 502, which Claude
+    Code answers with retry backoff, and the whole thing reads as a hang rather
+    than as the daemon crash it is. Skipped hops stay visible at the front of
+    the chain so /health and x-stack-chain report the demotion instead of
+    quietly claiming the flagged route.
     """
-    headroom = flags.get("ENABLE_HEADROOM")
-    ccr = flags.get("ENABLE_CCR")
+    headroom = bool(flags.get("ENABLE_HEADROOM"))
+    ccr = bool(flags.get("ENABLE_CCR"))
+    skipped = []
+    if live is not None:
+        if ccr and not live.get("ccr", True):
+            skipped.append("ccr:3456 DOWN (skipped)")
+            ccr = False
+            # activate-stack.sh starts headroom with --anthropic-api-url pointed
+            # at CCR whenever CCR is flagged on, so a dead CCR poisons headroom
+            # too — forwarding there would just 502 one hop further along.
+            if headroom:
+                skipped.append("headroom:8787 (chained to dead ccr, skipped)")
+                headroom = False
+        if headroom and not live.get("headroom", True):
+            skipped.append("headroom:8787 DOWN (skipped)")
+            headroom = False
     if headroom and ccr:
-        return HEADROOM_URL, ["headroom:8787", "ccr:3456", "upstream"]
+        return HEADROOM_URL, skipped + ["headroom:8787", "ccr:3456", "upstream"]
     if headroom:
-        return HEADROOM_URL, ["headroom:8787", "upstream"]
+        return HEADROOM_URL, skipped + ["headroom:8787", "upstream"]
     if ccr:
-        return CCR_URL, ["ccr:3456", "upstream"]
-    return ANTHROPIC_URL, ["api.anthropic.com (direct)"]
+        return CCR_URL, skipped + ["ccr:3456", "upstream"]
+    return ANTHROPIC_URL, skipped + ["api.anthropic.com (direct)"]
 
 
 def port_open(port: int, host: str = "127.0.0.1") -> bool:
@@ -152,10 +202,35 @@ def port_open(port: int, host: str = "127.0.0.1") -> bool:
         return s.connect_ex((host, port)) == 0
 
 
+LIVENESS_TTL = 5.0
+_liveness_cache: tuple[float, dict] | None = None
+
+
+def daemon_liveness() -> dict:
+    """Port probes for the three daemons, cached for LIVENESS_TTL seconds.
+
+    The proxy hot path needs this on every request, and a probe against a
+    firewalled port costs the full 0.25s timeout, so the result is memoised. The
+    TTL is short enough that restarting a daemon is picked up within a few
+    seconds without a switchboard restart.
+    """
+    global _liveness_cache
+    now = time.monotonic()
+    if _liveness_cache is not None and now - _liveness_cache[0] < LIVENESS_TTL:
+        return _liveness_cache[1]
+    probed = {
+        "headroom": port_open(8787),
+        "ccr": port_open(3456),
+        "devtools": port_open(DEVTOOLS_PORT),
+    }
+    _liveness_cache = (now, probed)
+    return probed
+
+
 @app.get("/ui", response_class=HTMLResponse)
 def ui() -> str:
     flags = get_flags()
-    _, chain = resolve_route(flags)
+    _, chain = resolve_route(flags, daemon_liveness())
     rows = []
     for k in FLAG_KEYS:
         label, hint = FLAG_LABELS[k]
@@ -200,15 +275,16 @@ async def save_ui(request: Request):
 
 def state_payload() -> dict:
     flags = get_flags()
-    target, chain = resolve_route(flags)
+    live = daemon_liveness()
+    target, chain = resolve_route(flags, live)
     return {
         "sandboxDir": SANDBOX_DIR,
         "flags": flags,
         "route": {"target": target, "chain": chain},
         "daemons": {
-            "headroom": {"port": 8787, "up": port_open(8787)},
-            "ccr": {"port": 3456, "up": port_open(3456)},
-            "devtools": {"port": DEVTOOLS_PORT, "up": port_open(DEVTOOLS_PORT)},
+            "headroom": {"port": 8787, "up": live["headroom"]},
+            "ccr": {"port": 3456, "up": live["ccr"]},
+            "devtools": {"port": DEVTOOLS_PORT, "up": live["devtools"]},
         },
         "upstreamKeyConfigured": bool(UPSTREAM_KEY),
         "activationScopedFlags": ["ENABLE_UA", "ENABLE_RTK", "ENABLE_CAVEMAN", "ENABLE_DEVTOOLS"],
@@ -251,11 +327,11 @@ def root():
 
 
 def _client() -> httpx.AsyncClient:
-    # No global timeout on read: model responses stream for minutes.
-    return httpx.AsyncClient(
-        timeout=httpx.Timeout(connect=15.0, read=None, write=60.0, pool=15.0),
-        follow_redirects=False,
-    )
+    """The shared client, rebuilt only if the app was mounted without lifespan."""
+    global HTTP
+    if HTTP is None or HTTP.is_closed:
+        HTTP = httpx.AsyncClient(timeout=UPSTREAM_TIMEOUT, follow_redirects=False)
+    return HTTP
 
 
 @app.api_route(
@@ -263,8 +339,11 @@ def _client() -> httpx.AsyncClient:
 )
 async def dynamic_proxy(request: Request, path: str):
     flags = get_flags()
-    base, chain = resolve_route(flags)
-    direct = chain[0].startswith("api.anthropic.com")
+    # Probed off the event loop: port_open blocks for up to 0.25s per closed
+    # port, which would stall every other in-flight stream on a cache miss.
+    live = await asyncio.to_thread(daemon_liveness)
+    base, chain = resolve_route(flags, live)
+    direct = base == ANTHROPIC_URL
 
     headers = {
         k: v for k, v in request.headers.items() if k.lower() not in STRIP_REQUEST_HEADERS
@@ -288,7 +367,7 @@ async def dynamic_proxy(request: Request, path: str):
     try:
         upstream = await client.send(req, stream=True)
     except httpx.HTTPError as exc:
-        await client.aclose()
+        # The client is process-wide now — only the response gets closed here.
         return JSONResponse(
             {
                 "error": {
@@ -308,7 +387,6 @@ async def dynamic_proxy(request: Request, path: str):
                 yield chunk
         finally:
             await upstream.aclose()
-            await client.aclose()
 
     return StreamingResponse(
         body(),

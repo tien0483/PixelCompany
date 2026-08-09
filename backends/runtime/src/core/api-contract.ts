@@ -723,7 +723,7 @@ export type RuntimeStateStreamErrorMessage = z.infer<typeof runtimeStateStreamEr
  * "antigravity" is a quota pool with no Kanban CLI, and "cline" is a CLI with no jacked
  * account.
  */
-export const RuntimeManagerProviderSchema = z.enum(["claude", "codex", "cursor", "antigravity"]);
+export const RuntimeManagerProviderSchema = z.enum(["claude", "codex", "cursor", "antigravity", "omniroute"]);
 export type RuntimeManagerProvider = z.infer<typeof RuntimeManagerProviderSchema>;
 
 export const RuntimeManagerAccountSchema = z.object({

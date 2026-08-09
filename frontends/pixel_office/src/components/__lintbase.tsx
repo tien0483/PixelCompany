@@ -288,12 +288,6 @@ export function TaskAgentModelPicker({
 	// (either explicitly overridden, or the global default provider is set)
 	const effectiveProviderId = clineProviderId ?? defaultProviderId ?? null;
 	const showClineModelPicker = showClineProviderPicker && Boolean(effectiveProviderId);
-	// The option lists represent the inherited provider/model as the "" (Default) row and
-	// omit them from the explicit rows, so a pin that names the current default — what the
-	// account picker writes when an API seat is chosen — would match no option and render
-	// as the dropdown's empty state ("No providers available"). Normalize for display only;
-	// the pin itself stays in clineSettings so the launch keeps using it.
-	const selectedProviderOptionValue = clineProviderId && clineProviderId !== defaultProviderId ? clineProviderId : "";
 	const hasTaskClineSettingsOverride = clineSettings !== undefined;
 	const selectedTaskReasoningEffort = clineReasoningEffort ?? "";
 	const [isSettingsExpanded, setIsSettingsExpanded] = useState(false);
@@ -357,8 +351,6 @@ export function TaskAgentModelPicker({
 	const reasoningEnabledModelIds = useMemo(() => getClineReasoningEnabledModelIds(providerModels), [providerModels]);
 	const reasoningEnabledModelIdSet = useMemo(() => new Set(reasoningEnabledModelIds), [reasoningEnabledModelIds]);
 	const effectiveSelectedModelId = (clineModelId ?? effectiveDefaultModelId ?? "").trim();
-	// Same normalization as the provider row: the default model has no explicit option.
-	const selectedModelOptionValue = clineModelId && clineModelId !== effectiveDefaultModelId ? clineModelId : "";
 	const selectedModelCapabilityKnown = useMemo(
 		() => providerModels.some((model) => model.id === effectiveSelectedModelId),
 		[effectiveSelectedModelId, providerModels],
@@ -413,16 +405,16 @@ export function TaskAgentModelPicker({
 		() =>
 			buildClineSelectedModelButtonText({
 				modelOptions: modelPickerOptions.options,
-				selectedModelId: selectedModelOptionValue,
+				selectedModelId: clineModelId ?? "",
 				reasoningEffort,
 				showReasoningEffort: selectedModelSupportsReasoningEffort,
 				isModelLoading: isLoadingModels,
 			}),
 		[
+			clineModelId,
 			isLoadingModels,
 			modelPickerOptions.options,
 			reasoningEffort,
-			selectedModelOptionValue,
 			selectedModelSupportsReasoningEffort,
 		],
 	);
@@ -438,14 +430,11 @@ export function TaskAgentModelPicker({
 	// at that point isLoadingModels is still false (hasn't been set to true
 	// yet by the fetch effect) and the stale/empty options list would
 	// incorrectly clear a valid saved clineModelId.
-	// A pin that names the provider's default model is represented by the "" row, so it is
-	// deliberately absent from the explicit options — treat it as present, or this effect
-	// would rewrite every seat pin to whichever model sorts first.
 	useEffect(() => {
-		if (isLoadingModels || !selectedModelOptionValue || modelPickerOptions.options.length <= 1) {
+		if (isLoadingModels || !clineModelId || modelPickerOptions.options.length <= 1) {
 			return;
 		}
-		const modelExists = modelPickerOptions.options.some((opt) => opt.value === selectedModelOptionValue);
+		const modelExists = modelPickerOptions.options.some((opt) => opt.value === clineModelId);
 		if (!modelExists) {
 			const firstRealModel = modelPickerOptions.options.find((opt) => opt.value !== "");
 			updateTaskClineSettings((currentSettings) => {
@@ -461,7 +450,7 @@ export function TaskAgentModelPicker({
 					: undefined;
 			});
 		}
-	}, [isLoadingModels, modelPickerOptions.options, selectedModelOptionValue, updateTaskClineSettings]);
+	}, [clineModelId, isLoadingModels, modelPickerOptions.options, updateTaskClineSettings]);
 
 	return (
 		<div className="flex flex-col gap-2">
@@ -511,7 +500,7 @@ export function TaskAgentModelPicker({
 									</span>
 									<SearchSelectDropdown
 										options={clineProviderOptions}
-										selectedValue={selectedProviderOptionValue}
+										selectedValue={clineProviderId ?? ""}
 										onSelect={(value) => {
 											const newProviderId = value || undefined;
 											const newDefaultModel =
@@ -564,7 +553,7 @@ export function TaskAgentModelPicker({
 											modelOptions={modelPickerOptions.options}
 											recommendedModelIds={modelPickerOptions.recommendedModelIds}
 											pinSelectedModelToTop={modelPickerOptions.shouldPinSelectedModelToTop}
-											selectedModelId={selectedModelOptionValue}
+											selectedModelId={clineModelId ?? ""}
 											selectedModelButtonText={selectedModelButtonText}
 											onSelectModel={(value) => {
 												updateTaskClineSettings((currentSettings) => {
