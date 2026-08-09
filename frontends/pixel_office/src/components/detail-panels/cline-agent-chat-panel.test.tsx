@@ -4,8 +4,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ClineAgentChatPanel, type ClineAgentChatPanelHandle } from "@/components/detail-panels/cline-agent-chat-panel";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { resetClineReasoningVisibility } from "@/hooks/use-cline-reasoning-visibility";
 import type { ClineChatMessage } from "@/hooks/use-cline-chat-session";
 import type { RuntimeTaskHookActivity, RuntimeTaskSessionSummary } from "@/runtime/types";
+import { LocalStorageKey } from "@/storage/local-storage-store";
 import { resetWorkspaceMetadataStore, setTaskWorkspaceSnapshot } from "@/stores/workspace-metadata-store";
 
 function createSummary(
@@ -98,6 +100,8 @@ describe("ClineAgentChatPanel", () => {
 			.IS_REACT_ACT_ENVIRONMENT;
 		(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 		resetWorkspaceMetadataStore();
+		window.localStorage.clear();
+		resetClineReasoningVisibility();
 		container = document.createElement("div");
 		document.body.appendChild(container);
 		root = createRoot(container);
@@ -109,6 +113,8 @@ describe("ClineAgentChatPanel", () => {
 			root.unmount();
 		});
 		resetWorkspaceMetadataStore();
+		window.localStorage.clear();
+		resetClineReasoningVisibility();
 		container.remove();
 		if (previousActEnvironment === undefined) {
 			delete (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT;
@@ -254,6 +260,126 @@ describe("ClineAgentChatPanel", () => {
 		});
 
 		expect(container.textContent).not.toContain("Thinking through the next edit");
+	});
+
+	it("hides reasoning messages when the reasoning toggle is turned off", async () => {
+		const messages: ClineChatMessage[] = [
+			{
+				id: "reasoning-1",
+				role: "reasoning",
+				content: "Thinking through the next edit",
+				createdAt: 1,
+			},
+			{
+				id: "assistant-1",
+				role: "assistant",
+				content: "Here is the plan.",
+				createdAt: 2,
+			},
+		];
+
+		await act(async () => {
+			renderPanel(
+				root,
+				<ClineAgentChatPanel taskId="task-1" summary={null} onLoadMessages={async () => messages} />,
+			);
+			await Promise.resolve();
+		});
+
+		expect(container.textContent).toContain("Reasoning");
+		expect(container.textContent).toContain("Here is the plan.");
+
+		const hideReasoningToggle = container.querySelector('button[aria-label="Hide reasoning"]');
+		expect(hideReasoningToggle).toBeInstanceOf(HTMLButtonElement);
+		if (!(hideReasoningToggle instanceof HTMLButtonElement)) {
+			throw new Error("Expected hide reasoning toggle button");
+		}
+		expect(hideReasoningToggle.getAttribute("aria-pressed")).toBe("true");
+
+		await act(async () => {
+			hideReasoningToggle.click();
+			await Promise.resolve();
+		});
+
+		expect(container.textContent).not.toContain("Reasoning");
+		expect(container.textContent).not.toContain("Thinking through the next edit");
+		expect(container.textContent).toContain("Here is the plan.");
+		expect(window.localStorage.getItem(LocalStorageKey.ClineShowReasoning)).toBe("false");
+	});
+
+	it("restores a hidden reasoning preference and re-enables it from the toggle", async () => {
+		window.localStorage.setItem(LocalStorageKey.ClineShowReasoning, "false");
+		resetClineReasoningVisibility();
+
+		const messages: ClineChatMessage[] = [
+			{
+				id: "reasoning-1",
+				role: "reasoning",
+				content: "Thinking through the next edit",
+				createdAt: 1,
+			},
+		];
+
+		await act(async () => {
+			renderPanel(
+				root,
+				<ClineAgentChatPanel taskId="task-1" summary={null} onLoadMessages={async () => messages} />,
+			);
+			await Promise.resolve();
+		});
+
+		expect(container.textContent).not.toContain("Reasoning");
+		expect(container.textContent).not.toContain("Thinking through the next edit");
+
+		const showReasoningToggle = container.querySelector('button[aria-label="Show reasoning"]');
+		expect(showReasoningToggle).toBeInstanceOf(HTMLButtonElement);
+		if (!(showReasoningToggle instanceof HTMLButtonElement)) {
+			throw new Error("Expected show reasoning toggle button");
+		}
+		expect(showReasoningToggle.getAttribute("aria-pressed")).toBe("false");
+
+		await act(async () => {
+			showReasoningToggle.click();
+			await Promise.resolve();
+		});
+
+		expect(container.textContent).toContain("Reasoning");
+		expect(window.localStorage.getItem(LocalStorageKey.ClineShowReasoning)).toBe("true");
+	});
+
+	it("keeps streamed reasoning text hidden while the toggle is off", async () => {
+		window.localStorage.setItem(LocalStorageKey.ClineShowReasoning, "false");
+		resetClineReasoningVisibility();
+
+		const onLoadMessages = vi.fn(async () => []);
+		const streamingReasoningMessage: ClineChatMessage = {
+			id: "reasoning-1",
+			role: "reasoning",
+			content: "Streaming thinking text",
+			createdAt: 1,
+			meta: {
+				hookEventName: "reasoning_delta",
+				streamType: "reasoning",
+			},
+		};
+
+		await act(async () => {
+			renderPanel(
+				root,
+				<ClineAgentChatPanel
+					taskId="task-1"
+					summary={createSummary("running")}
+					onLoadMessages={onLoadMessages}
+					incomingMessage={streamingReasoningMessage}
+				/>,
+			);
+			await Promise.resolve();
+		});
+
+		expect(container.textContent).not.toContain("Streaming thinking text");
+		expect(container.textContent).not.toContain("Reasoning");
+		// The running progress indicator stays so the user knows the session is active.
+		expect(container.textContent).toContain("Thinking...");
 	});
 
 	it("shows running progress indicator while session is running", async () => {
