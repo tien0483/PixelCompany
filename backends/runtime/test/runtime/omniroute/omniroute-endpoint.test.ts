@@ -7,9 +7,10 @@ import {
 	resolveOmniRouteApiKey,
 	resolveOmniRouteBaseUrl,
 	resolveOmniRouteDefaultModelId,
+	resolveOmniRouteHostProviderId,
 } from "../../../src/omniroute/omniroute-endpoint";
 
-const ENV_KEYS = ["OMNIROUTE_PORT", "OMNIROUTE_BASE_URL", "OMNIROUTE_API_KEY"] as const;
+const ENV_KEYS = ["OMNIROUTE_PORT", "OMNIROUTE_BASE_URL", "OMNIROUTE_API_KEY", "OMNIROUTE_HOST_PROVIDER_ID"] as const;
 
 describe("omniroute endpoint resolution", () => {
 	const savedEnv = new Map<string, string | undefined>();
@@ -56,6 +57,12 @@ describe("omniroute endpoint resolution", () => {
 
 	it("treats a blank saved key as unset so the launch fails loudly instead of 401ing", () => {
 		expect(resolveOmniRouteApiKey({ apiKey: "   " })).toBeNull();
+	});
+
+	it("streams under a built-in host provider id, overridable by env", () => {
+		expect(resolveOmniRouteHostProviderId()).toBe("openrouter");
+		process.env.OMNIROUTE_HOST_PROVIDER_ID = "  LiteLLM ";
+		expect(resolveOmniRouteHostProviderId()).toBe("litellm");
 	});
 });
 
