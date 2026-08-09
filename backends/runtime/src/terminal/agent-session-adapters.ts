@@ -29,6 +29,7 @@ import {
 } from "./cursor-output-transition";
 import { stripAnsi } from "./output-utils";
 import type { SessionTransitionEvent } from "./session-state-machine";
+import { resolveSubagentSeatEnv } from "./subagent-seat-launch";
 import { prepareTaskPromptWithImages } from "./task-image-prompt";
 import {
 	applyModelAndEffortArgs,
@@ -736,6 +737,24 @@ const claudeAdapter: AgentSessionAdapter = {
 			});
 			env[CLAUDE_CONFIG_DIR_ENV] = scoped.configDir;
 			launchCleanups.push(scoped.cleanup);
+		}
+
+		// Subagent seat: routes only the session's subagent turns onto an API seat, leaving
+		// the parent on whatever seat the card already resolved. Degrades to "no split"
+		// rather than blocking the launch — see `resolveSubagentSeatEnv`.
+		const subagentSeatEnv = await resolveSubagentSeatEnv(launchSettings, {
+			warn: (message) => {
+				console.warn(`[kanban] ${message}`);
+			},
+			log: (message) => {
+				console.log(`[kanban] ${message}`);
+			},
+		});
+		if (subagentSeatEnv) {
+			// ANTHROPIC_API_KEY is deliberately not set: Claude Code falls back to it instead
+			// of its OAuth credential, which would move the *parent* off the card's seat too.
+			env.ANTHROPIC_BASE_URL = subagentSeatEnv.ANTHROPIC_BASE_URL;
+			env.CLAUDE_CODE_SUBAGENT_MODEL = subagentSeatEnv.CLAUDE_CODE_SUBAGENT_MODEL;
 		}
 
 		if (mcpAllowlist && launchSettings?.mcpServerIds) {

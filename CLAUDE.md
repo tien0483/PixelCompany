@@ -25,6 +25,14 @@ reads. `rtk gain` shows what it saved.
 Proxy routing (Headroom/CCR) is deliberately NOT applied to task agents — see
 `backends/runtime/src/stack/stack-process.ts` for why.
 
+**Exception: subagent seats.** A card can pin an API seat that only its *subagents*
+bill (Account picker → "Subagents", Claude Code only). Such a task launches with
+`ANTHROPIC_BASE_URL` at the switchboard and `CLAUDE_CODE_SUBAGENT_MODEL=ccr-<port>,<model>`,
+and never with `ANTHROPIC_API_KEY` — so the parent keeps its own OAuth seat while the
+switchboard diverts marker-model requests to a per-seat CCR on 3460+. The user's own
+`ENABLE_CCR` router keeps 3456. Every failure degrades to "subagents share the task's
+seat" instead of blocking the launch.
+
 ## Harness: PixelOffice merge
 
 **Goal:** Unified monorepo (`frontends/pixel_office` + `backends/runtime` + `backends/manager`) with three-pane home and Claude-only Manager OAuth.
@@ -51,6 +59,7 @@ Proxy routing (Headroom/CCR) is deliberately NOT applied to task agents — see
 | 2026-08-01 | post-checkout hook guard | Scripts | `git worktree add` (task worktree creation) fires the `post-checkout` hook **before** the runtime symlinks `node_modules` into the new worktree, so `scripts/rebuild-ui-if-changed.sh` ran `npx vite build` with no deps → `ERR_MODULE_NOT_FOUND: @tailwindcss/vite` → non-zero hook exit aborted worktree creation, leaving a symlink-less shell and every backlog task failing at start. Script now early-exits when `frontends/pixel_office/node_modules` is absent. |
 | 2026-08-07 | Immutable task baseRef + push | Runtime + UI | Persist worktree base ref in branch registry at creation; merge/UI use that over editable card metadata. Git view gains "Push to remote". Chain followers surface the root's locked base ref. |
 | 2026-08-09 | Agent stack moved in-tree | Backends + scripts + gitignore | `~/agent-stack-sandbox` → `backends/agent_stack`. Half the stack already shipped in-repo (Stack Control dialog + client, `link-stack-skills.mjs`, `solo.mjs` probe), so a fresh clone had UI for a backend it could not install. Runtime now spawns the switchboard headless (`src/stack/stack-process.ts`, mirroring `manager-process.ts`) — but never exports the proxy env for spawned agents: `activate-stack.sh` sets `ANTHROPIC_API_KEY=sk-dummy-key-for-sandbox` and CCR ships no credentials, so inherited routing would fail every task agent with `Authentication failed`. Payload dirs are gitignored *so that* `syncIgnoredPathsIntoWorktree` symlinks them into each task worktree (UA skills + `bin/rtk` per task, no 2 GB copy). venv rebuilt as `.venv` via `uv sync` — console-script shebangs are absolute, so a venv cannot be moved. |
+| 2026-08-09 | Subagent seats | Runtime + UI + agent_stack | Cards can pin an API seat that only the session's *subagents* bill, so orchestration-heavy tasks stop burning the main OAuth seat's 5h/7d cap. Claude Code sends `CLAUDE_CODE_SUBAGENT_MODEL` verbatim as the `model` of every subagent request and nothing else — that is the only per-turn signal separating a subagent from its parent, and no other CLI reads it. Launch sets `ANTHROPIC_BASE_URL` (switchboard) + the marker `ccr-<port>,<modelId>`, never `ANTHROPIC_API_KEY`: Claude Code prefers that key over its OAuth credential, which would move the parent off the card's seat too. `server.py` buffers only `POST /v1/messages`, routes marker models to the seat's router with the model rewritten and caller auth stripped, and now only swaps in `STACK_UPSTREAM_ANTHROPIC_API_KEY` when the caller sent no real credential. The vendored CCR routes **by category only** — `"provider,model"` strings log `Unknown model …, using default` and `routing.rules` is ignored — so each seat gets its own router (3460+, clear of the user's 3456) with CCR's shipped codewhisperer/shuaihong providers neutralized, or they win `default`. |
 
 ## Commit & PR message style
 - Do not add `Co-Authored-By: Claude ...` trailer to commits in this repo.

@@ -52,6 +52,8 @@ export function cloneTaskLaunchSettings(
 	const commandIds = normalizeIdList(settings.commandIds);
 	const workflowIds = normalizeIdList(settings.workflowIds);
 	const mcpServerIds = normalizeIdList(settings.mcpServerIds);
+	const subagentSeatProviderId = settings.subagentSeatProviderId?.trim();
+	const subagentSeatModelId = settings.subagentSeatModelId?.trim();
 	const next: RuntimeTaskLaunchSettings = {
 		...(modelId ? { modelId } : {}),
 		...(settings.effort ? { effort: settings.effort } : {}),
@@ -60,6 +62,9 @@ export function cloneTaskLaunchSettings(
 		...(commandIds ? { commandIds } : {}),
 		...(workflowIds ? { workflowIds } : {}),
 		...(mcpServerIds ? { mcpServerIds } : {}),
+		// A model without a provider names nothing resolvable, so it is dropped with it.
+		...(subagentSeatProviderId ? { subagentSeatProviderId } : {}),
+		...(subagentSeatProviderId && subagentSeatModelId ? { subagentSeatModelId } : {}),
 	};
 	if (
 		next.modelId === undefined &&
@@ -68,7 +73,8 @@ export function cloneTaskLaunchSettings(
 		next.agentIds === undefined &&
 		next.commandIds === undefined &&
 		next.workflowIds === undefined &&
-		next.mcpServerIds === undefined
+		next.mcpServerIds === undefined &&
+		next.subagentSeatProviderId === undefined
 	) {
 		return undefined;
 	}
@@ -107,6 +113,10 @@ export function hasWorkflowAllowlist(settings?: RuntimeTaskLaunchSettings | null
 
 export function hasMcpAllowlist(settings?: RuntimeTaskLaunchSettings | null): boolean {
 	return (settings?.mcpServerIds?.length ?? 0) > 0;
+}
+
+export function hasSubagentSeat(settings?: RuntimeTaskLaunchSettings | null): boolean {
+	return (settings?.subagentSeatProviderId?.trim().length ?? 0) > 0;
 }
 
 /** True when Claude needs a task-scoped CLAUDE_CONFIG_DIR for any resource allowlist. */

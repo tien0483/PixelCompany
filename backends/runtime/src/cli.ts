@@ -403,6 +403,7 @@ async function startServer(): Promise<{
 		{ createHtmlClient },
 		{ startHtmlProcess },
 		{ startStackProcess },
+		{ stopAllSeatRouters },
 		{ describeRuntimeHomeMigration, migrateRuntimeHome },
 		{ startOmniRouteProcess },
 	] = await Promise.all([
@@ -420,6 +421,7 @@ async function startServer(): Promise<{
 		import("./html/html-client.js"),
 		import("./html/html-process.js"),
 		import("./stack/stack-process.js"),
+		import("./stack/ccr-process.js"),
 		import("./state/runtime-home-migration.js"),
 		import("./omniroute/omniroute-process.js"),
 	]);
@@ -611,6 +613,9 @@ async function startServer(): Promise<{
 		// Same rule for the switchboard: a shell that sourced activate-stack.sh owns
 		// its own daemon and must survive the runtime exiting.
 		await StackProcess.close();
+		// Per-seat subagent routers are always ours — they only exist because a task pinned
+		// a subagent seat — so unlike the daemons above they are unconditionally stopped.
+		await stopAllSeatRouters();
 	};
 
 	const shutdown = async (options?: { skipSessionCleanup?: boolean }) => {

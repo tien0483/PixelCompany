@@ -92,6 +92,8 @@ function cloneTaskLaunchSettings(
 		settings.mcpServerIds === undefined
 			? undefined
 			: [...new Set(settings.mcpServerIds.map((id) => id.trim()).filter((id) => id.length > 0))];
+	const subagentSeatProviderId = settings.subagentSeatProviderId?.trim();
+	const subagentSeatModelId = settings.subagentSeatModelId?.trim();
 	const next: RuntimeTaskLaunchSettings = {
 		...(modelId ? { modelId } : {}),
 		...(settings.effort ? { effort: settings.effort } : {}),
@@ -99,6 +101,8 @@ function cloneTaskLaunchSettings(
 		...(agentIds && agentIds.length > 0 ? { agentIds } : {}),
 		...(commandIds && commandIds.length > 0 ? { commandIds } : {}),
 		...(mcpServerIds && mcpServerIds.length > 0 ? { mcpServerIds } : {}),
+		...(subagentSeatProviderId ? { subagentSeatProviderId } : {}),
+		...(subagentSeatProviderId && subagentSeatModelId ? { subagentSeatModelId } : {}),
 	};
 	if (
 		next.modelId === undefined &&
@@ -106,7 +110,8 @@ function cloneTaskLaunchSettings(
 		next.skillIds === undefined &&
 		next.agentIds === undefined &&
 		next.commandIds === undefined &&
-		next.mcpServerIds === undefined
+		next.mcpServerIds === undefined &&
+		next.subagentSeatProviderId === undefined
 	) {
 		return undefined;
 	}

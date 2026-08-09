@@ -6,6 +6,7 @@ import type {
 	RuntimeClineApiSeat,
 	RuntimeManagerAccount,
 	RuntimeTaskClineSettings,
+	RuntimeTaskLaunchSettings,
 } from "@/runtime/types";
 
 import { NativeSelect } from "@/components/ui/native-select";
@@ -67,6 +68,30 @@ export function applyTaskSeatSelection(
 	onManagerAccountIdChange?.(selection.kind === "manager" ? selection.accountId : undefined);
 }
 
+/** A seat the session's subagents bill instead of the card's own; null = inherit. */
+export type TaskSubagentSeatSelection = { providerId: string; modelId: string | null } | null;
+
+/**
+ * Folds a subagent-seat choice into the card's launch settings.
+ *
+ * Returns undefined once the settings hold nothing else, so clearing the pin on an
+ * otherwise-untouched card leaves no empty object behind for the runtime to normalize away.
+ */
+export function applyTaskSubagentSeatSelection(
+	selection: TaskSubagentSeatSelection,
+	current: RuntimeTaskLaunchSettings | undefined,
+): RuntimeTaskLaunchSettings | undefined {
+	const { subagentSeatProviderId: _providerId, subagentSeatModelId: _modelId, ...rest } = current ?? {};
+	if (selection === null) {
+		return Object.keys(rest).length > 0 ? rest : undefined;
+	}
+	return {
+		...rest,
+		subagentSeatProviderId: selection.providerId,
+		...(selection.modelId ? { subagentSeatModelId: selection.modelId } : {}),
+	};
+}
+
 export interface TaskAccountPickerProps {
 	accounts: RuntimeManagerAccount[];
 	/** API-key seats, offered alongside Manager accounts in the same list. */
@@ -78,6 +103,10 @@ export interface TaskAccountPickerProps {
 	agentId: RuntimeAgentId | null;
 	disabled?: boolean;
 	onChange: (selection: TaskSeatSelection) => void;
+	/** Provider id of the card's pinned subagent seat, from its launch settings. */
+	subagentSeatProviderId?: string | null;
+	/** Omit to hide the subagent row entirely (callers that do not own launch settings). */
+	onSubagentSeatChange?: (selection: TaskSubagentSeatSelection) => void;
 }
 
 function accountLabel(account: RuntimeManagerAccount): string {
@@ -158,6 +187,8 @@ export function TaskAccountPicker({
 	agentId,
 	disabled = false,
 	onChange,
+	subagentSeatProviderId,
+	onSubagentSeatChange,
 }: TaskAccountPickerProps): ReactElement {
 	const fallbackAccount = autoFallbackAccount(accounts, activeAccountId, agentId);
 	const autoLabel = fallbackAccount
@@ -177,40 +208,79 @@ export function TaskAccountPicker({
 		selectValue = `${MANAGER_VALUE_PREFIX}${value}`;
 	}
 
+	// Subagents are a Claude Code concept: the split rides on CLAUDE_CODE_SUBAGENT_MODEL,
+	// which no other CLI reads, and a Cline card already pins its provider on the row above.
+	const showSubagentRow = onSubagentSeatChange !== undefined && agentId === "claude" && apiSeats.length > 0;
+	// A pin naming a seat that has since lost its key (or been deleted) must not stick as a
+	// select value — show Inherit, which is also what the launch will fall back to.
+	const pinnedSubagentSeat = subagentSeatProviderId
+		? apiSeats.find((seat) => seat.providerId === subagentSeatProviderId)
+		: undefined;
+
 	return (
-		<label className="flex min-w-0 items-center gap-1.5 text-[11px] text-text-secondary">
-			<span className="shrink-0">Account</span>
-			<NativeSelect
-				size="sm"
-				data-testid="task-account-picker"
-				aria-label={agentAccountLabel(agentId)}
-				disabled={disabled || (accounts.length === 0 && apiSeats.length === 0)}
-				value={selectValue}
-				onChange={(event) => {
-					onChange(parseSeatSelection(event.target.value, accounts, apiSeats));
-				}}
-			>
-				<option value={AUTO_VALUE}>{autoLabel}</option>
-				{accounts.map((account) => (
-					<option
-						key={account.id}
-						value={`${MANAGER_VALUE_PREFIX}${account.id}`}
-						disabled={isDonateExhausted(account)}
+		<div className="flex min-w-0 flex-col gap-1">
+			<label className="flex min-w-0 items-center gap-1.5 text-[11px] text-text-secondary">
+				<span className="shrink-0">Account</span>
+				<NativeSelect
+					size="sm"
+					data-testid="task-account-picker"
+					aria-label={agentAccountLabel(agentId)}
+					disabled={disabled || (accounts.length === 0 && apiSeats.length === 0)}
+					value={selectValue}
+					onChange={(event) => {
+						onChange(parseSeatSelection(event.target.value, accounts, apiSeats));
+					}}
+				>
+					<option value={AUTO_VALUE}>{autoLabel}</option>
+					{accounts.map((account) => (
+						<option
+							key={account.id}
+							value={`${MANAGER_VALUE_PREFIX}${account.id}`}
+							disabled={isDonateExhausted(account)}
+						>
+							{accountLabel(account)}
+						</option>
+					))}
+					{apiSeats.length > 0 ? (
+						<optgroup label="API seats (Cline)">
+							{apiSeats.map((seat) => (
+								<option key={seat.providerId} value={`${API_VALUE_PREFIX}${seat.providerId}`}>
+									{apiSeatLabel(seat)}
+								</option>
+							))}
+						</optgroup>
+					) : null}
+				</NativeSelect>
+			</label>
+			{showSubagentRow ? (
+				<label className="flex min-w-0 items-center gap-1.5 text-[11px] text-text-secondary">
+					<span className="shrink-0">Subagents</span>
+					<NativeSelect
+						size="sm"
+						data-testid="task-subagent-seat-picker"
+						aria-label="API seat this task's subagents run on"
+						disabled={disabled}
+						value={pinnedSubagentSeat ? pinnedSubagentSeat.providerId : ""}
+						onChange={(event) => {
+							const providerId = event.target.value;
+							if (!providerId) {
+								onSubagentSeatChange(null);
+								return;
+							}
+							const seat = apiSeats.find((candidate) => candidate.providerId === providerId);
+							onSubagentSeatChange({ providerId, modelId: seat?.defaultModelId ?? null });
+						}}
 					>
-						{accountLabel(account)}
-					</option>
-				))}
-				{apiSeats.length > 0 ? (
-					<optgroup label="API seats (Cline)">
+						<option value="">Inherit (this task's seat)</option>
 						{apiSeats.map((seat) => (
-							<option key={seat.providerId} value={`${API_VALUE_PREFIX}${seat.providerId}`}>
+							<option key={seat.providerId} value={seat.providerId}>
 								{apiSeatLabel(seat)}
 							</option>
 						))}
-					</optgroup>
-				) : null}
-			</NativeSelect>
-		</label>
+					</NativeSelect>
+				</label>
+			) : null}
+		</div>
 	);
 }
 
