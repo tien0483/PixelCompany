@@ -78,7 +78,7 @@ export type SkillMeta = {
   aspectHint: string;
   featured?: number;
   /**
-   * If set, the skill is included in the "推荐 / Featured" group at the top of
+   * If set, the skill is included in the "Featured" group at the top of
    * the picker. Lower number = higher rank in that group.
    */
   recommended?: number;
@@ -200,7 +200,7 @@ function fmToMeta(id: string, fm: SkillFrontmatter, hasHtml: boolean, hasMd: boo
   if (fm.example_id || hasMd || hasHtml) {
     meta.example = {
       id: fm.example_id ?? `example-${id}`,
-      name: fm.example_name ?? `${meta.zhName} 示例`,
+      name: fm.example_name ?? `${meta.enName} Example`,
       format: fm.example_format ?? "markdown",
       tagline: fm.example_tagline ?? "",
       desc: fm.example_desc ?? "",

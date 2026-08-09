@@ -1,23 +1,23 @@
-# 涌现的命名
+# The Naming of Emergence
 
-**Topic / 领域**：复杂系统 · 1972
-**English Category**：COMPLEX SYSTEMS / SCIENCE
+**Topic / Field**: complex systems · 1972
+**English Category**: COMPLEX SYSTEMS / SCIENCE
 
-## 弧线
+## The arc
 
-| 站 | 内容 |
+| Station | Content |
 |---|---|
-| 01 起点 | 20 世纪中叶，物理学家相信「只要把每一颗粒子讲清，整体就讲清了」 |
-| 02 失败一 | **还原论**：分到原子层逐个解释，结论：每个原子都不"聪明" |
-| 03 失败二 | **加总**：把个体行为加起来，结论：加得出体重，加不出意识 |
-| 04 转折 | **整体——** 整体不是个体之和 |
-| 05 顿悟 | 在某个临界点，整体的新性质突然冒出来，单个个体根本看不见这一面 |
-| 06 命名 | **涌现 / Emergence** — Phil Anderson, 1972, "More Is Different" |
+| 01 Start | In the mid-20th century, physicists believed that "once you explain every particle, you've explained the whole" |
+| 02 Failure 1 | **Reductionism**: break it down to the atomic layer and explain each one — conclusion: no single atom is "smart" |
+| 03 Failure 2 | **Summation**: add up individual behaviours — conclusion: you can sum weights, but you can't sum consciousness |
+| 04 Turning point | **The whole —** the whole is not the sum of its parts |
+| 05 Insight | At some critical point, a new property of the whole suddenly appears, and no single individual can see that side |
+| 06 Naming | **Emergence** — Phil Anderson, 1972, "More Is Different" |
 
-## 不剧透标题（feature 用）
+## Non-spoiler title (for the feature)
 
-「单看每一只蚂蚁，都讲不出蚁群」
+"Look at any single ant, and you can't tell the story of the colony"
 
-## 诗意余韵（epilogue）
+## Poetic resonance (epilogue)
 
-「于是，整体长出了自己的眼睛。」
+"And so, the whole grew its own eyes."

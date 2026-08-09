@@ -18,12 +18,12 @@ import {
 const OPTS = { body: "  TEMPLATE BODY  ", content: "USER CONTENT", format: "markdown" };
 
 describe("assemblePrompt", () => {
-  it("defaults to the untouched Chinese preamble with filesystem access denied", () => {
+  it("defaults to the English preamble with filesystem access denied", () => {
     const prompt = assemblePrompt(OPTS);
     expect(prompt).toContain(SHARED_DESIGN_DIRECTIVES);
-    expect(prompt).toContain("禁止使用 Write / Edit / MultiEdit / Bash / Create / 任何文件系统工具");
-    expect(prompt).toContain("【输入格式】: markdown");
-    expect(prompt).toContain("【用户内容】:\nUSER CONTENT");
+    expect(prompt).toContain("Do NOT use Write / Edit / MultiEdit / Bash / Create or any filesystem tool.");
+    expect(prompt).toContain("[INPUT FORMAT]: markdown");
+    expect(prompt).toContain("[USER CONTENT]:\nUSER CONTENT");
     expect(prompt).toContain("TEMPLATE BODY");
     // body is trimmed, not padded through
     expect(prompt).not.toContain("  TEMPLATE BODY  ");
@@ -32,16 +32,16 @@ describe("assemblePrompt", () => {
   it("drops only the house design brief for design_directives: none", () => {
     const prompt = assemblePrompt({ ...OPTS, designDirectives: "none" });
     expect(prompt).not.toContain(VISUAL_DESIGN_DIRECTIVES.trim());
-    expect(prompt).not.toContain("盘古之白");
+    expect(prompt).not.toContain("DESIGN GUIDELINES");
     // the pipeline contract survives — the stream parser depends on it
     expect(prompt).toContain(TECHNICAL_OUTPUT_RULES.trim());
-    expect(prompt).toContain("第一个字符必须是");
+    expect(prompt).toContain("The first character must be");
   });
 
   it("swaps the filesystem paragraph when allowRead is set", () => {
     const prompt = assemblePrompt({ ...OPTS, allowRead: true });
-    expect(prompt).toContain("允许使用 Read / Glob");
-    expect(prompt).not.toContain("禁止使用 Write / Edit / MultiEdit / Bash / Create / 任何文件系统工具");
+    expect(prompt).toContain("**Read / Glob are ALLOWED**");
+    expect(prompt).not.toContain("Do NOT use Write / Edit / MultiEdit / Bash / Create or any filesystem tool.");
     // writing HTML to disk stays banned in both variants
     expect(prompt).toContain("Write / Edit / MultiEdit / Bash / Create");
   });
