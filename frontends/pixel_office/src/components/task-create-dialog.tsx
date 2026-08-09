@@ -30,6 +30,7 @@ import { Dialog, DialogBody, DialogFooter, DialogHeader } from "@/components/ui/
 import {
 	TaskAccountPicker,
 	applyTaskSeatSelection,
+	applyTaskSubagentSeatSelection,
 	filterManagerAccountsForAgent,
 } from "@/manager/task-account-picker";
 import { useClineApiSeats } from "@/runtime/use-cline-api-seats";
@@ -649,6 +650,16 @@ export function TaskCreateDialog({
 									currentAgentId: effectiveAgentId,
 								});
 							}}
+							subagentSeatProviderId={taskLaunchSettings?.subagentSeatProviderId ?? null}
+							{...(onTaskLaunchSettingsChange
+								? {
+										onSubagentSeatChange: (selection) => {
+											onTaskLaunchSettingsChange(
+												applyTaskSubagentSeatSelection(selection, taskLaunchSettings),
+											);
+										},
+									}
+								: {})}
 						/>
 					) : null}
 					{onTaskLaunchSettingsChange ? (

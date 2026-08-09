@@ -124,6 +124,15 @@ export const runtimeTaskLaunchSettingsSchema = z.object({
 	commandIds: z.array(z.string().min(1)).optional(),
 	workflowIds: z.array(z.string().min(1)).optional(),
 	mcpServerIds: z.array(z.string().min(1)).optional(),
+	/**
+	 * API seat the session's subagents bill instead of the card's own seat, as a Cline
+	 * provider id from `listClineApiSeats`. Claude Code only: the split rides on
+	 * `CLAUDE_CODE_SUBAGENT_MODEL`, which no other CLI reads. Omitted = subagents inherit
+	 * the card's seat, which is the pre-existing behavior.
+	 */
+	subagentSeatProviderId: z.string().min(1).optional(),
+	/** Model the subagent seat runs; falls back to the seat's default model when absent. */
+	subagentSeatModelId: z.string().min(1).optional(),
 });
 export type RuntimeTaskLaunchSettings = z.infer<typeof runtimeTaskLaunchSettingsSchema>;
 export const runtimeTaskImageSchema = z.object({

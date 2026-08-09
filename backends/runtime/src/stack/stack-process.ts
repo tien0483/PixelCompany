@@ -9,21 +9,24 @@
 // chain under `sk-dummy-key-for-sandbox`, and CCR's default provider has no
 // credentials, so every agent would die on `Authentication failed`.
 //
+// One deliberate exception: a card that pins a subagent seat gets
+// `ANTHROPIC_BASE_URL` (and never `ANTHROPIC_API_KEY`) pointed at the switchboard, so
+// the session keeps its own OAuth credential and only subagent turns are diverted to a
+// per-seat router. See `ccr-process.ts` and `agent-session-adapters.ts`.
+//
 // Optional by construction: with no stack installed the board keeps running and
 // Stack Control reports the switchboard offline.
 import { type ChildProcess, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { connect } from "node:net";
 import { join } from "node:path";
 
 import { terminateProcessForTimeout } from "../server/process-termination";
 import { findStackRoot } from "./stack-paths";
+import { probePort, waitForPort } from "./stack-ports";
 
 const DEFAULT_STACK_HOST = "127.0.0.1";
 const DEFAULT_STACK_PORT = 8000;
-const PORT_PROBE_TIMEOUT_MS = 1_000;
 const STARTUP_TIMEOUT_MS = 20_000;
-const PORT_POLL_INTERVAL_MS = 250;
 
 export interface StackProcess {
 	/** Null when the switchboard was already listening or could not be started. */
@@ -44,7 +47,7 @@ export interface StartStackProcessDependencies {
 	port?: number;
 }
 
-function resolveStackPort(configured: number | undefined): number {
+export function resolveStackPort(configured?: number | undefined): number {
 	if (configured !== undefined) {
 		return configured;
 	}
@@ -71,36 +74,6 @@ function resolveStackPython(stackRoot: string): string | null {
 			? join(stackRoot, ".venv", "Scripts", "python.exe")
 			: join(stackRoot, ".venv", "bin", "python");
 	return existsSync(venvPython) ? venvPython : null;
-}
-
-function probePort(host: string, port: number, timeoutMs = PORT_PROBE_TIMEOUT_MS): Promise<boolean> {
-	return new Promise((resolvePromise) => {
-		const socket = connect({ host, port });
-		const finish = (isOpen: boolean) => {
-			socket.destroy();
-			resolvePromise(isOpen);
-		};
-		socket.setTimeout(timeoutMs);
-		socket.once("connect", () => finish(true));
-		socket.once("timeout", () => finish(false));
-		socket.once("error", () => finish(false));
-	});
-}
-
-async function waitForPort(
-	host: string,
-	port: number,
-	timeoutMs: number,
-	shouldKeepWaiting: () => boolean,
-): Promise<boolean> {
-	const deadline = Date.now() + timeoutMs;
-	while (Date.now() < deadline && shouldKeepWaiting()) {
-		if (await probePort(host, port)) {
-			return true;
-		}
-		await new Promise((resolvePromise) => setTimeout(resolvePromise, PORT_POLL_INTERVAL_MS));
-	}
-	return false;
 }
 
 function createNoopProcess(isAlreadyUp: boolean): StackProcess {

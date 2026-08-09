@@ -6,8 +6,10 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
 	TaskAccountPicker,
 	type TaskSeatSelection,
+	type TaskSubagentSeatSelection,
 	agentIdForManagerProvider,
 	applyTaskSeatSelection,
+	applyTaskSubagentSeatSelection,
 	autoFallbackAccount,
 	filterManagerAccountsForAgent,
 	managerProviderForAgent,
@@ -71,6 +73,8 @@ function renderPicker(
 		apiSeats?: RuntimeClineApiSeat[];
 		clineProviderId?: string | null;
 		onChange?: (selection: TaskSeatSelection) => void;
+		subagentSeatProviderId?: string | null;
+		onSubagentSeatChange?: (selection: TaskSubagentSeatSelection) => void;
 	},
 ): HTMLElement {
 	const container = document.createElement("div");
@@ -89,6 +93,8 @@ function renderPicker(
 					activeAccountId={props.activeAccountId ?? null}
 					agentId={props.agentId}
 					onChange={props.onChange ?? (() => {})}
+					subagentSeatProviderId={props.subagentSeatProviderId ?? null}
+					{...(props.onSubagentSeatChange ? { onSubagentSeatChange: props.onSubagentSeatChange } : {})}
 				/>,
 			),
 		);
@@ -469,5 +475,125 @@ describe("applyTaskSeatSelection", () => {
 			managerAccountId: 3,
 			agentId: "cursor",
 		});
+	});
+});
+
+describe("subagent seat row", () => {
+	const seats = [
+		apiSeat("openrouter", "OpenRouter", "cohere/north-mini-code:free"),
+		apiSeat("groq", "Groq", null),
+	];
+
+	it("offers the row for Claude tasks that have API seats to pick from", () => {
+		const container = renderPicker({
+			accounts: [],
+			agentId: "claude",
+			apiSeats: seats,
+			onSubagentSeatChange: () => {},
+		});
+		const select = container.querySelector<HTMLSelectElement>('[data-testid="task-subagent-seat-picker"]');
+		expect(select).not.toBeNull();
+		expect([...(select?.options ?? [])].map((option) => option.value)).toEqual(["", "openrouter", "groq"]);
+	});
+
+	it("hides the row for agents that cannot route subagents", () => {
+		for (const agentId of ["cursor", "codex", "cline"] as const) {
+			const container = renderPicker({
+				accounts: [],
+				agentId,
+				apiSeats: seats,
+				onSubagentSeatChange: () => {},
+			});
+			expect(container.querySelector('[data-testid="task-subagent-seat-picker"]')).toBeNull();
+		}
+	});
+
+	it("hides the row when the caller does not own launch settings", () => {
+		const container = renderPicker({ accounts: [], agentId: "claude", apiSeats: seats });
+		expect(container.querySelector('[data-testid="task-subagent-seat-picker"]')).toBeNull();
+	});
+
+	it("emits the seat's default model when one is pinned", () => {
+		const selections: TaskSubagentSeatSelection[] = [];
+		const container = renderPicker({
+			accounts: [],
+			agentId: "claude",
+			apiSeats: seats,
+			onSubagentSeatChange: (selection) => selections.push(selection),
+		});
+		const select = container.querySelector<HTMLSelectElement>('[data-testid="task-subagent-seat-picker"]');
+		act(() => {
+			if (select) {
+				select.value = "openrouter";
+				select.dispatchEvent(new Event("change", { bubbles: true }));
+			}
+		});
+		expect(selections).toEqual([{ providerId: "openrouter", modelId: "cohere/north-mini-code:free" }]);
+	});
+
+	it("emits null when the pin is cleared back to Inherit", () => {
+		const selections: TaskSubagentSeatSelection[] = [];
+		const container = renderPicker({
+			accounts: [],
+			agentId: "claude",
+			apiSeats: seats,
+			subagentSeatProviderId: "openrouter",
+			onSubagentSeatChange: (selection) => selections.push(selection),
+		});
+		const select = container.querySelector<HTMLSelectElement>('[data-testid="task-subagent-seat-picker"]');
+		expect(select?.value).toBe("openrouter");
+		act(() => {
+			if (select) {
+				select.value = "";
+				select.dispatchEvent(new Event("change", { bubbles: true }));
+			}
+		});
+		expect(selections).toEqual([null]);
+	});
+
+	it("falls back to Inherit when the pinned seat is gone", () => {
+		const container = renderPicker({
+			accounts: [],
+			agentId: "claude",
+			apiSeats: seats,
+			subagentSeatProviderId: "deleted-seat",
+			onSubagentSeatChange: () => {},
+		});
+		const select = container.querySelector<HTMLSelectElement>('[data-testid="task-subagent-seat-picker"]');
+		expect(select?.value).toBe("");
+	});
+});
+
+describe("applyTaskSubagentSeatSelection", () => {
+	it("keeps unrelated launch settings intact", () => {
+		expect(
+			applyTaskSubagentSeatSelection({ providerId: "openrouter", modelId: "gpt-5" }, { agentIds: ["reviewer"] }),
+		).toEqual({
+			agentIds: ["reviewer"],
+			subagentSeatProviderId: "openrouter",
+			subagentSeatModelId: "gpt-5",
+		});
+	});
+
+	it("omits the model when the seat has no default", () => {
+		expect(applyTaskSubagentSeatSelection({ providerId: "groq", modelId: null }, undefined)).toEqual({
+			subagentSeatProviderId: "groq",
+		});
+	});
+
+	it("drops both fields when cleared, keeping the rest", () => {
+		expect(
+			applyTaskSubagentSeatSelection(null, {
+				agentIds: ["reviewer"],
+				subagentSeatProviderId: "openrouter",
+				subagentSeatModelId: "gpt-5",
+			}),
+		).toEqual({ agentIds: ["reviewer"] });
+	});
+
+	it("returns undefined rather than an empty object when nothing else is set", () => {
+		expect(
+			applyTaskSubagentSeatSelection(null, { subagentSeatProviderId: "openrouter" }),
+		).toBeUndefined();
 	});
 });

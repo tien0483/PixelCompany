@@ -20,6 +20,7 @@ location is still holding the port.
 import asyncio
 import json
 import os
+import re
 import socket
 import tempfile
 import time
@@ -63,6 +64,22 @@ ANTHROPIC_URL = os.environ.get("STACK_ANTHROPIC_URL", "https://api.anthropic.com
 UPSTREAM_KEY = os.environ.get("STACK_UPSTREAM_ANTHROPIC_API_KEY", "")
 
 DEVTOOLS_PORT = 3001
+
+# --- per-seat subagent routing ----------------------------------------------
+# A Kanban card can pin an API seat that only its *subagents* bill. The runtime starts one
+# Claude Code Router per seat and hands Claude Code
+# `CLAUDE_CODE_SUBAGENT_MODEL=ccr-<port>,<modelId>`; Claude Code sends that string as the
+# `model` of every subagent request and nothing else, so the model field is the only signal
+# that separates a subagent turn from its parent's.
+#
+# The port travels inside the marker so this process needs no shared state with the runtime.
+# It is bounded to the runtime's own allocation window (see `ccr-process.ts`) so a crafted
+# model string cannot turn the switchboard into a proxy for arbitrary local ports.
+SUBAGENT_MODEL_PATTERN = re.compile(r"^ccr-(\d+),(.+)$")
+SEAT_PORT_MIN = int(os.environ.get("STACK_CCR_SEAT_BASE_PORT", "3460"))
+SEAT_PORT_MAX = SEAT_PORT_MIN + 39
+# Only this endpoint carries a model, and only it is worth buffering.
+MODEL_ROUTED_PATHS = ("messages",)
 
 # Hop-by-hop and length headers must not be forwarded verbatim: httpx recomputes
 # them, and a stale content-length truncates streamed bodies.
@@ -334,6 +351,70 @@ def _client() -> httpx.AsyncClient:
     return HTTP
 
 
+def has_caller_credential(request: Request) -> bool:
+    """
+    True when the caller authenticated as itself rather than with the sandbox placeholder.
+
+    `activate-stack.sh` exports `ANTHROPIC_API_KEY=sk-dummy-key-for-sandbox` precisely so no
+    live key sits in an activated shell, and that placeholder must still be replaced. A
+    session launched by the runtime instead carries a real Claude Code OAuth bearer, which
+    has to survive untouched or its turns would bill this sandbox's account.
+    """
+    if request.headers.get("authorization", "").strip():
+        return True
+    api_key = request.headers.get("x-api-key", "").strip()
+    return bool(api_key) and not api_key.startswith("sk-dummy-key")
+
+
+class SubagentRoute:
+    """A subagent turn resolved to the seat router that should serve it."""
+
+    __slots__ = ("port", "body")
+
+    def __init__(self, port: int, body: bytes):
+        self.port = port
+        self.body = body
+
+
+async def read_subagent_route(request: Request, path: str) -> tuple[bytes | None, SubagentRoute | None]:
+    """
+    Classifies one request as a subagent turn or an ordinary one.
+
+    Returns `(body, route)`. `body` is non-None only when this function had to buffer the
+    request to read its model — every other request keeps streaming, so nothing but
+    `/v1/messages` pays the memory cost of a buffered prompt.
+
+    The seat's real model id replaces the marker, because the router forwards `model` to the
+    provider verbatim and would otherwise ask it for a model named `ccr-<port>,...`.
+    """
+    if request.method != "POST" or path.strip("/") not in MODEL_ROUTED_PATHS:
+        return None, None
+
+    body = await request.body()
+    if not body:
+        return body, None
+    try:
+        payload = json.loads(body)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return body, None
+    if not isinstance(payload, dict):
+        return body, None
+
+    model = payload.get("model")
+    match = SUBAGENT_MODEL_PATTERN.match(model) if isinstance(model, str) else None
+    if match is None:
+        return body, None
+
+    port = int(match.group(1))
+    if not SEAT_PORT_MIN <= port <= SEAT_PORT_MAX:
+        # Outside the runtime's allocation window: treat it as an ordinary request rather
+        # than proxying to whatever else happens to be listening on that port.
+        return body, None
+
+    payload["model"] = match.group(2)
+    return body, SubagentRoute(port, json.dumps(payload).encode("utf-8"))
+
+
 @app.api_route(
     "/v1/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
 )
@@ -343,13 +424,29 @@ async def dynamic_proxy(request: Request, path: str):
     # port, which would stall every other in-flight stream on a cache miss.
     live = await asyncio.to_thread(daemon_liveness)
     base, chain = resolve_route(flags, live)
+
+    body, seat_route = await read_subagent_route(request, path)
+    if seat_route is not None:
+        # A subagent turn: bypass the flag-driven chain entirely and hand it to the router
+        # holding that seat's key. The caller's own credential is not forwarded — the seat
+        # authenticates downstream, and passing an Anthropic OAuth token to a third-party
+        # endpoint would leak it.
+        base = f"http://127.0.0.1:{seat_route.port}"
+        chain = ["switchboard", f"ccr-seat:{seat_route.port}"]
+        body = seat_route.body
+
     direct = base == ANTHROPIC_URL
 
     headers = {
         k: v for k, v in request.headers.items() if k.lower() not in STRIP_REQUEST_HEADERS
     }
-    if direct and UPSTREAM_KEY:
-        # The session key is a sandbox placeholder; swap in the real one.
+    if seat_route is not None:
+        headers.pop("authorization", None)
+        headers.pop("x-api-key", None)
+    elif direct and UPSTREAM_KEY and not has_caller_credential(request):
+        # The session key is a sandbox placeholder; swap in the real one. A session that
+        # brought its own credential (a Claude Code OAuth bearer, say) keeps it: overwriting
+        # that would silently move the session's usage onto this sandbox's account.
         headers.pop("authorization", None)
         headers["x-api-key"] = UPSTREAM_KEY
     headers["x-stack-chain"] = " -> ".join(chain)
@@ -361,7 +458,7 @@ async def dynamic_proxy(request: Request, path: str):
         url,
         headers=headers,
         params=request.query_params,
-        content=request.stream(),
+        content=body if body is not None else request.stream(),
     )
 
     try:

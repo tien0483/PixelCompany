@@ -23,6 +23,7 @@ import { Tooltip } from "@/components/ui/tooltip";
 import {
 	TaskAccountPicker,
 	applyTaskSeatSelection,
+	applyTaskSubagentSeatSelection,
 	filterManagerAccountsForAgent,
 } from "@/manager/task-account-picker";
 import { useClineApiSeats } from "@/runtime/use-cline-api-seats";
@@ -419,6 +420,16 @@ export function TaskInlineCreateCard({
 								currentAgentId: effectiveAgentId,
 							});
 						}}
+						subagentSeatProviderId={taskLaunchSettings?.subagentSeatProviderId ?? null}
+						{...(onTaskLaunchSettingsChange
+							? {
+									onSubagentSeatChange: (selection) => {
+										onTaskLaunchSettingsChange(
+											applyTaskSubagentSeatSelection(selection, taskLaunchSettings),
+										);
+									},
+								}
+							: {})}
 					/>
 				) : null}
 				{onTaskLaunchSettingsChange ? (
