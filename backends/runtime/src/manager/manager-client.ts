@@ -47,6 +47,8 @@ const PROVIDER_CAPABILITIES: Record<RuntimeManagerProvider, { canAutoSwap: boole
 	// Cursor stores its session in the IDE's sqlite state, so switching requires the app
 	// to be closed. Never automate it.
 	cursor: { canAutoSwap: false, canTrackUsage: true },
+	// OmniRoute is a local proxy service — switching is instant (no credential files).
+	omniroute: { canAutoSwap: true, canTrackUsage: false },
 };
 
 const FEATURE_CATEGORIES: RuntimeManagerFeatureCategory[] = ["agents", "commands", "hooks", "knowledge"];

@@ -413,6 +413,16 @@ export async function listSdkProviderModels(providerId: string): Promise<SdkProv
 
 const providerManager = new ProviderSettingsManager();
 
+// models.json is only replayed into the SDK's provider registry by addSdkCustomProvider,
+// so on a plain restart every user-added endpoint is unknown again and a launch fails with
+// "Unknown or disabled provider <id>". Register them once at module load instead; a corrupt
+// or absent models.json must not stop the runtime from booting.
+try {
+	await ensureCustomProvidersLoaded(providerManager);
+} catch {
+	// Boot anyway; the affected seats simply stay unregistered until re-added.
+}
+
 function resolveModelsPath(): string {
 	return join(dirname(providerManager.getFilePath()), "models.json");
 }

@@ -1,4 +1,4 @@
-﻿"""Auth routes -- account management, credential switching, session queries.
+"""Auth routes -- account management, credential switching, session queries.
 
 Handles OAuth flow initiation/polling, account CRUD, token refresh,
 usage cache refresh, account validation, credential switching, and
@@ -1657,7 +1657,7 @@ async def use_account(account_id: int, request: Request):
             },
         )
 
-    if account.get("validation_status") == "invalid":
+    if account.get("provider") != "omniroute" and account.get("validation_status") == "invalid":
         return JSONResponse(
             status_code=status.HTTP_400_BAD_REQUEST,
             content={
@@ -1753,6 +1753,20 @@ async def use_account(account_id: int, request: Request):
                     "A fresh access token was minted from the stored refresh token."
                 ),
                 "outgoing_id": result.outgoing_id,
+            },
+        )
+
+    if account.get("provider") == "omniroute":
+        db.set_active_account_id(account_id, provider="omniroute")
+        _promote_account_to_primary(db, account_id)
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={
+                "success": True,
+                "provider": "omniroute",
+                "account_id": account_id,
+                "restart_required": False,
+                "message": "Switched to OmniRoute Special Seat.",
             },
         )
 

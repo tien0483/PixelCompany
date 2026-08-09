@@ -404,6 +404,7 @@ async function startServer(): Promise<{
 		{ startHtmlProcess },
 		{ startStackProcess },
 		{ describeRuntimeHomeMigration, migrateRuntimeHome },
+		{ startOmniRouteProcess },
 	] = await Promise.all([
 		import("./projects/project-path.js"),
 		import("./server/directory-picker.js"),
@@ -420,6 +421,7 @@ async function startServer(): Promise<{
 		import("./html/html-process.js"),
 		import("./stack/stack-process.js"),
 		import("./state/runtime-home-migration.js"),
+		import("./omniroute/omniroute-process.js"),
 	]);
 
 	// Must run before the workspace registry, which is the first reader of the
@@ -453,6 +455,14 @@ async function startServer(): Promise<{
 	// Bring Manager up before the client so the first snapshot poll finds it. It is
 	// optional: a missing Python install only means Accounts report offline.
 	const ManagerProcess = await startManagerProcess({
+		warn: (message) => {
+			console.warn(`[kanban] ${message}`);
+		},
+		log: (message) => {
+			console.log(`[kanban] ${message}`);
+		},
+	});
+	const OmniRouteProcess = await startOmniRouteProcess({
 		warn: (message) => {
 			console.warn(`[kanban] ${message}`);
 		},
@@ -596,6 +606,7 @@ async function startServer(): Promise<{
 		await runtimeServer.close();
 		// Only stops a Manager we spawned; an externally managed service is left alone.
 		await ManagerProcess.close();
+		await OmniRouteProcess.close();
 		await HtmlProcess.close();
 		// Same rule for the switchboard: a shell that sourced activate-stack.sh owns
 		// its own daemon and must survive the runtime exiting.

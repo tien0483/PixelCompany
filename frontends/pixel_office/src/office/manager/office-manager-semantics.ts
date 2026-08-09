@@ -43,6 +43,7 @@ const PROVIDER_LABELS: Record<RuntimeManagerAccount["provider"], string> = {
 	codex: "Codex",
 	cursor: "Cursor",
 	antigravity: "Antigravity",
+	omniroute: "OmniRoute",
 };
 
 /** PixelOffice office chrome only meters Claude fleets. */
