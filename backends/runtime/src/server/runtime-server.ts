@@ -388,6 +388,7 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 			...(card?.agentId ? { agentId: card.agentId } : {}),
 			...(card?.managerAccountId ? { managerAccountId: card.managerAccountId } : {}),
 			autoResumeOnUsageLimit: card?.autoResumeOnUsageLimit ?? true,
+			taskLaunchSettings: card?.taskLaunchSettings,
 		});
 		if (!response.ok) {
 			throw new Error(response.error ?? "usage-resume relaunch failed");
