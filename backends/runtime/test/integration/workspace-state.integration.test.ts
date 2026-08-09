@@ -8,6 +8,7 @@ import type { RuntimeBoardData, RuntimeTaskSessionSummary } from "../../src/core
 import type { WorkspaceStateConflictError } from "../../src/state/workspace-state";
 import {
 	getWorkspaceLocalAssetsSetting,
+	getWorkspaceManagerFeatures,
 	getWorkspacesRootPath,
 	listWorkspaceIndexEntries,
 	loadWorkspaceContext,
@@ -16,7 +17,9 @@ import {
 	removeWorkspaceIndexEntry,
 	saveWorkspaceState,
 	setWorkspaceLocalAssets,
+	setWorkspaceManagerFeature,
 } from "../../src/state/workspace-state";
+import { listClaudeSkillInventory } from "../../src/terminal/task-launch-settings";
 import { createGitTestEnv } from "../utilities/git-env";
 import { createTempDir } from "../utilities/temp-dir";
 
@@ -303,6 +306,55 @@ describe.sequential("workspace-state integration", () => {
 					enabled: true,
 					roots: ["agent"],
 				});
+			} finally {
+				cleanup();
+			}
+		});
+	});
+
+	it("surfaces a recorded Manager install in the task-card inventory without the local-assets opt-in", async () => {
+		await withTemporaryHome(async () => {
+			const { path: sandboxRoot, cleanup } = createTempDir("kanban-manager-features-");
+			try {
+				const workspacePath = join(sandboxRoot, "with-manager-features");
+				mkdirSync(workspacePath, { recursive: true });
+				initGitRepository(workspacePath);
+
+				// Manager installs into `<repo>/.claude`; the runtime records the intent.
+				mkdirSync(join(workspacePath, ".claude", "skills", "reviewer"), { recursive: true });
+				writeFileSync(
+					join(workspacePath, ".claude", "skills", "reviewer", "SKILL.md"),
+					"---\nname: reviewer\ndescription: Manager-installed skill.\n---\n",
+					"utf8",
+				);
+				mkdirSync(join(workspacePath, ".claude", "skills", "repo-authored"), { recursive: true });
+				writeFileSync(
+					join(workspacePath, ".claude", "skills", "repo-authored", "SKILL.md"),
+					"---\nname: repo-authored\ndescription: Not installed through Manager.\n---\n",
+					"utf8",
+				);
+
+				const context = await loadWorkspaceContext(workspacePath);
+				await setWorkspaceManagerFeature(context.workspaceId, "knowledge/skill_reviewer", true);
+				expect(await getWorkspaceManagerFeatures(context.workspaceId)).toEqual(["knowledge/skill_reviewer"]);
+
+				const setting = await getWorkspaceLocalAssetsSetting(context.workspaceId);
+				expect(setting.enabled).toBe(false);
+				const inventory = await listClaudeSkillInventory(context.repoPath, {
+					localAssetsEnabled: setting.enabled,
+					roots: setting.roots,
+					managerFeatures: await getWorkspaceManagerFeatures(context.workspaceId),
+				});
+				expect(inventory.skills.map((skill) => skill.id)).toEqual(["reviewer"]);
+
+				// Toggling it back off drops it from the card again.
+				await setWorkspaceManagerFeature(context.workspaceId, "knowledge/skill_reviewer", false);
+				const afterOff = await listClaudeSkillInventory(context.repoPath, {
+					localAssetsEnabled: setting.enabled,
+					roots: setting.roots,
+					managerFeatures: await getWorkspaceManagerFeatures(context.workspaceId),
+				});
+				expect(afterOff.skills).toEqual([]);
 			} finally {
 				cleanup();
 			}

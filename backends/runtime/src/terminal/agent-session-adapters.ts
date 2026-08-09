@@ -15,7 +15,12 @@ import { quoteShellArg } from "../core/shell";
 import { lockedFileSystem } from "../fs/locked-file-system";
 import { CLAUDE_CONFIG_DIR_ENV } from "../manager/manager-account-pin";
 import { resolveHomeAgentAppendSystemPrompt } from "../prompts/append-system-prompt";
-import { getRuntimeHomePath, getWorkspaceLocalAssetsSetting } from "../state/workspace-state";
+import {
+	getRuntimeHomePath,
+	getWorkspaceLocalAssetsSetting,
+	getWorkspaceManagerFeatures,
+	loadWorkspaceContextById,
+} from "../state/workspace-state";
 import { configureCodexHooks, hasCodexConfigOverride } from "./codex-hook-config";
 import { createHookRuntimeEnv } from "./hook-runtime-context";
 import {
@@ -713,6 +718,13 @@ const claudeAdapter: AgentSessionAdapter = {
 			? (await getWorkspaceLocalAssetsSetting(workspaceId)).enabled
 			: false;
 		const bridgeProjectAssets = localAssetsEnabled && Boolean(input.cwd?.trim());
+		// Manager installs live in the attached repo's `.claude`, not in the task
+		// worktree (they are untracked there), so bridge them from the repo path.
+		const managerFeatures = workspaceId ? await getWorkspaceManagerFeatures(workspaceId) : [];
+		const managerRepoPath =
+			workspaceId && managerFeatures.length > 0
+				? ((await loadWorkspaceContextById(workspaceId))?.repoPath ?? null)
+				: null;
 		// Any allowlist needs a task-scoped CLAUDE_CONFIG_DIR so we can keep CC
 		// credentials/onboarding while filtering skills/agents/commands and
 		// stripping mcpServers from settings.json (otherwise Claude still
@@ -733,6 +745,7 @@ const claudeAdapter: AgentSessionAdapter = {
 				mcpServerIds: mcpAllowlist ? launchSettings?.mcpServerIds : undefined,
 				repoPath: bridgeProjectAssets ? input.cwd : undefined,
 				workflowIds: bridgeProjectAssets && workflowAllowlist ? launchSettings?.workflowIds : undefined,
+				...(managerRepoPath ? { managerRepoPath, managerFeatures } : {}),
 				baseConfigDir: input.env?.[CLAUDE_CONFIG_DIR_ENV] ?? null,
 			});
 			env[CLAUDE_CONFIG_DIR_ENV] = scoped.configDir;

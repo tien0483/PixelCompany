@@ -373,6 +373,8 @@ async function linkAllowlistedMarkdownFiles(input: {
 	subdir: "agents" | "commands";
 	allowlist: string[];
 	projectRoots?: string[];
+	/** `<repo>/.claude/<subdir>` restricted to Manager-installed ids; wins over the rest. */
+	managerRoot?: { dir: string; ids: Set<string> };
 }): Promise<Set<string>> {
 	const globalSubdir = join(input.globalDir, input.subdir);
 	const scopedSubdir = join(input.configDir, input.subdir);
@@ -406,6 +408,14 @@ async function linkAllowlistedMarkdownFiles(input: {
 				linkedBaseNames.add(baseName);
 			}
 		}
+		if (
+			input.managerRoot?.ids.has(baseName) &&
+			(await ensureLinkedPath(join(input.managerRoot.dir, fileName), join(scopedSubdir, fileName), {
+				isDirectory: false,
+			}))
+		) {
+			linkedBaseNames.add(baseName);
+		}
 	}
 	return linkedBaseNames;
 }
@@ -424,6 +434,15 @@ export async function prepareClaudeSkillScopedConfigDir(input: {
 	repoPath?: string;
 	/** Project workflow ids (`<repo>/.agent/workflows/<id>.md`) bridged into commands. */
 	workflowIds?: string[];
+	/**
+	 * Main-repo checkout holding Manager installs. `<repo>/.claude` is normally read
+	 * natively from cwd, but a task runs in a git worktree and a Manager install is
+	 * untracked there, so allowlisted `managerFeatures` ids are bridged from here.
+	 * Must be the repo path, not the task worktree.
+	 */
+	managerRepoPath?: string;
+	/** Recorded `<category>/<name>` Manager intents for this workspace. */
+	managerFeatures?: readonly string[];
 	/** Existing pin / active-account CLAUDE_CONFIG_DIR, if any. */
 	baseConfigDir?: string | null;
 }): Promise<{ configDir: string; cleanup: () => Promise<void> }> {
@@ -467,6 +486,14 @@ export async function prepareClaudeSkillScopedConfigDir(input: {
 	const projectCommandDir = resolvedRepo ? join(resolvedRepo, ".agent", "commands") : null;
 	const projectWorkflowDir = resolvedRepo ? join(resolvedRepo, ".agent", "workflows") : null;
 
+	// Manager-installed `<repo>/.claude` assets, trusted by id and bridged like the
+	// `.agent` roots above (a worktree checkout does not carry them).
+	const managerIds = managerFeatureInventoryIds(input.managerFeatures);
+	const managerClaudeDir =
+		input.managerRepoPath?.trim() && hasManagerFeatureIds(managerIds)
+			? join(resolveHostPath(input.managerRepoPath.trim()), ".claude")
+			: null;
+
 	const skillsDir = join(configDir, "skills");
 	const globalSkills = join(globalDir, "skills");
 	const skillAllowlist = (input.skillIds ?? []).map((id) => id.trim()).filter((id) => id.length > 0);
@@ -496,6 +523,12 @@ export async function prepareClaudeSkillScopedConfigDir(input: {
 					});
 				}
 			}
+			if (managerClaudeDir && managerIds.skills.has(folderName)) {
+				const managerSkillDir = join(managerClaudeDir, "skills", folderName);
+				if (await pathExists(join(managerSkillDir, "SKILL.md"))) {
+					await ensureLinkedPath(managerSkillDir, join(skillsDir, folderName), { isDirectory: true });
+				}
+			}
 		}
 	}
 
@@ -505,6 +538,7 @@ export async function prepareClaudeSkillScopedConfigDir(input: {
 		subdir: "agents",
 		allowlist: (input.agentIds ?? []).map((id) => id.trim()).filter((id) => id.length > 0),
 		projectRoots: projectAgentDir ? [projectAgentDir] : [],
+		...(managerClaudeDir ? { managerRoot: { dir: join(managerClaudeDir, "agents"), ids: managerIds.agents } } : {}),
 	});
 
 	const commandAllowlist = (input.commandIds ?? []).map((id) => id.trim()).filter((id) => id.length > 0);
@@ -518,6 +552,9 @@ export async function prepareClaudeSkillScopedConfigDir(input: {
 			subdir: "commands",
 			allowlist: commandAllowlist,
 			projectRoots: projectCommandDir ? [projectCommandDir] : [],
+			...(managerClaudeDir
+				? { managerRoot: { dir: join(managerClaudeDir, "commands"), ids: managerIds.commands } }
+				: {}),
 		});
 	} else {
 		// Workflows land in `commands`, so it must be a real dir (never a symlink to the
@@ -555,6 +592,15 @@ export async function prepareClaudeSkillScopedConfigDir(input: {
 					if (await ensureLinkedPath(join(projectCommandDir, fileName), join(commandsDir, fileName), { isDirectory: false })) {
 						linkedCommandBaseNames.add(baseName);
 					}
+				}
+				if (
+					managerClaudeDir &&
+					managerIds.commands.has(baseName) &&
+					(await ensureLinkedPath(join(managerClaudeDir, "commands", fileName), join(commandsDir, fileName), {
+						isDirectory: false,
+					}))
+				) {
+					linkedCommandBaseNames.add(baseName);
 				}
 			}
 		}
@@ -814,6 +860,51 @@ const PROJECT_LOCAL_ROOT_DIRS: Record<InventoryRoot, string> = {
 	agent: ".agent",
 };
 
+/** Inventory ids a project enabled through the Manager shelves, split by kind. */
+export interface ManagerFeatureInventoryIds {
+	skills: Set<string>;
+	agents: Set<string>;
+	commands: Set<string>;
+}
+
+/**
+ * Map recorded `<category>/<name>` Manager intents onto the ids their installs carry
+ * on disk. Manager writes skills as `<repo>/.claude/skills/<x>/SKILL.md` for the
+ * feature `knowledge/skill_<x>`, so the `skill_` prefix is dropped here exactly like
+ * the scoped-config allowlist does. `knowledge/rules`, `knowledge/reference` and
+ * `hooks/*` have no inventory item and are ignored.
+ */
+export function managerFeatureInventoryIds(keys: readonly string[] | undefined): ManagerFeatureInventoryIds {
+	const ids: ManagerFeatureInventoryIds = { skills: new Set(), agents: new Set(), commands: new Set() };
+	for (const rawKey of keys ?? []) {
+		const key = rawKey.trim();
+		const separator = key.indexOf("/");
+		if (separator <= 0) {
+			continue;
+		}
+		const category = key.slice(0, separator);
+		const name = key.slice(separator + 1).trim();
+		if (!name) {
+			continue;
+		}
+		if (category === "agents") {
+			ids.agents.add(name);
+		} else if (category === "commands") {
+			ids.commands.add(name);
+		} else if (category === "knowledge" && name.startsWith("skill_")) {
+			const skillId = name.slice("skill_".length);
+			if (skillId) {
+				ids.skills.add(skillId);
+			}
+		}
+	}
+	return ids;
+}
+
+function hasManagerFeatureIds(ids: ManagerFeatureInventoryIds): boolean {
+	return ids.skills.size > 0 || ids.agents.size > 0 || ids.commands.size > 0;
+}
+
 /** Merge project over global by id (project wins), then sort by display name. */
 function mergeInventoryByOrigin(
 	global: RuntimeSkillInventory["skills"],
@@ -838,10 +929,14 @@ function mergeInventoryByOrigin(
  * When `repoPath` is set and `opts.localAssetsEnabled`, additionally surfaces the
  * project's own `<repo>/.claude/*` and `<repo>/.agent/*` assets (tagged
  * `origin: "project"`, `root`), with project entries overriding global on same id.
+ *
+ * `opts.managerFeatures` is the exception to that opt-in: a Manager shelf toggle
+ * installs into `<repo>/.claude` and records the intent, so those ids are surfaced
+ * even with local assets off. Anything else the repo happens to carry stays gated.
  */
 export async function listClaudeSkillInventory(
 	repoPath?: string,
-	opts?: { localAssetsEnabled?: boolean; roots?: InventoryRoot[] },
+	opts?: { localAssetsEnabled?: boolean; roots?: InventoryRoot[]; managerFeatures?: readonly string[] },
 ): Promise<RuntimeSkillInventory> {
 	const roots: Array<{ path: string; source: RuntimeSkillInventory["skills"][number]["source"] }> = [
 		{ path: join(globalClaudeDir(), "skills"), source: "disk" },
@@ -866,19 +961,39 @@ export async function listClaudeSkillInventory(
 	const projectAgents: RuntimeSkillInventory["skills"] = [];
 	const projectCommands: RuntimeSkillInventory["skills"] = [];
 	const projectWorkflows: RuntimeSkillInventory["skills"] = [];
-	if (repoPath && opts?.localAssetsEnabled) {
-		const enabledRoots =
-			opts.roots && opts.roots.length > 0
-				? (["claude", "agent"] as InventoryRoot[]).filter((root) => opts.roots?.includes(root))
-				: (["claude", "agent"] as InventoryRoot[]);
+	const managerIds = managerFeatureInventoryIds(opts?.managerFeatures);
+	if (repoPath && (opts?.localAssetsEnabled || hasManagerFeatureIds(managerIds))) {
 		const resolvedRepo = resolveHostPath(repoPath);
-		for (const root of enabledRoots) {
-			const rootDir = join(resolvedRepo, PROJECT_LOCAL_ROOT_DIRS[root]);
-			const tag: InventoryTag = { origin: "project", root };
-			projectSkills.push(...(await readSkillsFromRoot(join(rootDir, "skills"), "disk", tag)));
-			projectAgents.push(...(await readMarkdownInventory(join(rootDir, "agents"), "disk", tag)));
-			projectCommands.push(...(await readMarkdownInventory(join(rootDir, "commands"), "disk", tag)));
-			projectWorkflows.push(...(await readMarkdownInventory(join(rootDir, "workflows"), "disk", tag)));
+		if (hasManagerFeatureIds(managerIds)) {
+			// Manager installs only ever land in `<repo>/.claude`, and only these ids are
+			// trusted — the rest of that directory still needs the local-assets opt-in.
+			const managerRoot = join(resolvedRepo, PROJECT_LOCAL_ROOT_DIRS.claude);
+			const tag: InventoryTag = { origin: "project", root: "claude" };
+			const keep = (items: RuntimeSkillInventory["skills"], allowed: Set<string>) =>
+				items.filter((item) => allowed.has(item.id));
+			projectSkills.push(
+				...keep(await readSkillsFromRoot(join(managerRoot, "skills"), "disk", tag), managerIds.skills),
+			);
+			projectAgents.push(
+				...keep(await readMarkdownInventory(join(managerRoot, "agents"), "disk", tag), managerIds.agents),
+			);
+			projectCommands.push(
+				...keep(await readMarkdownInventory(join(managerRoot, "commands"), "disk", tag), managerIds.commands),
+			);
+		}
+		if (opts?.localAssetsEnabled) {
+			const enabledRoots =
+				opts.roots && opts.roots.length > 0
+					? (["claude", "agent"] as InventoryRoot[]).filter((root) => opts.roots?.includes(root))
+					: (["claude", "agent"] as InventoryRoot[]);
+			for (const root of enabledRoots) {
+				const rootDir = join(resolvedRepo, PROJECT_LOCAL_ROOT_DIRS[root]);
+				const tag: InventoryTag = { origin: "project", root };
+				projectSkills.push(...(await readSkillsFromRoot(join(rootDir, "skills"), "disk", tag)));
+				projectAgents.push(...(await readMarkdownInventory(join(rootDir, "agents"), "disk", tag)));
+				projectCommands.push(...(await readMarkdownInventory(join(rootDir, "commands"), "disk", tag)));
+				projectWorkflows.push(...(await readMarkdownInventory(join(rootDir, "workflows"), "disk", tag)));
+			}
 		}
 	}
 

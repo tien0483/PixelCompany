@@ -64,6 +64,7 @@ import {
 } from "../terminal/task-launch-settings";
 import {
 	getWorkspaceLocalAssetsSetting,
+	getWorkspaceManagerFeatures,
 	loadWorkspaceContextById,
 	setWorkspaceLocalAssets,
 } from "../state/workspace-state";
@@ -570,9 +571,13 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 				return listClaudeSkillInventory();
 			}
 			const setting = await getWorkspaceLocalAssetsSetting(workspaceId);
+			// Manager shelf installs land in `<repo>/.claude`; surface those ids even when
+			// the project has not opted into loading its own local assets.
+			const managerFeatures = await getWorkspaceManagerFeatures(workspaceId);
 			return listClaudeSkillInventory(context.repoPath, {
 				localAssetsEnabled: setting.enabled,
 				roots: setting.roots,
+				managerFeatures,
 			});
 		},
 		getWorkspaceLocalAssets: async (input) => await getWorkspaceLocalAssetsSetting(input.workspaceId),
