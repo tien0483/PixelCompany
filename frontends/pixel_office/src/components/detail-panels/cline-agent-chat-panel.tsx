@@ -28,6 +28,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { useClineChatPanelController } from "@/hooks/use-cline-chat-panel-controller";
 import type { ClineChatActionResult } from "@/hooks/use-cline-chat-runtime-actions";
 import type { ClineChatMessage } from "@/hooks/use-cline-chat-session";
+import { useClineReasoningVisibility } from "@/hooks/use-cline-reasoning-visibility";
 import { useRuntimeSettingsClineController } from "@/hooks/use-runtime-settings-cline-controller";
 import type {
 	RuntimeClineReasoningEffort,
@@ -172,6 +173,10 @@ export const ClineAgentChatPanel = React.forwardRef<ClineAgentChatPanelHandle, C
 			return persistedMode ?? summary?.mode ?? defaultMode;
 		});
 		const [draftImages, setDraftImages] = useState<TaskImage[]>([]);
+		const {
+			isVisible: isClineReasoningVisible,
+			setVisible: setClineReasoningVisible,
+		} = useClineReasoningVisibility();
 		const clineSettings = useRuntimeSettingsClineController({
 			open: true,
 			workspaceId,
@@ -179,6 +184,9 @@ export const ClineAgentChatPanel = React.forwardRef<ClineAgentChatPanelHandle, C
 			config: runtimeConfig,
 			taskClineSettings,
 		});
+		const visibleMessages = isClineReasoningVisible
+			? messages
+			: messages.filter((message) => message.role !== "reasoning");
 
 		const modelPickerOptions = useMemo(
 			() => buildClineAgentModelPickerOptions(clineSettings.providerId, clineSettings.providerModels),
@@ -416,7 +424,7 @@ export const ClineAgentChatPanel = React.forwardRef<ClineAgentChatPanelHandle, C
 					className="flex min-h-0 min-w-0 flex-1 flex-col gap-2 overflow-x-hidden overflow-y-auto px-2 py-3"
 					onScroll={handleMessageListScroll}
 				>
-					{messages.map((message) => (
+					{visibleMessages.map((message) => (
 						<ClineChatMessageItem key={message.id} message={message} />
 					))}
 					{showAgentProgressIndicator ? <ClineThinkingIndicator /> : null}
@@ -455,6 +463,10 @@ export const ClineAgentChatPanel = React.forwardRef<ClineAgentChatPanelHandle, C
 						isModelSaving={isSavingModel}
 						modelPickerDisabled={isSavingModel || clineSettings.providerId.trim().length === 0}
 						isSending={isSavingModel || isSending}
+					showReasoningToggle
+					isReasoningVisible={isClineReasoningVisible}
+					onReasoningVisibilityChange={setClineReasoningVisible}
+
 						warningMessage={summary?.warningMessage ?? null}
 						attachmentWarningMessage={attachmentWarningMessage}
 						workspaceId={workspaceId}
