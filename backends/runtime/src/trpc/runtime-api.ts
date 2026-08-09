@@ -48,6 +48,7 @@ import {
 import { isHomeAgentSessionId } from "../core/home-agent-session";
 import { resolveTaskTitle } from "../core/task-title.js";
 import { type ManagerDonateAccountLike, resolveManagerAccountPin } from "../manager/manager-account-pin";
+import { loadWorkspaceState } from "../state/workspace-state";
 import { composePromptWithAttachedPlan } from "../prompts/compose-prompt-with-plan";
 import {
 	LEGACY_RUNTIME_HOME_PARENT_DIR_NAME,
@@ -595,6 +596,9 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 				let summary = await clineTaskSessionService.reloadTaskSession(body.taskId);
 				if (!summary && isHomeAgentSessionId(body.taskId)) {
 					const clineLaunchConfig = await clineProviderService.resolveLaunchConfig();
+					// Load the card to get taskLaunchSettings for subagent seat
+					const workspaceState = await loadWorkspaceState(workspaceScope.workspacePath).catch(() => null);
+					const card = workspaceState?.board.columns.flatMap((column) => column.cards).find((c) => c.id === body.taskId) ?? null;
 					summary = await clineTaskSessionService.startTaskSession({
 						taskId: body.taskId,
 						cwd: workspaceScope.workspacePath,
@@ -605,6 +609,7 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 						apiKey: clineLaunchConfig.apiKey,
 						baseUrl: clineLaunchConfig.baseUrl,
 						reasoningEffort: clineLaunchConfig.reasoningEffort,
+						taskLaunchSettings: card?.taskLaunchSettings,
 					});
 				}
 				if (!summary) {
@@ -796,6 +801,9 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 						}
 					} else {
 						const clineLaunchConfig = await clineProviderService.resolveLaunchConfig();
+						// Load the card to get taskLaunchSettings for subagent seat
+						const workspaceState = await loadWorkspaceState(workspaceScope.workspacePath).catch(() => null);
+						const card = workspaceState?.board.columns.flatMap((column) => column.cards).find((c) => c.id === body.taskId) ?? null;
 						summary = await clineTaskSessionService.startTaskSession({
 							taskId: body.taskId,
 							cwd: workspaceScope.workspacePath,
@@ -808,6 +816,7 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 							apiKey: clineLaunchConfig.apiKey,
 							baseUrl: clineLaunchConfig.baseUrl,
 							reasoningEffort: clineLaunchConfig.reasoningEffort,
+							taskLaunchSettings: card?.taskLaunchSettings,
 						});
 					}
 				}

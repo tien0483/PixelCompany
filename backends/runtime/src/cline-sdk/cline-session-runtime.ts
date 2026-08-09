@@ -1,7 +1,7 @@
 // Owns the live SDK session host plus taskId to sessionId bindings.
 // This is the runtime-facing layer for starting, looking up, resuming, and
 // stopping native Cline sessions without exposing SDK details upstream.
-import type { RuntimeClineReasoningEffort, RuntimeTaskImage, RuntimeTaskSessionMode } from "../core/api-contract";
+import type { RuntimeClineReasoningEffort, RuntimeTaskImage, RuntimeTaskLaunchSettings, RuntimeTaskSessionMode } from "../core/api-contract";
 import { extractClineSessionId } from "./cline-event-adapter";
 import {
 	type ClineMcpRuntimeService,
@@ -81,6 +81,8 @@ export interface StartClineSessionRuntimeRequest {
 	systemPrompt: string;
 	userInstructionService?: ClineSdkUserInstructionService;
 	requestToolApproval?: (request: ClineSdkToolApprovalRequest) => Promise<ClineSdkToolApprovalResult>;
+	/** Per-task launch settings (skill/MCP allowlists, subagent seat, etc.) */
+	taskLaunchSettings?: RuntimeTaskLaunchSettings;
 }
 
 export interface StartClineSessionRuntimeResult {

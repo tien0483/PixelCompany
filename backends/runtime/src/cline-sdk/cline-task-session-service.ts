@@ -5,6 +5,7 @@
 import type {
 	RuntimeClineReasoningEffort,
 	RuntimeTaskImage,
+	RuntimeTaskLaunchSettings,
 	RuntimeTaskSessionMode,
 	RuntimeTaskSessionSummary,
 	RuntimeTaskTurnCheckpoint,
@@ -76,6 +77,8 @@ export interface StartClineTaskSessionRequest {
 	systemPrompt?: string | null;
 	/** Card opt-in: a usage-limit exit parks as "usage_paused" and auto-resumes at the reset. */
 	autoResumeOnUsageLimit?: boolean;
+	/** Per-task launch settings (skill/MCP allowlists, subagent seat, etc.) */
+	taskLaunchSettings?: RuntimeTaskLaunchSettings;
 }
 
 export interface ClineTaskSessionService {
