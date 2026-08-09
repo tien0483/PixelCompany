@@ -32,6 +32,7 @@ import {
 	resolveOmniRouteApiKey,
 	resolveOmniRouteBaseUrl,
 	resolveOmniRouteDefaultModelId,
+	resolveOmniRouteHostProviderId,
 } from "../omniroute/omniroute-endpoint";
 import { openInBrowser } from "../server/browser";
 import { createKanbanClineLogger } from "./cline-runtime-logger";
@@ -535,19 +536,22 @@ export function createClineProviderService() {
 		reasoningEffortOverride?: RuntimeClineReasoningEffort | null;
 	}): Promise<ResolvedClineLaunchConfig> {
 		const targetProviderId = (overrides?.providerIdOverride ?? "").trim().toLowerCase();
+		// Home and task chat call this with no overrides, so branching on the override alone
+		// dropped those sessions into the generic path: no OmniRoute key check, no live model
+		// catalog, and a saved model the router may no longer serve.
+		const effectiveProviderId =
+			targetProviderId || (getProviderSettingsSummary().providerId?.trim().toLowerCase() ?? "");
 		// A seat can be added to models.json by another process (or a hand edit) while this
-		// runtime is up, in which case the SDK registry still does not know it and the task
-		// would die mid-turn with "Unknown or disabled provider <id>".
-		await ensureSdkCustomProviderRegistered(targetProviderId || getProviderSettingsSummary().providerId || "").catch(
-			(error: unknown) => {
-				LOGGER.log("Could not re-register a stored custom provider before launch.", {
-					severity: "warn",
-					providerId: targetProviderId,
-					errorMessage: error instanceof Error ? error.message : String(error),
-				});
-			},
-		);
-		if (targetProviderId === OMNIROUTE_PROVIDER_ID) {
+		// runtime is up, in which case the SDK catalog still does not know it and the seat
+		// lists no models.
+		await ensureSdkCustomProviderRegistered(effectiveProviderId).catch((error: unknown) => {
+			LOGGER.log("Could not re-register a stored custom provider before launch.", {
+				severity: "warn",
+				providerId: effectiveProviderId,
+				errorMessage: error instanceof Error ? error.message : String(error),
+			});
+		});
+		if (effectiveProviderId === OMNIROUTE_PROVIDER_ID) {
 			const savedSettings = getSdkProviderSettings(OMNIROUTE_PROVIDER_ID);
 			const baseUrl = resolveOmniRouteBaseUrl(savedSettings);
 			const apiKey = resolveOmniRouteApiKey(savedSettings);
@@ -564,7 +568,10 @@ export function createClineProviderService() {
 					modelIds: await fetchOmniRouteModelIds({ baseUrl, apiKey, onWarn: logOmniRouteWarning }),
 				});
 			return {
-				providerId: OMNIROUTE_PROVIDER_ID,
+				// Not OMNIROUTE_PROVIDER_ID: the agent gateway only resolves built-in ids, so a
+				// task launched as "omniroute" dies on its first turn with
+				// `Unknown or disabled provider "omniroute"`. See omniroute-endpoint.ts.
+				providerId: resolveOmniRouteHostProviderId(),
 				modelId,
 				apiKey,
 				baseUrl,
