@@ -421,6 +421,18 @@ export function PlanEditorView({
 				</div>
 			);
 		}
+		// Show loading skeleton while markdown content is being fetched
+		if (activeDoc.status === "loading" && source === "md") {
+			return (
+				<div className="flex min-h-0 flex-1 flex-col gap-3 p-4">
+					<div className="kb-skeleton h-4 w-3/4" />
+					<div className="kb-skeleton h-4 w-full" />
+					<div className="kb-skeleton h-4 w-5/6" />
+					<div className="kb-skeleton h-4 w-2/3" />
+					<div className="kb-skeleton h-4 w-1/2" />
+				</div>
+			);
+		}
 		return (
 			<PlanEditorErrorBoundary onError={handleRichEditorError}>
 				<Suspense
@@ -512,18 +524,28 @@ export function PlanEditorView({
 							onInsertImage={(file) => void uploadImageFile(file)}
 						/>
 					) : null}
-					<textarea
-						ref={textareaRef}
-						value={activeDoc.content}
-						onChange={(event) => activeDoc.updateContent(event.currentTarget.value)}
-						onPaste={source === "md" ? handlePaste : undefined}
-						onDrop={source === "md" ? handleDrop : undefined}
-						onDragOver={source === "md" ? handleDragOver : undefined}
-						disabled={activeDoc.status === "loading"}
-						spellCheck={false}
-						className="min-h-0 w-full flex-1 resize-none border-0 bg-surface-1 px-3 py-2 font-mono text-[13px] leading-5 text-text-primary focus:outline-none disabled:opacity-50"
-						data-testid="plan-editor-textarea"
-					/>
+					{activeDoc.status === "loading" ? (
+						<div className="flex min-h-0 flex-1 flex-col gap-3 p-4">
+							<div className="kb-skeleton h-4 w-3/4" />
+							<div className="kb-skeleton h-4 w-full" />
+							<div className="kb-skeleton h-4 w-5/6" />
+							<div className="kb-skeleton h-4 w-2/3" />
+							<div className="kb-skeleton h-4 w-1/2" />
+						</div>
+					) : (
+						<textarea
+							ref={textareaRef}
+							value={activeDoc.content}
+							onChange={(event) => activeDoc.updateContent(event.currentTarget.value)}
+							onPaste={source === "md" ? handlePaste : undefined}
+							onDrop={source === "md" ? handleDrop : undefined}
+							onDragOver={source === "md" ? handleDragOver : undefined}
+							disabled={activeDoc.status === "loading"}
+							spellCheck={false}
+							className="min-h-0 w-full flex-1 resize-none border-0 bg-surface-1 px-3 py-2 font-mono text-[13px] leading-5 text-text-primary focus:outline-none disabled:opacity-50"
+							data-testid="plan-editor-textarea"
+						/>
+					)}
 				</div>
 
 				<ResizeHandle
