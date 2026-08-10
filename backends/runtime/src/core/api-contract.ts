@@ -1235,6 +1235,29 @@ export const RuntimeHtmlStatusSchema = z.object({
 });
 export type RuntimeHtmlStatus = z.infer<typeof RuntimeHtmlStatusSchema>;
 
+/**
+ * The local Claude account's rolling usage windows, read straight from Anthropic
+ * rather than from the Manager, so the standalone Plan Editor (which has no Manager
+ * process) can show them too. Field names mirror `RuntimeManagerAccountSchema` so the
+ * frontend's existing usage formatters apply unchanged.
+ */
+export const RuntimeClaudeUsageSchema = z.union([
+	z.object({
+		available: z.literal(true),
+		fiveHourPercent: z.number().nullable(),
+		sevenDayPercent: z.number().nullable(),
+		fiveHourResetsAt: z.string().nullable(),
+		sevenDayResetsAt: z.string().nullable(),
+		/** Unix seconds. */
+		fetchedAt: z.number(),
+	}),
+	z.object({
+		available: z.literal(false),
+		reason: z.enum(["no-credentials", "unauthorized", "unreachable"]),
+	}),
+]);
+export type RuntimeClaudeUsage = z.infer<typeof RuntimeClaudeUsageSchema>;
+
 export const RuntimeHtmlTemplateExampleSchema = z.object({
 	id: z.string(),
 	name: z.string().nullable(),

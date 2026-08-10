@@ -26,6 +26,7 @@ import { withPreviewBase } from "@/components/plan-editor/plan-html-preview";
 import { PlanImageButton } from "@/components/plan-editor/plan-image-button";
 import { PlanMarkdownToolbar } from "@/components/plan-editor/plan-markdown-toolbar";
 import { insertMarkdownImage } from "@/components/plan-editor/plan-rich-markdown";
+import { PlanTemplateRail } from "@/components/plan-editor/plan-template-rail";
 import { usePlanEditorDocument } from "@/components/plan-editor/use-plan-editor-document";
 import { usePlanHtmlSibling } from "@/components/plan-editor/use-plan-html-sibling";
 import { usePlanImagePaste } from "@/components/plan-editor/use-plan-image-paste";
@@ -34,6 +35,7 @@ import { cn } from "@/components/ui/cn";
 import { Spinner } from "@/components/ui/spinner";
 import { HTML_LABELS } from "@/html/html-labels";
 import { useHtmlBrief, useHtmlDraft, useHtmlGenerate } from "@/html/use-html-agent-stream";
+import { useHtmlTemplates } from "@/html/use-html-templates";
 import { ResizeHandle } from "@/resize/resize-handle";
 import { usePlanEditorLayout } from "@/resize/use-plan-editor-layout";
 import { useResizeDrag } from "@/resize/use-resize-drag";
@@ -191,9 +193,31 @@ export function PlanEditorView({
 		mode: PlanAiPromptMode;
 	} | null>(null);
 	const containerRef = useRef<HTMLDivElement>(null);
+	const paneRowRef = useRef<HTMLDivElement>(null);
 	const textareaRef = useRef<HTMLTextAreaElement>(null);
-	const { rawPaneRatio, setRawPaneRatio } = usePlanEditorLayout();
+	const {
+		rawPaneRatio,
+		setRawPaneRatio,
+		templatePaneWidth,
+		setTemplatePaneWidth,
+		templatePaneCollapsed,
+		toggleTemplatePaneCollapsed,
+	} = usePlanEditorLayout();
 	const { startDrag } = useResizeDrag();
+	/**
+	 * Owned here, not in the generate bar: the rail picks the template and the bar acts
+	 * on it, so the selection has to live above both.
+	 */
+	const { online: templatesOnline, templates, loading: templatesLoading } = useHtmlTemplates();
+	const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
+
+	useEffect(() => {
+		if (templates.length > 0 && selectedTemplateId === null) {
+			// `templates` arrives ranked by `recommended`, so this lands on the registry's
+			// own first choice rather than whatever sorted first on disk.
+			setSelectedTemplateId(templates[0]?.id ?? null);
+		}
+	}, [templates, selectedTemplateId]);
 
 	const activeDoc = source === "html" ? htmlDoc : mdDoc;
 	const htmlAvailable = isHtmlPlan || sibling !== null;
@@ -609,6 +633,8 @@ export function PlanEditorView({
 
 	const handleResizeStart = useCallback(
 		(event: ReactMouseEvent<HTMLDivElement>) => {
+			// `containerRef` is the source/preview split only — the template rail sits
+			// outside it, so its width never skews this ratio.
 			const container = containerRef.current;
 			if (!container) {
 				return;
@@ -626,6 +652,26 @@ export function PlanEditorView({
 			});
 		},
 		[setRawPaneRatio, startDrag],
+	);
+
+	const handleTemplateRailResizeStart = useCallback(
+		(event: ReactMouseEvent<HTMLDivElement>) => {
+			// The rail is flush with the left edge of the pane row, so its width is
+			// simply how far right of that edge the pointer has travelled.
+			const row = paneRowRef.current;
+			if (!row) {
+				return;
+			}
+			const left = row.getBoundingClientRect().left;
+			startDrag(event, {
+				axis: "x",
+				cursor: "ew-resize",
+				onMove: (pointer) => {
+					setTemplatePaneWidth(pointer - left);
+				},
+			});
+		},
+		[setTemplatePaneWidth, startDrag],
 	);
 
 	const isStreaming = generate.status === "running";
@@ -750,128 +796,162 @@ export function PlanEditorView({
 				</div>
 			</div>
 
-			<div ref={containerRef} className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
-				<div
-					className="flex min-h-0 min-w-0 flex-col overflow-hidden"
-					style={{ width: `${rawPaneRatio * 100}%` }}
-					onFocus={() => setFocusedPane("raw")}
-					data-testid="plan-editor-raw-pane"
-				>
-					<div className="flex shrink-0 items-center justify-between gap-2 border-b border-border bg-surface-2 px-2 py-1">
-						<span className="text-[11px] font-semibold uppercase tracking-wide text-text-tertiary">
-							{HTML_LABELS.source}
-						</span>
-						<SourceSwitch
-							value={source}
-							htmlEnabled={htmlAvailable}
-							disabled={isHtmlPlan || isStreaming}
-							onChange={setSourceState}
-							testId="plan-editor-raw-source-switch"
+			<div ref={paneRowRef} className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
+				{/*
+				 * An HTML plan has no markdown to convert, so it gets no rail at all. For a
+				 * markdown plan the rail stays mounted while the preview shows HTML — only
+				 * disabled — so switching source doesn't shuffle the panes sideways.
+				 */}
+				{isHtmlPlan ? null : (
+					<>
+						<PlanTemplateRail
+							templates={templates}
+							selectedId={selectedTemplateId}
+							online={templatesOnline}
+							loading={templatesLoading}
+							disabled={source === "html" || isStreaming}
+							collapsed={templatePaneCollapsed}
+							widthPx={templatePaneWidth}
+							onSelect={setSelectedTemplateId}
+							onToggleCollapsed={toggleTemplatePaneCollapsed}
 						/>
-					</div>
-					{showMarkdownTools ? (
-						<PlanMarkdownToolbar
-							disabled={mdDoc.status === "loading"}
-							onCommand={applyTextCommand}
-							onInsertImage={(file) => void uploadImageFile(file)}
-						/>
-					) : (
-						// HTML has no markdown formatting to offer, but its images live in the same
-						// `<stem>.assets/` folder, so the picker still belongs here.
-						<div
-							className="flex items-center gap-0.5 border-b border-border bg-surface-2 px-2 py-1"
-							data-testid="plan-editor-html-tools"
-						>
-							<PlanImageButton
-								disabled={activeDocReadOnly}
-								onSelectFile={(file) => void uploadImageFile(file)}
+						{templatePaneCollapsed ? null : (
+							<ResizeHandle
+								orientation="vertical"
+								ariaLabel="Resize template pane"
+								onMouseDown={handleTemplateRailResizeStart}
 							/>
-						</div>
-					)}
-					{activeDoc.status === "loading" ? (
-						<div className="flex min-h-0 flex-1 flex-col gap-3 p-4">
-							<div className="kb-skeleton h-4 w-3/4" />
-							<div className="kb-skeleton h-4 w-full" />
-							<div className="kb-skeleton h-4 w-5/6" />
-							<div className="kb-skeleton h-4 w-2/3" />
-							<div className="kb-skeleton h-4 w-1/2" />
-						</div>
-					) : (
-						<textarea
-							ref={textareaRef}
-							value={activeDoc.content}
-							onChange={(event) => activeDoc.updateContent(event.currentTarget.value)}
-							onSelect={(event) =>
-								setRawSelection({
-									start: event.currentTarget.selectionStart,
-									end: event.currentTarget.selectionEnd,
-								})
-							}
-							onPaste={handlePaste}
-							onDrop={handleDrop}
-							onDragOver={handleDragOver}
-							disabled={activeDocReadOnly}
-							spellCheck={false}
-							className="min-h-0 w-full flex-1 resize-none border-0 bg-surface-1 px-3 py-2 font-mono text-[13px] leading-5 text-text-primary focus:outline-none disabled:opacity-50"
-							data-testid="plan-editor-textarea"
-						/>
-					)}
-					{showMarkdownTools ? (
-						<PlanAiPromptBar
-							mode={promptMode}
-							status={draft.status}
-							error={draft.error}
-							disabled={activeDocReadOnly || isStreaming}
-							onSubmit={handleAiSubmit}
-							onCancel={handleAiCancel}
-							onAttachFile={(file) => void uploadImageFile(file)}
-						/>
-					) : null}
-				</div>
+						)}
+					</>
+				)}
 
-				<ResizeHandle
-					orientation="vertical"
-					ariaLabel="Resize plan editor panes"
-					onMouseDown={handleResizeStart}
-				/>
-
-				<div
-					className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
-					onFocus={() => setFocusedPane("rendered")}
-					data-testid="plan-editor-rendered-pane"
-				>
-					<div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border bg-surface-2 px-2 py-1">
-						<div className="flex items-center gap-2">
+				<div ref={containerRef} className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
+					<div
+						className="flex min-h-0 min-w-0 flex-col overflow-hidden"
+						style={{ width: `${rawPaneRatio * 100}%` }}
+						onFocus={() => setFocusedPane("raw")}
+						data-testid="plan-editor-raw-pane"
+					>
+						<div className="flex shrink-0 items-center justify-between gap-2 border-b border-border bg-surface-2 px-2 py-1">
 							<span className="text-[11px] font-semibold uppercase tracking-wide text-text-tertiary">
-								{HTML_LABELS.preview}
+								{HTML_LABELS.source}
 							</span>
 							<SourceSwitch
 								value={source}
 								htmlEnabled={htmlAvailable}
 								disabled={isHtmlPlan || isStreaming}
 								onChange={setSourceState}
-								testId="plan-editor-rendered-source-switch"
+								testId="plan-editor-raw-source-switch"
 							/>
 						</div>
-						{!isHtmlPlan && source === "md" ? (
-							<PlanHtmlGenerateBar
-								status={generate.status}
-								briefStatus={brief.status}
-								startedAt={generate.startedAt}
-								firstByteAt={generate.firstByteAt}
-								doneAt={generate.doneAt}
-								htmlSizeBytes={htmlSizeBytes}
-								canRefine={htmlAvailable && htmlDoc.content.trim().length > 0}
-								canExpand={!plan.missing}
+						{showMarkdownTools ? (
+							<PlanMarkdownToolbar
 								disabled={mdDoc.status === "loading"}
-								onExpand={handleExpand}
-								onGenerate={handleGenerate}
-								onRefine={handleRefine}
-								onCancel={brief.status === "running" ? brief.cancel : generate.cancel}
+								onCommand={applyTextCommand}
+								onInsertImage={(file) => void uploadImageFile(file)}
+							/>
+						) : (
+							// HTML has no markdown formatting to offer, but its images live in the same
+							// `<stem>.assets/` folder, so the picker still belongs here.
+							<div
+								className="flex items-center gap-0.5 border-b border-border bg-surface-2 px-2 py-1"
+								data-testid="plan-editor-html-tools"
+							>
+								<PlanImageButton
+									disabled={activeDocReadOnly}
+									onSelectFile={(file) => void uploadImageFile(file)}
+								/>
+							</div>
+						)}
+						{activeDoc.status === "loading" ? (
+							<div className="flex min-h-0 flex-1 flex-col gap-3 p-4">
+								<div className="kb-skeleton h-4 w-3/4" />
+								<div className="kb-skeleton h-4 w-full" />
+								<div className="kb-skeleton h-4 w-5/6" />
+								<div className="kb-skeleton h-4 w-2/3" />
+								<div className="kb-skeleton h-4 w-1/2" />
+							</div>
+						) : (
+							<textarea
+								ref={textareaRef}
+								value={activeDoc.content}
+								onChange={(event) => activeDoc.updateContent(event.currentTarget.value)}
+								onSelect={(event) =>
+									setRawSelection({
+										start: event.currentTarget.selectionStart,
+										end: event.currentTarget.selectionEnd,
+									})
+								}
+								onPaste={handlePaste}
+								onDrop={handleDrop}
+								onDragOver={handleDragOver}
+								disabled={activeDocReadOnly}
+								spellCheck={false}
+								className="min-h-0 w-full flex-1 resize-none border-0 bg-surface-1 px-3 py-2 font-mono text-[13px] leading-5 text-text-primary focus:outline-none disabled:opacity-50"
+								data-testid="plan-editor-textarea"
+							/>
+						)}
+						{showMarkdownTools ? (
+							<PlanAiPromptBar
+								mode={promptMode}
+								status={draft.status}
+								error={draft.error}
+								disabled={activeDocReadOnly || isStreaming}
+								onSubmit={handleAiSubmit}
+								onCancel={handleAiCancel}
+								onAttachFile={(file) => void uploadImageFile(file)}
 							/>
 						) : null}
 					</div>
-					{renderedPaneBody()}
+
+					<ResizeHandle
+						orientation="vertical"
+						ariaLabel="Resize plan editor panes"
+						onMouseDown={handleResizeStart}
+					/>
+
+					<div
+						className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
+						onFocus={() => setFocusedPane("rendered")}
+						data-testid="plan-editor-rendered-pane"
+					>
+						<div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border bg-surface-2 px-2 py-1">
+							<div className="flex items-center gap-2">
+								<span className="text-[11px] font-semibold uppercase tracking-wide text-text-tertiary">
+									{HTML_LABELS.preview}
+								</span>
+								<SourceSwitch
+									value={source}
+									htmlEnabled={htmlAvailable}
+									disabled={isHtmlPlan || isStreaming}
+									onChange={setSourceState}
+									testId="plan-editor-rendered-source-switch"
+								/>
+							</div>
+							{!isHtmlPlan && source === "md" ? (
+								<PlanHtmlGenerateBar
+									status={generate.status}
+									briefStatus={brief.status}
+									startedAt={generate.startedAt}
+									firstByteAt={generate.firstByteAt}
+									doneAt={generate.doneAt}
+									htmlSizeBytes={htmlSizeBytes}
+									templates={templates}
+									selectedTemplateId={selectedTemplateId}
+									online={templatesOnline}
+									templatesLoading={templatesLoading}
+									canRefine={htmlAvailable && htmlDoc.content.trim().length > 0}
+									canExpand={!plan.missing}
+									disabled={mdDoc.status === "loading"}
+									onExpand={handleExpand}
+									onGenerate={handleGenerate}
+									onRefine={handleRefine}
+									onCancel={brief.status === "running" ? brief.cancel : generate.cancel}
+								/>
+							) : null}
+						</div>
+						{renderedPaneBody()}
+					</div>
 				</div>
 			</div>
 

@@ -14,6 +14,28 @@ export interface HtmlTemplateMeta {
 	featured?: number;
 	recommended?: number;
 	tags: string[];
+	/**
+	 * Present when the template ships an `example.md`/`example.html` pair. `hasHtml`
+	 * is what gates the thumbnail: the sidecar only serves
+	 * `/api/templates/:id/preview` for templates that have one.
+	 */
+	example?: {
+		hasHtml: boolean;
+		hasMd: boolean;
+	};
+}
+
+/**
+ * `recommended` (1, 2, 3 …) is the registry's own ranking; templates without it keep
+ * their directory order behind the ranked ones. The sidecar's picker honours this and
+ * the plan editor used to ignore it, silently defaulting to whatever sorted first on disk.
+ */
+function byRecommendedRank(templates: HtmlTemplateMeta[]): HtmlTemplateMeta[] {
+	return [...templates].sort((a, b) => {
+		const rankA = a.recommended ?? Number.POSITIVE_INFINITY;
+		const rankB = b.recommended ?? Number.POSITIVE_INFINITY;
+		return rankA - rankB;
+	});
 }
 
 export interface UseHtmlTemplatesResult {
@@ -41,7 +63,7 @@ export function useHtmlTemplates(): UseHtmlTemplatesResult {
 				}
 				const list = await client.html.templates.query();
 				if (!cancelled) {
-					setTemplates(list);
+					setTemplates(byRecommendedRank(list));
 				}
 			} catch {
 				if (!cancelled) {

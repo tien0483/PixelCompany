@@ -65,6 +65,7 @@ import { runAgentOneShot } from "../terminal/agent-oneshot";
 import type { TerminalSessionManager } from "../terminal/session-manager";
 import { createTerminalWebSocketBridge } from "../terminal/ws-server";
 import { type RuntimeTrpcContext, type RuntimeTrpcWorkspaceScope, runtimeAppRouter } from "../trpc/app-router";
+import { createClaudeUsageApi } from "../trpc/claude-usage-api";
 import { createHooksApi } from "../trpc/hooks-api";
 import { createHtmlApi } from "../trpc/html-api";
 import { createManagerApi } from "../trpc/manager-api";
@@ -269,6 +270,9 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 	const htmlApi = createHtmlApi({
 		client: deps.html.client,
 	});
+	// Reads the local Claude credential directly rather than the Manager's cached
+	// columns, so the embedded and standalone plan editors show identical numbers.
+	const claudeUsageApi = createClaudeUsageApi();
 
 	/**
 	 * Account-pin wiring shared by every one-shot HTML agent route (`/api/html/brief`,
@@ -504,6 +508,7 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 			}),
 			managerApi,
 			htmlApi,
+			claudeUsageApi,
 		};
 	};
 
