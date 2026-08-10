@@ -6,6 +6,9 @@ import { describe, expect, it } from "vitest";
 import {
 	BRIEF_HEADINGS,
 	BRIEF_MAX_OPEN_QUESTIONS,
+	BRIEF_PLAN_HEADING,
+	BRIEF_SECTION_HEADING,
+	BRIEF_UNSORTED_HEADING,
 	buildBriefPrompt,
 	loadPromptMasterBody,
 	PROMPT_MASTER_SKILL_RELATIVE_PATH,
@@ -108,5 +111,29 @@ describe("buildBriefPrompt", () => {
 
 	it("says nothing about unresolved links when there are none", () => {
 		expect(buildBriefPrompt(base)).not.toContain("could not be opened");
+	});
+
+	it("asks for the reorganized plan before the brief, since the answer replaces the user's file", () => {
+		const prompt = buildBriefPrompt(base);
+
+		expect(prompt).toContain(BRIEF_PLAN_HEADING);
+		expect(prompt).toContain(BRIEF_SECTION_HEADING);
+		expect(prompt.indexOf(`${BRIEF_PLAN_HEADING}\nThe user's own plan, reorganized`)).toBeLessThan(
+			prompt.lastIndexOf(BRIEF_SECTION_HEADING),
+		);
+	});
+
+	it("forbids losing user content: image links byte for byte, leftovers parked verbatim", () => {
+		const prompt = buildBriefPrompt(base);
+
+		expect(prompt).toContain("byte for byte");
+		expect(prompt).toContain(BRIEF_UNSORTED_HEADING);
+	});
+
+	it("requires an inline narrative under each image when the plan has images", () => {
+		const prompt = buildBriefPrompt({ ...base, assetPaths: ["/plans/roadmap.assets/old-dashboard.png"] });
+
+		expect(prompt).toContain("ONE italic\n  paragraph narrating what the image actually shows");
+		expect(prompt).toContain("who cannot see the image");
 	});
 });

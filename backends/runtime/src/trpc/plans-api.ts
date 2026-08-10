@@ -15,12 +15,15 @@ import type {
 	RuntimePlansRemoveResponse,
 	RuntimePlansWriteAssetRequest,
 	RuntimePlansWriteAssetResponse,
+	RuntimePlansWriteBackupRequest,
+	RuntimePlansWriteBackupResponse,
 	RuntimePlansWriteRequest,
 	RuntimePlansWriteResponse,
 	RuntimePlansWriteSiblingRequest,
 	RuntimePlansWriteSiblingResponse,
 } from "../core/api-contract";
 import {
+	backupSavedPlan,
 	createSavedPlan,
 	importPlanFile,
 	importPlansFromFolder,
@@ -218,6 +221,21 @@ export function createPlansApi(deps: CreatePlansApiDependencies): RuntimeTrpcCon
 					plan: null,
 					error: toErrorMessage(error),
 				} satisfies RuntimePlansWriteSiblingResponse;
+			}
+		},
+		writeBackup: async (input: RuntimePlansWriteBackupRequest) => {
+			try {
+				const path = await backupSavedPlan(input.planId);
+				return {
+					ok: true,
+					path,
+				} satisfies RuntimePlansWriteBackupResponse;
+			} catch (error) {
+				return {
+					ok: false,
+					path: null,
+					error: toErrorMessage(error),
+				} satisfies RuntimePlansWriteBackupResponse;
 			}
 		},
 		writeAsset: async (input: RuntimePlansWriteAssetRequest) => {

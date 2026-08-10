@@ -8,7 +8,7 @@ import type {
 	RuntimeProjectTaskCounts,
 } from "../core/api-contract";
 import { parseDirectoryListRequest, parseProjectAddRequest, parseProjectRemoveRequest } from "../core/api-validation";
-import { isPlanFileName } from "../state/saved-plans";
+import { isPlanBackupFileName, isPlanFileName } from "../state/saved-plans";
 import {
 	listWorkspaceIndexEntries,
 	loadWorkspaceContext,
@@ -314,7 +314,9 @@ export function createProjectsApi(deps: CreateProjectsApiDependencies): RuntimeT
 				const dirEntries = await readdir(resolvedPath, { withFileTypes: true });
 				const directoryEntries = dirEntries.filter((entry) => entry.isDirectory());
 				const planFileEntries = body.includeFiles
-					? dirEntries.filter((entry) => entry.isFile() && isPlanFileName(entry.name))
+					? dirEntries.filter(
+							(entry) => entry.isFile() && isPlanFileName(entry.name) && !isPlanBackupFileName(entry.name),
+						)
 					: [];
 
 				directoryEntries.sort((a, b) => a.name.localeCompare(b.name));

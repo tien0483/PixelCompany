@@ -5,7 +5,6 @@ import {
 	Heading1,
 	Heading2,
 	Highlighter,
-	ImagePlus,
 	Italic,
 	Link2,
 	List,
@@ -13,10 +12,11 @@ import {
 	Palette,
 	Strikethrough,
 } from "lucide-react";
-import { type ChangeEvent, type ReactElement, useRef, useState } from "react";
+import { type ReactElement, useState } from "react";
 
 import type { TextSelectionState } from "@/components/plan-editor/markdown-selection-commands";
 import { togglePrefix, toggleWrap } from "@/components/plan-editor/markdown-selection-commands";
+import { PlanImageButton } from "@/components/plan-editor/plan-image-button";
 import { Button } from "@/components/ui/button";
 import { Tooltip } from "@/components/ui/tooltip";
 
@@ -28,8 +28,6 @@ const COLOR_SWATCHES: ReadonlyArray<{ label: string; value: string }> = [
 	{ label: "Blue", value: "#4C9AFF" },
 	{ label: "Purple", value: "#A371F7" },
 ];
-
-const ACCEPTED_IMAGE_INPUT_ACCEPT = "image/png,image/jpeg,image/gif,image/webp";
 
 export interface PlanMarkdownToolbarProps {
 	disabled?: boolean;
@@ -56,16 +54,7 @@ function ToolbarButton({
 }
 
 export function PlanMarkdownToolbar({ disabled, onCommand, onInsertImage }: PlanMarkdownToolbarProps): ReactElement {
-	const fileInputRef = useRef<HTMLInputElement>(null);
 	const [isColorOpen, setIsColorOpen] = useState(false);
-
-	const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
-		const file = event.target.files?.[0];
-		event.target.value = "";
-		if (file) {
-			onInsertImage(file);
-		}
-	};
 
 	return (
 		<div className="flex items-center gap-0.5 border-b border-border bg-surface-2 px-2 py-1">
@@ -169,19 +158,7 @@ export function PlanMarkdownToolbar({ disabled, onCommand, onInsertImage }: Plan
 				onClick={() => onCommand((s) => toggleWrap(s, "<mark>", "</mark>"))}
 			/>
 			<div className="mx-1 h-4 w-px bg-border" />
-			<ToolbarButton
-				icon={<ImagePlus size={14} />}
-				label="Insert image"
-				disabled={disabled}
-				onClick={() => fileInputRef.current?.click()}
-			/>
-			<input
-				ref={fileInputRef}
-				type="file"
-				accept={ACCEPTED_IMAGE_INPUT_ACCEPT}
-				className="hidden"
-				onChange={handleFileChange}
-			/>
+			<PlanImageButton disabled={disabled} onSelectFile={onInsertImage} />
 		</div>
 	);
 }
