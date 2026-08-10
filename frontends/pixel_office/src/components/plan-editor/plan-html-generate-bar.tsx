@@ -2,6 +2,7 @@ import { ListChecks, Sparkles, Wand2, Zap } from "lucide-react";
 import { type ReactElement, useEffect, useMemo, useState } from "react";
 
 import { showAppToast } from "@/components/app-toaster";
+import { PlanHtmlRunMetrics } from "@/components/plan-editor/plan-html-run-metrics";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
 import { NativeSelect } from "@/components/ui/native-select";
@@ -29,15 +30,6 @@ export interface PlanHtmlGenerateBarProps {
 	onCancel: () => void;
 }
 
-function formatElapsed(ms: number): string {
-	return `${(ms / 1000).toFixed(1)}s`;
-}
-
-function formatBytes(bytes: number): string {
-	if (bytes < 1024) return `${bytes} B`;
-	return `${(bytes / 1024).toFixed(1)} KB`;
-}
-
 /**
  * Template picker + Generate/Cancel for the plan editor's rendered pane.
  * Generation state is owned by the editor view so the pane can stream the result.
@@ -59,15 +51,8 @@ export function PlanHtmlGenerateBar({
 }: PlanHtmlGenerateBarProps): ReactElement {
 	const { online, templates, loading } = useHtmlTemplates();
 	const [selectedId, setSelectedId] = useState<string | null>(null);
-	const [tick, setTick] = useState(0);
 	const isRunning = status === "running";
 	const isExpanding = briefStatus === "running";
-
-	useEffect(() => {
-		if (!isRunning) return;
-		const id = window.setInterval(() => setTick((n) => n + 1), 100);
-		return () => window.clearInterval(id);
-	}, [isRunning]);
 
 	useEffect(() => {
 		if (templates.length > 0 && selectedId === null) {
@@ -79,10 +64,6 @@ export function PlanHtmlGenerateBar({
 		() => templates.find((t) => t.id === selectedId) ?? null,
 		[templates, selectedId],
 	);
-
-	void tick;
-	const elapsedMs = startedAt ? (doneAt ?? Date.now()) - startedAt : null;
-	const ttfbMs = startedAt && firstByteAt ? firstByteAt - startedAt : null;
 
 	const handleGenerate = () => {
 		if (!selectedId) {
@@ -183,19 +164,13 @@ export function PlanHtmlGenerateBar({
 					</Button>
 				</>
 			)}
-			{startedAt !== null ? (
-				<span className="hidden items-center gap-2 font-mono text-[10px] uppercase tracking-wide text-text-tertiary xl:inline-flex">
-					<span>
-						{HTML_LABELS.elapsed} {elapsedMs !== null ? formatElapsed(elapsedMs) : "—"}
-					</span>
-					<span>
-						{HTML_LABELS.ttfb} {ttfbMs !== null ? formatElapsed(ttfbMs) : "—"}
-					</span>
-					<span>
-						{HTML_LABELS.size} {htmlSizeBytes > 0 ? formatBytes(htmlSizeBytes) : "—"}
-					</span>
-				</span>
-			) : null}
+			<PlanHtmlRunMetrics
+				running={isRunning}
+				startedAt={startedAt}
+				firstByteAt={firstByteAt}
+				doneAt={doneAt}
+				htmlSizeBytes={htmlSizeBytes}
+			/>
 		</div>
 	);
 }

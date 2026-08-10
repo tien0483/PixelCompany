@@ -32,6 +32,12 @@ export interface HtmlGenerateRequest {
 	planId?: string;
 	editFromHtml?: string;
 	editFromContent?: string;
+	/**
+	 * Unified diff of the markdown against the version `editFromHtml` was generated from.
+	 * Sent instead of `editFromContent` so a one-line requirement change costs a one-line
+	 * prompt instead of the whole requirement twice.
+	 */
+	editDiff?: string;
 	managerAccountId?: number;
 }
 
