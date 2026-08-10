@@ -165,6 +165,11 @@ export function HomeSidebarPlansPanel({
 				setIsBrowserOpen(true);
 			}
 			// Clean cancellation (path: null, no unavailable flag): do nothing.
+		} catch (error) {
+			showAppToast({
+				intent: "danger",
+				message: error instanceof Error ? error.message : String(error),
+			});
 		} finally {
 			setIsPickingFolder(false);
 		}

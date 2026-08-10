@@ -232,6 +232,9 @@ export function AddProjectDialog({
 				setIsBrowserOpen(true);
 			}
 			// Clean cancellation (path: null, no unavailable flag): do nothing.
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			showAppToast({ intent: "danger", icon: "warning-sign", message, timeout: 7000 });
 		} finally {
 			setIsBrowsing(false);
 		}
