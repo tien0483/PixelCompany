@@ -1,15 +1,15 @@
 import { ListChecks, Sparkles, Wand2, Zap } from "lucide-react";
-import { type ReactElement, useEffect, useMemo, useState } from "react";
+import { type ReactElement, useMemo } from "react";
 
 import { showAppToast } from "@/components/app-toaster";
+import { PlanClaudeUsageChip } from "@/components/plan-editor/plan-claude-usage-chip";
 import { PlanHtmlRunMetrics } from "@/components/plan-editor/plan-html-run-metrics";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
-import { NativeSelect } from "@/components/ui/native-select";
 import { Spinner } from "@/components/ui/spinner";
 import { HTML_LABELS } from "@/html/html-labels";
 import type { HtmlStreamStatus } from "@/html/use-html-agent-stream";
-import { useHtmlTemplates } from "@/html/use-html-templates";
+import type { HtmlTemplateMeta } from "@/html/use-html-templates";
 
 export interface PlanHtmlGenerateBarProps {
 	status: HtmlStreamStatus;
@@ -19,6 +19,15 @@ export interface PlanHtmlGenerateBarProps {
 	firstByteAt: number | null;
 	doneAt: number | null;
 	htmlSizeBytes: number;
+	/**
+	 * Template state is owned by the editor view and shared with the left rail, which
+	 * is where templates are actually picked; the bar only reports and acts on it.
+	 */
+	templates: HtmlTemplateMeta[];
+	selectedTemplateId: string | null;
+	/** Reflects the html_anything sidecar, not the Claude account. */
+	online: boolean;
+	templatesLoading: boolean;
 	/** False until the plan has a generated HTML sibling to edit. */
 	canRefine: boolean;
 	/** False for an unsaved plan, whose images are not on disk yet. */
@@ -31,8 +40,9 @@ export interface PlanHtmlGenerateBarProps {
 }
 
 /**
- * Template picker + Generate/Cancel for the plan editor's rendered pane.
- * Generation state is owned by the editor view so the pane can stream the result.
+ * Claude status + Generate/Cancel for the plan editor's rendered pane. The template
+ * itself is picked in the left rail (`PlanTemplateRail`); generation state is owned by
+ * the editor view so the pane can stream the result.
  */
 export function PlanHtmlGenerateBar({
 	status,
@@ -41,6 +51,10 @@ export function PlanHtmlGenerateBar({
 	firstByteAt,
 	doneAt,
 	htmlSizeBytes,
+	templates,
+	selectedTemplateId: selectedId,
+	online,
+	templatesLoading: loading,
 	canRefine,
 	canExpand,
 	disabled,
@@ -49,16 +63,8 @@ export function PlanHtmlGenerateBar({
 	onRefine,
 	onCancel,
 }: PlanHtmlGenerateBarProps): ReactElement {
-	const { online, templates, loading } = useHtmlTemplates();
-	const [selectedId, setSelectedId] = useState<string | null>(null);
 	const isRunning = status === "running";
 	const isExpanding = briefStatus === "running";
-
-	useEffect(() => {
-		if (templates.length > 0 && selectedId === null) {
-			setSelectedId(templates[0]?.id ?? null);
-		}
-	}, [templates, selectedId]);
 
 	const selectedTemplate = useMemo(
 		() => templates.find((t) => t.id === selectedId) ?? null,
@@ -95,25 +101,17 @@ export function PlanHtmlGenerateBar({
 				title={online ? HTML_LABELS.online : HTML_LABELS.offlineHint}
 				aria-label={online ? HTML_LABELS.online : HTML_LABELS.offlineShort}
 			/>
-			<NativeSelect
-				size="sm"
-				value={selectedId ?? ""}
-				disabled={loading || !online || isRunning || templates.length === 0 || disabled}
-				onChange={(e) => setSelectedId(e.target.value || null)}
-				aria-label={HTML_LABELS.pickTemplate}
-				className="max-w-[180px]"
-			>
-				{templates.length === 0 ? (
-					<option value="">{online ? HTML_LABELS.emptyTemplates : HTML_LABELS.offline}</option>
-				) : (
-					templates.map((t) => (
-						<option key={t.id} value={t.id}>
-							{t.emoji ? `${t.emoji} ` : ""}
-							{t.enName || t.zhName || t.id}
-						</option>
-					))
-				)}
-			</NativeSelect>
+			<PlanClaudeUsageChip />
+			{selectedTemplate ? (
+				<span className="hidden max-w-[160px] truncate text-[11px] text-text-secondary lg:inline">
+					{selectedTemplate.emoji ? `${selectedTemplate.emoji} ` : ""}
+					{selectedTemplate.enName || selectedTemplate.zhName || selectedTemplate.id}
+				</span>
+			) : (
+				<span className="hidden text-[11px] text-text-tertiary lg:inline">
+					{online ? HTML_LABELS.pickTemplate : HTML_LABELS.offline}
+				</span>
+			)}
 			{selectedTemplate?.aspectHint ? (
 				<span className="hidden text-[10px] text-text-tertiary xl:inline">{selectedTemplate.aspectHint}</span>
 			) : null}

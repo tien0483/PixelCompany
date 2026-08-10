@@ -5,12 +5,17 @@
 // only Node and a locally logged-in Claude Code CLI to run (see the generated
 // README.md). Usage: node scripts/build-plan-editor-standalone.mjs [outDir]
 import { execFileSync } from "node:child_process";
-import { chmodSync, cpSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const outDir = resolve(repoRoot, process.argv[2] ?? "plan-editor-standalone");
+
+// The template registry under agent-data/templates/skills carries 80+ skills for the
+// full app; this package is an Akselos Papp tool, so it ships only those three. The
+// repo keeps every template — widening the package is a matter of adding ids here.
+const STANDALONE_TEMPLATE_IDS = ["papp-overview", "papp-monitoring", "papp-status-grid"];
 
 const pixelOfficeDir = join(repoRoot, "frontends", "pixel_office");
 const runtimeDir = join(repoRoot, "backends", "runtime");
@@ -100,8 +105,10 @@ run("pnpm", ["--filter", "@html-anything/next", "deploy", "--legacy", "--prod", 
 cpSync(join(sidecarBuildDir, ".next"), join(sidecarDest, ".next"), { recursive: true, dereference: true });
 rmSync(sidecarBuildDir, { recursive: true, force: true });
 
-// 4. Templates: "papp" and friends live under agent-data/templates/skills. The
-// sidecar's PIXELOFFICE_AGENT_DATA override (see agent-data-root.ts) requires a
+// 4. Templates: the papp skills live under agent-data/templates/skills, and only
+// those (STANDALONE_TEMPLATE_IDS) are copied — the loader enumerates whatever
+// folders it finds, so leaving the rest out is what keeps them out of the picker.
+// The sidecar's PIXELOFFICE_AGENT_DATA override (see agent-data-root.ts) requires a
 // manifest.json directly inside the target folder, so that ships too.
 //
 // The catalog (agent-data/catalog, ~1.5 MB of Manager shelves) is deliberately NOT
@@ -115,10 +122,17 @@ const agentDataDest = join(outDir, "agent-data");
 mkdirSync(join(agentDataDest, "templates"), { recursive: true });
 mkdirSync(join(agentDataDest, "catalog", "skills"), { recursive: true });
 cpSync(join(agentDataDir, "manifest.json"), join(agentDataDest, "manifest.json"), { dereference: true });
-cpSync(join(agentDataDir, "templates", "skills"), join(agentDataDest, "templates", "skills"), {
-	recursive: true,
-	dereference: true,
-});
+const templateSkillsDir = join(agentDataDir, "templates", "skills");
+const templateSkillsDest = join(agentDataDest, "templates", "skills");
+mkdirSync(templateSkillsDest, { recursive: true });
+for (const templateId of STANDALONE_TEMPLATE_IDS) {
+	const source = join(templateSkillsDir, templateId);
+	if (!existsSync(source)) {
+		throw new Error(`Template "${templateId}" is listed in STANDALONE_TEMPLATE_IDS but missing at ${source}`);
+	}
+	cpSync(source, join(templateSkillsDest, templateId), { recursive: true, dereference: true });
+	console.log(`  template: ${templateId}`);
+}
 cpSync(
 	join(agentDataDir, "catalog", "skills", "prompt-master"),
 	join(agentDataDest, "catalog", "skills", "prompt-master"),
@@ -140,6 +154,9 @@ writeFileSync(
 		"Write a plan in markdown, refine it, pick a template, and generate HTML from it",
 		"using your local Claude Code CLI. No Kanban board, Office, git view, or accounts UI.",
 		"",
+		`Templates shipped: ${STANDALONE_TEMPLATE_IDS.join(", ")} (the Akselos Papp set).`,
+		"They appear as thumbnails in the left pane of the editor.",
+		"",
 		"## Prerequisites",
 		"",
 		"- Node.js 20 or newer.",
@@ -154,6 +171,10 @@ writeFileSync(
 		"",
 		"Plans are saved under your home directory's runtime data folder, the same place",
 		"the full PixelOffice app stores them, so nothing is lost if you install that later.",
+		"",
+		"The toolbar's 5h / 7d meter reads your Claude account's usage windows from",
+		"`~/.claude/.credentials.json` (or `$CLAUDE_CONFIG_DIR`). It shows `—` when no",
+		"credential is found; nothing else in the editor depends on it.",
 		"",
 	].join("\n"),
 );

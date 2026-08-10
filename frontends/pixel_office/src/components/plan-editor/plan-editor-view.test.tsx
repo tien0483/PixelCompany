@@ -935,4 +935,108 @@ describe("PlanEditorView", () => {
 		expect(container.querySelector('[data-testid="plan-rich-editor"]')).not.toBeNull();
 		expect(container.textContent?.includes("This plan file is empty.")).toBe(false);
 	});
+
+	describe("template rail", () => {
+		const RAIL_TEMPLATES = [
+			{
+				id: "papp-status-grid",
+				zhName: "",
+				enName: "Papp Asset Status Grid",
+				emoji: "🟩",
+				description: "",
+				category: "dashboard",
+				scenario: "engineering",
+				aspectHint: "Desktop 1440",
+				recommended: 3,
+				tags: [],
+				example: { hasHtml: true, hasMd: true },
+			},
+			{
+				id: "papp-overview",
+				zhName: "",
+				enName: "Papp Overview Dashboard",
+				emoji: "🏭",
+				description: "",
+				category: "dashboard",
+				scenario: "engineering",
+				aspectHint: "Desktop 1440",
+				recommended: 1,
+				tags: [],
+				example: { hasHtml: true, hasMd: true },
+			},
+		];
+
+		function cards(): HTMLButtonElement[] {
+			return Array.from(container.querySelectorAll<HTMLButtonElement>('[data-testid^="plan-template-card-"]'));
+		}
+
+		beforeEach(() => {
+			mockHtmlStatusQuery.mockResolvedValue({ online: true });
+			mockHtmlTemplatesQuery.mockResolvedValue(RAIL_TEMPLATES);
+		});
+
+		it("lists a card per template in recommended order and preselects the top-ranked one", async () => {
+			await render(PLAN);
+			await flush();
+			await waitFor(() => cards().length === 2, "template cards");
+
+			expect(cards().map((card) => card.dataset.testid)).toEqual([
+				"plan-template-card-papp-overview",
+				"plan-template-card-papp-status-grid",
+			]);
+			// Registry order puts status-grid first; `recommended` is what should win.
+			expect(cards()[0]?.getAttribute("aria-pressed")).toBe("true");
+			expect(cards()[1]?.getAttribute("aria-pressed")).toBe("false");
+		});
+
+		it("renders each thumbnail from the sidecar preview route", async () => {
+			await render(PLAN);
+			await flush();
+			await waitFor(() => cards().length === 2, "template cards");
+
+			const frame = container.querySelector<HTMLIFrameElement>(
+				'[data-testid="plan-template-card-papp-overview"] iframe',
+			);
+			expect(frame?.getAttribute("src")).toBe("/api/html-proxy/api/templates/papp-overview/preview");
+		});
+
+		it("sends the card the user picked as the generate template", async () => {
+			const fetchMock = vi.fn().mockImplementation(() => {
+				const body = new ReadableStream<Uint8Array>({
+					start(controller) {
+						controller.enqueue(new TextEncoder().encode(`event: done\ndata: ${JSON.stringify({ code: 0 })}\n\n`));
+						controller.close();
+					},
+				});
+				return Promise.resolve(new Response(body, { status: 200 }));
+			});
+			vi.stubGlobal("fetch", fetchMock);
+			try {
+				await render(PLAN);
+				await flush();
+				await waitFor(() => cards().length === 2, "template cards");
+
+				await act(async () => {
+					cards()[1]?.click();
+				});
+				await act(async () => {
+					const run = container.querySelector('[data-testid="plan-html-generate-run"]');
+					(run as HTMLButtonElement).click();
+				});
+
+				const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+				expect(url).toBe("/api/html/generate");
+				expect(JSON.parse(init.body as string)).toMatchObject({ templateId: "papp-status-grid" });
+			} finally {
+				vi.unstubAllGlobals();
+			}
+		});
+
+		it("drops the rail for a plan that is already HTML", async () => {
+			await render(HTML_PLAN);
+			await flush();
+
+			expect(container.querySelector('[data-testid="plan-template-rail"]')).toBeNull();
+		});
+	});
 });

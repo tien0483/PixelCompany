@@ -52,6 +52,7 @@ import type {
 	RuntimeDirectoryListRequest,
 	RuntimeDirectoryListResponse,
 	RuntimeFeaturebaseTokenResponse,
+	RuntimeGetWorkspaceLocalAssetsRequest,
 	RuntimeGitBlameRequest,
 	RuntimeGitBlameResponse,
 	RuntimeGitCheckoutRequest,
@@ -104,8 +105,6 @@ import type {
 	RuntimeManagerFeaturesRequest,
 	RuntimeManagerFeaturesResponse,
 	RuntimeManagerFeatureToggleRequest,
-	RuntimeManagerSyncFeaturesRequest,
-	RuntimeManagerSyncFeaturesResponse,
 	RuntimeManagerHookLogs,
 	RuntimeManagerInstallationsOverview,
 	RuntimeManagerMutationResponse,
@@ -122,6 +121,8 @@ import type {
 	RuntimeManagerState,
 	RuntimeManagerSwapLog,
 	RuntimeManagerSwapPauseRequest,
+	RuntimeManagerSyncFeaturesRequest,
+	RuntimeManagerSyncFeaturesResponse,
 	RuntimeManagerUsageOverview,
 	RuntimeMcpInventory,
 	RuntimeOpenFileRequest,
@@ -156,7 +157,6 @@ import type {
 	RuntimeProjectRemoveResponse,
 	RuntimeProjectsResponse,
 	RuntimeRunUpdateResponse,
-	RuntimeGetWorkspaceLocalAssetsRequest,
 	RuntimeSetWorkspaceLocalAssetsRequest,
 	RuntimeSetWorkspaceLocalAssetsResponse,
 	RuntimeShellSessionStartRequest,
@@ -198,6 +198,8 @@ import type {
 	RuntimeWorktreeEnsureResponse,
 } from "../core/api-contract";
 import {
+	type RuntimeClaudeUsage,
+	RuntimeClaudeUsageSchema,
 	type RuntimeHtmlStatus,
 	RuntimeHtmlStatusSchema,
 	type RuntimeHtmlTemplate,
@@ -214,8 +216,6 @@ import {
 	RuntimeManagerFeaturesRequestSchema,
 	RuntimeManagerFeaturesResponseSchema,
 	RuntimeManagerFeatureToggleRequestSchema,
-	RuntimeManagerSyncFeaturesRequestSchema,
-	RuntimeManagerSyncFeaturesResponseSchema,
 	RuntimeManagerGitIdentitySchema,
 	RuntimeManagerHookLogsSchema,
 	RuntimeManagerInstallationsOverviewSchema,
@@ -233,6 +233,8 @@ import {
 	RuntimeManagerStateSchema,
 	RuntimeManagerSwapLogSchema,
 	RuntimeManagerSwapPauseRequestSchema,
+	RuntimeManagerSyncFeaturesRequestSchema,
+	RuntimeManagerSyncFeaturesResponseSchema,
 	RuntimeManagerUsageAuthCodeRequestSchema,
 	RuntimeManagerUsageAuthCodeResponseSchema,
 	RuntimeManagerUsageAuthSessionCreateRequestSchema,
@@ -285,6 +287,7 @@ import {
 	runtimeDirectoryListRequestSchema,
 	runtimeDirectoryListResponseSchema,
 	runtimeFeaturebaseTokenResponseSchema,
+	runtimeGetWorkspaceLocalAssetsRequestSchema,
 	runtimeGitBlameRequestSchema,
 	runtimeGitBlameResponseSchema,
 	runtimeGitCheckoutRequestSchema,
@@ -360,7 +363,6 @@ import {
 	runtimeProjectRemoveResponseSchema,
 	runtimeProjectsResponseSchema,
 	runtimeRunUpdateResponseSchema,
-	runtimeGetWorkspaceLocalAssetsRequestSchema,
 	runtimeSetWorkspaceLocalAssetsRequestSchema,
 	runtimeSetWorkspaceLocalAssetsResponseSchema,
 	runtimeShellSessionStartRequestSchema,
@@ -695,9 +697,7 @@ export interface RuntimeTrpcContext {
 		getState: () => Promise<RuntimeManagerState>;
 		setFeatureEnabled: (input: RuntimeManagerFeatureToggleRequest) => Promise<RuntimeManagerMutationResponse>;
 		features: (input: RuntimeManagerFeaturesRequest) => Promise<RuntimeManagerFeaturesResponse>;
-		syncFeaturesToProject: (
-			input: RuntimeManagerSyncFeaturesRequest,
-		) => Promise<RuntimeManagerSyncFeaturesResponse>;
+		syncFeaturesToProject: (input: RuntimeManagerSyncFeaturesRequest) => Promise<RuntimeManagerSyncFeaturesResponse>;
 		pauseSwap: (input: RuntimeManagerSwapPauseRequest) => Promise<RuntimeManagerMutationResponse>;
 		resumeSwap: () => Promise<RuntimeManagerMutationResponse>;
 		useAccount: (input: RuntimeManagerAccountIdRequest) => Promise<RuntimeManagerMutationResponse>;
@@ -740,6 +740,9 @@ export interface RuntimeTrpcContext {
 		status: () => Promise<RuntimeHtmlStatus>;
 		templates: () => Promise<RuntimeHtmlTemplate[]>;
 		templateExample: (id: string) => Promise<RuntimeHtmlTemplateExample | null>;
+	};
+	claudeUsageApi: {
+		get: () => Promise<RuntimeClaudeUsage>;
 	};
 }
 
@@ -1588,6 +1591,11 @@ export const runtimeAppRouter = t.router({
 			.query(async ({ ctx, input }) => {
 				return await ctx.htmlApi.templateExample(input.id);
 			}),
+	}),
+	claude: t.router({
+		usage: t.procedure.output(RuntimeClaudeUsageSchema).query(async ({ ctx }) => {
+			return await ctx.claudeUsageApi.get();
+		}),
 	}),
 });
 

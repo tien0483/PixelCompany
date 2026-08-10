@@ -1,6 +1,6 @@
 // Minimal tRPC router for the standalone Plan Editor package: just the `plans`,
-// `html`, and the two `projects` procedures the plan list/import UI needs
-// (`pickDirectory`, `listDirectoryContents`). Everything else in the full
+// `html`, `claude.usage`, and the two `projects` procedures the plan list/import UI
+// needs (`pickDirectory`, `listDirectoryContents`). Everything else in the full
 // `runtimeAppRouter` (board/task, git, terminal, manager, hooks) is intentionally
 // absent — this router is mounted by `server.ts` instead of the full app router.
 import { readdir, stat } from "node:fs/promises";
@@ -14,6 +14,10 @@ import type {
 	RuntimeProjectDirectoryPickerResponse,
 } from "../core/api-contract";
 import {
+	RuntimeClaudeUsageSchema,
+	RuntimeHtmlStatusSchema,
+	RuntimeHtmlTemplateExampleSchema,
+	RuntimeHtmlTemplateSchema,
 	runtimeDirectoryListRequestSchema,
 	runtimeDirectoryListResponseSchema,
 	runtimePlansCreateRequestSchema,
@@ -40,15 +44,13 @@ import {
 	runtimePlansWriteSiblingRequestSchema,
 	runtimePlansWriteSiblingResponseSchema,
 	runtimeProjectDirectoryPickerResponseSchema,
-	RuntimeHtmlStatusSchema,
-	RuntimeHtmlTemplateExampleSchema,
-	RuntimeHtmlTemplateSchema,
 } from "../core/api-contract";
 import { parseDirectoryListRequest } from "../core/api-validation";
 import type { HtmlClient } from "../html/html-client";
 import { pickDirectoryPathFromSystemDialog } from "../server/directory-picker";
 import { isPlanAuxiliaryFileName, isPlanFileName } from "../state/saved-plans";
 import type { RuntimeTrpcContext } from "../trpc/app-router";
+import { createClaudeUsageApi } from "../trpc/claude-usage-api";
 import { createHtmlApi } from "../trpc/html-api";
 import { createPlansApi } from "../trpc/plans-api";
 import { isPathWithinRoot } from "../workspace/path-sandbox";
@@ -56,6 +58,7 @@ import { isPathWithinRoot } from "../workspace/path-sandbox";
 export interface PlanEditorTrpcContext {
 	plansApi: RuntimeTrpcContext["plansApi"];
 	htmlApi: RuntimeTrpcContext["htmlApi"];
+	claudeUsageApi: RuntimeTrpcContext["claudeUsageApi"];
 	projectsApi: {
 		pickDirectory: () => Promise<RuntimeProjectDirectoryPickerResponse>;
 		listDirectoryContents: (input: RuntimeDirectoryListRequest) => Promise<RuntimeDirectoryListResponse>;
@@ -159,7 +162,13 @@ function createPlanEditorProjectsApi(serverCwd: string): PlanEditorTrpcContext["
 				const parentIsWithinRoot = isPathWithinRoot(rootPath, rawParent);
 				const parentPath = isAtRoot ? null : parentIsWithinRoot ? rawParent : null;
 
-				return { ok: true, currentPath: resolvedPath, parentPath, rootPath, entries } satisfies RuntimeDirectoryListResponse;
+				return {
+					ok: true,
+					currentPath: resolvedPath,
+					parentPath,
+					rootPath,
+					entries,
+				} satisfies RuntimeDirectoryListResponse;
 			} catch (error) {
 				const isPermissionError =
 					error instanceof Error && "code" in error && (error as NodeJS.ErrnoException).code === "EACCES";
@@ -285,6 +294,13 @@ export const planEditorRouter = t.router({
 				return await ctx.htmlApi.templateExample(input.id);
 			}),
 	}),
+	// Same shape as the full router's `claude.usage`: the package has no Manager, but
+	// the usage windows come straight off the local Claude credential either way.
+	claude: t.router({
+		usage: t.procedure.output(RuntimeClaudeUsageSchema).query(async ({ ctx }) => {
+			return await ctx.claudeUsageApi.get();
+		}),
+	}),
 });
 
 export type PlanEditorAppRouter = typeof planEditorRouter;
@@ -293,6 +309,7 @@ export function createPlanEditorContext(deps: { htmlClient: HtmlClient; serverCw
 	return {
 		plansApi: createPlansApi({ serverCwd: deps.serverCwd }),
 		htmlApi: createHtmlApi({ client: deps.htmlClient }),
+		claudeUsageApi: createClaudeUsageApi(),
 		projectsApi: createPlanEditorProjectsApi(deps.serverCwd),
 	};
 }
