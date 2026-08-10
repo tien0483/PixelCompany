@@ -294,12 +294,15 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 	});
 
 	/**
-	 * Watchdog for `/api/html/brief`. Cancels a run that goes quiet (a stray
-	 * permission prompt the one-shot `-p` process cannot answer) and puts a
-	 * hard ceiling on the whole request regardless of output.
+	 * Watchdog shared by every one-shot HTML agent route (`/api/html/brief` and
+	 * `/api/html/generate`). Cancels a run that goes quiet (a stray permission
+	 * prompt the one-shot `-p` process cannot answer) and puts a hard ceiling on
+	 * the whole request regardless of output. Both routes share one constant pair
+	 * rather than duplicating the numbers, since both hang for the exact same
+	 * reason: a `-p` run has no UI to answer a permission prompt with.
 	 */
-	const BRIEF_IDLE_TIMEOUT_MS = 120_000;
-	const BRIEF_HARD_TIMEOUT_MS = 10 * 60_000;
+	const HTML_AGENT_IDLE_TIMEOUT_MS = 120_000;
+	const HTML_AGENT_HARD_TIMEOUT_MS = 10 * 60_000;
 
 	/**
 	 * Which images the brief pass may open, and where to run it.
@@ -750,7 +753,15 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 				// still answer with JSON instead of corrupting the stream.
 				const plan = input.planId ? await findSavedPlanById(input.planId).catch(() => null) : null;
 				const agentCwd = resolveHtmlAgentCwd({ cwd: input.cwd, planPath: plan?.path });
-				const allowedTools = resolveHtmlAllowedTools(promptResult.value.template.allowRead);
+				// Same reasoning as the brief route: a one-shot `-p` run has no UI to
+				// answer a permission prompt, so the grant is explicit — and falls back
+				// to HTML_NO_TOOLS rather than undefined when the template didn't declare
+				// `allow_read`, so --allowedTools is always present on the command line
+				// instead of leaving the run to hang on a stray permission prompt.
+				const allowedTools = resolveHtmlAllowedTools(
+					promptResult.value.template.allowRead,
+					HTML_NO_TOOLS,
+				);
 
 				res.writeHead(200, {
 					"Content-Type": "text/event-stream; charset=utf-8",
@@ -772,6 +783,12 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 					cwd: agentCwd,
 					model: input.model,
 					allowedTools,
+					// Watchdog for the same stall class the brief route guards against: a
+					// stray permission prompt (or a template whose --allowedTools grant
+					// still leaves an opening for one) has no UI to answer it, and without
+					// a timeout it would hang the SSE stream until the client gives up.
+					idleTimeoutMs: HTML_AGENT_IDLE_TIMEOUT_MS,
+					timeoutMs: HTML_AGENT_HARD_TIMEOUT_MS,
 					signal: abortCtl.signal,
 					onEvent: (event) => {
 						send(event.type, event);
@@ -859,8 +876,8 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 					// image link cannot be resolved still shows the model an `![](…)`
 					// link in the prompt text, and without a timeout a stray permission
 					// prompt would hang the SSE stream until the client gives up.
-					idleTimeoutMs: BRIEF_IDLE_TIMEOUT_MS,
-					timeoutMs: BRIEF_HARD_TIMEOUT_MS,
+					idleTimeoutMs: HTML_AGENT_IDLE_TIMEOUT_MS,
+					timeoutMs: HTML_AGENT_HARD_TIMEOUT_MS,
 					signal: abortCtl.signal,
 					onEvent: (event) => {
 						send(event.type, event);
