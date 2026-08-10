@@ -218,6 +218,37 @@ describe("PlanEditorView", () => {
 		expect(mockWriteMutate).toHaveBeenCalledWith({ planId: "plan-1", content: "# Roadmap\n\nUpdated" });
 	});
 
+	it("recovers autosave after a single failed save instead of getting stuck", async () => {
+		await render(PLAN);
+		await flush();
+		await waitFor(() => container.textContent?.includes("Saved") === true, "saved status");
+
+		mockWriteMutate.mockRejectedValueOnce(new Error("disk full"));
+
+		await act(async () => {
+			setTextareaValue(getTextarea(container), "# Roadmap\n\nFirst edit");
+		});
+		await act(async () => {
+			await new Promise((resolveWait) => setTimeout(resolveWait, 600));
+		});
+		expect(mockWriteMutate).toHaveBeenCalledWith({ planId: "plan-1", content: "# Roadmap\n\nFirst edit" });
+		await waitFor(() => container.textContent?.includes("disk full") === true, "error status");
+
+		mockWriteMutate.mockResolvedValue({ ok: true, plan: PLAN });
+
+		// The bug: once `status` flips to "error" after a failed *save*, every later
+		// `updateContent` call must still reach the write mutation on the next keystroke
+		// — a failed autosave must not permanently block future saves.
+		await act(async () => {
+			setTextareaValue(getTextarea(container), "# Roadmap\n\nSecond edit");
+		});
+		await act(async () => {
+			await new Promise((resolveWait) => setTimeout(resolveWait, 600));
+		});
+
+		expect(mockWriteMutate).toHaveBeenCalledWith({ planId: "plan-1", content: "# Roadmap\n\nSecond edit" });
+	});
+
 	it("wraps the selection in bold markers via the raw-pane toolbar", async () => {
 		await render(PLAN);
 		await flush();
@@ -411,8 +442,9 @@ describe("PlanEditorView", () => {
 				"brief appended to plan 1",
 			);
 
-			// Same component instance, just a new `plan` prop — mirrors switching plans
-			// without a remount, which is exactly the shape of the original bug.
+			// `render()` applies `key={plan.id}` (see above), so this switch to PLAN2 is a
+			// key-driven remount — matching production, where App.tsx's own
+			// `key={editingPlan.id}` remounts PlanEditorView on every plan switch.
 			await render(PLAN2);
 			await flush();
 			await waitFor(
@@ -471,6 +503,37 @@ describe("PlanEditorView", () => {
 
 			expect(getButton("plan-html-brief-run").disabled).toBe(false);
 			expect(getButton("plan-html-generate-run").disabled).toBe(true);
+		});
+
+		it("aborts an in-flight generate request when the editor unmounts mid-stream", async () => {
+			let capturedSignal: AbortSignal | undefined;
+			fetchMock.mockImplementation((_url: string, init: RequestInit) => {
+				capturedSignal = init.signal as AbortSignal;
+				// A stream that never enqueues or closes — stands in for a request still
+				// running server-side when the plan switch (or close) unmounts this component.
+				const body = new ReadableStream<Uint8Array>({ start() {} });
+				return Promise.resolve(new Response(body, { status: 200 }));
+			});
+			await render(PLAN);
+			await flush();
+			await waitFor(() => !getButton("plan-html-generate-run").disabled, "loaded templates");
+
+			await act(async () => {
+				getButton("plan-html-generate-run").click();
+			});
+			await flush();
+
+			expect(capturedSignal).toBeDefined();
+			expect(capturedSignal?.aborted).toBe(false);
+
+			// Regression: with `key={editingPlan.id}` (App.tsx) remounting PlanEditorView on
+			// every plan switch, `reset()`'s abort never runs on a live switch — only an
+			// unmount-time abort inside the hook itself catches this in-flight request.
+			await act(async () => {
+				root.unmount();
+			});
+
+			expect(capturedSignal?.aborted).toBe(true);
 		});
 	});
 

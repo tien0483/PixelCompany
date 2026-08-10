@@ -27,6 +27,12 @@ export function usePlanEditorDocument(
 	const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const pendingContentRef = useRef<string | null>(null);
 	const inFlightRef = useRef<Promise<void> | null>(null);
+	// Tracks "this component instance has successfully read its document at least
+	// once" — separate from `status`, which a failed *save* also drives to "error".
+	// Only this ref may block `updateContent` from writing back an unloaded doc;
+	// `status === "error"` must remain retryable so autosave recovers after a
+	// transient save failure instead of getting stuck forever.
+	const hasLoadedRef = useRef<boolean>(false);
 	const planId = plan?.id ?? null;
 
 	const clearSaveTimer = useCallback(() => {
@@ -90,10 +96,13 @@ export function usePlanEditorDocument(
 	const updateContent = useCallback(
 		(next: string) => {
 			setContent(next);
-			// An unloaded document (still loading, or the load failed) must never be
-			// written back over the file on disk — that would either save a blank
-			// draft over real content or clobber a file we never successfully read.
-			if (status === "loading" || status === "error") {
+			// An unloaded document (still loading, or the load never succeeded) must
+			// never be written back over the file on disk — that would either save a
+			// blank draft over real content or clobber a file we never successfully
+			// read. This checks `hasLoadedRef`, not `status`, because a *save* failure
+			// also sets `status` to "error" and must NOT block future saves — the next
+			// successful save is exactly how autosave recovers from a transient failure.
+			if (status === "loading" || !hasLoadedRef.current) {
 				return;
 			}
 			scheduleSave(next);
@@ -116,6 +125,7 @@ export function usePlanEditorDocument(
 			return;
 		}
 		let cancelled = false;
+		hasLoadedRef.current = false;
 		setStatus("loading");
 		setErrorMessage(null);
 		pendingContentRef.current = null;
@@ -142,6 +152,7 @@ export function usePlanEditorDocument(
 					return;
 				}
 				setContent(response.content);
+				hasLoadedRef.current = true;
 				setStatus("saved");
 			} catch (error) {
 				if (cancelled) {
