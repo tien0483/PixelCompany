@@ -1,0 +1,141 @@
+#!/usr/bin/env node
+// Builds a self-contained "Plan Editor" package: md editor -> refine -> pick a
+// papp template -> generate html, with no Kanban board, Office, gitview,
+// Manager/Jacked accounts, agent_stack, or OmniRoute. The output folder needs
+// only Node and a locally logged-in Claude Code CLI to run (see the generated
+// README.md). Usage: node scripts/build-plan-editor-standalone.mjs [outDir]
+import { execFileSync } from "node:child_process";
+import { chmodSync, cpSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const outDir = resolve(repoRoot, process.argv[2] ?? "plan-editor-standalone");
+
+const pixelOfficeDir = join(repoRoot, "frontends", "pixel_office");
+const runtimeDir = join(repoRoot, "backends", "runtime");
+const htmlAnythingDir = join(repoRoot, "backends", "html_anything");
+const agentDataDir = join(repoRoot, "agent-data");
+
+function run(command, args, cwd) {
+	console.log(`$ ${command} ${args.join(" ")}${cwd ? ` (in ${cwd})` : ""}`);
+	execFileSync(command, args, { cwd: cwd ?? repoRoot, stdio: "inherit" });
+}
+
+console.log(`Building standalone Plan Editor package into ${outDir}\n`);
+rmSync(outDir, { recursive: true, force: true });
+mkdirSync(join(outDir, "server"), { recursive: true });
+
+// 1. Frontend: build the pixel_office Vite app (multi-page: main + plan-editor),
+// then keep only the plan-editor page's output as this package's web-ui. Runs
+// `vite build` directly rather than the package's `build` script (which chains
+// a repo-wide `tsc --noEmit` gate) so pre-existing, unrelated type errors
+// elsewhere in the app don't block packaging this one feature.
+run("pnpm", ["--filter", "@kanban/web", "exec", "vite", "build"]);
+const viteDistDir = join(pixelOfficeDir, "dist");
+const webUiDir = join(outDir, "server", "web-ui");
+// `dereference: true` matters in a task worktree: gitignored build output like
+// `dist` is itself symlinked back to the main checkout there (see repo AGENTS.md),
+// and without it cpSync just recreates that symlink instead of copying real
+// files — which would make the shipped package depend on the dev checkout.
+cpSync(viteDistDir, webUiDir, { recursive: true, dereference: true });
+cpSync(join(webUiDir, "index-plan-editor.html"), join(webUiDir, "index.html"), { dereference: true });
+rmSync(join(webUiDir, "index-plan-editor.html"));
+
+// 2. Backend: bundle the slim plan-editor-standalone server with esbuild,
+// mirroring backends/runtime/scripts/build.mjs's config for this one entry point.
+// Invokes backends/runtime's own local esbuild binary directly (rather than
+// importing the "esbuild" package from this script's own resolution scope) so
+// this doesn't depend on esbuild happening to be hoisted to the workspace root.
+const cjsShimBanner = [
+	'import { createRequire as __planEditorCreateRequire } from "node:module";',
+	"const require = __planEditorCreateRequire(import.meta.url);",
+].join("\n");
+run(join(runtimeDir, "node_modules", ".bin", "esbuild"), [
+	join(runtimeDir, "src", "plan-editor-standalone", "main.ts"),
+	`--outfile=${join(outDir, "server", "index.js")}`,
+	"--bundle",
+	"--format=esm",
+	"--platform=node",
+	"--target=node20",
+	"--packages=bundle",
+	"--sourcemap",
+	`--banner:js=#!/usr/bin/env node\n${cjsShimBanner}`,
+]);
+
+// 3. Sidecar: build backends/html_anything/next and ship it as a fully
+// self-contained copy (own node_modules + .next build output) so the package
+// needs no `pnpm install` of its own.
+//
+// This uses `pnpm deploy` rather than copying backends/html_anything/next's own
+// node_modules directly. pnpm's per-workspace-package node_modules only holds a
+// symlink per direct dependency into the *workspace root's* .pnpm store, and a
+// package's peer dependencies (e.g. `next` requiring `@swc/helpers`) resolve via
+// *sibling* entries inside that same store directory — a plain `cp -RL` of the
+// per-package node_modules dereferences each direct-dependency symlink's own
+// folder but silently drops those siblings, producing a tree that's missing
+// modules `next start` needs at runtime. `pnpm deploy` (with `--legacy`, since
+// this workspace doesn't set `inject-workspace-packages`) is pnpm's supported
+// way to produce a relocatable, self-contained copy of one workspace member.
+//
+// Building needs devDependencies (`tailwindcss`/`@tailwindcss/postcss`), but
+// `next start` at runtime does not, so this deploys twice: once with dev deps
+// into a throwaway build dir to run `next build`, then a leaner `--prod` deploy
+// straight into the shipped location, with the just-built `.next` copied over.
+const sidecarBuildDir = join(outDir, ".sidecar-build-tmp");
+rmSync(sidecarBuildDir, { recursive: true, force: true });
+run("pnpm", ["--filter", "@html-anything/next", "deploy", "--legacy", sidecarBuildDir]);
+run(join(sidecarBuildDir, "node_modules", ".bin", "next"), ["build"], sidecarBuildDir);
+
+const sidecarDest = join(outDir, "html_anything", "next");
+rmSync(sidecarDest, { recursive: true, force: true });
+mkdirSync(join(outDir, "html_anything"), { recursive: true });
+run("pnpm", ["--filter", "@html-anything/next", "deploy", "--legacy", "--prod", sidecarDest]);
+cpSync(join(sidecarBuildDir, ".next"), join(sidecarDest, ".next"), { recursive: true, dereference: true });
+rmSync(sidecarBuildDir, { recursive: true, force: true });
+
+// 4. Templates: "papp" and friends live under agent-data/templates/skills. The
+// sidecar's PIXELOFFICE_AGENT_DATA override (see agent-data-root.ts) requires a
+// manifest.json directly inside the target folder, so that ships too.
+const agentDataDest = join(outDir, "agent-data");
+mkdirSync(join(agentDataDest, "templates"), { recursive: true });
+cpSync(join(agentDataDir, "manifest.json"), join(agentDataDest, "manifest.json"), { dereference: true });
+cpSync(join(agentDataDir, "templates", "skills"), join(agentDataDest, "templates", "skills"), {
+	recursive: true,
+	dereference: true,
+});
+
+// 5. Launch scripts + README.
+writeFileSync(
+	join(outDir, "start.sh"),
+	['#!/usr/bin/env bash', "set -e", 'cd "$(dirname "$0")"', "exec node server/index.js", ""].join("\n"),
+);
+chmodSync(join(outDir, "start.sh"), 0o755);
+writeFileSync(join(outDir, "start.bat"), ["@echo off", "cd /d %~dp0", "node server\\index.js", ""].join("\r\n"));
+writeFileSync(
+	join(outDir, "README.md"),
+	[
+		"# Plan Editor (standalone)",
+		"",
+		"Write a plan in markdown, refine it, pick a template, and generate HTML from it",
+		"using your local Claude Code CLI. No Kanban board, Office, git view, or accounts UI.",
+		"",
+		"## Prerequisites",
+		"",
+		"- Node.js 20 or newer.",
+		"- Claude Code CLI installed and already logged in (`claude` on your PATH).",
+		"",
+		"## Run it",
+		"",
+		"- macOS/Linux: `./start.sh`",
+		"- Windows: double-click `start.bat`",
+		"",
+		"Then open the URL printed in the terminal (defaults to http://127.0.0.1:4173).",
+		"",
+		"Plans are saved under your home directory's runtime data folder, the same place",
+		"the full PixelOffice app stores them, so nothing is lost if you install that later.",
+		"",
+	].join("\n"),
+);
+
+console.log(`\nDone. Run: cd ${outDir} && ./start.sh`);
