@@ -35,6 +35,18 @@ export interface HtmlGenerateRequest {
 	managerAccountId?: number;
 }
 
+export interface HtmlDraftRequest {
+	planId: string;
+	/** The user's natural-language instruction from the prompt bar. */
+	instruction: string;
+	/** The plan's current markdown, for voice and structure. May be empty. */
+	context: string;
+	/** The excerpt the answer replaces; omitted when the draft is appended instead. */
+	selection?: string;
+	model?: string;
+	managerAccountId?: number;
+}
+
 export interface HtmlBriefRequest {
 	planId: string;
 	content: string;
@@ -217,4 +229,9 @@ export function useHtmlGenerate() {
 /** Rough notes + pasted screenshots → the structured brief generation reads from. */
 export function useHtmlBrief() {
 	return useHtmlAgentStream<HtmlBriefRequest>("/api/html/brief");
+}
+
+/** Prompt-bar instruction → markdown appended to, or replacing part of, the plan. */
+export function useHtmlDraft() {
+	return useHtmlAgentStream<HtmlDraftRequest>("/api/html/draft");
 }

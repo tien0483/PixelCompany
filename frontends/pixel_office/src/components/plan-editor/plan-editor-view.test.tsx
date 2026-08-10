@@ -653,6 +653,168 @@ describe("PlanEditorView", () => {
 		expect(getHtmlSwitchButton(container).disabled).toBe(true);
 	});
 
+	describe("AI prompt bar", () => {
+		let fetchMock: ReturnType<typeof vi.fn>;
+
+		/** One SSE frame, then done — enough to drive the draft hook to a terminal state. */
+		function streamResponse(text: string): Response {
+			const body = new ReadableStream<Uint8Array>({
+				start(controller) {
+					const encoder = new TextEncoder();
+					controller.enqueue(encoder.encode(`event: delta\ndata: ${JSON.stringify({ text })}\n\n`));
+					controller.enqueue(encoder.encode(`event: done\ndata: ${JSON.stringify({ code: 0 })}\n\n`));
+					controller.close();
+				},
+			});
+			return new Response(body, { status: 200 });
+		}
+
+		function getBar(): HTMLElement {
+			const bar = container.querySelector('[data-testid="plan-ai-prompt-bar"]');
+			if (!(bar instanceof HTMLElement)) {
+				throw new Error("prompt bar not found");
+			}
+			return bar;
+		}
+
+		async function submit(instruction: string): Promise<void> {
+			const input = container.querySelector('[data-testid="plan-ai-prompt-input"]');
+			const button = container.querySelector('[data-testid="plan-ai-prompt-submit"]');
+			if (!(input instanceof HTMLInputElement) || !(button instanceof HTMLButtonElement)) {
+				throw new Error("prompt bar controls not found");
+			}
+			const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
+			await act(async () => {
+				setter?.call(input, instruction);
+				input.dispatchEvent(new Event("input", { bubbles: true }));
+			});
+			await act(async () => {
+				button.click();
+			});
+		}
+
+		beforeEach(() => {
+			fetchMock = vi.fn().mockImplementation(() => Promise.resolve(streamResponse("Drafted line.")));
+			vi.stubGlobal("fetch", fetchMock);
+		});
+
+		afterEach(() => {
+			vi.unstubAllGlobals();
+		});
+
+		it("appends a draft below the notes when nothing is selected", async () => {
+			await render(PLAN);
+			await flush();
+			await waitFor(() => getTextarea(container).value === "# Roadmap\n", "loaded content");
+
+			await submit("draft a risks section");
+			await waitFor(
+				() => getTextarea(container).value.includes("Drafted line."),
+				"draft spliced into the raw pane",
+			);
+
+			const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+			expect(url).toBe("/api/html/draft");
+			const body = JSON.parse(init.body as string) as Record<string, unknown>;
+			expect(body).toMatchObject({
+				planId: PLAN.id,
+				instruction: "draft a risks section",
+				context: "# Roadmap\n",
+			});
+			expect(body.selection).toBeUndefined();
+			expect(getTextarea(container).value).toBe("# Roadmap\n\nDrafted line.");
+			expect(getBar().dataset.mode).toBe("draft");
+		});
+
+		it("replaces the raw-pane selection instead of appending", async () => {
+			await render(PLAN);
+			await flush();
+			await waitFor(() => getTextarea(container).value === "# Roadmap\n", "loaded content");
+
+			const textarea = getTextarea(container);
+			// React emulates onSelect through its SelectEventPlugin (focus + keyup/mouseup),
+			// so a bare `select` event would not reach the handler.
+			await act(async () => {
+				textarea.focus();
+				textarea.setSelectionRange(2, 9);
+				textarea.dispatchEvent(new KeyboardEvent("keyup", { key: "ArrowRight", bubbles: true }));
+			});
+			expect(getBar().dataset.mode).toBe("edit");
+
+			await submit("make it shorter");
+			await waitFor(
+				() => getTextarea(container).value.includes("Drafted line."),
+				"rewrite spliced into the raw pane",
+			);
+
+			const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+			expect(JSON.parse(init.body as string)).toMatchObject({ selection: "Roadmap" });
+			expect(getTextarea(container).value).toBe("# Drafted line.\n");
+		});
+
+		it("restores the previous text when the draft toast's Undo is used", async () => {
+			await render(PLAN);
+			await flush();
+			await waitFor(() => getTextarea(container).value === "# Roadmap\n", "loaded content");
+
+			await submit("draft a risks section");
+			await waitFor(
+				() => getTextarea(container).value.includes("Drafted line."),
+				"draft spliced into the raw pane",
+			);
+
+			const draftToast = mockShowAppToast.mock.calls
+				.map((call) => call[0] as { message?: string; action?: { label: string; onClick: () => void } })
+				.find((toast) => toast?.message === HTML_LABELS.aiDraftDone);
+			expect(draftToast?.action?.label).toBe("Undo");
+
+			await act(async () => {
+				draftToast?.action?.onClick();
+			});
+
+			expect(getTextarea(container).value).toBe("# Roadmap\n");
+		});
+
+		it("leaves the notes untouched when the run finishes empty", async () => {
+			fetchMock.mockImplementation(() => {
+				const body = new ReadableStream<Uint8Array>({
+					start(controller) {
+						const encoder = new TextEncoder();
+						controller.enqueue(encoder.encode(`event: done\ndata: ${JSON.stringify({ code: 0 })}\n\n`));
+						controller.close();
+					},
+				});
+				return Promise.resolve(new Response(body, { status: 200 }));
+			});
+			await render(PLAN);
+			await flush();
+			await waitFor(() => getTextarea(container).value === "# Roadmap\n", "loaded content");
+
+			await submit("draft a risks section");
+			await waitFor(
+				() => mockShowAppToast.mock.calls.some((call) => call[0]?.message === HTML_LABELS.aiEmpty),
+				"empty-draft toast",
+			);
+
+			// Including the blank-line separator the draft run wrote before streaming.
+			expect(getTextarea(container).value).toBe("# Roadmap\n");
+		});
+
+		it("is hidden on the HTML source and on an HTML plan", async () => {
+			mockListQuery.mockResolvedValue({ ok: true, plans: [PLAN, HTML_SIBLING] });
+			await render(PLAN);
+			await flush();
+			await waitFor(() => !getHtmlSwitchButton(container).disabled, "enabled HTML switch");
+			expect(container.querySelector('[data-testid="plan-ai-prompt-bar"]')).not.toBeNull();
+
+			await act(async () => {
+				getHtmlSwitchButton(container).click();
+			});
+
+			expect(container.querySelector('[data-testid="plan-ai-prompt-bar"]')).toBeNull();
+		});
+	});
+
 	it("shows an empty-file hint in the rendered pane when the successfully-loaded document is empty", async () => {
 		mockReadQuery.mockResolvedValue({ ok: true, plan: PLAN, content: "" });
 		await render(PLAN);

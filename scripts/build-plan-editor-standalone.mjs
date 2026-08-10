@@ -31,7 +31,13 @@ mkdirSync(join(outDir, "server"), { recursive: true });
 // `vite build` directly rather than the package's `build` script (which chains
 // a repo-wide `tsc --noEmit` gate) so pre-existing, unrelated type errors
 // elsewhere in the app don't block packaging this one feature.
-run("pnpm", ["--filter", "@kanban/web", "exec", "vite", "build"]);
+//
+// Invokes the local vite binary instead of `pnpm --filter @kanban/web exec vite`:
+// `pnpm exec` first runs its dependency-status check, and once step 3's
+// `pnpm deploy --prod` has recorded the workspace's node_modules as prod-only,
+// that check re-runs `pnpm install --production` — wiping devDependencies and
+// then dying in backends/runtime's `prepare` script (`husky: not found`).
+run(join(pixelOfficeDir, "node_modules", ".bin", "vite"), ["build"], pixelOfficeDir);
 const viteDistDir = join(pixelOfficeDir, "dist");
 const webUiDir = join(outDir, "server", "web-ui");
 // `dereference: true` matters in a task worktree: gitignored build output like
@@ -97,13 +103,27 @@ rmSync(sidecarBuildDir, { recursive: true, force: true });
 // 4. Templates: "papp" and friends live under agent-data/templates/skills. The
 // sidecar's PIXELOFFICE_AGENT_DATA override (see agent-data-root.ts) requires a
 // manifest.json directly inside the target folder, so that ships too.
+//
+// The catalog (agent-data/catalog, ~1.5 MB of Manager shelves) is deliberately NOT
+// copied wholesale — the standalone package has no shelf UI. But "Expand brief"
+// inlines the vendored `prompt-master` skill rather than a hand-written prompt
+// (see html-brief.ts's PROMPT_MASTER_SKILL_RELATIVE_PATH), and `loadPromptMasterBody`
+// throws instead of degrading to a weaker prompt when that file is unreachable. Without
+// this one skill folder the route answers 500 "Could not read the prompt-master skill
+// at <install>/agent-data/catalog/skills/prompt-master/SKILL.md" on every expansion.
 const agentDataDest = join(outDir, "agent-data");
 mkdirSync(join(agentDataDest, "templates"), { recursive: true });
+mkdirSync(join(agentDataDest, "catalog", "skills"), { recursive: true });
 cpSync(join(agentDataDir, "manifest.json"), join(agentDataDest, "manifest.json"), { dereference: true });
 cpSync(join(agentDataDir, "templates", "skills"), join(agentDataDest, "templates", "skills"), {
 	recursive: true,
 	dereference: true,
 });
+cpSync(
+	join(agentDataDir, "catalog", "skills", "prompt-master"),
+	join(agentDataDest, "catalog", "skills", "prompt-master"),
+	{ recursive: true, dereference: true },
+);
 
 // 5. Launch scripts + README.
 writeFileSync(

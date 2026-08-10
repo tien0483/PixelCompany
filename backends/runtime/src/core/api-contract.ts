@@ -1280,6 +1280,22 @@ export const RuntimeHtmlBriefRequestSchema = z.object({
 export type RuntimeHtmlBriefRequest = z.infer<typeof RuntimeHtmlBriefRequestSchema>;
 
 /**
+ * Inline prompt bar: one instruction plus the document it applies to. `context`
+ * may be empty (drafting into a blank plan is the common first move), so unlike
+ * the brief request it carries no `min(1)`. `selection` present switches the
+ * prompt from "append a draft" to "replace exactly this excerpt".
+ */
+export const RuntimeHtmlDraftRequestSchema = z.object({
+	planId: z.string().min(1),
+	instruction: z.string().min(1),
+	context: z.string(),
+	selection: z.string().optional(),
+	model: z.string().optional(),
+	managerAccountId: z.number().int().positive().optional(),
+});
+export type RuntimeHtmlDraftRequest = z.infer<typeof RuntimeHtmlDraftRequestSchema>;
+
+/**
  * Which steps the colleague-facing usage form renders: `authorize` asks for a
  * usage-share percentage first, `cc` skips straight to authorize + paste code.
  */

@@ -1,14 +1,20 @@
-// Standalone-package copies of the 4 REST/SSE handlers from `server/runtime-server.ts`
-// (`/api/html-proxy/*`, `/api/html/generate`, `/api/html/brief`, `/api/plans/asset`).
+// Standalone-package copies of the 5 REST/SSE handlers from `server/runtime-server.ts`
+// (`/api/html-proxy/*`, `/api/html/generate`, `/api/html/brief`, `/api/html/draft`,
+// `/api/plans/asset`).
 // Manager account pinning (`buildHtmlAgentPinInput`) is dropped entirely — the
 // standalone package has no Manager process, so `runAgentOneShot` runs with no
 // `pinInput`, which falls back to the caller's own logged-in Claude Code CLI session.
 import type { IncomingMessage, ServerResponse } from "node:http";
 
-import { RuntimeHtmlBriefRequestSchema, RuntimeHtmlGenerateRequestSchema } from "../core/api-contract";
-import { buildBriefPrompt, loadPromptMasterBody } from "../html/html-brief";
+import {
+	RuntimeHtmlBriefRequestSchema,
+	RuntimeHtmlDraftRequestSchema,
+	RuntimeHtmlGenerateRequestSchema,
+} from "../core/api-contract";
 import { HTML_NO_TOOLS, resolveHtmlAgentCwd, resolveHtmlAllowedTools } from "../html/html-agent-args";
+import { buildBriefPrompt, loadPromptMasterBody } from "../html/html-brief";
 import type { HtmlClient, HtmlPromptFailure } from "../html/html-client";
+import { buildDraftPrompt } from "../html/html-draft";
 import { findSavedPlanById, readSavedPlanAsset, resolvePlanImageAssets } from "../state/saved-plans";
 import { runAgentOneShot } from "../terminal/agent-oneshot";
 
@@ -62,7 +68,7 @@ async function resolveBriefPlanContext(
 }
 
 /**
- * Handles the 4 plan-editor REST/SSE routes if `pathname` matches one of them.
+ * Handles the 5 plan-editor REST/SSE routes if `pathname` matches one of them.
  * Returns `false` (having written nothing) when the request should fall through
  * to static asset serving instead.
  */
@@ -233,6 +239,72 @@ export async function tryHandlePlanEditorHtmlRoute(
 			cwd: briefCwd,
 			model: input.model,
 			allowedTools: resolveHtmlAllowedTools(briefAssetCount > 0, HTML_NO_TOOLS),
+			idleTimeoutMs: HTML_AGENT_IDLE_TIMEOUT_MS,
+			timeoutMs: HTML_AGENT_HARD_TIMEOUT_MS,
+			signal: abortCtl.signal,
+			onEvent: (event) => {
+				send(event.type, event);
+			},
+		});
+		if (!res.writableEnded) {
+			res.end();
+		}
+		return true;
+	}
+
+	if (pathname === "/api/html/draft" && (req.method ?? "GET").toUpperCase() === "POST") {
+		let rawBody: string;
+		try {
+			rawBody = await readRequestBody(req, 2 * 1024 * 1024);
+		} catch {
+			res.writeHead(413, { "Content-Type": "application/json; charset=utf-8" });
+			res.end(JSON.stringify({ error: "Request body too large" }));
+			return true;
+		}
+		let parsedBody: unknown;
+		try {
+			parsedBody = JSON.parse(rawBody);
+		} catch {
+			res.writeHead(400, { "Content-Type": "application/json; charset=utf-8" });
+			res.end(JSON.stringify({ error: "invalid JSON body" }));
+			return true;
+		}
+		const parsed = RuntimeHtmlDraftRequestSchema.safeParse(parsedBody);
+		if (!parsed.success) {
+			res.writeHead(400, { "Content-Type": "application/json; charset=utf-8" });
+			res.end(JSON.stringify({ error: parsed.error.message }));
+			return true;
+		}
+		const input = parsed.data;
+		const plan = await findSavedPlanById(input.planId).catch(() => null);
+		const draftPrompt = buildDraftPrompt({
+			instruction: input.instruction,
+			context: input.context,
+			...(input.selection === undefined ? {} : { selection: input.selection }),
+		});
+
+		res.writeHead(200, {
+			"Content-Type": "text/event-stream; charset=utf-8",
+			"Cache-Control": "no-cache, no-transform",
+			Connection: "keep-alive",
+			"X-Accel-Buffering": "no",
+		});
+
+		const abortCtl = new AbortController();
+		req.on("close", () => abortCtl.abort());
+		const send = (event: string, data: unknown) => {
+			if (res.writableEnded) return;
+			res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+		};
+
+		await runAgentOneShot({
+			agentId: "claude",
+			prompt: draftPrompt,
+			cwd: resolveHtmlAgentCwd({ planPath: plan?.path }),
+			model: input.model,
+			// The instruction and the document travel in the prompt, so this pass reads
+			// nothing off disk — unlike brief expansion, which opens the plan's images.
+			allowedTools: resolveHtmlAllowedTools(false, HTML_NO_TOOLS),
 			idleTimeoutMs: HTML_AGENT_IDLE_TIMEOUT_MS,
 			timeoutMs: HTML_AGENT_HARD_TIMEOUT_MS,
 			signal: abortCtl.signal,

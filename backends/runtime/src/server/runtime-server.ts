@@ -12,13 +12,17 @@ import {
 import { createClineWatcherRegistry } from "../cline-sdk/cline-watcher-registry";
 import type {
 	RuntimeCommandRunResponse,
+	RuntimeHostEnvironmentResponse,
 	RuntimeRunUpdateResponse,
 	RuntimeTaskSessionSummary,
-	RuntimeHostEnvironmentResponse,
 	RuntimeUpdateStatusResponse,
 	RuntimeWorkspaceStateResponse,
 } from "../core/api-contract";
-import { RuntimeHtmlBriefRequestSchema, RuntimeHtmlGenerateRequestSchema } from "../core/api-contract";
+import {
+	RuntimeHtmlBriefRequestSchema,
+	RuntimeHtmlDraftRequestSchema,
+	RuntimeHtmlGenerateRequestSchema,
+} from "../core/api-contract";
 import {
 	buildKanbanRuntimeUrl,
 	getKanbanRuntimeHost,
@@ -27,19 +31,21 @@ import {
 	getKanbanRuntimeTls,
 	isKanbanRemoteHost,
 } from "../core/runtime-endpoint";
+import { HTML_NO_TOOLS, resolveHtmlAgentCwd, resolveHtmlAllowedTools } from "../html/html-agent-args";
 import { buildBriefPrompt, loadPromptMasterBody } from "../html/html-brief";
 import type { HtmlClient, HtmlPromptFailure } from "../html/html-client";
+import { buildDraftPrompt } from "../html/html-draft";
 import {
 	createUsageResumeScheduler,
 	isUsageResumeCandidate,
 	type PausableSession,
 } from "../jacked/usage-resume-scheduler";
-import type { ManagerClient } from "../manager/manager-client";
 import {
 	pickDefaultClaudeAccountId,
 	pickDefaultCursorAccountId,
 	toManagerDonateAccount,
 } from "../manager/manager-account-pin";
+import type { ManagerClient } from "../manager/manager-client";
 import type { ManagerMonitor } from "../manager/manager-monitor";
 import {
 	checkRateLimit,
@@ -56,7 +62,6 @@ import {
 import { findSavedPlanById, readSavedPlanAsset, resolvePlanImageAssets } from "../state/saved-plans";
 import { loadWorkspaceContextById, loadWorkspaceState } from "../state/workspace-state";
 import { runAgentOneShot } from "../terminal/agent-oneshot";
-import { HTML_NO_TOOLS, resolveHtmlAgentCwd, resolveHtmlAllowedTools } from "../html/html-agent-args";
 import type { TerminalSessionManager } from "../terminal/session-manager";
 import { createTerminalWebSocketBridge } from "../terminal/ws-server";
 import { type RuntimeTrpcContext, type RuntimeTrpcWorkspaceScope, runtimeAppRouter } from "../trpc/app-router";
@@ -267,9 +272,9 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 
 	/**
 	 * Account-pin wiring shared by every one-shot HTML agent route (`/api/html/brief`,
-	 * `/api/html/generate`). Both spend the same Claude seat, so both resolve it the
-	 * same way — pinned account when the caller names one, the Manager's active
-	 * Claude account otherwise.
+	 * `/api/html/generate`, `/api/html/draft`). They all spend the same Claude seat, so
+	 * they all resolve it the same way — pinned account when the caller names one, the
+	 * Manager's active Claude account otherwise.
 	 */
 	const buildHtmlAgentPinInput = (
 		managerAccountId?: number,
@@ -294,11 +299,11 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 	});
 
 	/**
-	 * Watchdog shared by every one-shot HTML agent route (`/api/html/brief` and
-	 * `/api/html/generate`). Cancels a run that goes quiet (a stray permission
-	 * prompt the one-shot `-p` process cannot answer) and puts a hard ceiling on
-	 * the whole request regardless of output. Both routes share one constant pair
-	 * rather than duplicating the numbers, since both hang for the exact same
+	 * Watchdog shared by every one-shot HTML agent route (`/api/html/brief`,
+	 * `/api/html/generate` and `/api/html/draft`). Cancels a run that goes quiet (a
+	 * stray permission prompt the one-shot `-p` process cannot answer) and puts a hard
+	 * ceiling on the whole request regardless of output. The routes share one constant
+	 * pair rather than duplicating the numbers, since they hang for the exact same
 	 * reason: a `-p` run has no UI to answer a permission prompt with.
 	 */
 	const HTML_AGENT_IDLE_TIMEOUT_MS = 120_000;
@@ -669,14 +674,8 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 						return;
 					}
 				}
-				const contentType =
-					typeof req.headers["content-type"] === "string" ? req.headers["content-type"] : null;
-				const proxied = await deps.manager.client.proxyRequest(
-					method,
-					`${jackedPath}${query}`,
-					body,
-					contentType,
-				);
+				const contentType = typeof req.headers["content-type"] === "string" ? req.headers["content-type"] : null;
+				const proxied = await deps.manager.client.proxyRequest(method, `${jackedPath}${query}`, body, contentType);
 				res.writeHead(proxied.status, {
 					"Content-Type": proxied.contentType,
 					"Cache-Control": "no-store",
@@ -698,14 +697,8 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 						return;
 					}
 				}
-				const contentType =
-					typeof req.headers["content-type"] === "string" ? req.headers["content-type"] : null;
-				const proxied = await deps.html.client.proxyRequest(
-					method,
-					`${htmlPath}${query}`,
-					body,
-					contentType,
-				);
+				const contentType = typeof req.headers["content-type"] === "string" ? req.headers["content-type"] : null;
+				const proxied = await deps.html.client.proxyRequest(method, `${htmlPath}${query}`, body, contentType);
 				res.writeHead(proxied.status, {
 					"Content-Type": proxied.contentType,
 					"Cache-Control": "no-store",
@@ -759,10 +752,7 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 				// to HTML_NO_TOOLS rather than undefined when the template didn't declare
 				// `allow_read`, so --allowedTools is always present on the command line
 				// instead of leaving the run to hang on a stray permission prompt.
-				const allowedTools = resolveHtmlAllowedTools(
-					promptResult.value.template.allowRead,
-					HTML_NO_TOOLS,
-				);
+				const allowedTools = resolveHtmlAllowedTools(promptResult.value.template.allowRead, HTML_NO_TOOLS);
 
 				res.writeHead(200, {
 					"Content-Type": "text/event-stream; charset=utf-8",
@@ -877,6 +867,75 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 					// image link cannot be resolved still shows the model an `![](…)`
 					// link in the prompt text, and without a timeout a stray permission
 					// prompt would hang the SSE stream until the client gives up.
+					idleTimeoutMs: HTML_AGENT_IDLE_TIMEOUT_MS,
+					timeoutMs: HTML_AGENT_HARD_TIMEOUT_MS,
+					signal: abortCtl.signal,
+					onEvent: (event) => {
+						send(event.type, event);
+					},
+					pinInput: buildHtmlAgentPinInput(input.managerAccountId),
+				});
+				if (!res.writableEnded) {
+					res.end();
+				}
+				return;
+			}
+			if (pathname === "/api/html/draft" && (req.method ?? "GET").toUpperCase() === "POST") {
+				let rawBody: string;
+				try {
+					rawBody = await readRequestBody(req, 2 * 1024 * 1024);
+				} catch {
+					res.writeHead(413, { "Content-Type": "application/json; charset=utf-8" });
+					res.end(JSON.stringify({ error: "Request body too large" }));
+					return;
+				}
+				let parsedBody: unknown;
+				try {
+					parsedBody = JSON.parse(rawBody);
+				} catch {
+					res.writeHead(400, { "Content-Type": "application/json; charset=utf-8" });
+					res.end(JSON.stringify({ error: "invalid JSON body" }));
+					return;
+				}
+				const parsed = RuntimeHtmlDraftRequestSchema.safeParse(parsedBody);
+				if (!parsed.success) {
+					res.writeHead(400, { "Content-Type": "application/json; charset=utf-8" });
+					res.end(JSON.stringify({ error: parsed.error.message }));
+					return;
+				}
+				const input = parsed.data;
+				// Only for the cwd: a missing plan is not fatal here, since the
+				// instruction and the document both travel in the prompt.
+				const plan = await findSavedPlanById(input.planId).catch(() => null);
+				const draftPrompt = buildDraftPrompt({
+					instruction: input.instruction,
+					context: input.context,
+					...(input.selection === undefined ? {} : { selection: input.selection }),
+				});
+
+				res.writeHead(200, {
+					"Content-Type": "text/event-stream; charset=utf-8",
+					"Cache-Control": "no-cache, no-transform",
+					Connection: "keep-alive",
+					"X-Accel-Buffering": "no",
+				});
+
+				const abortCtl = new AbortController();
+				req.on("close", () => abortCtl.abort());
+				const send = (event: string, data: unknown) => {
+					if (res.writableEnded) return;
+					res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+				};
+
+				await runAgentOneShot({
+					agentId: "claude",
+					prompt: draftPrompt,
+					cwd: resolveHtmlAgentCwd({ planPath: plan?.path }),
+					model: input.model,
+					// Unlike the brief route, this pass opens nothing: it is handed the
+					// document it edits. HTML_NO_TOOLS still goes on the command line so a
+					// stray tool call is denied fast instead of prompting into a void.
+					allowedTools: resolveHtmlAllowedTools(false, HTML_NO_TOOLS),
 					idleTimeoutMs: HTML_AGENT_IDLE_TIMEOUT_MS,
 					timeoutMs: HTML_AGENT_HARD_TIMEOUT_MS,
 					signal: abortCtl.signal,
