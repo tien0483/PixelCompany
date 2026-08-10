@@ -6,6 +6,7 @@ import {
 	ArrowDown,
 	ArrowLeft,
 	ArrowUp,
+	BookOpen,
 	Bug,
 	Building2,
 	Check,
@@ -464,6 +465,8 @@ export function TopBar({
 	isGitHistoryOpen,
 	onToggleOffice,
 	isOfficeOpen,
+	onToggleDocs,
+	isDocsOpen,
 	onOpenSettings,
 	showDebugButton,
 	onOpenDebugDialog,
@@ -512,6 +515,8 @@ export function TopBar({
 	isGitHistoryOpen?: boolean;
 	onToggleOffice?: () => void;
 	isOfficeOpen?: boolean;
+	onToggleDocs?: () => void;
+	isDocsOpen?: boolean;
 	onOpenSettings?: (section?: SettingsSection) => void;
 	showDebugButton?: boolean;
 	onOpenDebugDialog?: () => void;
@@ -870,6 +875,21 @@ export function TopBar({
 									</Button>
 								</Tooltip>
 							) : null}
+							{onToggleDocs ? (
+								<Tooltip side="bottom" content="Toggle docs view">
+									<Button
+										variant={isDocsOpen ? "primary" : "ghost"}
+										size="sm"
+										icon={<BookOpen size={16} />}
+										onClick={onToggleDocs}
+										aria-label={isDocsOpen ? "Hide docs" : "Show docs"}
+										data-testid="toggle-docs-button"
+										className="ml-2"
+									>
+										<span className="hidden sm:inline">Docs</span>
+									</Button>
+								</Tooltip>
+							) : null}
 							{onOpenCleanup ? (
 								<Tooltip side="bottom" content="Clean up Claude cache and runtime worktrees">
 									<Button
@@ -941,6 +961,16 @@ export function TopBar({
 											? "Hide watch and office column"
 											: "Show watch and office column"
 									}
+									className={MOBILE_TOUCH_TARGET}
+								/>
+							) : null}
+							{onToggleDocs ? (
+								<Button
+									variant={isDocsOpen ? "primary" : "ghost"}
+									size="sm"
+									icon={<BookOpen size={16} />}
+									onClick={onToggleDocs}
+									aria-label={isDocsOpen ? "Hide docs" : "Show docs"}
 									className={MOBILE_TOUCH_TARGET}
 								/>
 							) : null}

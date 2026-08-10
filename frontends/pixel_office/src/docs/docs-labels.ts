@@ -1,0 +1,38 @@
+/**
+ * User-visible copy for the documentation-pipeline surface.
+ * Files/types keep doc_skill / harness_doc_site / vendor names for traceability; people see these labels.
+ */
+export const DOCS_LABELS = {
+	section: "Docs",
+	title: "Documentation",
+	offline: "Docs sidecar offline",
+	offlineHint: "Projects appear when the companion sidecar is running.",
+	newProject: "New doc project",
+	adoptExisting: "Adopt existing",
+	projectName: "Name",
+	targetRepo: "Target repo path",
+	workspaceDir: "Workspace folder",
+	sources: "Source files",
+	tagline: "Tagline",
+	create: "Create",
+	adopt: "Adopt",
+	emptyProjects: "No doc projects yet.",
+	intake: "Intake…",
+	intakePaths: "File paths (one per line)",
+	build: "Build",
+	building: "Building…",
+	runAudit: "Run audit",
+	runRound: "Round check",
+	auditRunning: "Auditing…",
+	roundRunning: "Checking…",
+	log: "Log",
+	noLog: "No log output yet.",
+	openSite: "Open in new tab",
+	delete: "Remove project",
+	v1Note: "v1: a single one-shot agent, not the full multi-specialist pipeline.",
+	noSite: "No site built yet.",
+	noSiteHint: "Run intake and a build to generate the documentation site.",
+	selectProject: "Select a doc project",
+	auditFocus: "Focus (optional)",
+	cancel: "Cancel",
+} as const;

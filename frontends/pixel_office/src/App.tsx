@@ -12,6 +12,7 @@ import { CardDetailView } from "@/components/card-detail-view";
 import { CleanupDialog } from "@/components/cleanup-dialog";
 import { ClearTrashDialog } from "@/components/clear-trash-dialog";
 import { DebugDialog } from "@/components/debug-dialog";
+import { DocsView } from "@/components/docs/docs-view";
 import { AgentTerminalPanel } from "@/components/detail-panels/agent-terminal-panel";
 import {
 	CommitComposerDialog,
@@ -144,6 +145,7 @@ export default function App(): ReactElement {
 	const [managerSettingsFocusToken, setManagerSettingsFocusToken] = useState(0);
 	const [isClearTrashDialogOpen, setIsClearTrashDialogOpen] = useState(false);
 	const [isGitHistoryOpen, setIsGitHistoryOpen] = useState(false);
+	const [isDocsOpen, setIsDocsOpen] = useState(false);
 	const [editingPlan, setEditingPlan] = useState<RuntimeSavedPlan | null>(null);
 	const [isCommitDialogOpen, setIsCommitDialogOpen] = useState(false);
 	const [isPullRequestDialogOpen, setIsPullRequestDialogOpen] = useState(false);
@@ -157,6 +159,7 @@ export default function App(): ReactElement {
 	const handleProjectSwitchStart = useCallback(() => {
 		setCanPersistWorkspaceState(false);
 		setIsGitHistoryOpen(false);
+		setIsDocsOpen(false);
 		setEditingPlan(null);
 		setPendingTaskStartAfterEditId(null);
 		taskEditorResetRef.current();
@@ -723,6 +726,7 @@ export default function App(): ReactElement {
 	}, []);
 	const onWillOpenOffice = useCallback(() => {
 		setIsGitHistoryOpen(false);
+		setIsDocsOpen(false);
 		setEditingPlan(null);
 		// Office lives in the home layout, which stays visibility:hidden while a
 		// task detail is open — leave detail first or the toggle looks like a no-op.
@@ -730,7 +734,7 @@ export default function App(): ReactElement {
 			handleBack();
 		}
 	}, [handleBack, selectedCard]);
-	const { isOfficeOpen, handleToggleOffice } = useOfficeViewState({
+	const { isOfficeOpen, handleToggleOffice, closeOffice } = useOfficeViewState({
 		currentProjectId,
 		hasNoProjects,
 		onWillOpenOffice,
@@ -739,8 +743,17 @@ export default function App(): ReactElement {
 		if (hasNoProjects) {
 			return;
 		}
+		setIsDocsOpen(false);
 		setIsGitHistoryOpen((current) => !current);
 	}, [hasNoProjects]);
+	const handleToggleDocs = useCallback(() => {
+		if (hasNoProjects) {
+			return;
+		}
+		setIsGitHistoryOpen(false);
+		closeOffice();
+		setIsDocsOpen((current) => !current);
+	}, [closeOffice, hasNoProjects]);
 
 	const {
 		handleProgrammaticCardMoveReady,
@@ -1300,6 +1313,8 @@ export default function App(): ReactElement {
 						isGitHistoryOpen={isGitHistoryOpen}
 						onToggleOffice={hasNoProjects ? undefined : handleToggleOffice}
 						isOfficeOpen={isOfficeOpen}
+						onToggleDocs={hasNoProjects ? undefined : handleToggleDocs}
+						isDocsOpen={isDocsOpen}
 						hideProjectDependentActions={
 							shouldHideProjectDependentTopBarActions
 						}
@@ -1350,7 +1365,9 @@ export default function App(): ReactElement {
 							) : (
 								<div className="flex flex-1 flex-col min-h-0 min-w-0">
 									<div className="flex flex-1 min-h-0 min-w-0">
-										{isGitHistoryOpen ? (
+										{isDocsOpen ? (
+											<DocsView workspaceId={currentProjectId} />
+										) : isGitHistoryOpen ? (
 											<GitHistoryView
 												workspaceId={currentProjectId}
 												gitHistory={gitHistory}
