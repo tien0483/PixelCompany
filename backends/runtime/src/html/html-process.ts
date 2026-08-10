@@ -3,7 +3,7 @@
 // package or its build is missing, the board and office keep running and the
 // HTML surface reports offline.
 import { type ChildProcess, spawn } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { connect } from "node:net";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -34,6 +34,12 @@ export interface StartHtmlProcessDependencies {
 	htmlRoot?: string | null;
 	host?: string;
 	port?: number;
+	/**
+	 * The `agent-data/templates/skills` directory this caller expects the sidecar to
+	 * serve. When set, an already-listening sidecar that resolved a *different*
+	 * directory is refused instead of adopted — see {@link findForeignSidecar}.
+	 */
+	expectedTemplateSkillsDir?: string;
 }
 
 /**
@@ -175,6 +181,69 @@ async function findStaleSidecar(
 	return { running, onDisk };
 }
 
+async function fetchRunningTemplateSkillsDir(host: string, port: number): Promise<string | null> {
+	const controller = new AbortController();
+	const timer = setTimeout(() => controller.abort(), BUILD_ID_PROBE_TIMEOUT_MS);
+	try {
+		const response = await fetch(`http://${host}:${port}/api/agent-data-root`, {
+			signal: controller.signal,
+		});
+		if (!response.ok) {
+			return null;
+		}
+		const parsed: unknown = await response.json();
+		const skillsDir =
+			typeof parsed === "object" && parsed !== null
+				? (parsed as { templateSkillsDir?: unknown }).templateSkillsDir
+				: null;
+		return typeof skillsDir === "string" && skillsDir.length > 0 ? skillsDir : null;
+	} catch {
+		return null;
+	} finally {
+		clearTimeout(timer);
+	}
+}
+
+/** Symlink-tolerant path comparison — a task worktree reaches the same dir by another name. */
+function samePath(left: string, right: string): boolean {
+	const canonical = (value: string): string => {
+		try {
+			return realpathSync(value);
+		} catch {
+			return resolve(value);
+		}
+	};
+	return canonical(left) === canonical(right);
+}
+
+/**
+ * The full app and the standalone Plan Editor package both supervise a sidecar on
+ * loopback, and an already-listening one is adopted as-is. That adoption is what
+ * made the standalone package's picker list all 86 repo templates instead of its
+ * three papp skills: a full-app sidecar owned the port, and the package's
+ * `PIXELOFFICE_AGENT_DATA` override only reaches a process it spawns itself.
+ *
+ * Comparing the template-skills directory the running process reports against the
+ * one this caller expects separates "already running, mine" from "already running,
+ * someone else's". Returns null when the caller stated no expectation or the
+ * running sidecar predates `/api/agent-data-root` — an unknown answer is not a
+ * foreign one, so those cases keep the adopt-and-continue behaviour.
+ */
+async function findForeignSidecar(
+	host: string,
+	port: number,
+	expectedTemplateSkillsDir: string | undefined,
+): Promise<{ running: string; expected: string } | null> {
+	if (expectedTemplateSkillsDir === undefined) {
+		return null;
+	}
+	const running = await fetchRunningTemplateSkillsDir(host, port);
+	if (running === null || samePath(running, expectedTemplateSkillsDir)) {
+		return null;
+	}
+	return { running, expected: expectedTemplateSkillsDir };
+}
+
 function createNoopProcess(isAlreadyUp: boolean): HtmlProcess {
 	return {
 		pid: null,
@@ -196,6 +265,14 @@ export async function startHtmlProcess(deps: StartHtmlProcessDependencies): Prom
 	const nextPkg = htmlRoot === null ? null : join(htmlRoot, "next");
 
 	if (await probePort(host, port)) {
+		const foreign = await findForeignSidecar(host, port, deps.expectedTemplateSkillsDir);
+		if (foreign) {
+			deps.warn(`HTML sidecar on ${host}:${port} belongs to another install.`);
+			deps.warn(`  It serves templates from ${foreign.running}, not ${foreign.expected}.`);
+			deps.warn("  Refusing to use it — its template list and prompts are not this install's.");
+			deps.warn(`  Free the port, or pick another one with PLAN_EDITOR_HTML_PORT.`);
+			return createNoopProcess(false);
+		}
 		const stale = await findStaleSidecar(host, port, nextPkg);
 		if (stale) {
 			deps.warn(

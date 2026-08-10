@@ -3,7 +3,7 @@
 // Stack switchboard, no OmniRoute, no terminal/board/task-worktree machinery.
 // HTML generation shells out to whatever `claude` binary is already on PATH and
 // logged in (see `runAgentOneShot` in `../terminal/agent-oneshot.ts`).
-import { dirname, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { createHtmlClient } from "../html/html-client";
@@ -11,7 +11,16 @@ import { startHtmlProcess } from "../html/html-process";
 import { startPlanEditorServer } from "./server";
 
 const DEFAULT_HTML_HOST = "127.0.0.1";
-const DEFAULT_HTML_PORT = 8322;
+/**
+ * Deliberately not the full app's 8322 (`../html/html-process.ts`). Both supervisors
+ * adopt an already-listening sidecar, so sharing the port meant a running PixelOffice
+ * install answered this package's `/api/templates` — the picker then listed all 86 repo
+ * template skills instead of the three papp ones shipped here, because the
+ * `PIXELOFFICE_AGENT_DATA` override below only reaches a sidecar we spawn ourselves.
+ * The port split keeps the two installs apart; `expectedTemplateSkillsDir` catches the
+ * remaining cases (two standalone installs, an explicit port that collides).
+ */
+const DEFAULT_HTML_PORT = 8422;
 const DEFAULT_SERVER_PORT = 4173;
 
 const warn = (message: string) => console.warn(`[plan-editor] ${message}`);
@@ -29,7 +38,14 @@ async function main(): Promise<void> {
 	const htmlHost = process.env.PLAN_EDITOR_HTML_HOST ?? DEFAULT_HTML_HOST;
 	const htmlPort = Number(process.env.PLAN_EDITOR_HTML_PORT ?? DEFAULT_HTML_PORT);
 
-	const htmlProcess = await startHtmlProcess({ warn, log, htmlRoot, host: htmlHost, port: htmlPort });
+	const htmlProcess = await startHtmlProcess({
+		warn,
+		log,
+		htmlRoot,
+		host: htmlHost,
+		port: htmlPort,
+		expectedTemplateSkillsDir: join(agentDataDir, "templates", "skills"),
+	});
 	const htmlReady = await htmlProcess.ready;
 	if (!htmlReady) {
 		warn("HTML sidecar did not start — template list/generation will stay unavailable until it is running.");

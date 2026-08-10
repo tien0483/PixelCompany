@@ -2,7 +2,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { stat } from "node:fs/promises";
 import { createServer as createNetServer } from "node:net";
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { Command, Option } from "commander";
 import ora, { type Ora } from "ora";
 import packageJson from "../package.json" with { type: "json" };
@@ -406,6 +406,7 @@ async function startServer(): Promise<{
 		{ stopAllSeatRouters },
 		{ describeRuntimeHomeMigration, migrateRuntimeHome },
 		{ startOmniRouteProcess },
+		{ findAgentDataRoot },
 	] = await Promise.all([
 		import("./projects/project-path.js"),
 		import("./server/directory-picker.js"),
@@ -424,6 +425,7 @@ async function startServer(): Promise<{
 		import("./stack/ccr-process.js"),
 		import("./state/runtime-home-migration.js"),
 		import("./omniroute/omniroute-process.js"),
+		import("./state/agent-data-manifest.js"),
 	]);
 
 	// Must run before the workspace registry, which is the first reader of the
@@ -493,6 +495,10 @@ async function startServer(): Promise<{
 		}
 		await ManagerClient.validateAccount(accountId);
 	};
+	// Stating the expected template-skills dir keeps this launch off a sidecar belonging to
+	// another install (e.g. the standalone Plan Editor package), which would otherwise be
+	// adopted for its port alone and serve that install's much smaller template list.
+	const agentDataRoot = findAgentDataRoot();
 	const HtmlProcess = await startHtmlProcess({
 		warn: (message) => {
 			console.warn(`[kanban] ${message}`);
@@ -500,6 +506,9 @@ async function startServer(): Promise<{
 		log: (message) => {
 			console.log(`[kanban] ${message}`);
 		},
+		...(agentDataRoot === null
+			? {}
+			: { expectedTemplateSkillsDir: join(agentDataRoot, "templates", "skills") }),
 	});
 	const HtmlClient = createHtmlClient({
 		warn: (message) => {
