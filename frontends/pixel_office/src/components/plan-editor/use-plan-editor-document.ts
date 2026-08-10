@@ -27,6 +27,13 @@ export function usePlanEditorDocument(
 	const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const pendingContentRef = useRef<string | null>(null);
 	const inFlightRef = useRef<Promise<void> | null>(null);
+	/**
+	 * Which plan's content has actually arrived. Until the read resolves there is nothing
+	 * on screen for the user to have edited, so any `updateContent` in that window comes
+	 * from a mounting editor echoing its own empty document — saving it would truncate
+	 * the file on disk.
+	 */
+	const loadedPlanIdRef = useRef<string | null>(null);
 	const planId = plan?.id ?? null;
 
 	const clearSaveTimer = useCallback(() => {
@@ -89,10 +96,13 @@ export function usePlanEditorDocument(
 
 	const updateContent = useCallback(
 		(next: string) => {
+			if (!planId || loadedPlanIdRef.current !== planId) {
+				return;
+			}
 			setContent(next);
 			scheduleSave(next);
 		},
-		[scheduleSave],
+		[planId, scheduleSave],
 	);
 
 	const flush = useCallback(async () => {
@@ -113,6 +123,7 @@ export function usePlanEditorDocument(
 		setStatus("loading");
 		setErrorMessage(null);
 		pendingContentRef.current = null;
+		loadedPlanIdRef.current = null;
 		clearSaveTimer();
 		void (async () => {
 			try {
@@ -128,6 +139,7 @@ export function usePlanEditorDocument(
 					return;
 				}
 				setContent(response.content);
+				loadedPlanIdRef.current = planId;
 				setStatus("saved");
 			} catch (error) {
 				if (cancelled) {

@@ -165,6 +165,8 @@ export function PlanEditorView({
 
 	const activeDoc = source === "html" ? htmlDoc : mdDoc;
 	const htmlAvailable = isHtmlPlan || sibling !== null;
+	/** A document we could not read must stay read-only: saving would overwrite what we failed to load. */
+	const activeDocReadOnly = activeDoc.status === "loading" || activeDoc.status === "error";
 
 	useEffect(() => {
 		setSourceState("md");
@@ -176,14 +178,26 @@ export function PlanEditorView({
 
 	// Rendered pane trails raw-pane typing so TipTap isn't rebuilt on every keystroke.
 	const [renderedMarkdown, setRenderedMarkdown] = useState(mdDoc.content);
+	/** Plan whose freshly-loaded markdown has already reached the rendered pane. */
+	const renderedPlanRef = useRef<string | null>(null);
 	useEffect(() => {
+		// A finished load is not typing: hand it over at once. Debouncing it would leave the
+		// rich editor holding an empty document while the file on disk still has content.
+		if (
+			(mdDoc.status === "saved" || mdDoc.status === "error") &&
+			renderedPlanRef.current !== plan.id
+		) {
+			renderedPlanRef.current = plan.id;
+			setRenderedMarkdown(mdDoc.content);
+			return;
+		}
 		if (focusedPane !== "raw") {
 			setRenderedMarkdown(mdDoc.content);
 			return;
 		}
 		const timer = setTimeout(() => setRenderedMarkdown(mdDoc.content), RENDERED_SYNC_DEBOUNCE_MS);
 		return () => clearTimeout(timer);
-	}, [focusedPane, mdDoc.content]);
+	}, [focusedPane, mdDoc.content, mdDoc.status, plan.id]);
 
 	const applyTextCommand = useCallback(
 		(transform: (state: TextSelectionState) => TextSelectionState) => {
@@ -446,7 +460,7 @@ export function PlanEditorView({
 						content={renderedMarkdown}
 						onChange={mdDoc.updateContent}
 						planId={plan.id}
-						disabled={mdDoc.status === "loading"}
+						disabled={mdDoc.status === "loading" || mdDoc.status === "error"}
 						onInsertImage={(file) => void uploadImageFile(file)}
 						onPaste={handlePaste}
 						onDrop={handleDrop}
@@ -540,7 +554,7 @@ export function PlanEditorView({
 							onPaste={source === "md" ? handlePaste : undefined}
 							onDrop={source === "md" ? handleDrop : undefined}
 							onDragOver={source === "md" ? handleDragOver : undefined}
-							disabled={activeDoc.status === "loading"}
+							disabled={activeDocReadOnly}
 							spellCheck={false}
 							className="min-h-0 w-full flex-1 resize-none border-0 bg-surface-1 px-3 py-2 font-mono text-[13px] leading-5 text-text-primary focus:outline-none disabled:opacity-50"
 							data-testid="plan-editor-textarea"
