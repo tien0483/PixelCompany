@@ -132,7 +132,7 @@ const viteCli = resolveDependencyEntry(webUiRoot, "vite", "bin", "vite.js");
 const RUNTIME_PORT = Number(process.env.PIXELOFFICE_PORT ?? 3484);
 const MANAGER_PORT = Number(process.env.MANAGER_PORT ?? process.env.JACKED_PORT ?? 8321);
 const HTML_PORT = Number(process.env.PIXELOFFICE_HTML_PORT ?? 8322);
-const DOC_SKILL_PORT = Number(process.env.DOC_SKILL_PORT ?? 8323);
+const DOC_SKILL_PORT = Number(process.env.PIXELOFFICE_DOCSKILL_PORT ?? 8323);
 
 const args = process.argv.slice(2);
 const restart = args.includes("--restart");
@@ -398,6 +398,7 @@ async function main() {
 	console.log(`  App:     http://127.0.0.1:${RUNTIME_PORT}`);
 	console.log(`  Manager:  http://127.0.0.1:${MANAGER_PORT} (headless child of the runtime)`);
 	console.log(`  HTML:     http://127.0.0.1:${HTML_PORT} (template sidecar, headless)`);
+	console.log(`  Docs:     http://127.0.0.1:${DOC_SKILL_PORT} (doc-site sidecar, headless)`);
 	console.log("");
 
 	// The runtime serves frontends/pixel_office/dist through server/assets.ts and

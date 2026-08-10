@@ -34,12 +34,12 @@
       "description": "This repo's own project assets, surfaced through the per-project Local assets toggle."
     },
     {
-      "id": "doc-skill",
+      "id": "doc-skill-skills",
       "root": "backends/doc_skill/skills",
       "owner": "doc_skill",
       "kinds": ["skill"],
       "toggleable": false,
-      "description": "Doc skill bundle: harness, harness_doc_site, project-harness, and caveman skills."
+      "description": "Vendored harness_doc_site/harness/project-harness/caveman skills the doc-skill sidecar's spawned agents draw prompt text from. Bound to doc_skill's role, not user-selectable."
     }
   ]
 }
