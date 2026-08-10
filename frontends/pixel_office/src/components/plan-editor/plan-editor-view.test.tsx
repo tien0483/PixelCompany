@@ -17,6 +17,12 @@ const mockReadHtmlSourceQuery = vi.fn();
 const mockWriteHtmlSourceMutate = vi.fn();
 const mockHtmlStatusQuery = vi.fn();
 const mockHtmlTemplatesQuery = vi.fn();
+const mockHistoryListQuery = vi.fn();
+const mockHistoryUndoMutate = vi.fn();
+const mockHistoryRedoMutate = vi.fn();
+const mockHistoryRestoreMutate = vi.fn();
+const mockHistoryMarkMutate = vi.fn();
+const mockHistoryDiffQuery = vi.fn();
 
 vi.mock("@/runtime/trpc-client", () => ({
 	getRuntimeTrpcClient: () => ({
@@ -29,6 +35,12 @@ vi.mock("@/runtime/trpc-client", () => ({
 			readHtmlSource: { query: mockReadHtmlSourceQuery },
 			writeHtmlSource: { mutate: mockWriteHtmlSourceMutate },
 			list: { query: mockListQuery },
+			historyList: { query: mockHistoryListQuery },
+			historyUndo: { mutate: mockHistoryUndoMutate },
+			historyRedo: { mutate: mockHistoryRedoMutate },
+			historyRestore: { mutate: mockHistoryRestoreMutate },
+			historyMark: { mutate: mockHistoryMarkMutate },
+			historyDiff: { query: mockHistoryDiffQuery },
 		},
 		html: {
 			status: { query: mockHtmlStatusQuery },
@@ -113,6 +125,16 @@ function getHtmlSwitchButton(container: HTMLDivElement): HTMLButtonElement {
 	return button;
 }
 
+function getMarkdownSwitchButton(container: HTMLDivElement): HTMLButtonElement {
+	const button = container
+		.querySelector('[data-testid="plan-editor-raw-source-switch"]')
+		?.querySelectorAll("button")[0];
+	if (!(button instanceof HTMLButtonElement)) {
+		throw new Error("MD source switch not found");
+	}
+	return button;
+}
+
 function setTextareaValue(textarea: HTMLTextAreaElement, value: string): void {
 	const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value")?.set;
 	setter?.call(textarea, value);
@@ -143,15 +165,17 @@ describe("PlanEditorView", () => {
 		container = document.createElement("div");
 		document.body.appendChild(container);
 		root = createRoot(container);
-		mockReadQuery.mockReset().mockImplementation(({ planId }: { planId: string }) =>
-			Promise.resolve(
-				planId === HTML_SIBLING.id
-					? { ok: true, plan: HTML_SIBLING, content: "<h1>Generated</h1>" }
-					: planId === PLAN2.id
-						? { ok: true, plan: PLAN2, content: "# Plan 2\n" }
-						: { ok: true, plan: PLAN, content: "# Roadmap\n" },
-			),
-		);
+		mockReadQuery
+			.mockReset()
+			.mockImplementation(({ planId }: { planId: string }) =>
+				Promise.resolve(
+					planId === HTML_SIBLING.id
+						? { ok: true, plan: HTML_SIBLING, content: "<h1>Generated</h1>" }
+						: planId === PLAN2.id
+							? { ok: true, plan: PLAN2, content: "# Plan 2\n" }
+							: { ok: true, plan: PLAN, content: "# Roadmap\n" },
+				),
+			);
 		mockWriteMutate.mockReset().mockResolvedValue({ ok: true, plan: PLAN });
 		mockWriteAssetMutate.mockReset();
 		mockWriteBackupMutate.mockReset().mockResolvedValue({ ok: true, path: "/tmp/roadmap.bak-1.md" });
@@ -162,6 +186,19 @@ describe("PlanEditorView", () => {
 		mockListQuery.mockReset().mockResolvedValue({ ok: true, plans: [PLAN] });
 		mockHtmlStatusQuery.mockReset().mockResolvedValue({ online: false });
 		mockHtmlTemplatesQuery.mockReset().mockResolvedValue([]);
+		// No git in the default fixture: history stays hidden, which is also the shape a runtime
+		// without git produces.
+		mockHistoryListQuery.mockReset().mockResolvedValue({
+			ok: true,
+			available: false,
+			entries: [],
+			cursor: { md: null, html: null },
+		});
+		mockHistoryUndoMutate.mockReset();
+		mockHistoryRedoMutate.mockReset();
+		mockHistoryRestoreMutate.mockReset();
+		mockHistoryMarkMutate.mockReset().mockResolvedValue({ ok: true, entry: null });
+		mockHistoryDiffQuery.mockReset();
 		mockShowAppToast.mockReset();
 	});
 
@@ -175,10 +212,7 @@ describe("PlanEditorView", () => {
 	it("shows raw markdown and the rendered editor side by side", async () => {
 		await render(PLAN);
 		await flush();
-		await waitFor(
-			() => container.querySelector('[data-testid="plan-rich-editor"]') !== null,
-			"rich editor",
-		);
+		await waitFor(() => container.querySelector('[data-testid="plan-rich-editor"]') !== null, "rich editor");
 
 		expect(container.querySelector('[data-testid="plan-editor-raw-pane"]')).not.toBeNull();
 		expect(container.querySelector('[data-testid="plan-editor-rendered-pane"]')).not.toBeNull();
@@ -202,10 +236,7 @@ describe("PlanEditorView", () => {
 		await act(async () => {
 			getHtmlSwitchButton(container).click();
 		});
-		await waitFor(
-			() => getTextarea(container).value === "<h1>Generated</h1>",
-			"sibling HTML in the raw pane",
-		);
+		await waitFor(() => getTextarea(container).value === "<h1>Generated</h1>", "sibling HTML in the raw pane");
 
 		expect(container.querySelector('[data-testid="plan-editor-html-preview"]')).not.toBeNull();
 		expect(container.querySelector('[data-testid="plan-rich-editor"]')).toBeNull();
@@ -225,7 +256,10 @@ describe("PlanEditorView", () => {
 			await new Promise((resolveWait) => setTimeout(resolveWait, 600));
 		});
 
-		expect(mockWriteMutate).toHaveBeenCalledWith({ planId: "plan-1", content: "# Roadmap\n\nUpdated" });
+		expect(mockWriteMutate).toHaveBeenCalledWith({
+			planId: "plan-1",
+			content: "# Roadmap\n\nUpdated",
+		});
 	});
 
 	it("recovers autosave after a single failed save instead of getting stuck", async () => {
@@ -241,7 +275,10 @@ describe("PlanEditorView", () => {
 		await act(async () => {
 			await new Promise((resolveWait) => setTimeout(resolveWait, 600));
 		});
-		expect(mockWriteMutate).toHaveBeenCalledWith({ planId: "plan-1", content: "# Roadmap\n\nFirst edit" });
+		expect(mockWriteMutate).toHaveBeenCalledWith({
+			planId: "plan-1",
+			content: "# Roadmap\n\nFirst edit",
+		});
 		await waitFor(() => container.textContent?.includes("disk full") === true, "error status");
 
 		mockWriteMutate.mockResolvedValue({ ok: true, plan: PLAN });
@@ -256,7 +293,10 @@ describe("PlanEditorView", () => {
 			await new Promise((resolveWait) => setTimeout(resolveWait, 600));
 		});
 
-		expect(mockWriteMutate).toHaveBeenCalledWith({ planId: "plan-1", content: "# Roadmap\n\nSecond edit" });
+		expect(mockWriteMutate).toHaveBeenCalledWith({
+			planId: "plan-1",
+			content: "# Roadmap\n\nSecond edit",
+		});
 	});
 
 	it("wraps the selection in bold markers via the raw-pane toolbar", async () => {
@@ -359,8 +399,14 @@ describe("PlanEditorView", () => {
 		].join("\n");
 
 		it("refines with a diff of the notes against the recorded base, not the whole document", async () => {
-			mockListQuery.mockResolvedValue({ ok: true, plans: [PLAN, HTML_SIBLING] });
-			mockReadHtmlSourceQuery.mockResolvedValue({ ok: true, content: RECORDED_BASE });
+			mockListQuery.mockResolvedValue({
+				ok: true,
+				plans: [PLAN, HTML_SIBLING],
+			});
+			mockReadHtmlSourceQuery.mockResolvedValue({
+				ok: true,
+				content: RECORDED_BASE,
+			});
 			mockReadQuery.mockImplementation(({ planId }: { planId: string }) =>
 				Promise.resolve(
 					planId === HTML_SIBLING.id
@@ -399,8 +445,14 @@ describe("PlanEditorView", () => {
 		});
 
 		it("refuses to spend a run when the notes have not changed since the HTML was generated", async () => {
-			mockListQuery.mockResolvedValue({ ok: true, plans: [PLAN, HTML_SIBLING] });
-			mockReadHtmlSourceQuery.mockResolvedValue({ ok: true, content: "# Roadmap\n" });
+			mockListQuery.mockResolvedValue({
+				ok: true,
+				plans: [PLAN, HTML_SIBLING],
+			});
+			mockReadHtmlSourceQuery.mockResolvedValue({
+				ok: true,
+				content: "# Roadmap\n",
+			});
 			await render(PLAN);
 			await flush();
 			await waitFor(() => !getButton("plan-html-refine-run").disabled, "enabled refine");
@@ -416,7 +468,10 @@ describe("PlanEditorView", () => {
 		});
 
 		it("falls back to the full document when nothing was recorded for the existing HTML", async () => {
-			mockListQuery.mockResolvedValue({ ok: true, plans: [PLAN, HTML_SIBLING] });
+			mockListQuery.mockResolvedValue({
+				ok: true,
+				plans: [PLAN, HTML_SIBLING],
+			});
 			await render(PLAN);
 			await flush();
 			await waitFor(() => !getButton("plan-html-refine-run").disabled, "enabled refine");
@@ -429,9 +484,7 @@ describe("PlanEditorView", () => {
 			const body = JSON.parse(init.body as string) as Record<string, unknown>;
 			expect(body.editDiff).toBeUndefined();
 			expect(body.editFromContent).toBe("# Roadmap\n");
-			expect(mockShowAppToast).toHaveBeenCalledWith(
-				expect.objectContaining({ message: HTML_LABELS.refineNoBase }),
-			);
+			expect(mockShowAppToast).toHaveBeenCalledWith(expect.objectContaining({ message: HTML_LABELS.refineNoBase }));
 		});
 
 		it("records the generating markdown only once the HTML is actually saved", async () => {
@@ -439,7 +492,11 @@ describe("PlanEditorView", () => {
 			await flush();
 			await waitFor(() => !getButton("plan-html-generate-run").disabled, "loaded templates");
 
-			mockWriteSiblingMutate.mockResolvedValueOnce({ ok: false, plan: null, error: "disk full" });
+			mockWriteSiblingMutate.mockResolvedValueOnce({
+				ok: false,
+				plan: null,
+				error: "disk full",
+			});
 			await act(async () => {
 				getButton("plan-html-generate-run").click();
 			});
@@ -451,7 +508,54 @@ describe("PlanEditorView", () => {
 			});
 			await waitFor(() => mockWriteHtmlSourceMutate.mock.calls.length > 0, "recorded html source");
 
-			expect(mockWriteHtmlSourceMutate).toHaveBeenCalledWith({ planId: PLAN.id, content: "# Roadmap\n" });
+			expect(mockWriteHtmlSourceMutate).toHaveBeenCalledWith({
+				planId: PLAN.id,
+				content: "# Roadmap\n",
+			});
+		});
+
+		/**
+		 * Rewriting `<stem>.html` leaves its plan id alone, so the document hook never re-reads it.
+		 * The pane used to fall back to the copy it loaded on mount the moment the stream ended —
+		 * every run after the first looked like it had done nothing — and the next Refine then sent
+		 * that stale page as `editFromHtml`, stacking edits on an outdated design.
+		 */
+		it("shows the freshly generated page, and refines from it, when a sibling already existed", async () => {
+			mockListQuery.mockResolvedValue({
+				ok: true,
+				plans: [PLAN, HTML_SIBLING],
+			});
+			await render(PLAN);
+			await flush();
+			await waitFor(() => !getButton("plan-html-refine-run").disabled, "enabled refine");
+
+			await act(async () => {
+				getButton("plan-html-generate-run").click();
+			});
+			await waitFor(() => mockWriteSiblingMutate.mock.calls.length > 0, "saved sibling");
+			await flush();
+
+			const preview = container.querySelector('[data-testid="plan-editor-html-preview"]');
+			const srcDoc = preview?.getAttribute("srcdoc") ?? "";
+			expect(srcDoc).toContain("<h1>New</h1>");
+			expect(srcDoc).not.toContain("<h1>Generated</h1>");
+
+			fetchMock.mockClear();
+			// The generate bar only exists on the markdown side, and a finished run leaves the pane
+			// on HTML — flip back the way a user would before refining again.
+			await act(async () => {
+				getMarkdownSwitchButton(container).click();
+			});
+			await act(async () => {
+				setTextareaValue(getTextarea(container), "# Roadmap\n\n## Q2\nShip the dashboard.\n");
+			});
+			await act(async () => {
+				getButton("plan-html-refine-run").click();
+			});
+
+			const [, refineInit] = fetchMock.mock.calls[0] as [string, RequestInit];
+			const refineBody = JSON.parse(refineInit.body as string) as Record<string, unknown>;
+			expect(refineBody.editFromHtml).toBe("<h1>New</h1>");
 		});
 
 		it("generates without the edit pair on a first run", async () => {
@@ -478,10 +582,7 @@ describe("PlanEditorView", () => {
 			await act(async () => {
 				getButton("plan-html-brief-run").click();
 			});
-			await waitFor(
-				() => getTextarea(container).value.includes("## Goal"),
-				"brief appended to the raw pane",
-			);
+			await waitFor(() => getTextarea(container).value.includes("## Goal"), "brief appended to the raw pane");
 
 			expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/html/brief");
 			const value = getTextarea(container).value;
@@ -537,7 +638,13 @@ describe("PlanEditorView", () => {
 			await waitFor(() => getTextarea(container).value.includes("## Goal"), "rewritten raw pane");
 
 			const rewriteToast = mockShowAppToast.mock.calls
-				.map((call) => call[0] as { message?: string; action?: { label: string; onClick: () => void } })
+				.map(
+					(call) =>
+						call[0] as {
+							message?: string;
+							action?: { label: string; onClick: () => void };
+						},
+				)
 				.find((toast) => toast?.message === HTML_LABELS.expandRewrote);
 			expect(rewriteToast?.action?.label).toBe("Undo");
 
@@ -550,7 +657,11 @@ describe("PlanEditorView", () => {
 
 		it("leaves the plan untouched when the backup fails", async () => {
 			fetchMock.mockImplementation(() => Promise.resolve(streamResponse(REWRITE_ANSWER)));
-			mockWriteBackupMutate.mockResolvedValue({ ok: false, path: null, error: "read-only volume" });
+			mockWriteBackupMutate.mockResolvedValue({
+				ok: false,
+				path: null,
+				error: "read-only volume",
+			});
 			await render(PLAN);
 			await flush();
 			await waitFor(() => !getButton("plan-html-brief-run").disabled, "enabled expand");
@@ -565,9 +676,7 @@ describe("PlanEditorView", () => {
 
 			expect(getTextarea(container).value).toBe("# Roadmap\n");
 			expect(
-				mockWriteMutate.mock.calls.some((call) =>
-					(call[0] as { content?: string })?.content?.includes("## Goal"),
-				),
+				mockWriteMutate.mock.calls.some((call) => (call[0] as { content?: string })?.content?.includes("## Goal")),
 			).toBe(false);
 		});
 
@@ -601,7 +710,10 @@ describe("PlanEditorView", () => {
 				"empty-brief toast",
 			);
 
-			expect(mockShowAppToast).toHaveBeenCalledWith({ intent: "danger", message: HTML_LABELS.expandEmpty });
+			expect(mockShowAppToast).toHaveBeenCalledWith({
+				intent: "danger",
+				message: HTML_LABELS.expandEmpty,
+			});
 			expect(getTextarea(container).value).toBe("# Roadmap\n");
 		});
 
@@ -619,14 +731,15 @@ describe("PlanEditorView", () => {
 				"empty-generate toast",
 			);
 
-			expect(mockShowAppToast).toHaveBeenCalledWith({ intent: "danger", message: HTML_LABELS.generateEmpty });
+			expect(mockShowAppToast).toHaveBeenCalledWith({
+				intent: "danger",
+				message: HTML_LABELS.generateEmpty,
+			});
 			expect(mockWriteSiblingMutate).not.toHaveBeenCalled();
 		});
 
 		it("does not leak a completed brief into the next plan after switching", async () => {
-			fetchMock.mockImplementation(() =>
-				Promise.resolve(streamResponse("# Brief\n\n## Goal\nShip it.")),
-			);
+			fetchMock.mockImplementation(() => Promise.resolve(streamResponse("# Brief\n\n## Goal\nShip it.")));
 			await render(PLAN);
 			await flush();
 			await waitFor(() => !getButton("plan-html-brief-run").disabled, "enabled expand");
@@ -634,10 +747,7 @@ describe("PlanEditorView", () => {
 			await act(async () => {
 				getButton("plan-html-brief-run").click();
 			});
-			await waitFor(
-				() => getTextarea(container).value.includes("## Goal"),
-				"brief appended to plan 1",
-			);
+			await waitFor(() => getTextarea(container).value.includes("## Goal"), "brief appended to plan 1");
 
 			// `render()` applies `key={plan.id}` (see above), so this switch to PLAN2 is a
 			// key-driven remount — matching production, where App.tsx's own
@@ -666,7 +776,10 @@ describe("PlanEditorView", () => {
 		});
 
 		it("does not write a generated-HTML sibling for the next plan using the old plan's HTML", async () => {
-			mockListQuery.mockResolvedValue({ ok: true, plans: [PLAN, HTML_SIBLING] });
+			mockListQuery.mockResolvedValue({
+				ok: true,
+				plans: [PLAN, HTML_SIBLING],
+			});
 			fetchMock.mockImplementation(() => Promise.resolve(streamResponse("<h1>Old plan HTML</h1>")));
 			await render(PLAN);
 			await flush();
@@ -675,10 +788,7 @@ describe("PlanEditorView", () => {
 			await act(async () => {
 				getButton("plan-html-generate-run").click();
 			});
-			await waitFor(
-				() => mockWriteSiblingMutate.mock.calls.length > 0,
-				"sibling written for plan 1",
-			);
+			await waitFor(() => mockWriteSiblingMutate.mock.calls.length > 0, "sibling written for plan 1");
 			mockWriteSiblingMutate.mockClear();
 
 			await render(PLAN2);
@@ -804,10 +914,7 @@ describe("PlanEditorView", () => {
 			await waitFor(() => getTextarea(container).value === "# Roadmap\n", "loaded content");
 
 			await submit("draft a risks section");
-			await waitFor(
-				() => getTextarea(container).value.includes("Drafted line."),
-				"draft spliced into the raw pane",
-			);
+			await waitFor(() => getTextarea(container).value.includes("Drafted line."), "draft spliced into the raw pane");
 
 			const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
 			expect(url).toBe("/api/html/draft");
@@ -844,7 +951,9 @@ describe("PlanEditorView", () => {
 			);
 
 			const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-			expect(JSON.parse(init.body as string)).toMatchObject({ selection: "Roadmap" });
+			expect(JSON.parse(init.body as string)).toMatchObject({
+				selection: "Roadmap",
+			});
 			expect(getTextarea(container).value).toBe("# Drafted line.\n");
 		});
 
@@ -854,13 +963,16 @@ describe("PlanEditorView", () => {
 			await waitFor(() => getTextarea(container).value === "# Roadmap\n", "loaded content");
 
 			await submit("draft a risks section");
-			await waitFor(
-				() => getTextarea(container).value.includes("Drafted line."),
-				"draft spliced into the raw pane",
-			);
+			await waitFor(() => getTextarea(container).value.includes("Drafted line."), "draft spliced into the raw pane");
 
 			const draftToast = mockShowAppToast.mock.calls
-				.map((call) => call[0] as { message?: string; action?: { label: string; onClick: () => void } })
+				.map(
+					(call) =>
+						call[0] as {
+							message?: string;
+							action?: { label: string; onClick: () => void };
+						},
+				)
 				.find((toast) => toast?.message === HTML_LABELS.aiDraftDone);
 			expect(draftToast?.action?.label).toBe("Undo");
 
@@ -897,7 +1009,10 @@ describe("PlanEditorView", () => {
 		});
 
 		it("is hidden on the HTML source and on an HTML plan", async () => {
-			mockListQuery.mockResolvedValue({ ok: true, plans: [PLAN, HTML_SIBLING] });
+			mockListQuery.mockResolvedValue({
+				ok: true,
+				plans: [PLAN, HTML_SIBLING],
+			});
 			await render(PLAN);
 			await flush();
 			await waitFor(() => !getHtmlSwitchButton(container).disabled, "enabled HTML switch");
@@ -915,10 +1030,7 @@ describe("PlanEditorView", () => {
 		mockReadQuery.mockResolvedValue({ ok: true, plan: PLAN, content: "" });
 		await render(PLAN);
 		await flush();
-		await waitFor(
-			() => container.textContent?.includes("This plan file is empty.") === true,
-			"empty file message",
-		);
+		await waitFor(() => container.textContent?.includes("This plan file is empty.") === true, "empty file message");
 
 		expect(container.querySelector('[data-testid="plan-rich-editor"]')).toBeNull();
 		expect(container.textContent).toContain("This plan file is empty.");
@@ -934,6 +1046,106 @@ describe("PlanEditorView", () => {
 
 		expect(container.querySelector('[data-testid="plan-rich-editor"]')).not.toBeNull();
 		expect(container.textContent?.includes("This plan file is empty.")).toBe(false);
+	});
+
+	describe("version history", () => {
+		const HTML_VERSIONS = [
+			{
+				id: "v1",
+				target: "html" as const,
+				oid: "aaa",
+				bytes: 11,
+				label: "generate" as const,
+				createdAt: 1,
+			},
+			{
+				id: "v2",
+				target: "html" as const,
+				oid: "bbb",
+				bytes: 11,
+				label: "refine" as const,
+				createdAt: 2,
+				isCurrent: true,
+			},
+		];
+
+		function getButton(testId: string): HTMLButtonElement {
+			const button = container.querySelector(`[data-testid="${testId}"]`);
+			if (!(button instanceof HTMLButtonElement)) {
+				throw new Error(`${testId} not found`);
+			}
+			return button;
+		}
+
+		it("hides its controls when the runtime has no git to store versions in", async () => {
+			await render(PLAN);
+			await flush();
+
+			expect(container.querySelector('[data-testid="plan-history-controls"]')).toBeNull();
+		});
+
+		it("shows the version an undo restored, without re-saving it", async () => {
+			mockListQuery.mockResolvedValue({
+				ok: true,
+				plans: [PLAN, HTML_SIBLING],
+			});
+			mockHistoryListQuery.mockResolvedValue({
+				ok: true,
+				available: true,
+				entries: HTML_VERSIONS,
+				cursor: { md: null, html: "v2" },
+			});
+			mockHistoryUndoMutate.mockResolvedValue({
+				ok: true,
+				entry: HTML_VERSIONS[0],
+				target: "html",
+				content: "<h1>older page</h1>",
+			});
+			await render(PLAN);
+			await flush();
+			await waitFor(
+				() => container.querySelector('[data-testid="plan-history-controls"]') !== null,
+				"history controls",
+			);
+			// Undo acts on the document on screen, and these versions are of the generated page.
+			await act(async () => {
+				getHtmlSwitchButton(container).click();
+			});
+			await waitFor(() => !getButton("plan-history-undo").disabled, "enabled undo");
+
+			await act(async () => {
+				getButton("plan-history-undo").click();
+			});
+			await flush();
+
+			expect(mockHistoryUndoMutate).toHaveBeenCalledWith({
+				planId: PLAN.id,
+				target: "html",
+			});
+			const srcDoc = container.querySelector('[data-testid="plan-editor-html-preview"]')?.getAttribute("srcdoc");
+			expect(srcDoc).toContain("<h1>older page</h1>");
+			// The runtime already wrote the file; saving it again would record a duplicate version.
+			expect(mockWriteMutate).not.toHaveBeenCalled();
+			expect(mockWriteSiblingMutate).not.toHaveBeenCalled();
+		});
+
+		it("keeps undo disabled when the document has only one recorded version", async () => {
+			mockHistoryListQuery.mockResolvedValue({
+				ok: true,
+				available: true,
+				entries: [{ ...HTML_VERSIONS[0], target: "md", isCurrent: true }],
+				cursor: { md: "v1", html: null },
+			});
+			await render(PLAN);
+			await flush();
+			await waitFor(
+				() => container.querySelector('[data-testid="plan-history-controls"]') !== null,
+				"history controls",
+			);
+
+			expect(getButton("plan-history-undo").disabled).toBe(true);
+			expect(getButton("plan-history-redo").disabled).toBe(true);
+		});
 	});
 
 	describe("template rail", () => {
@@ -1026,7 +1238,9 @@ describe("PlanEditorView", () => {
 
 				const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
 				expect(url).toBe("/api/html/generate");
-				expect(JSON.parse(init.body as string)).toMatchObject({ templateId: "papp-status-grid" });
+				expect(JSON.parse(init.body as string)).toMatchObject({
+					templateId: "papp-status-grid",
+				});
 			} finally {
 				vi.unstubAllGlobals();
 			}

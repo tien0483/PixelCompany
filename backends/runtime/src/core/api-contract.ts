@@ -1538,6 +1538,11 @@ export type RuntimePlansReadResponse = z.infer<typeof runtimePlansReadResponseSc
 export const runtimePlansWriteRequestSchema = z.object({
 	planId: z.string(),
 	content: z.string(),
+	/**
+	 * How this write should appear in the plan's version history. Defaults to `autosave`, which is
+	 * throttled; a milestone (`expand`, `ai-edit`, …) is always recorded.
+	 */
+	historyLabel: z.enum(["generate", "refine", "expand", "ai-edit", "autosave", "manual"]).optional(),
 });
 export type RuntimePlansWriteRequest = z.infer<typeof runtimePlansWriteRequestSchema>;
 
@@ -1552,6 +1557,8 @@ export const runtimePlansWriteSiblingRequestSchema = z.object({
 	planId: z.string(),
 	ext: z.string().min(1),
 	content: z.string(),
+	/** How this page should appear in history. Defaults to `generate`; Refine sends `refine`. */
+	historyLabel: z.enum(["generate", "refine", "expand", "ai-edit", "autosave", "manual"]).optional(),
 });
 export type RuntimePlansWriteSiblingRequest = z.infer<typeof runtimePlansWriteSiblingRequestSchema>;
 
@@ -1605,6 +1612,98 @@ export const runtimePlansWriteHtmlSourceResponseSchema = z.object({
 	error: z.string().optional(),
 });
 export type RuntimePlansWriteHtmlSourceResponse = z.infer<typeof runtimePlansWriteHtmlSourceResponseSchema>;
+
+/**
+ * Version history for a plan's two documents. The store is a bare git repository under the runtime
+ * home (`state/plan-history.ts`); these types are the editor's window onto it.
+ */
+export const runtimePlanHistoryTargetSchema = z.enum(["md", "html"]);
+export type RuntimePlanHistoryTarget = z.infer<typeof runtimePlanHistoryTargetSchema>;
+
+export const runtimePlanHistoryLabelSchema = z.enum(["generate", "refine", "expand", "ai-edit", "autosave", "manual"]);
+export type RuntimePlanHistoryLabel = z.infer<typeof runtimePlanHistoryLabelSchema>;
+
+export const runtimePlanHistoryEntrySchema = z.object({
+	id: z.string(),
+	target: runtimePlanHistoryTargetSchema,
+	oid: z.string(),
+	bytes: z.number(),
+	label: runtimePlanHistoryLabelSchema,
+	createdAt: z.number(),
+	pairedSrcOid: z.string().optional(),
+	/** True for the version currently written to disk. */
+	isCurrent: z.boolean().optional(),
+});
+export type RuntimePlanHistoryEntry = z.infer<typeof runtimePlanHistoryEntrySchema>;
+
+export const runtimePlansHistoryListRequestSchema = z.object({
+	planId: z.string(),
+});
+export type RuntimePlansHistoryListRequest = z.infer<typeof runtimePlansHistoryListRequestSchema>;
+
+export const runtimePlansHistoryListResponseSchema = z.object({
+	ok: z.boolean(),
+	/** False when `git` is missing — the editor hides its history controls rather than erroring. */
+	available: z.boolean(),
+	entries: z.array(runtimePlanHistoryEntrySchema),
+	cursor: z.object({ md: z.string().nullable(), html: z.string().nullable() }),
+	reason: z.string().optional(),
+	error: z.string().optional(),
+});
+export type RuntimePlansHistoryListResponse = z.infer<typeof runtimePlansHistoryListResponseSchema>;
+
+export const runtimePlansHistoryMoveRequestSchema = z.object({
+	planId: z.string(),
+	target: runtimePlanHistoryTargetSchema,
+});
+export type RuntimePlansHistoryMoveRequest = z.infer<typeof runtimePlansHistoryMoveRequestSchema>;
+
+export const runtimePlansHistoryRestoreRequestSchema = z.object({
+	planId: z.string(),
+	entryId: z.string(),
+});
+export type RuntimePlansHistoryRestoreRequest = z.infer<typeof runtimePlansHistoryRestoreRequestSchema>;
+
+export const runtimePlansHistoryMaterializeResponseSchema = z.object({
+	ok: z.boolean(),
+	/** Null when there was nothing to move to — the caller treats that as "no-op", not failure. */
+	entry: runtimePlanHistoryEntrySchema.nullable(),
+	target: runtimePlanHistoryTargetSchema.nullable(),
+	/** The restored document, so the editor can show it without re-reading the file. */
+	content: z.string().nullable(),
+	error: z.string().optional(),
+});
+export type RuntimePlansHistoryMaterializeResponse = z.infer<typeof runtimePlansHistoryMaterializeResponseSchema>;
+
+export const runtimePlansHistoryMarkRequestSchema = z.object({
+	planId: z.string(),
+	target: runtimePlanHistoryTargetSchema,
+	label: runtimePlanHistoryLabelSchema,
+});
+export type RuntimePlansHistoryMarkRequest = z.infer<typeof runtimePlansHistoryMarkRequestSchema>;
+
+export const runtimePlansHistoryMarkResponseSchema = z.object({
+	ok: z.boolean(),
+	/** Null when nothing was recorded: unchanged content, or a throttled autosave. */
+	entry: runtimePlanHistoryEntrySchema.nullable(),
+	error: z.string().optional(),
+});
+export type RuntimePlansHistoryMarkResponse = z.infer<typeof runtimePlansHistoryMarkResponseSchema>;
+
+export const runtimePlansHistoryDiffRequestSchema = z.object({
+	planId: z.string(),
+	entryId: z.string(),
+});
+export type RuntimePlansHistoryDiffRequest = z.infer<typeof runtimePlansHistoryDiffRequestSchema>;
+
+export const runtimePlansHistoryDiffResponseSchema = z.object({
+	ok: z.boolean(),
+	/** Unified diff from the chosen version to the current file; empty when identical. */
+	diff: z.string(),
+	changed: z.boolean(),
+	error: z.string().optional(),
+});
+export type RuntimePlansHistoryDiffResponse = z.infer<typeof runtimePlansHistoryDiffResponseSchema>;
 
 /** ~10 MB of image bytes, expressed as a base64 character-count ceiling (4/3 expansion). */
 export const PLAN_ASSET_MAX_BASE64_LENGTH = 14_000_000;

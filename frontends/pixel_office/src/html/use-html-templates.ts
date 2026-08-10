@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
 
@@ -42,12 +42,30 @@ export interface UseHtmlTemplatesResult {
 	online: boolean;
 	templates: HtmlTemplateMeta[];
 	loading: boolean;
+	/** Re-reads the registry — call after installing or removing a template. */
+	refresh: () => Promise<void>;
 }
 
 export function useHtmlTemplates(): UseHtmlTemplatesResult {
 	const [online, setOnline] = useState(false);
 	const [templates, setTemplates] = useState<HtmlTemplateMeta[]>([]);
 	const [loading, setLoading] = useState(true);
+
+	const refresh = useCallback(async () => {
+		try {
+			const client = getRuntimeTrpcClient(null);
+			const status = await client.html.status.query();
+			setOnline(status.online);
+			if (!status.online) {
+				setTemplates([]);
+				return;
+			}
+			setTemplates(byRecommendedRank(await client.html.templates.query()));
+		} catch {
+			setOnline(false);
+			setTemplates([]);
+		}
+	}, []);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -82,5 +100,5 @@ export function useHtmlTemplates(): UseHtmlTemplatesResult {
 		};
 	}, []);
 
-	return { online, templates, loading };
+	return { online, templates, loading, refresh };
 }

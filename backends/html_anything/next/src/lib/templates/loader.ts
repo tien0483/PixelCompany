@@ -107,7 +107,7 @@ export type LoadedSkill = SkillMeta & {
 // `scripts/migrate-skills.mts`: strings (optionally quoted), integers, and
 // one-line array literals (`tags: ["a", "b"]`).
 
-function parseFrontmatter(raw: string): { fm: SkillFrontmatter; body: string } {
+export function parseFrontmatter(raw: string): { fm: SkillFrontmatter; body: string } {
   const m = /^---\s*\r?\n([\s\S]*?)\r?\n---\s*\r?\n?([\s\S]*)$/m.exec(raw);
   if (!m) return { fm: {}, body: raw };
   const block = m[1];

@@ -11,6 +11,13 @@ export type PlanSaveStatus = "idle" | "loading" | "saving" | "saved" | "error";
 export interface UsePlanEditorDocumentResult {
 	content: string;
 	updateContent: (next: string) => void;
+	/**
+	 * Takes on `next` as the document's current state *without* writing it back. For content the
+	 * caller has already put on disk under this same plan id — a freshly generated `<stem>.html`, a
+	 * restored version — where the load effect below would never notice, because it only re-reads
+	 * when `planId` changes and a rewritten file keeps its id.
+	 */
+	adopt: (next: string) => void;
 	status: PlanSaveStatus;
 	statusLabel: string;
 	/** Flushes any pending autosave immediately; call before navigating away. */
@@ -106,6 +113,23 @@ export function usePlanEditorDocument(
 		[planId, scheduleSave],
 	);
 
+	const adopt = useCallback(
+		(next: string) => {
+			if (!planId) {
+				return;
+			}
+			// Drop any queued autosave: it holds pre-adoption text, and letting it land would
+			// overwrite the bytes the caller just wrote with a stale draft.
+			clearSaveTimer();
+			pendingContentRef.current = null;
+			loadedPlanIdRef.current = planId;
+			setContent(next);
+			setErrorMessage(null);
+			setStatus("saved");
+		},
+		[clearSaveTimer, planId],
+	);
+
 	const flush = useCallback(async () => {
 		clearSaveTimer();
 		if (pendingContentRef.current !== null) {
@@ -180,5 +204,5 @@ export function usePlanEditorDocument(
 						? (errorMessage ?? "Error")
 						: "";
 
-	return { content, updateContent, status, statusLabel, flush };
+	return { content, updateContent, adopt, status, statusLabel, flush };
 }

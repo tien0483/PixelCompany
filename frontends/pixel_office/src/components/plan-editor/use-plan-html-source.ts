@@ -10,6 +10,11 @@ export interface UsePlanHtmlSourceResult {
 	snapshot: string | null;
 	/** Record `content` as the markdown the freshly written HTML came from. */
 	commit: (content: string) => Promise<void>;
+	/**
+	 * Re-read the recorded base from disk. Needed when something other than this hook rewrites it —
+	 * restoring an older page also restores the requirement that page was generated from.
+	 */
+	reload: () => Promise<void>;
 }
 
 /**
@@ -33,7 +38,9 @@ export function usePlanHtmlSource(
 		let cancelled = false;
 		void (async () => {
 			try {
-				const response = await getRuntimeTrpcClient(workspaceId ?? null).plans.readHtmlSource.query({ planId });
+				const response = await getRuntimeTrpcClient(workspaceId ?? null).plans.readHtmlSource.query({
+					planId,
+				});
 				if (cancelled) {
 					return;
 				}
@@ -65,5 +72,19 @@ export function usePlanHtmlSource(
 		[planId, workspaceId],
 	);
 
-	return { snapshot, commit };
+	const reload = useCallback(async () => {
+		if (!planId) {
+			return;
+		}
+		try {
+			const response = await getRuntimeTrpcClient(workspaceId ?? null).plans.readHtmlSource.query({
+				planId,
+			});
+			setSnapshot(response.ok ? response.content : null);
+		} catch {
+			// Same as the initial load: no base is a supported state, not an error to report.
+		}
+	}, [planId, workspaceId]);
+
+	return { snapshot, commit, reload };
 }

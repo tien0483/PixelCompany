@@ -1,8 +1,9 @@
-import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
-import type { ReactElement } from "react";
+import { PanelLeftClose, PanelLeftOpen, Upload } from "lucide-react";
+import { type ReactElement, useRef } from "react";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
+import { Spinner } from "@/components/ui/spinner";
 import { HTML_LABELS } from "@/html/html-labels";
 import type { HtmlTemplateMeta } from "@/html/use-html-templates";
 
@@ -59,8 +60,11 @@ export interface PlanTemplateRailProps {
 	disabled: boolean;
 	collapsed: boolean;
 	widthPx: number;
+	/** True while an imported zip is being installed. */
+	importing: boolean;
 	onSelect: (templateId: string) => void;
 	onToggleCollapsed: () => void;
+	onImport: (file: File) => void;
 }
 
 /**
@@ -76,9 +80,13 @@ export function PlanTemplateRail({
 	disabled,
 	collapsed,
 	widthPx,
+	importing,
 	onSelect,
 	onToggleCollapsed,
+	onImport,
 }: PlanTemplateRailProps): ReactElement {
+	const fileInputRef = useRef<HTMLInputElement>(null);
+
 	if (collapsed) {
 		return (
 			<div
@@ -161,14 +169,46 @@ export function PlanTemplateRail({
 				<span className="text-[11px] font-semibold uppercase tracking-wide text-text-tertiary">
 					{HTML_LABELS.templates}
 				</span>
-				<Button
-					variant="ghost"
-					size="sm"
-					icon={<PanelLeftClose size={14} />}
-					aria-label={HTML_LABELS.collapseTemplates}
-					title={HTML_LABELS.collapseTemplates}
-					onClick={onToggleCollapsed}
-				/>
+				<div className="flex shrink-0 items-center gap-0.5">
+					{/*
+					 * The picker is disk-backed — a template is a folder under
+					 * `agent-data/templates/skills/` — so importing one is an upload, not a marketplace
+					 * fetch. The zip carries SKILL.md plus its example pair.
+					 */}
+					<input
+						ref={fileInputRef}
+						type="file"
+						accept=".zip,application/zip"
+						className="hidden"
+						data-testid="plan-template-import-input"
+						onChange={(event) => {
+							const file = event.currentTarget.files?.[0];
+							// Reset first: picking the same file twice in a row must still fire `change`.
+							event.currentTarget.value = "";
+							if (file) {
+								onImport(file);
+							}
+						}}
+					/>
+					<Button
+						variant="ghost"
+						size="sm"
+						icon={importing ? <Spinner size={13} /> : <Upload size={14} />}
+						disabled={importing || !online}
+						aria-label={HTML_LABELS.importTemplate}
+						title={online ? HTML_LABELS.importTemplateHint : HTML_LABELS.offlineHint}
+						onClick={() => fileInputRef.current?.click()}
+						data-testid="plan-template-import"
+					/>
+					<Button
+						variant="ghost"
+						size="sm"
+						icon={<PanelLeftClose size={14} />}
+						aria-label={HTML_LABELS.collapseTemplates}
+						title={HTML_LABELS.collapseTemplates}
+						onClick={onToggleCollapsed}
+					/>
+				</div>
 			</div>
 			<div className="min-h-0 flex-1 overflow-y-auto">{body()}</div>
 		</div>

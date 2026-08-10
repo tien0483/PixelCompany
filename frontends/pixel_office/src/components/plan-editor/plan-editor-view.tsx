@@ -2,8 +2,8 @@ import type { Editor } from "@tiptap/react";
 import { AlertTriangle, X } from "lucide-react";
 import {
 	lazy,
-	type MouseEvent as ReactMouseEvent,
 	type ReactElement,
+	type MouseEvent as ReactMouseEvent,
 	type ReactNode,
 	Suspense,
 	useCallback,
@@ -14,24 +14,20 @@ import {
 } from "react";
 
 import { showAppToast } from "@/components/app-toaster";
-import {
-	insertAtCursor,
-	type TextSelectionState,
-} from "@/components/plan-editor/markdown-selection-commands";
+import { insertAtCursor, type TextSelectionState } from "@/components/plan-editor/markdown-selection-commands";
 import { PlanAiPromptBar, type PlanAiPromptMode } from "@/components/plan-editor/plan-ai-prompt-bar";
 import { splitBriefResult } from "@/components/plan-editor/plan-brief-result";
 import { PlanEditorErrorBoundary } from "@/components/plan-editor/plan-editor-error-boundary";
+import { PlanHistoryControls } from "@/components/plan-editor/plan-history-controls";
 import { PlanHtmlGenerateBar } from "@/components/plan-editor/plan-html-generate-bar";
-import {
-	PlanHtmlPreviewFrame,
-	type PlanHtmlPreviewMode,
-} from "@/components/plan-editor/plan-html-preview-frame";
+import { PlanHtmlPreviewFrame, type PlanHtmlPreviewMode } from "@/components/plan-editor/plan-html-preview-frame";
 import { PlanImageButton } from "@/components/plan-editor/plan-image-button";
 import { PlanMarkdownToolbar } from "@/components/plan-editor/plan-markdown-toolbar";
 import { buildRefineDiff } from "@/components/plan-editor/plan-refine-diff";
 import { insertMarkdownImage } from "@/components/plan-editor/plan-rich-markdown";
 import { PlanTemplateRail } from "@/components/plan-editor/plan-template-rail";
 import { usePlanEditorDocument } from "@/components/plan-editor/use-plan-editor-document";
+import { usePlanHistory } from "@/components/plan-editor/use-plan-history";
 import { usePlanHtmlSibling } from "@/components/plan-editor/use-plan-html-sibling";
 import { usePlanHtmlSource } from "@/components/plan-editor/use-plan-html-source";
 import { usePlanImagePaste } from "@/components/plan-editor/use-plan-image-paste";
@@ -39,6 +35,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
 import { Spinner } from "@/components/ui/spinner";
 import { HTML_LABELS } from "@/html/html-labels";
+import { importTemplateFile } from "@/html/import-template";
 import { useHtmlBrief, useHtmlDraft, useHtmlGenerate } from "@/html/use-html-agent-stream";
 import { useHtmlTemplates } from "@/html/use-html-templates";
 import { ResizeHandle } from "@/resize/resize-handle";
@@ -47,9 +44,7 @@ import { useResizeDrag } from "@/resize/use-resize-drag";
 import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
 import type { RuntimeSavedPlan } from "@/runtime/types";
 
-const PlanRichEditor = lazy(
-	() => import("@/components/plan-editor/plan-rich-editor"),
-);
+const PlanRichEditor = lazy(() => import("@/components/plan-editor/plan-rich-editor"));
 
 /** Which file the split view is showing: the plan's markdown, or its generated HTML sibling. */
 type PlanEditorSource = "md" | "html";
@@ -106,20 +101,12 @@ function SourceSwitch({
 						type="button"
 						aria-pressed={value === option.id}
 						disabled={optionDisabled}
-						title={
-							option.id === "html" && !htmlEnabled
-								? "Generate HTML first to enable this view."
-								: undefined
-						}
+						title={option.id === "html" && !htmlEnabled ? "Generate HTML first to enable this view." : undefined}
 						onClick={() => onChange(option.id)}
 						className={cn(
 							"rounded-[3px] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
-							value === option.id
-								? "bg-surface-1 text-text-primary"
-								: "text-text-tertiary",
-							optionDisabled
-								? "cursor-not-allowed opacity-40"
-								: "cursor-pointer hover:text-text-primary",
+							value === option.id ? "bg-surface-1 text-text-primary" : "text-text-tertiary",
+							optionDisabled ? "cursor-not-allowed opacity-40" : "cursor-pointer hover:text-text-primary",
 						)}
 					>
 						{option.label}
@@ -142,12 +129,7 @@ export interface PlanEditorViewProps {
 	headerActions?: ReactNode;
 }
 
-export function PlanEditorView({
-	plan,
-	workspaceId,
-	onClose,
-	headerActions,
-}: PlanEditorViewProps): ReactElement {
+export function PlanEditorView({ plan, workspaceId, onClose, headerActions }: PlanEditorViewProps): ReactElement {
 	const kind = useMemo(() => planFileKind(plan.path), [plan.path]);
 	/** The plan file itself is HTML — there is no markdown side to show or generate from. */
 	const isHtmlPlan = kind === "html";
@@ -177,7 +159,10 @@ export function PlanEditorView({
 	 * between "draft" and "rewrite this" as the user selects. Offsets only: the text is
 	 * sliced out of the document at submit time, when it is guaranteed current.
 	 */
-	const [rawSelection, setRawSelection] = useState<{ start: number; end: number }>({ start: 0, end: 0 });
+	const [rawSelection, setRawSelection] = useState<{
+		start: number;
+		end: number;
+	}>({ start: 0, end: 0 });
 
 	const generate = useHtmlGenerate();
 	const brief = useHtmlBrief();
@@ -190,10 +175,17 @@ export function PlanEditorView({
 	 */
 	const htmlSource = usePlanHtmlSource(isHtmlPlan ? null : plan.id, workspaceId);
 	/**
+	 * Version history for whichever document is on screen. Keyed on the *markdown* plan even for an
+	 * HTML plan's own id, since that is how the store groups a document and its generated page.
+	 */
+	const history = usePlanHistory(plan.id, workspaceId, isHtmlPlan ? "html" : sourceState);
+	/**
 	 * The markdown handed to the run that is in flight. Only promoted to the snapshot once the
 	 * resulting HTML is actually saved — a cancelled or failed run must leave the base alone.
 	 */
 	const pendingSourceRef = useRef<string | null>(null);
+	/** Whether the run in flight is a fresh generation or a Refine, for the history entry's label. */
+	const pendingHistoryLabelRef = useRef<"generate" | "refine">("generate");
 	/**
 	 * Whether the running pass is refining an accepted page (hold the old one on screen) or
 	 * generating a new one (stream it in, throttled).
@@ -229,8 +221,44 @@ export function PlanEditorView({
 	 * Owned here, not in the generate bar: the rail picks the template and the bar acts
 	 * on it, so the selection has to live above both.
 	 */
-	const { online: templatesOnline, templates, loading: templatesLoading } = useHtmlTemplates();
+	const {
+		online: templatesOnline,
+		templates,
+		loading: templatesLoading,
+		refresh: refreshTemplates,
+	} = useHtmlTemplates();
 	const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
+	const [importingTemplate, setImportingTemplate] = useState(false);
+
+	/**
+	 * Installing a zip writes a folder under `agent-data/templates/skills/`, so the rail has to be
+	 * re-read afterwards; the freshly installed template is then selected, since importing one is
+	 * how you say you want to use it.
+	 */
+	const handleImportTemplate = useCallback(
+		(file: File) => {
+			setImportingTemplate(true);
+			void (async () => {
+				try {
+					const imported = await importTemplateFile(file);
+					await refreshTemplates();
+					setSelectedTemplateId(imported.id);
+					showAppToast({
+						intent: "success",
+						message: imported.replaced ? HTML_LABELS.importTemplateReplaced : HTML_LABELS.importTemplateDone,
+					});
+				} catch (error) {
+					showAppToast({
+						intent: "danger",
+						message: error instanceof Error ? error.message : String(error),
+					});
+				} finally {
+					setImportingTemplate(false);
+				}
+			})();
+		},
+		[refreshTemplates],
+	);
 
 	useEffect(() => {
 		if (templates.length > 0 && selectedTemplateId === null) {
@@ -269,10 +297,7 @@ export function PlanEditorView({
 	useEffect(() => {
 		// A finished load is not typing: hand it over at once. Debouncing it would leave the
 		// rich editor holding an empty document while the file on disk still has content.
-		if (
-			(mdDoc.status === "saved" || mdDoc.status === "error") &&
-			renderedPlanRef.current !== plan.id
-		) {
+		if ((mdDoc.status === "saved" || mdDoc.status === "error") && renderedPlanRef.current !== plan.id) {
 			renderedPlanRef.current = plan.id;
 			setRenderedMarkdown(mdDoc.content);
 			return;
@@ -333,13 +358,11 @@ export function PlanEditorView({
 		[applyTextCommand, focusedPane, plan.id, source],
 	);
 
-	const {
-		isUploading,
-		uploadImageFile,
-		handlePaste,
-		handleDrop,
-		handleDragOver,
-	} = usePlanImagePaste(plan.id, workspaceId, insertAssetAtCursor);
+	const { isUploading, uploadImageFile, handlePaste, handleDrop, handleDragOver } = usePlanImagePaste(
+		plan.id,
+		workspaceId,
+		insertAssetAtCursor,
+	);
 
 	const handleRichEditorError = useCallback((error: Error) => {
 		setRichFailed(true);
@@ -359,6 +382,7 @@ export function PlanEditorView({
 			savedHtmlRef.current = null;
 			setLogOpen(false);
 			pendingSourceRef.current = mdDoc.content;
+			pendingHistoryLabelRef.current = "generate";
 			setPreviewMode("debounce");
 			void generate.run({
 				templateId,
@@ -384,7 +408,10 @@ export function PlanEditorView({
 		(templateId: string) => {
 			const currentHtml = htmlDoc.content;
 			if (!currentHtml.trim()) {
-				showAppToast({ intent: "warning", message: HTML_LABELS.refineNeedsHtml });
+				showAppToast({
+					intent: "warning",
+					message: HTML_LABELS.refineNeedsHtml,
+				});
 				return;
 			}
 			// An HTML plan has no markdown side, so there is no requirement to diff: the document
@@ -394,7 +421,10 @@ export function PlanEditorView({
 				? ({ kind: "full", reason: "no-base" } as const)
 				: buildRefineDiff(htmlSource.snapshot, mdDoc.content);
 			if (outcome.kind === "unchanged") {
-				showAppToast({ intent: "warning", message: HTML_LABELS.refineUnchanged });
+				showAppToast({
+					intent: "warning",
+					message: HTML_LABELS.refineUnchanged,
+				});
 				return;
 			}
 			if (outcome.kind === "full" && !isHtmlPlan) {
@@ -406,6 +436,7 @@ export function PlanEditorView({
 			savedHtmlRef.current = null;
 			setLogOpen(false);
 			pendingSourceRef.current = mdDoc.content;
+			pendingHistoryLabelRef.current = "refine";
 			setPreviewMode("hold");
 			void generate.run({
 				templateId,
@@ -419,6 +450,62 @@ export function PlanEditorView({
 			});
 		},
 		[generate, htmlDoc.content, htmlSource.snapshot, isHtmlPlan, kind, mdDoc.content, plan.id],
+	);
+
+	/**
+	 * Puts a restored version on screen. The runtime has already written it to disk, so the document
+	 * is *adopted* rather than saved back — writing it again would record a duplicate version.
+	 *
+	 * Restoring a page also restores the requirement it was generated from (the store keeps them
+	 * paired), so the Refine base is re-read rather than left pointing at a newer requirement.
+	 */
+	const applyRestoredVersion = useCallback(
+		(restored: { target: "md" | "html"; content: string } | null, emptyMessage: string) => {
+			if (restored === null) {
+				showAppToast({ intent: "warning", message: emptyMessage });
+				return;
+			}
+			if (restored.target === "html") {
+				htmlDoc.adopt(restored.content);
+				setSourceState("html");
+				void htmlSource.reload();
+			} else {
+				mdDoc.adopt(restored.content);
+				setSourceState("md");
+			}
+			showAppToast({ intent: "success", message: HTML_LABELS.historyRestored });
+		},
+		[htmlDoc.adopt, htmlSource.reload, mdDoc.adopt],
+	);
+
+	const runHistoryAction = useCallback(
+		(action: () => Promise<{ target: "md" | "html"; content: string } | null>, emptyMessage: string) => {
+			void (async () => {
+				try {
+					applyRestoredVersion(await action(), emptyMessage);
+				} catch (error) {
+					showAppToast({
+						intent: "danger",
+						message: error instanceof Error ? error.message : String(error),
+					});
+				}
+			})();
+		},
+		[applyRestoredVersion],
+	);
+
+	/**
+	 * Records a milestone version of the notes. Flushes first: markdown edits reach disk through a
+	 * debounced autosave, and snapshotting before that lands would capture the *previous* text.
+	 */
+	const markMdMilestone = useCallback(
+		(label: "expand" | "ai-edit") => {
+			void (async () => {
+				await mdDoc.flush();
+				await history.mark("md", label);
+			})();
+		},
+		[history.mark, mdDoc.flush],
 	);
 
 	const handleExpand = useCallback(
@@ -524,16 +611,22 @@ export function PlanEditorView({
 		const { plan: reorganizedPlan, brief: briefSection } = splitBriefResult(briefText);
 		if (reorganizedPlan === null) {
 			mdDoc.updateContent(`${mdDoc.content.replace(/\s*$/, "")}\n\n---\n\n${briefSection.trim()}\n`);
+			markMdMilestone("expand");
 			showAppToast({ intent: "success", message: HTML_LABELS.expandDone });
 			return;
 		}
 		const previousContent = mdDoc.content;
 		void (async () => {
 			try {
-				const backup = await getRuntimeTrpcClient(workspaceId).plans.writeBackup.mutate({ planId: plan.id });
+				const backup = await getRuntimeTrpcClient(workspaceId).plans.writeBackup.mutate({
+					planId: plan.id,
+				});
 				if (!backup.ok) {
 					setLogOpen(true);
-					showAppToast({ intent: "danger", message: backup.error ?? HTML_LABELS.expandBackupFailed });
+					showAppToast({
+						intent: "danger",
+						message: backup.error ?? HTML_LABELS.expandBackupFailed,
+					});
 					return;
 				}
 			} catch (error) {
@@ -545,13 +638,17 @@ export function PlanEditorView({
 				return;
 			}
 			mdDoc.updateContent(`${reorganizedPlan}\n\n---\n\n${briefSection}\n`);
+			markMdMilestone("expand");
 			showAppToast({
 				intent: "success",
 				message: HTML_LABELS.expandRewrote,
-				action: { label: "Undo", onClick: () => mdDoc.updateContent(previousContent) },
+				action: {
+					label: "Undo",
+					onClick: () => mdDoc.updateContent(previousContent),
+				},
 			});
 		})();
-	}, [briefStatus, briefText, mdDoc, plan.id, workspaceId]);
+	}, [briefStatus, briefText, markMdMilestone, mdDoc, plan.id, workspaceId]);
 
 	const briefError = brief.error;
 	useEffect(() => {
@@ -599,12 +696,16 @@ export function PlanEditorView({
 			return;
 		}
 		const previousContent = splice.previousContent;
+		markMdMilestone("ai-edit");
 		showAppToast({
 			intent: "success",
 			message: splice.mode === "edit" ? HTML_LABELS.aiEditDone : HTML_LABELS.aiDraftDone,
-			action: { label: "Undo", onClick: () => mdDoc.updateContent(previousContent) },
+			action: {
+				label: "Undo",
+				onClick: () => mdDoc.updateContent(previousContent),
+			},
 		});
-	}, [draftStatus, draftText, mdDoc.updateContent]);
+	}, [draftStatus, draftText, markMdMilestone, mdDoc.updateContent]);
 
 	const draftError = draft.error;
 	useEffect(() => {
@@ -651,6 +752,7 @@ export function PlanEditorView({
 					planId: plan.id,
 					ext: ".html",
 					content: generatedHtml,
+					historyLabel: pendingHistoryLabelRef.current,
 				});
 				if (!result.ok || !result.plan) {
 					setSourceState(previousSource);
@@ -661,12 +763,19 @@ export function PlanEditorView({
 					return;
 				}
 				setSibling(result.plan);
+				// The sibling's plan id does not change when its file is rewritten, so the document
+				// hook would never re-read it: without this the pane keeps showing the *first* page it
+				// ever loaded, and the next Refine sends that stale HTML as `editFromHtml`.
+				htmlDoc.adopt(generatedHtml);
 				// Only now is the recorded base true: this markdown is what the saved HTML came from.
 				const pendingSource = pendingSourceRef.current;
 				pendingSourceRef.current = null;
 				if (pendingSource !== null) {
-					void htmlSource.commit(pendingSource);
+					// Awaited so the version just recorded for this page picks up the requirement it came
+					// from — that pairing is what lets a restore put both files back together.
+					await htmlSource.commit(pendingSource);
 				}
+				void history.refresh();
 				showAppToast({ intent: "success", message: HTML_LABELS.saveSibling });
 			} catch (error) {
 				setSourceState(previousSource);
@@ -676,7 +785,16 @@ export function PlanEditorView({
 				});
 			}
 		})();
-	}, [generateStatus, generatedHtml, htmlSource.commit, plan.id, setSibling, workspaceId]);
+	}, [
+		generateStatus,
+		generatedHtml,
+		history.refresh,
+		htmlDoc.adopt,
+		htmlSource.commit,
+		plan.id,
+		setSibling,
+		workspaceId,
+	]);
 
 	const generateError = generate.error;
 	useEffect(() => {
@@ -732,16 +850,10 @@ export function PlanEditorView({
 
 	const isStreaming = generate.status === "running";
 	// One log panel for every pass — whichever ran last is what the user is debugging.
-	const agentLog = useMemo(
-		() => [...brief.log, ...generate.log, ...draft.log],
-		[brief.log, draft.log, generate.log],
-	);
+	const agentLog = useMemo(() => [...brief.log, ...generate.log, ...draft.log], [brief.log, draft.log, generate.log]);
 	const agentError = generate.error ?? brief.error ?? draft.error;
 	const showMarkdownTools = source === "md" && !isHtmlPlan;
-	const htmlSizeBytes = useMemo(
-		() => new TextEncoder().encode(generate.text).length,
-		[generate.text],
-	);
+	const htmlSizeBytes = useMemo(() => new TextEncoder().encode(generate.text).length, [generate.text]);
 
 	const renderedPaneBody = (): ReactElement => {
 		if (source === "html" || isStreaming) {
@@ -823,13 +935,8 @@ export function PlanEditorView({
 		>
 			<div className="flex items-center justify-between gap-3 border-b border-border bg-surface-1 px-3 py-2 shrink-0">
 				<div className="flex min-w-0 flex-col gap-0.5">
-					<span className="truncate text-sm font-semibold text-text-primary">
-						{plan.name}
-					</span>
-					<span
-						className="truncate text-[11px] text-text-tertiary"
-						title={plan.path}
-					>
+					<span className="truncate text-sm font-semibold text-text-primary">{plan.name}</span>
+					<span className="truncate text-[11px] text-text-tertiary" title={plan.path}>
 						{plan.path}
 					</span>
 				</div>
@@ -867,8 +974,10 @@ export function PlanEditorView({
 							disabled={source === "html" || isStreaming}
 							collapsed={templatePaneCollapsed}
 							widthPx={templatePaneWidth}
+							importing={importingTemplate}
 							onSelect={setSelectedTemplateId}
 							onToggleCollapsed={toggleTemplatePaneCollapsed}
+							onImport={handleImportTemplate}
 						/>
 						{templatePaneCollapsed ? null : (
 							<ResizeHandle
@@ -982,6 +1091,25 @@ export function PlanEditorView({
 									onChange={setSourceState}
 									testId="plan-editor-rendered-source-switch"
 								/>
+								{/*
+								 * Sits outside the generate bar below, which only exists on the markdown side —
+								 * undoing a generated page is something you do while looking at that page. Absent
+								 * entirely when the runtime has no git to keep versions in.
+								 */}
+								{history.available ? (
+									<PlanHistoryControls
+										entries={history.entries}
+										canUndo={history.canUndo}
+										canRedo={history.canRedo}
+										disabled={isStreaming}
+										onUndo={() => runHistoryAction(history.undo, HTML_LABELS.historyNothingOlder)}
+										onRedo={() => runHistoryAction(history.redo, HTML_LABELS.historyNothingNewer)}
+										onRestore={(entryId) =>
+											runHistoryAction(() => history.restore(entryId), HTML_LABELS.historyDiffUnavailable)
+										}
+										onDiff={history.diff}
+									/>
+								) : null}
 							</div>
 							{!isHtmlPlan && source === "md" ? (
 								<PlanHtmlGenerateBar
@@ -1020,9 +1148,7 @@ export function PlanEditorView({
 						<span>
 							{logOpen ? "▾" : "▸"} {HTML_LABELS.log} ({agentLog.length})
 						</span>
-						{agentError ? (
-							<span className="truncate text-status-red">{agentError}</span>
-						) : null}
+						{agentError ? <span className="truncate text-status-red">{agentError}</span> : null}
 					</button>
 					{logOpen ? (
 						<div className="max-h-32 overflow-auto bg-surface-2 px-3 py-2 font-mono text-[11px] leading-relaxed text-text-secondary">
@@ -1045,9 +1171,7 @@ export function PlanEditorView({
 				<span className="text-[11px] text-text-tertiary">
 					{source === "html" && !isHtmlPlan && sibling ? sibling.path : plan.path}
 				</span>
-				<span className="text-[11px] text-text-tertiary">
-					{fileTypeLabel(source === "html" ? "html" : kind)}
-				</span>
+				<span className="text-[11px] text-text-tertiary">{fileTypeLabel(source === "html" ? "html" : kind)}</span>
 			</div>
 		</div>
 	);

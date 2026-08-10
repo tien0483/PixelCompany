@@ -4,6 +4,15 @@ import { resolve } from "node:path";
 import type {
 	RuntimePlansCreateRequest,
 	RuntimePlansCreateResponse,
+	RuntimePlansHistoryDiffRequest,
+	RuntimePlansHistoryDiffResponse,
+	RuntimePlansHistoryListRequest,
+	RuntimePlansHistoryListResponse,
+	RuntimePlansHistoryMarkRequest,
+	RuntimePlansHistoryMarkResponse,
+	RuntimePlansHistoryMaterializeResponse,
+	RuntimePlansHistoryMoveRequest,
+	RuntimePlansHistoryRestoreRequest,
 	RuntimePlansHtmlSourceRequest,
 	RuntimePlansImportFileRequest,
 	RuntimePlansImportFileResponse,
@@ -26,6 +35,16 @@ import type {
 	RuntimePlansWriteSiblingRequest,
 	RuntimePlansWriteSiblingResponse,
 } from "../core/api-contract";
+import type { PlanHistoryMaterialization } from "../state/plan-history";
+import {
+	attachPlanHtmlSource,
+	diffPlanVersionAgainstCurrent,
+	listPlanVersions,
+	redoPlanVersion,
+	restorePlanVersion,
+	snapshotPlanVersion,
+	undoPlanVersion,
+} from "../state/plan-history";
 import {
 	backupSavedPlan,
 	createSavedPlan,
@@ -50,6 +69,26 @@ export interface CreatePlansApiDependencies {
 
 function toErrorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * Shared shape for undo / redo / restore: all three write a recorded version back to disk, and all
+ * three legitimately have nothing to do (already at the oldest version, unknown entry, git absent).
+ * "Nothing to do" answers `ok` with a null entry so the editor can stay quiet instead of raising an
+ * error for a no-op.
+ */
+async function materializeHistory(
+	run: () => Promise<PlanHistoryMaterialization | null>,
+): Promise<RuntimePlansHistoryMaterializeResponse> {
+	try {
+		const result = await run();
+		if (result === null) {
+			return { ok: true, entry: null, target: null, content: null };
+		}
+		return { ok: true, entry: result.entry, target: result.target, content: result.content };
+	} catch (error) {
+		return { ok: false, entry: null, target: null, content: null, error: toErrorMessage(error) };
+	}
 }
 
 export function createPlansApi(deps: CreatePlansApiDependencies): RuntimeTrpcContext["plansApi"] {
@@ -152,6 +191,13 @@ export function createPlansApi(deps: CreatePlansApiDependencies): RuntimeTrpcCon
 					} satisfies RuntimePlansCreateResponse;
 				}
 				const { entry } = await createSavedPlan({ name, content: input.content });
+				// The plan as created is version one, so undo has somewhere to land after the first edit.
+				await snapshotPlanVersion({
+					planId: entry.id,
+					target: "md",
+					label: "autosave",
+					mode: "baseline",
+				}).catch(() => null);
 				return {
 					ok: true,
 					plan: { ...entry, missing: false },
@@ -200,7 +246,23 @@ export function createPlansApi(deps: CreatePlansApiDependencies): RuntimeTrpcCon
 		},
 		write: async (input: RuntimePlansWriteRequest) => {
 			try {
+				// Before the write, and only when this plan has no history yet: without it the oldest
+				// version anyone can undo to is the *result* of the first save, so the state the plan was
+				// opened in would be unreachable.
+				await snapshotPlanVersion({
+					planId: input.planId,
+					target: "md",
+					label: "autosave",
+					mode: "baseline",
+				}).catch(() => null);
 				const entry = await writeSavedPlanContent(input.planId, input.content);
+				// After the write, so the snapshot hashes what is actually on disk. History is an extra:
+				// a failure here must never turn a successful save into a reported one.
+				await snapshotPlanVersion({
+					planId: input.planId,
+					target: "md",
+					label: input.historyLabel ?? "autosave",
+				}).catch(() => null);
 				return {
 					ok: true,
 					plan: { ...entry, missing: false },
@@ -215,7 +277,28 @@ export function createPlansApi(deps: CreatePlansApiDependencies): RuntimeTrpcCon
 		},
 		writeSibling: async (input: RuntimePlansWriteSiblingRequest) => {
 			try {
+				const normalizedExtBefore = input.ext.startsWith(".")
+					? input.ext.toLowerCase()
+					: `.${input.ext.toLowerCase()}`;
+				if (normalizedExtBefore === ".html" || normalizedExtBefore === ".htm") {
+					// Captures a page generated before history existed (or before this plan had any),
+					// so the first Generate of a session can still be undone.
+					await snapshotPlanVersion({
+						planId: input.planId,
+						target: "html",
+						label: "generate",
+						mode: "baseline",
+					}).catch(() => null);
+				}
 				const { entry, isNew } = await writeSavedPlanSibling(input.planId, input.ext, input.content);
+				const normalizedExt = normalizedExtBefore;
+				if (normalizedExt === ".html" || normalizedExt === ".htm") {
+					await snapshotPlanVersion({
+						planId: input.planId,
+						target: "html",
+						label: input.historyLabel ?? "generate",
+					}).catch(() => null);
+				}
 				return {
 					ok: true,
 					plan: { ...entry, missing: false },
@@ -262,6 +345,9 @@ export function createPlansApi(deps: CreatePlansApiDependencies): RuntimeTrpcCon
 		writeHtmlSource: async (input: RuntimePlansWriteHtmlSourceRequest) => {
 			try {
 				const path = await writeSavedPlanHtmlSource(input.planId, input.content);
+				// This call *is* the record of what the newest page was generated from, so it is also
+				// what lets a restored page carry its own requirement back with it.
+				await attachPlanHtmlSource(input.planId).catch(() => undefined);
 				return {
 					ok: true,
 					path,
@@ -291,6 +377,68 @@ export function createPlansApi(deps: CreatePlansApiDependencies): RuntimeTrpcCon
 					relativePath: null,
 					error: toErrorMessage(error),
 				} satisfies RuntimePlansWriteAssetResponse;
+			}
+		},
+		historyList: async (input: RuntimePlansHistoryListRequest) => {
+			try {
+				const listing = await listPlanVersions(input.planId);
+				return {
+					ok: true,
+					available: listing.available,
+					entries: listing.entries,
+					cursor: listing.cursor,
+					...(listing.reason ? { reason: listing.reason } : {}),
+				} satisfies RuntimePlansHistoryListResponse;
+			} catch (error) {
+				return {
+					ok: false,
+					available: false,
+					entries: [],
+					cursor: { md: null, html: null },
+					error: toErrorMessage(error),
+				} satisfies RuntimePlansHistoryListResponse;
+			}
+		},
+		historyMark: async (input: RuntimePlansHistoryMarkRequest) => {
+			try {
+				const entry = await snapshotPlanVersion({
+					planId: input.planId,
+					target: input.target,
+					label: input.label,
+				});
+				return { ok: true, entry } satisfies RuntimePlansHistoryMarkResponse;
+			} catch (error) {
+				return { ok: false, entry: null, error: toErrorMessage(error) } satisfies RuntimePlansHistoryMarkResponse;
+			}
+		},
+		historyUndo: async (input: RuntimePlansHistoryMoveRequest) => {
+			return await materializeHistory(() => undoPlanVersion(input.planId, input.target));
+		},
+		historyRedo: async (input: RuntimePlansHistoryMoveRequest) => {
+			return await materializeHistory(() => redoPlanVersion(input.planId, input.target));
+		},
+		historyRestore: async (input: RuntimePlansHistoryRestoreRequest) => {
+			return await materializeHistory(() => restorePlanVersion(input.planId, input.entryId));
+		},
+		historyDiff: async (input: RuntimePlansHistoryDiffRequest) => {
+			try {
+				const result = await diffPlanVersionAgainstCurrent(input.planId, input.entryId);
+				if (result === null) {
+					return {
+						ok: false,
+						diff: "",
+						changed: false,
+						error: "That version is no longer available to diff.",
+					} satisfies RuntimePlansHistoryDiffResponse;
+				}
+				return { ok: true, ...result } satisfies RuntimePlansHistoryDiffResponse;
+			} catch (error) {
+				return {
+					ok: false,
+					diff: "",
+					changed: false,
+					error: toErrorMessage(error),
+				} satisfies RuntimePlansHistoryDiffResponse;
 			}
 		},
 	};

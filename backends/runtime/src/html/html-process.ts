@@ -138,10 +138,7 @@ async function fetchRunningBuildId(host: string, port: number): Promise<string |
 			return null;
 		}
 		const parsed: unknown = await response.json();
-		const buildId =
-			typeof parsed === "object" && parsed !== null
-				? (parsed as { buildId?: unknown }).buildId
-				: null;
+		const buildId = typeof parsed === "object" && parsed !== null ? (parsed as { buildId?: unknown }).buildId : null;
 		return typeof buildId === "string" && buildId.length > 0 ? buildId : null;
 	} catch {
 		return null;

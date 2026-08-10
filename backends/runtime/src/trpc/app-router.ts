@@ -129,11 +129,20 @@ import type {
 	RuntimeOpenFileResponse,
 	RuntimePlansCreateRequest,
 	RuntimePlansCreateResponse,
+	RuntimePlansHistoryDiffRequest,
+	RuntimePlansHistoryDiffResponse,
+	RuntimePlansHistoryListRequest,
+	RuntimePlansHistoryListResponse,
+	RuntimePlansHistoryMarkRequest,
+	RuntimePlansHistoryMarkResponse,
+	RuntimePlansHistoryMaterializeResponse,
+	RuntimePlansHistoryMoveRequest,
+	RuntimePlansHistoryRestoreRequest,
+	RuntimePlansHtmlSourceRequest,
 	RuntimePlansImportFileRequest,
 	RuntimePlansImportFileResponse,
 	RuntimePlansImportFromFolderRequest,
 	RuntimePlansImportFromFolderResponse,
-	RuntimePlansHtmlSourceRequest,
 	RuntimePlansListResponse,
 	RuntimePlansReadHtmlSourceResponse,
 	RuntimePlansReadRequest,
@@ -335,11 +344,20 @@ import {
 	runtimeOpenFileResponseSchema,
 	runtimePlansCreateRequestSchema,
 	runtimePlansCreateResponseSchema,
+	runtimePlansHistoryDiffRequestSchema,
+	runtimePlansHistoryDiffResponseSchema,
+	runtimePlansHistoryListRequestSchema,
+	runtimePlansHistoryListResponseSchema,
+	runtimePlansHistoryMarkRequestSchema,
+	runtimePlansHistoryMarkResponseSchema,
+	runtimePlansHistoryMaterializeResponseSchema,
+	runtimePlansHistoryMoveRequestSchema,
+	runtimePlansHistoryRestoreRequestSchema,
+	runtimePlansHtmlSourceRequestSchema,
 	runtimePlansImportFileRequestSchema,
 	runtimePlansImportFileResponseSchema,
 	runtimePlansImportFromFolderRequestSchema,
 	runtimePlansImportFromFolderResponseSchema,
-	runtimePlansHtmlSourceRequestSchema,
 	runtimePlansListResponseSchema,
 	runtimePlansReadHtmlSourceResponseSchema,
 	runtimePlansReadRequestSchema,
@@ -689,6 +707,12 @@ export interface RuntimeTrpcContext {
 		readHtmlSource: (input: RuntimePlansHtmlSourceRequest) => Promise<RuntimePlansReadHtmlSourceResponse>;
 		writeHtmlSource: (input: RuntimePlansWriteHtmlSourceRequest) => Promise<RuntimePlansWriteHtmlSourceResponse>;
 		writeAsset: (input: RuntimePlansWriteAssetRequest) => Promise<RuntimePlansWriteAssetResponse>;
+		historyList: (input: RuntimePlansHistoryListRequest) => Promise<RuntimePlansHistoryListResponse>;
+		historyMark: (input: RuntimePlansHistoryMarkRequest) => Promise<RuntimePlansHistoryMarkResponse>;
+		historyUndo: (input: RuntimePlansHistoryMoveRequest) => Promise<RuntimePlansHistoryMaterializeResponse>;
+		historyRedo: (input: RuntimePlansHistoryMoveRequest) => Promise<RuntimePlansHistoryMaterializeResponse>;
+		historyRestore: (input: RuntimePlansHistoryRestoreRequest) => Promise<RuntimePlansHistoryMaterializeResponse>;
+		historyDiff: (input: RuntimePlansHistoryDiffRequest) => Promise<RuntimePlansHistoryDiffResponse>;
 	};
 	hooksApi: {
 		ingest: (input: RuntimeHookIngestRequest) => Promise<RuntimeHookIngestResponse>;
@@ -1340,6 +1364,42 @@ export const runtimeAppRouter = t.router({
 			.output(runtimePlansWriteAssetResponseSchema)
 			.mutation(async ({ ctx, input }) => {
 				return await ctx.plansApi.writeAsset(input);
+			}),
+		historyList: t.procedure
+			.input(runtimePlansHistoryListRequestSchema)
+			.output(runtimePlansHistoryListResponseSchema)
+			.query(async ({ ctx, input }) => {
+				return await ctx.plansApi.historyList(input);
+			}),
+		historyMark: t.procedure
+			.input(runtimePlansHistoryMarkRequestSchema)
+			.output(runtimePlansHistoryMarkResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.plansApi.historyMark(input);
+			}),
+		historyUndo: t.procedure
+			.input(runtimePlansHistoryMoveRequestSchema)
+			.output(runtimePlansHistoryMaterializeResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.plansApi.historyUndo(input);
+			}),
+		historyRedo: t.procedure
+			.input(runtimePlansHistoryMoveRequestSchema)
+			.output(runtimePlansHistoryMaterializeResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.plansApi.historyRedo(input);
+			}),
+		historyRestore: t.procedure
+			.input(runtimePlansHistoryRestoreRequestSchema)
+			.output(runtimePlansHistoryMaterializeResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.plansApi.historyRestore(input);
+			}),
+		historyDiff: t.procedure
+			.input(runtimePlansHistoryDiffRequestSchema)
+			.output(runtimePlansHistoryDiffResponseSchema)
+			.query(async ({ ctx, input }) => {
+				return await ctx.plansApi.historyDiff(input);
 			}),
 	}),
 	hooks: t.router({

@@ -23,6 +23,12 @@ import { runAgentOneShot } from "../terminal/agent-oneshot";
 const HTML_AGENT_IDLE_TIMEOUT_MS = 120_000;
 const HTML_AGENT_HARD_TIMEOUT_MS = 10 * 60_000;
 
+/**
+ * Sized for the sidecar's template-import route: an 8 MB zip carried as base64 in JSON, since the
+ * proxy forwards string bodies only. Mirrors `runtime-server.ts`'s own ceiling.
+ */
+const HTML_PROXY_MAX_BODY_BYTES = 12 * 1024 * 1024;
+
 function describeHtmlPromptFailure(failure: HtmlPromptFailure): { status: number; error: string } {
 	switch (failure.kind) {
 		case "unreachable":
@@ -86,7 +92,7 @@ export async function tryHandlePlanEditorHtmlRoute(
 		let body: string | null = null;
 		if (method !== "GET" && method !== "HEAD") {
 			try {
-				body = await readRequestBody(req, 1024 * 1024);
+				body = await readRequestBody(req, HTML_PROXY_MAX_BODY_BYTES);
 			} catch {
 				res.writeHead(413, { "Content-Type": "application/json; charset=utf-8" });
 				res.end(JSON.stringify({ error: "Request body too large" }));

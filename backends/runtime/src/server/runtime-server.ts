@@ -314,6 +314,13 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 	const HTML_AGENT_HARD_TIMEOUT_MS = 10 * 60_000;
 
 	/**
+	 * Sized for the sidecar's template-import route: an 8 MB zip carried as base64 in JSON, since
+	 * the proxy forwards string bodies only. The previous 1 MB ceiling rejected any real template
+	 * archive with a bare "Request body too large".
+	 */
+	const HTML_PROXY_MAX_BODY_BYTES = 12 * 1024 * 1024;
+
+	/**
 	 * Which images the brief pass may open, and where to run it.
 	 *
 	 * Generation gets its cwd from `resolveHtmlAgentCwd` and its Read grant from
@@ -695,7 +702,7 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 				let body: string | null = null;
 				if (method !== "GET" && method !== "HEAD") {
 					try {
-						body = await readRequestBody(req, 1024 * 1024);
+						body = await readRequestBody(req, HTML_PROXY_MAX_BODY_BYTES);
 					} catch {
 						res.writeHead(413, { "Content-Type": "application/json; charset=utf-8" });
 						res.end(JSON.stringify({ error: "Request body too large" }));

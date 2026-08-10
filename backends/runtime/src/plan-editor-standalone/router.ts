@@ -22,9 +22,18 @@ import {
 	runtimeDirectoryListResponseSchema,
 	runtimePlansCreateRequestSchema,
 	runtimePlansCreateResponseSchema,
+	runtimePlansHistoryDiffRequestSchema,
+	runtimePlansHistoryDiffResponseSchema,
+	runtimePlansHistoryListRequestSchema,
+	runtimePlansHistoryListResponseSchema,
+	runtimePlansHistoryMarkRequestSchema,
+	runtimePlansHistoryMarkResponseSchema,
+	runtimePlansHistoryMaterializeResponseSchema,
+	runtimePlansHistoryMoveRequestSchema,
+	runtimePlansHistoryRestoreRequestSchema,
+	runtimePlansHtmlSourceRequestSchema,
 	runtimePlansImportFileRequestSchema,
 	runtimePlansImportFileResponseSchema,
-	runtimePlansHtmlSourceRequestSchema,
 	runtimePlansImportFromFolderRequestSchema,
 	runtimePlansImportFromFolderResponseSchema,
 	runtimePlansListResponseSchema,
@@ -278,6 +287,44 @@ export const planEditorRouter = t.router({
 			.output(runtimePlansWriteAssetResponseSchema)
 			.mutation(async ({ ctx, input }) => {
 				return await ctx.plansApi.writeAsset(input);
+			}),
+		// Version history for both documents: every HTML pass used to overwrite `<stem>.html` with
+		// no way back. Backed by a bare git repo under the runtime home (`state/plan-history.ts`).
+		historyList: t.procedure
+			.input(runtimePlansHistoryListRequestSchema)
+			.output(runtimePlansHistoryListResponseSchema)
+			.query(async ({ ctx, input }) => {
+				return await ctx.plansApi.historyList(input);
+			}),
+		historyMark: t.procedure
+			.input(runtimePlansHistoryMarkRequestSchema)
+			.output(runtimePlansHistoryMarkResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.plansApi.historyMark(input);
+			}),
+		historyUndo: t.procedure
+			.input(runtimePlansHistoryMoveRequestSchema)
+			.output(runtimePlansHistoryMaterializeResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.plansApi.historyUndo(input);
+			}),
+		historyRedo: t.procedure
+			.input(runtimePlansHistoryMoveRequestSchema)
+			.output(runtimePlansHistoryMaterializeResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.plansApi.historyRedo(input);
+			}),
+		historyRestore: t.procedure
+			.input(runtimePlansHistoryRestoreRequestSchema)
+			.output(runtimePlansHistoryMaterializeResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.plansApi.historyRestore(input);
+			}),
+		historyDiff: t.procedure
+			.input(runtimePlansHistoryDiffRequestSchema)
+			.output(runtimePlansHistoryDiffResponseSchema)
+			.query(async ({ ctx, input }) => {
+				return await ctx.plansApi.historyDiff(input);
 			}),
 	}),
 	html: t.router({
