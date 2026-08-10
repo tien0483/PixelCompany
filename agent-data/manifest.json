@@ -32,6 +32,14 @@
       "kinds": ["skill", "workflow"],
       "toggleable": false,
       "description": "This repo's own project assets, surfaced through the per-project Local assets toggle."
+    },
+    {
+      "id": "doc-skill",
+      "root": "backends/doc_skill/skills",
+      "owner": "doc_skill",
+      "kinds": ["skill"],
+      "toggleable": false,
+      "description": "Doc skill bundle: harness, harness_doc_site, project-harness, and caveman skills."
     }
   ]
 }

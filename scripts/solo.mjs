@@ -132,6 +132,7 @@ const viteCli = resolveDependencyEntry(webUiRoot, "vite", "bin", "vite.js");
 const RUNTIME_PORT = Number(process.env.PIXELOFFICE_PORT ?? 3484);
 const MANAGER_PORT = Number(process.env.MANAGER_PORT ?? process.env.JACKED_PORT ?? 8321);
 const HTML_PORT = Number(process.env.PIXELOFFICE_HTML_PORT ?? 8322);
+const DOC_SKILL_PORT = Number(process.env.DOC_SKILL_PORT ?? 8323);
 
 const args = process.argv.slice(2);
 const restart = args.includes("--restart");
@@ -337,10 +338,11 @@ function buildUi() {
 
 async function main() {
 	if (restart) {
-		console.log(`Freeing ports ${RUNTIME_PORT}, ${MANAGER_PORT}, ${HTML_PORT}...`);
+		console.log(`Freeing ports ${RUNTIME_PORT}, ${MANAGER_PORT}, ${HTML_PORT}, ${DOC_SKILL_PORT}...`);
 		freePort(RUNTIME_PORT);
 		freePort(MANAGER_PORT);
 		freePort(HTML_PORT);
+		freePort(DOC_SKILL_PORT);
 		await new Promise((resolve) => setTimeout(resolve, 500));
 	} else if (await portIsListening(RUNTIME_PORT)) {
 		console.error(`Port ${RUNTIME_PORT} is already in use. Run: npm run solo -- --restart`);
