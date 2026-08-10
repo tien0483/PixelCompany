@@ -13,6 +13,8 @@ const mockWriteAssetMutate = vi.fn();
 const mockWriteBackupMutate = vi.fn();
 const mockListQuery = vi.fn();
 const mockWriteSiblingMutate = vi.fn();
+const mockReadHtmlSourceQuery = vi.fn();
+const mockWriteHtmlSourceMutate = vi.fn();
 const mockHtmlStatusQuery = vi.fn();
 const mockHtmlTemplatesQuery = vi.fn();
 
@@ -24,6 +26,8 @@ vi.mock("@/runtime/trpc-client", () => ({
 			writeAsset: { mutate: mockWriteAssetMutate },
 			writeBackup: { mutate: mockWriteBackupMutate },
 			writeSibling: { mutate: mockWriteSiblingMutate },
+			readHtmlSource: { query: mockReadHtmlSourceQuery },
+			writeHtmlSource: { mutate: mockWriteHtmlSourceMutate },
 			list: { query: mockListQuery },
 		},
 		html: {
@@ -152,6 +156,9 @@ describe("PlanEditorView", () => {
 		mockWriteAssetMutate.mockReset();
 		mockWriteBackupMutate.mockReset().mockResolvedValue({ ok: true, path: "/tmp/roadmap.bak-1.md" });
 		mockWriteSiblingMutate.mockReset().mockResolvedValue({ ok: true, plan: HTML_SIBLING, isNew: true });
+		// No recorded base by default — the shape a plan whose HTML predates snapshotting has.
+		mockReadHtmlSourceQuery.mockReset().mockResolvedValue({ ok: true, content: null });
+		mockWriteHtmlSourceMutate.mockReset().mockResolvedValue({ ok: true, path: "/tmp/roadmap.html.src.md" });
 		mockListQuery.mockReset().mockResolvedValue({ ok: true, plans: [PLAN] });
 		mockHtmlStatusQuery.mockReset().mockResolvedValue({ online: false });
 		mockHtmlTemplatesQuery.mockReset().mockResolvedValue([]);
@@ -337,7 +344,78 @@ describe("PlanEditorView", () => {
 			expect(getButton("plan-html-refine-run").disabled).toBe(true);
 		});
 
-		it("refines from the existing HTML instead of regenerating it", async () => {
+		/** Long enough that a hunk is cheaper than shipping the document twice. */
+		const RECORDED_BASE = [
+			"# Roadmap",
+			"",
+			"## Q1",
+			"Ship the editor, with the split pane, the toolbar and image paste.",
+			"",
+			"## Q2",
+			"Ship the dashboard. Operations wants per-team throughput.",
+			"",
+			"## Risks",
+			"The sidecar has to be running for any HTML pass to work.",
+		].join("\n");
+
+		it("refines with a diff of the notes against the recorded base, not the whole document", async () => {
+			mockListQuery.mockResolvedValue({ ok: true, plans: [PLAN, HTML_SIBLING] });
+			mockReadHtmlSourceQuery.mockResolvedValue({ ok: true, content: RECORDED_BASE });
+			mockReadQuery.mockImplementation(({ planId }: { planId: string }) =>
+				Promise.resolve(
+					planId === HTML_SIBLING.id
+						? { ok: true, plan: HTML_SIBLING, content: "<h1>Generated</h1>" }
+						: { ok: true, plan: PLAN, content: RECORDED_BASE },
+				),
+			);
+			await render(PLAN);
+			await flush();
+			await waitFor(() => !getButton("plan-html-refine-run").disabled, "enabled refine");
+
+			await act(async () => {
+				setTextareaValue(
+					getTextarea(container),
+					RECORDED_BASE.replace("Operations wants per-team throughput.", "Operations wants a weekly rollup."),
+				);
+			});
+			await act(async () => {
+				getButton("plan-html-refine-run").click();
+			});
+
+			expect(fetchMock).toHaveBeenCalledTimes(1);
+			const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+			expect(url).toBe("/api/html/generate");
+			const body = JSON.parse(init.body as string) as Record<string, unknown>;
+			expect(body).toMatchObject({
+				templateId: TEMPLATE.id,
+				planId: PLAN.id,
+				editFromHtml: "<h1>Generated</h1>",
+			});
+			expect(body.editFromContent).toBeUndefined();
+			expect(body.editDiff).toContain("-Ship the dashboard. Operations wants per-team throughput.");
+			expect(body.editDiff).toContain("+Ship the dashboard. Operations wants a weekly rollup.");
+			// Cheaper than the full path, which ships both versions of the requirement.
+			expect((body.editDiff as string).length).toBeLessThan(RECORDED_BASE.length * 2);
+		});
+
+		it("refuses to spend a run when the notes have not changed since the HTML was generated", async () => {
+			mockListQuery.mockResolvedValue({ ok: true, plans: [PLAN, HTML_SIBLING] });
+			mockReadHtmlSourceQuery.mockResolvedValue({ ok: true, content: "# Roadmap\n" });
+			await render(PLAN);
+			await flush();
+			await waitFor(() => !getButton("plan-html-refine-run").disabled, "enabled refine");
+
+			await act(async () => {
+				getButton("plan-html-refine-run").click();
+			});
+
+			expect(fetchMock).not.toHaveBeenCalled();
+			expect(mockShowAppToast).toHaveBeenCalledWith(
+				expect.objectContaining({ message: HTML_LABELS.refineUnchanged }),
+			);
+		});
+
+		it("falls back to the full document when nothing was recorded for the existing HTML", async () => {
 			mockListQuery.mockResolvedValue({ ok: true, plans: [PLAN, HTML_SIBLING] });
 			await render(PLAN);
 			await flush();
@@ -347,15 +425,33 @@ describe("PlanEditorView", () => {
 				getButton("plan-html-refine-run").click();
 			});
 
-			expect(fetchMock).toHaveBeenCalledTimes(1);
-			const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-			expect(url).toBe("/api/html/generate");
-			expect(JSON.parse(init.body as string)).toMatchObject({
-				templateId: TEMPLATE.id,
-				planId: PLAN.id,
-				editFromHtml: "<h1>Generated</h1>",
-				editFromContent: "# Roadmap\n",
+			const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+			const body = JSON.parse(init.body as string) as Record<string, unknown>;
+			expect(body.editDiff).toBeUndefined();
+			expect(body.editFromContent).toBe("# Roadmap\n");
+			expect(mockShowAppToast).toHaveBeenCalledWith(
+				expect.objectContaining({ message: HTML_LABELS.refineNoBase }),
+			);
+		});
+
+		it("records the generating markdown only once the HTML is actually saved", async () => {
+			await render(PLAN);
+			await flush();
+			await waitFor(() => !getButton("plan-html-generate-run").disabled, "loaded templates");
+
+			mockWriteSiblingMutate.mockResolvedValueOnce({ ok: false, plan: null, error: "disk full" });
+			await act(async () => {
+				getButton("plan-html-generate-run").click();
 			});
+			await flush();
+			expect(mockWriteHtmlSourceMutate).not.toHaveBeenCalled();
+
+			await act(async () => {
+				getButton("plan-html-generate-run").click();
+			});
+			await waitFor(() => mockWriteHtmlSourceMutate.mock.calls.length > 0, "recorded html source");
+
+			expect(mockWriteHtmlSourceMutate).toHaveBeenCalledWith({ planId: PLAN.id, content: "# Roadmap\n" });
 		});
 
 		it("generates without the edit pair on a first run", async () => {

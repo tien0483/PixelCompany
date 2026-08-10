@@ -22,13 +22,18 @@ import { PlanAiPromptBar, type PlanAiPromptMode } from "@/components/plan-editor
 import { splitBriefResult } from "@/components/plan-editor/plan-brief-result";
 import { PlanEditorErrorBoundary } from "@/components/plan-editor/plan-editor-error-boundary";
 import { PlanHtmlGenerateBar } from "@/components/plan-editor/plan-html-generate-bar";
-import { withPreviewBase } from "@/components/plan-editor/plan-html-preview";
+import {
+	PlanHtmlPreviewFrame,
+	type PlanHtmlPreviewMode,
+} from "@/components/plan-editor/plan-html-preview-frame";
 import { PlanImageButton } from "@/components/plan-editor/plan-image-button";
 import { PlanMarkdownToolbar } from "@/components/plan-editor/plan-markdown-toolbar";
+import { buildRefineDiff } from "@/components/plan-editor/plan-refine-diff";
 import { insertMarkdownImage } from "@/components/plan-editor/plan-rich-markdown";
 import { PlanTemplateRail } from "@/components/plan-editor/plan-template-rail";
 import { usePlanEditorDocument } from "@/components/plan-editor/use-plan-editor-document";
 import { usePlanHtmlSibling } from "@/components/plan-editor/use-plan-html-sibling";
+import { usePlanHtmlSource } from "@/components/plan-editor/use-plan-html-source";
 import { usePlanImagePaste } from "@/components/plan-editor/use-plan-image-paste";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
@@ -53,9 +58,6 @@ type PlanFileKind = "markdown" | "html" | "text";
 
 /** How long raw-pane typing is allowed to run ahead of the rendered pane. */
 const RENDERED_SYNC_DEBOUNCE_MS = 250;
-
-const EMPTY_HTML_PREVIEW =
-	"<!doctype html><html><body style='font:14px sans-serif;color:#888;padding:16px'>Preview</body></html>";
 
 function planFileKind(path: string): PlanFileKind {
 	const lower = path.toLowerCase();
@@ -158,6 +160,15 @@ export function PlanEditorView({
 
 	const [sourceState, setSourceState] = useState<PlanEditorSource>("md");
 	const source: PlanEditorSource = isHtmlPlan ? "html" : sourceState;
+	/**
+	 * Mirror of `sourceState` for the generation-completion effect, which needs the value it
+	 * would revert to on a failed save but must not re-run when the user flips the MD/HTML
+	 * switch — re-running it would re-save the same document.
+	 */
+	const sourceStateRef = useRef<PlanEditorSource>("md");
+	useEffect(() => {
+		sourceStateRef.current = sourceState;
+	}, [sourceState]);
 	const [focusedPane, setFocusedPane] = useState<PlanEditorPane>("raw");
 	const [richFailed, setRichFailed] = useState(false);
 	const [logOpen, setLogOpen] = useState(false);
@@ -173,11 +184,21 @@ export function PlanEditorView({
 	const draft = useHtmlDraft();
 	const savedHtmlRef = useRef<string | null>(null);
 	/**
-	 * The markdown the current `<stem>.html` was generated from. Refine diffs against
-	 * it, so it must be the text the agent actually saw — not whatever the user has
-	 * typed since.
+	 * The markdown the current `<stem>.html` was generated from, persisted as
+	 * `<stem>.html.src.md`. Refine diffs against it, so it must be the text the agent actually
+	 * saw — not whatever the user has typed since, and not something that evaporates on reload.
 	 */
-	const lastGeneratedContentRef = useRef<string | null>(null);
+	const htmlSource = usePlanHtmlSource(isHtmlPlan ? null : plan.id, workspaceId);
+	/**
+	 * The markdown handed to the run that is in flight. Only promoted to the snapshot once the
+	 * resulting HTML is actually saved — a cancelled or failed run must leave the base alone.
+	 */
+	const pendingSourceRef = useRef<string | null>(null);
+	/**
+	 * Whether the running pass is refining an accepted page (hold the old one on screen) or
+	 * generating a new one (stream it in, throttled).
+	 */
+	const [previewMode, setPreviewMode] = useState<PlanHtmlPreviewMode>("debounce");
 	const savedBriefRef = useRef<string | null>(null);
 	const savedDraftRef = useRef<string | null>(null);
 	/**
@@ -228,7 +249,7 @@ export function PlanEditorView({
 		setSourceState("md");
 		setRichFailed(false);
 		savedHtmlRef.current = null;
-		lastGeneratedContentRef.current = null;
+		pendingSourceRef.current = null;
 		savedBriefRef.current = null;
 		savedDraftRef.current = null;
 		draftSpliceRef.current = null;
@@ -337,7 +358,8 @@ export function PlanEditorView({
 		(templateId: string) => {
 			savedHtmlRef.current = null;
 			setLogOpen(false);
-			lastGeneratedContentRef.current = mdDoc.content;
+			pendingSourceRef.current = mdDoc.content;
+			setPreviewMode("debounce");
 			void generate.run({
 				templateId,
 				content: mdDoc.content,
@@ -349,10 +371,14 @@ export function PlanEditorView({
 	);
 
 	/**
-	 * Same endpoint, but carrying the accepted HTML and the markdown it came from,
-	 * which switches the prompt service to its diff-edit branch. Regenerating from
-	 * scratch for a five-line change throws away a design the customer already
-	 * signed off on.
+	 * Same endpoint, but carrying the accepted HTML plus a unified diff of the markdown against
+	 * the version that HTML was generated from — which switches the prompt service to its
+	 * diff-edit branch. Regenerating from scratch for a five-line change throws away a design
+	 * the customer already signed off on, and sending the whole requirement makes the agent
+	 * re-derive a delta the editor already knows exactly.
+	 *
+	 * Without a recorded base (or for a change large enough that the hunks are no smaller than
+	 * the document) it falls back to the full-content edit prompt rather than refusing to run.
 	 */
 	const handleRefine = useCallback(
 		(templateId: string) => {
@@ -361,20 +387,38 @@ export function PlanEditorView({
 				showAppToast({ intent: "warning", message: HTML_LABELS.refineNeedsHtml });
 				return;
 			}
+			// An HTML plan has no markdown side, so there is no requirement to diff: the document
+			// being edited *is* the HTML. It keeps the full-content edit path, without a toast
+			// about a base that could never exist for it.
+			const outcome = isHtmlPlan
+				? ({ kind: "full", reason: "no-base" } as const)
+				: buildRefineDiff(htmlSource.snapshot, mdDoc.content);
+			if (outcome.kind === "unchanged") {
+				showAppToast({ intent: "warning", message: HTML_LABELS.refineUnchanged });
+				return;
+			}
+			if (outcome.kind === "full" && !isHtmlPlan) {
+				showAppToast({
+					intent: "warning",
+					message: outcome.reason === "no-base" ? HTML_LABELS.refineNoBase : HTML_LABELS.refineWholeRewrite,
+				});
+			}
 			savedHtmlRef.current = null;
 			setLogOpen(false);
-			const editFromContent = lastGeneratedContentRef.current ?? mdDoc.content;
-			lastGeneratedContentRef.current = mdDoc.content;
+			pendingSourceRef.current = mdDoc.content;
+			setPreviewMode("hold");
 			void generate.run({
 				templateId,
 				content: mdDoc.content,
 				format: kind === "text" ? "text" : "markdown",
 				planId: plan.id,
 				editFromHtml: currentHtml,
-				editFromContent,
+				...(outcome.kind === "diff"
+					? { editDiff: outcome.diff }
+					: { editFromContent: htmlSource.snapshot ?? mdDoc.content }),
 			});
 		},
-		[generate, htmlDoc.content, kind, mdDoc.content, plan.id],
+		[generate, htmlDoc.content, htmlSource.snapshot, isHtmlPlan, kind, mdDoc.content, plan.id],
 	);
 
 	const handleExpand = useCallback(
@@ -596,6 +640,11 @@ export function PlanEditorView({
 			return;
 		}
 		savedHtmlRef.current = generatedHtml;
+		// Switched before the write, not after: leaving `source` on "md" until the save resolves
+		// tore the finished page down and remounted the lazy rich editor behind its spinner, so
+		// every run ended in a flash of markdown. Reverted below if the write actually fails.
+		const previousSource = sourceStateRef.current;
+		setSourceState("html");
 		void (async () => {
 			try {
 				const result = await getRuntimeTrpcClient(workspaceId).plans.writeSibling.mutate({
@@ -604,6 +653,7 @@ export function PlanEditorView({
 					content: generatedHtml,
 				});
 				if (!result.ok || !result.plan) {
+					setSourceState(previousSource);
 					showAppToast({
 						intent: "danger",
 						message: result.error ?? "Could not save the generated HTML.",
@@ -611,16 +661,22 @@ export function PlanEditorView({
 					return;
 				}
 				setSibling(result.plan);
-				setSourceState("html");
+				// Only now is the recorded base true: this markdown is what the saved HTML came from.
+				const pendingSource = pendingSourceRef.current;
+				pendingSourceRef.current = null;
+				if (pendingSource !== null) {
+					void htmlSource.commit(pendingSource);
+				}
 				showAppToast({ intent: "success", message: HTML_LABELS.saveSibling });
 			} catch (error) {
+				setSourceState(previousSource);
 				showAppToast({
 					intent: "danger",
 					message: error instanceof Error ? error.message : String(error),
 				});
 			}
 		})();
-	}, [generateStatus, generatedHtml, plan.id, setSibling, workspaceId]);
+	}, [generateStatus, generatedHtml, htmlSource.commit, plan.id, setSibling, workspaceId]);
 
 	const generateError = generate.error;
 	useEffect(() => {
@@ -689,14 +745,13 @@ export function PlanEditorView({
 
 	const renderedPaneBody = (): ReactElement => {
 		if (source === "html" || isStreaming) {
-			const html = isStreaming ? generate.text : htmlDoc.content;
 			return (
-				<iframe
-					title={HTML_LABELS.preview}
-					sandbox="allow-scripts"
-					srcDoc={html ? withPreviewBase(html, plan.id) : EMPTY_HTML_PREVIEW}
-					className="min-h-0 w-full flex-1 border-0 bg-white"
-					data-testid="plan-editor-html-preview"
+				<PlanHtmlPreviewFrame
+					html={isStreaming ? generate.text : htmlDoc.content}
+					fallbackHtml={htmlDoc.content}
+					streaming={isStreaming}
+					mode={previewMode}
+					planId={plan.id}
 				/>
 			);
 		}

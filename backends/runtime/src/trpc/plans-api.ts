@@ -4,11 +4,13 @@ import { resolve } from "node:path";
 import type {
 	RuntimePlansCreateRequest,
 	RuntimePlansCreateResponse,
+	RuntimePlansHtmlSourceRequest,
 	RuntimePlansImportFileRequest,
 	RuntimePlansImportFileResponse,
 	RuntimePlansImportFromFolderRequest,
 	RuntimePlansImportFromFolderResponse,
 	RuntimePlansListResponse,
+	RuntimePlansReadHtmlSourceResponse,
 	RuntimePlansReadRequest,
 	RuntimePlansReadResponse,
 	RuntimePlansRemoveRequest,
@@ -17,6 +19,8 @@ import type {
 	RuntimePlansWriteAssetResponse,
 	RuntimePlansWriteBackupRequest,
 	RuntimePlansWriteBackupResponse,
+	RuntimePlansWriteHtmlSourceRequest,
+	RuntimePlansWriteHtmlSourceResponse,
 	RuntimePlansWriteRequest,
 	RuntimePlansWriteResponse,
 	RuntimePlansWriteSiblingRequest,
@@ -29,9 +33,11 @@ import {
 	importPlansFromFolder,
 	listSavedPlans,
 	readSavedPlanContent,
+	readSavedPlanHtmlSource,
 	removeSavedPlan,
 	writeSavedPlanAsset,
 	writeSavedPlanContent,
+	writeSavedPlanHtmlSource,
 	writeSavedPlanSibling,
 } from "../state/saved-plans";
 import { isPathWithinRoot } from "../workspace/path-sandbox";
@@ -236,6 +242,36 @@ export function createPlansApi(deps: CreatePlansApiDependencies): RuntimeTrpcCon
 					path: null,
 					error: toErrorMessage(error),
 				} satisfies RuntimePlansWriteBackupResponse;
+			}
+		},
+		readHtmlSource: async (input: RuntimePlansHtmlSourceRequest) => {
+			try {
+				const content = await readSavedPlanHtmlSource(input.planId);
+				return {
+					ok: true,
+					content,
+				} satisfies RuntimePlansReadHtmlSourceResponse;
+			} catch (error) {
+				return {
+					ok: false,
+					content: null,
+					error: toErrorMessage(error),
+				} satisfies RuntimePlansReadHtmlSourceResponse;
+			}
+		},
+		writeHtmlSource: async (input: RuntimePlansWriteHtmlSourceRequest) => {
+			try {
+				const path = await writeSavedPlanHtmlSource(input.planId, input.content);
+				return {
+					ok: true,
+					path,
+				} satisfies RuntimePlansWriteHtmlSourceResponse;
+			} catch (error) {
+				return {
+					ok: false,
+					path: null,
+					error: toErrorMessage(error),
+				} satisfies RuntimePlansWriteHtmlSourceResponse;
 			}
 		},
 		writeAsset: async (input: RuntimePlansWriteAssetRequest) => {

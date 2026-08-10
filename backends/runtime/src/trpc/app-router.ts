@@ -133,7 +133,9 @@ import type {
 	RuntimePlansImportFileResponse,
 	RuntimePlansImportFromFolderRequest,
 	RuntimePlansImportFromFolderResponse,
+	RuntimePlansHtmlSourceRequest,
 	RuntimePlansListResponse,
+	RuntimePlansReadHtmlSourceResponse,
 	RuntimePlansReadRequest,
 	RuntimePlansReadResponse,
 	RuntimePlansRemoveRequest,
@@ -142,6 +144,8 @@ import type {
 	RuntimePlansWriteAssetResponse,
 	RuntimePlansWriteBackupRequest,
 	RuntimePlansWriteBackupResponse,
+	RuntimePlansWriteHtmlSourceRequest,
+	RuntimePlansWriteHtmlSourceResponse,
 	RuntimePlansWriteRequest,
 	RuntimePlansWriteResponse,
 	RuntimePlansWriteSiblingRequest,
@@ -335,7 +339,9 @@ import {
 	runtimePlansImportFileResponseSchema,
 	runtimePlansImportFromFolderRequestSchema,
 	runtimePlansImportFromFolderResponseSchema,
+	runtimePlansHtmlSourceRequestSchema,
 	runtimePlansListResponseSchema,
+	runtimePlansReadHtmlSourceResponseSchema,
 	runtimePlansReadRequestSchema,
 	runtimePlansReadResponseSchema,
 	runtimePlansRemoveRequestSchema,
@@ -344,6 +350,8 @@ import {
 	runtimePlansWriteAssetResponseSchema,
 	runtimePlansWriteBackupRequestSchema,
 	runtimePlansWriteBackupResponseSchema,
+	runtimePlansWriteHtmlSourceRequestSchema,
+	runtimePlansWriteHtmlSourceResponseSchema,
 	runtimePlansWriteRequestSchema,
 	runtimePlansWriteResponseSchema,
 	runtimePlansWriteSiblingRequestSchema,
@@ -678,6 +686,8 @@ export interface RuntimeTrpcContext {
 		write: (input: RuntimePlansWriteRequest) => Promise<RuntimePlansWriteResponse>;
 		writeSibling: (input: RuntimePlansWriteSiblingRequest) => Promise<RuntimePlansWriteSiblingResponse>;
 		writeBackup: (input: RuntimePlansWriteBackupRequest) => Promise<RuntimePlansWriteBackupResponse>;
+		readHtmlSource: (input: RuntimePlansHtmlSourceRequest) => Promise<RuntimePlansReadHtmlSourceResponse>;
+		writeHtmlSource: (input: RuntimePlansWriteHtmlSourceRequest) => Promise<RuntimePlansWriteHtmlSourceResponse>;
 		writeAsset: (input: RuntimePlansWriteAssetRequest) => Promise<RuntimePlansWriteAssetResponse>;
 	};
 	hooksApi: {
@@ -1312,6 +1322,18 @@ export const runtimeAppRouter = t.router({
 			.output(runtimePlansWriteBackupResponseSchema)
 			.mutation(async ({ ctx, input }) => {
 				return await ctx.plansApi.writeBackup(input);
+			}),
+		readHtmlSource: t.procedure
+			.input(runtimePlansHtmlSourceRequestSchema)
+			.output(runtimePlansReadHtmlSourceResponseSchema)
+			.query(async ({ ctx, input }) => {
+				return await ctx.plansApi.readHtmlSource(input);
+			}),
+		writeHtmlSource: t.procedure
+			.input(runtimePlansWriteHtmlSourceRequestSchema)
+			.output(runtimePlansWriteHtmlSourceResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.plansApi.writeHtmlSource(input);
 			}),
 		writeAsset: t.procedure
 			.input(runtimePlansWriteAssetRequestSchema)

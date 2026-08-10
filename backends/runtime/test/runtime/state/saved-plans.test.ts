@@ -18,10 +18,12 @@ import {
 	listSavedPlans,
 	readSavedPlanAsset,
 	readSavedPlanContent,
+	readSavedPlanHtmlSource,
 	removeSavedPlan,
 	resolvePlanImageAssets,
 	writeSavedPlanAsset,
 	writeSavedPlanContent,
+	writeSavedPlanHtmlSource,
 	writeSavedPlanSibling,
 } from "../../../src/state/saved-plans";
 
@@ -83,6 +85,44 @@ describe("saved-plans library", () => {
 		await expect(writeSavedPlanSibling(created.entry.id, ".exe", "nope")).rejects.toThrow(
 			/unsupported plan sibling extension/i,
 		);
+	});
+
+	describe("html source snapshot", () => {
+		it("round-trips the markdown a generated HTML came from", async () => {
+			const created = await createSavedPlan({ name: "roadmap", content: "# Roadmap\n" });
+
+			expect(await readSavedPlanHtmlSource(created.entry.id)).toBeNull();
+
+			const sourcePath = await writeSavedPlanHtmlSource(created.entry.id, "# Roadmap\n\nv1\n");
+
+			expect(sourcePath).toBe(join(dirname(created.entry.path), `${created.entry.name}.html.src.md`));
+			expect(await readSavedPlanHtmlSource(created.entry.id)).toBe("# Roadmap\n\nv1\n");
+
+			await writeSavedPlanHtmlSource(created.entry.id, "# Roadmap\n\nv2\n");
+			expect(await readSavedPlanHtmlSource(created.entry.id)).toBe("# Roadmap\n\nv2\n");
+		});
+
+		it("resolves to the same file whether asked via the markdown plan or its html sibling", async () => {
+			const created = await createSavedPlan({ name: "roadmap", content: "# Roadmap\n" });
+			const sibling = await writeSavedPlanSibling(created.entry.id, ".html", "<html><body>x</body></html>");
+
+			await writeSavedPlanHtmlSource(created.entry.id, "# Roadmap\n\nv1\n");
+
+			expect(await readSavedPlanHtmlSource(sibling.entry.id)).toBe("# Roadmap\n\nv1\n");
+		});
+
+		it("stays out of the plan library and out of folder import", async () => {
+			const folder = join(runtimeHome.path, "plans");
+			await mkdir(folder, { recursive: true });
+			await writeFile(join(folder, "roadmap.md"), "# Roadmap\n", "utf8");
+			await writeFile(join(folder, "roadmap.html.src.md"), "# Roadmap\n", "utf8");
+
+			const imported = await importPlansFromFolder(folder);
+
+			expect(imported.added.map((entry) => entry.name)).toEqual(["roadmap"]);
+			expect(imported.skipped).toBe(0);
+			expect((await listSavedPlans()).map((plan) => plan.name)).toEqual(["roadmap"]);
+		});
 	});
 
 	it("imports a single file via importPlanFile and dedupes on repeat", async () => {
