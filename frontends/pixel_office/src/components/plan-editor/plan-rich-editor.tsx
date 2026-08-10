@@ -136,7 +136,11 @@ export default function PlanRichEditor({
 	}, [bridgeError, content, editor, planId, readMarkdown]);
 
 	useEffect(() => {
-		editor?.setEditable(!disabled);
+		// `setEditable` emits `update` unless told not to, and TipTap serializes whatever
+		// the doc holds at that moment — on mount that is still the empty doc, which the
+		// parent would then autosave over the real plan file. Toggling editability is not
+		// a content change, so it must never emit.
+		editor?.setEditable(!disabled, false);
 	}, [disabled, editor]);
 
 	const handleInsertImageFile = useCallback(

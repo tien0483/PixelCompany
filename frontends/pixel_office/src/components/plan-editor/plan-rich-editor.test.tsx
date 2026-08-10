@@ -120,4 +120,65 @@ describe("PlanRichEditor", () => {
 
 		expect(container.textContent).toMatch(/Loaded content/i);
 	});
+
+	// Mounting used to report a change: applying `editable` emits TipTap's `update` event,
+	// which serialized the still-empty document and got autosaved over the plan file.
+	it("reports no change from mounting or from toggling its editable state", async () => {
+		const onChange = vi.fn();
+
+		await act(async () => {
+			root.render(
+				<TooltipProvider>
+					<PlanRichEditor
+						content="# Roadmap\n\nSome body text.\n"
+						onChange={onChange}
+						planId="plan-1"
+						onInsertImage={vi.fn()}
+					/>
+				</TooltipProvider>,
+			);
+		});
+		await flush();
+		await waitForRichEditor(container);
+
+		expect(onChange).not.toHaveBeenCalled();
+
+		await act(async () => {
+			root.render(
+				<TooltipProvider>
+					<PlanRichEditor
+						content="# Roadmap\n\nSome body text.\n"
+						onChange={onChange}
+						planId="plan-1"
+						disabled
+						onInsertImage={vi.fn()}
+					/>
+				</TooltipProvider>,
+			);
+		});
+		await flush();
+
+		expect(onChange).not.toHaveBeenCalled();
+	});
+
+	it("reports no change when it mounts before the plan content has loaded", async () => {
+		const onChange = vi.fn();
+
+		await act(async () => {
+			root.render(
+				<TooltipProvider>
+					<PlanRichEditor
+						content=""
+						onChange={onChange}
+						planId="plan-1"
+						onInsertImage={vi.fn()}
+					/>
+				</TooltipProvider>,
+			);
+		});
+		await flush();
+		await waitForRichEditor(container);
+
+		expect(onChange).not.toHaveBeenCalled();
+	});
 });
