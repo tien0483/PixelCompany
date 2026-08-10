@@ -17,8 +17,11 @@ import {
 	insertAtCursor,
 	type TextSelectionState,
 } from "@/components/plan-editor/markdown-selection-commands";
+import { splitBriefResult } from "@/components/plan-editor/plan-brief-result";
 import { PlanEditorErrorBoundary } from "@/components/plan-editor/plan-editor-error-boundary";
 import { PlanHtmlGenerateBar } from "@/components/plan-editor/plan-html-generate-bar";
+import { withPreviewBase } from "@/components/plan-editor/plan-html-preview";
+import { PlanImageButton } from "@/components/plan-editor/plan-image-button";
 import { PlanMarkdownToolbar } from "@/components/plan-editor/plan-markdown-toolbar";
 import { insertMarkdownImage } from "@/components/plan-editor/plan-rich-markdown";
 import { usePlanEditorDocument } from "@/components/plan-editor/use-plan-editor-document";
@@ -204,20 +207,26 @@ export function PlanEditorView({
 		return () => clearTimeout(timer);
 	}, [focusedPane, mdDoc.content, mdDoc.status, plan.id]);
 
+	/**
+	 * Edits whichever document the raw pane is actually showing. Keyed off `activeDoc` rather
+	 * than `mdDoc` because the textarea renders `activeDoc.content`: with the HTML source
+	 * selected, cursor offsets belong to the HTML, so writing them back into the markdown
+	 * would splice text at an unrelated position.
+	 */
 	const applyTextCommand = useCallback(
 		(transform: (state: TextSelectionState) => TextSelectionState) => {
 			const textarea = textareaRef.current;
-			const value = mdDoc.content;
+			const value = activeDoc.content;
 			const selectionStart = textarea?.selectionStart ?? value.length;
 			const selectionEnd = textarea?.selectionEnd ?? value.length;
 			const next = transform({ value, selectionStart, selectionEnd });
-			mdDoc.updateContent(next.value);
+			activeDoc.updateContent(next.value);
 			requestAnimationFrame(() => {
 				textarea?.focus();
 				textarea?.setSelectionRange(next.selectionStart, next.selectionEnd);
 			});
 		},
-		[mdDoc],
+		[activeDoc],
 	);
 
 	const richEditorRef = useRef<Editor | null>(null);
@@ -225,9 +234,19 @@ export function PlanEditorView({
 		richEditorRef.current = editor;
 	}, []);
 
-	const insertMarkdownAtCursor = useCallback(
-		(markdown: string) => {
-			if (focusedPane === "rendered" && source === "md" && richEditorRef.current) {
+	/**
+	 * The uploaded file always lands in the plan's own folder, so the *relative* path is
+	 * what gets written to disk in both syntaxes — an absolute `/api/plans/...` URL would
+	 * only resolve while the app is running and would break the exported HTML.
+	 */
+	const insertAssetAtCursor = useCallback(
+		(relativePath: string, name: string) => {
+			if (source === "html") {
+				applyTextCommand((state) => insertAtCursor(state, `<img src="${relativePath}" alt="${name}">\n`));
+				return;
+			}
+			const markdown = `![${name}](${relativePath})`;
+			if (focusedPane === "rendered" && richEditorRef.current) {
 				insertMarkdownImage(richEditorRef.current, markdown, plan.id);
 				return;
 			}
@@ -242,7 +261,7 @@ export function PlanEditorView({
 		handlePaste,
 		handleDrop,
 		handleDragOver,
-	} = usePlanImagePaste(plan.id, workspaceId, insertMarkdownAtCursor);
+	} = usePlanImagePaste(plan.id, workspaceId, insertAssetAtCursor);
 
 	const handleRichEditorError = useCallback((error: Error) => {
 		setRichFailed(true);
@@ -314,8 +333,13 @@ export function PlanEditorView({
 		[brief, mdDoc.content, plan.id],
 	);
 
-	// The brief is appended, never substituted: the user's own notes stay above it so
-	// they can see what the expansion did with them before generating.
+	/**
+	 * A compliant expansion returns the plan reorganized plus the brief, and that pair
+	 * replaces the file — the whole point is that the messy input gets restructured. Because
+	 * that is destructive, the previous bytes are copied to `<stem>.bak-<n>` first and the
+	 * success toast carries an Undo. An answer without a `# Plan` section falls back to the
+	 * old append behaviour: overwriting a file from a malformed response is never acceptable.
+	 */
 	const briefStatus = brief.status;
 	const briefText = brief.text;
 	useEffect(() => {
@@ -335,9 +359,37 @@ export function PlanEditorView({
 			return;
 		}
 		savedBriefRef.current = briefText;
-		mdDoc.updateContent(`${mdDoc.content.replace(/\s*$/, "")}\n\n---\n\n${briefText.trim()}\n`);
-		showAppToast({ intent: "success", message: HTML_LABELS.expandDone });
-	}, [briefStatus, briefText, mdDoc]);
+		const { plan: reorganizedPlan, brief: briefSection } = splitBriefResult(briefText);
+		if (reorganizedPlan === null) {
+			mdDoc.updateContent(`${mdDoc.content.replace(/\s*$/, "")}\n\n---\n\n${briefSection.trim()}\n`);
+			showAppToast({ intent: "success", message: HTML_LABELS.expandDone });
+			return;
+		}
+		const previousContent = mdDoc.content;
+		void (async () => {
+			try {
+				const backup = await getRuntimeTrpcClient(workspaceId).plans.writeBackup.mutate({ planId: plan.id });
+				if (!backup.ok) {
+					setLogOpen(true);
+					showAppToast({ intent: "danger", message: backup.error ?? HTML_LABELS.expandBackupFailed });
+					return;
+				}
+			} catch (error) {
+				setLogOpen(true);
+				showAppToast({
+					intent: "danger",
+					message: `${HTML_LABELS.expandBackupFailed} ${error instanceof Error ? error.message : String(error)}`,
+				});
+				return;
+			}
+			mdDoc.updateContent(`${reorganizedPlan}\n\n---\n\n${briefSection}\n`);
+			showAppToast({
+				intent: "success",
+				message: HTML_LABELS.expandRewrote,
+				action: { label: "Undo", onClick: () => mdDoc.updateContent(previousContent) },
+			});
+		})();
+	}, [briefStatus, briefText, mdDoc, plan.id, workspaceId]);
 
 	const briefError = brief.error;
 	useEffect(() => {
@@ -441,7 +493,7 @@ export function PlanEditorView({
 				<iframe
 					title={HTML_LABELS.preview}
 					sandbox="allow-scripts"
-					srcDoc={html || EMPTY_HTML_PREVIEW}
+					srcDoc={html ? withPreviewBase(html, plan.id) : EMPTY_HTML_PREVIEW}
 					className="min-h-0 w-full flex-1 border-0 bg-white"
 					data-testid="plan-editor-html-preview"
 				/>
@@ -567,7 +619,19 @@ export function PlanEditorView({
 							onCommand={applyTextCommand}
 							onInsertImage={(file) => void uploadImageFile(file)}
 						/>
-					) : null}
+					) : (
+						// HTML has no markdown formatting to offer, but its images live in the same
+						// `<stem>.assets/` folder, so the picker still belongs here.
+						<div
+							className="flex items-center gap-0.5 border-b border-border bg-surface-2 px-2 py-1"
+							data-testid="plan-editor-html-tools"
+						>
+							<PlanImageButton
+								disabled={activeDocReadOnly}
+								onSelectFile={(file) => void uploadImageFile(file)}
+							/>
+						</div>
+					)}
 					{activeDoc.status === "loading" ? (
 						<div className="flex min-h-0 flex-1 flex-col gap-3 p-4">
 							<div className="kb-skeleton h-4 w-3/4" />
@@ -581,9 +645,9 @@ export function PlanEditorView({
 							ref={textareaRef}
 							value={activeDoc.content}
 							onChange={(event) => activeDoc.updateContent(event.currentTarget.value)}
-							onPaste={source === "md" ? handlePaste : undefined}
-							onDrop={source === "md" ? handleDrop : undefined}
-							onDragOver={source === "md" ? handleDragOver : undefined}
+							onPaste={handlePaste}
+							onDrop={handleDrop}
+							onDragOver={handleDragOver}
 							disabled={activeDocReadOnly}
 							spellCheck={false}
 							className="min-h-0 w-full flex-1 resize-none border-0 bg-surface-1 px-3 py-2 font-mono text-[13px] leading-5 text-text-primary focus:outline-none disabled:opacity-50"

@@ -25,9 +25,12 @@ export const HTML_LABELS = {
 	offlineShort: "Offline",
 	noLog: "No log output yet.",
 	expand: "Expand brief",
-	expandHint: "Reads the plan's images and rewrites the notes as a structured brief. Review it before generating.",
+	expandHint:
+		"Reorganizes your notes, describes every image in words, and adds a structured brief. The old version is kept as a .bak file.",
 	expanding: "Expanding…",
 	expandDone: "Brief added below your notes.",
+	expandRewrote: "Plan reorganized and brief added. The previous version was saved beside it.",
+	expandBackupFailed: "Could not back up the plan, so it was left untouched.",
 	expandNeedsPlan: "Save the plan first — expansion reads its images from disk.",
 	expandEmpty: "The expander finished without writing anything — nothing was added to your notes.",
 	refine: "Refine",

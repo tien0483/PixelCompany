@@ -911,6 +911,32 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 				}
 				return;
 			}
+			// Path-style twin of `/api/plans/asset`, so the plan editor's HTML preview can carry
+			// a `<base href="/api/plans/<planId>/file/">`: a `srcDoc` iframe resolves relative
+			// URLs against `about:srcdoc`, which breaks every relative image the generated HTML
+			// references. A query-string route cannot serve as a base URL.
+			const planFileMatch = /^\/api\/plans\/([^/]+)\/file\/(.+)$/.exec(pathname);
+			if (planFileMatch) {
+				const planId = decodeURIComponent(planFileMatch[1] ?? "");
+				const relativePath = decodeURIComponent(planFileMatch[2] ?? "");
+				if (!planId || !relativePath) {
+					res.writeHead(400, { "Content-Type": "application/json; charset=utf-8" });
+					res.end('{"error":"Missing planId or path"}');
+					return;
+				}
+				try {
+					const planFile = await readSavedPlanAsset(planId, relativePath);
+					res.writeHead(200, {
+						"Content-Type": planFile.contentType,
+						"Cache-Control": "no-store",
+					});
+					res.end(planFile.content);
+				} catch {
+					res.writeHead(404, { "Content-Type": "application/json; charset=utf-8" });
+					res.end('{"error":"Not found"}');
+				}
+				return;
+			}
 			if (pathname.startsWith("/api/")) {
 				res.writeHead(404, { "Content-Type": "application/json; charset=utf-8" });
 				res.end('{"error":"Not found"}');

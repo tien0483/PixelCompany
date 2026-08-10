@@ -1518,8 +1518,20 @@ export const runtimePlansWriteSiblingResponseSchema = z.object({
 });
 export type RuntimePlansWriteSiblingResponse = z.infer<typeof runtimePlansWriteSiblingResponseSchema>;
 
+export const runtimePlansWriteBackupRequestSchema = z.object({
+	planId: z.string(),
+});
+export type RuntimePlansWriteBackupRequest = z.infer<typeof runtimePlansWriteBackupRequestSchema>;
+
+export const runtimePlansWriteBackupResponseSchema = z.object({
+	ok: z.boolean(),
+	path: z.string().nullable(),
+	error: z.string().optional(),
+});
+export type RuntimePlansWriteBackupResponse = z.infer<typeof runtimePlansWriteBackupResponseSchema>;
+
 /** ~10 MB of image bytes, expressed as a base64 character-count ceiling (4/3 expansion). */
-const PLAN_ASSET_MAX_BASE64_LENGTH = 14_000_000;
+export const PLAN_ASSET_MAX_BASE64_LENGTH = 14_000_000;
 
 export const runtimePlansWriteAssetRequestSchema = z.object({
 	planId: z.string(),

@@ -10,6 +10,7 @@ import type { RuntimeSavedPlan } from "@/runtime/types";
 const mockReadQuery = vi.fn();
 const mockWriteMutate = vi.fn();
 const mockWriteAssetMutate = vi.fn();
+const mockWriteBackupMutate = vi.fn();
 const mockListQuery = vi.fn();
 const mockWriteSiblingMutate = vi.fn();
 const mockHtmlStatusQuery = vi.fn();
@@ -21,6 +22,7 @@ vi.mock("@/runtime/trpc-client", () => ({
 			read: { query: mockReadQuery },
 			write: { mutate: mockWriteMutate },
 			writeAsset: { mutate: mockWriteAssetMutate },
+			writeBackup: { mutate: mockWriteBackupMutate },
 			writeSibling: { mutate: mockWriteSiblingMutate },
 			list: { query: mockListQuery },
 		},
@@ -148,6 +150,7 @@ describe("PlanEditorView", () => {
 		);
 		mockWriteMutate.mockReset().mockResolvedValue({ ok: true, plan: PLAN });
 		mockWriteAssetMutate.mockReset();
+		mockWriteBackupMutate.mockReset().mockResolvedValue({ ok: true, path: "/tmp/roadmap.bak-1.md" });
 		mockWriteSiblingMutate.mockReset().mockResolvedValue({ ok: true, plan: HTML_SIBLING, isNew: true });
 		mockListQuery.mockReset().mockResolvedValue({ ok: true, plans: [PLAN] });
 		mockHtmlStatusQuery.mockReset().mockResolvedValue({ online: false });
@@ -388,6 +391,104 @@ describe("PlanEditorView", () => {
 			const value = getTextarea(container).value;
 			expect(value.startsWith("# Roadmap")).toBe(true);
 			expect(value.indexOf("# Roadmap")).toBeLessThan(value.indexOf("# Brief"));
+		});
+
+		/** The shape a compliant expansion returns: reorganized plan, then the brief. */
+		const REWRITE_ANSWER = [
+			"# Plan",
+			"",
+			"## Context",
+			"![shot](roadmap.assets/pasted-1.png)",
+			"",
+			"*Shows a pie chart labeled Revenue Q3.*",
+			"",
+			"# Brief",
+			"",
+			"## Goal",
+			"Ship it.",
+		].join("\n");
+
+		it("replaces the plan with the reorganized version once the previous bytes are backed up", async () => {
+			fetchMock.mockImplementation(() => Promise.resolve(streamResponse(REWRITE_ANSWER)));
+			await render(PLAN);
+			await flush();
+			await waitFor(() => !getButton("plan-html-brief-run").disabled, "enabled expand");
+
+			await act(async () => {
+				getButton("plan-html-brief-run").click();
+			});
+			await waitFor(() => getTextarea(container).value.includes("## Goal"), "rewritten raw pane");
+
+			expect(mockWriteBackupMutate).toHaveBeenCalledWith({ planId: PLAN.id });
+			const value = getTextarea(container).value;
+			// The user's original heading is gone — replaced, not appended to.
+			expect(value.startsWith("# Plan")).toBe(true);
+			expect(value).not.toContain("# Roadmap");
+			expect(value).toContain("![shot](roadmap.assets/pasted-1.png)");
+			expect(value).toContain("*Shows a pie chart labeled Revenue Q3.*");
+			expect(value.indexOf("# Plan")).toBeLessThan(value.indexOf("# Brief"));
+		});
+
+		it("restores the previous text when the rewrite toast's Undo is used", async () => {
+			fetchMock.mockImplementation(() => Promise.resolve(streamResponse(REWRITE_ANSWER)));
+			await render(PLAN);
+			await flush();
+			await waitFor(() => !getButton("plan-html-brief-run").disabled, "enabled expand");
+
+			await act(async () => {
+				getButton("plan-html-brief-run").click();
+			});
+			await waitFor(() => getTextarea(container).value.includes("## Goal"), "rewritten raw pane");
+
+			const rewriteToast = mockShowAppToast.mock.calls
+				.map((call) => call[0] as { message?: string; action?: { label: string; onClick: () => void } })
+				.find((toast) => toast?.message === HTML_LABELS.expandRewrote);
+			expect(rewriteToast?.action?.label).toBe("Undo");
+
+			await act(async () => {
+				rewriteToast?.action?.onClick();
+			});
+
+			expect(getTextarea(container).value).toBe("# Roadmap\n");
+		});
+
+		it("leaves the plan untouched when the backup fails", async () => {
+			fetchMock.mockImplementation(() => Promise.resolve(streamResponse(REWRITE_ANSWER)));
+			mockWriteBackupMutate.mockResolvedValue({ ok: false, path: null, error: "read-only volume" });
+			await render(PLAN);
+			await flush();
+			await waitFor(() => !getButton("plan-html-brief-run").disabled, "enabled expand");
+
+			await act(async () => {
+				getButton("plan-html-brief-run").click();
+			});
+			await waitFor(
+				() => mockShowAppToast.mock.calls.some((call) => call[0]?.message === "read-only volume"),
+				"backup failure toast",
+			);
+
+			expect(getTextarea(container).value).toBe("# Roadmap\n");
+			expect(
+				mockWriteMutate.mock.calls.some((call) =>
+					(call[0] as { content?: string })?.content?.includes("## Goal"),
+				),
+			).toBe(false);
+		});
+
+		it("falls back to appending when the answer has no reorganized plan section", async () => {
+			fetchMock.mockImplementation(() => Promise.resolve(streamResponse("# Brief\n\n## Goal\nShip it.")));
+			await render(PLAN);
+			await flush();
+			await waitFor(() => !getButton("plan-html-brief-run").disabled, "enabled expand");
+
+			await act(async () => {
+				getButton("plan-html-brief-run").click();
+			});
+			await waitFor(() => getTextarea(container).value.includes("## Goal"), "appended brief");
+
+			// A malformed answer must never trigger a destructive overwrite.
+			expect(mockWriteBackupMutate).not.toHaveBeenCalled();
+			expect(getTextarea(container).value.startsWith("# Roadmap")).toBe(true);
 		});
 
 		it("surfaces an error toast instead of a silent no-op when the brief finishes empty", async () => {

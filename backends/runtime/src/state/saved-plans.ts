@@ -39,6 +39,16 @@ export function isPlanFileName(name: string): boolean {
 	return PLAN_FILE_EXTENSIONS.has(extname(name).toLowerCase());
 }
 
+/**
+ * `<stem>.bak-<n>.<ext>` as written by {@link backupSavedPlan}. Excluded from bulk folder
+ * import and from the directory browser: every brief expansion leaves one behind, so
+ * offering them as plans would bury the real ones. Importing one by explicit path still
+ * works — that is how a user recovers an old version.
+ */
+export function isPlanBackupFileName(name: string): boolean {
+	return /\.bak-\d+$/.test(basename(name, extname(name)));
+}
+
 async function pathExists(pathValue: string): Promise<boolean> {
 	try {
 		await access(pathValue);
@@ -134,7 +144,7 @@ export async function importPlansFromFolder(folderPath: string): Promise<{
 	const now = Date.now();
 
 	for (const dirEntry of dirEntries) {
-		if (!dirEntry.isFile() || !isPlanFileName(dirEntry.name)) {
+		if (!dirEntry.isFile() || !isPlanFileName(dirEntry.name) || isPlanBackupFileName(dirEntry.name)) {
 			continue;
 		}
 		const filePath = normalizeAbsolutePath(join(resolvedFolder, dirEntry.name));
@@ -196,6 +206,32 @@ export async function writeSavedPlanSibling(
 	}
 	await writeFile(siblingPath, content, "utf8");
 	return await importPlanFile(siblingPath);
+}
+
+/**
+ * Copy a saved plan's current bytes to `<stem>.bak-<n><ext>` beside it and return the
+ * backup path. Deliberately NOT registered in the plan library (unlike
+ * {@link writeSavedPlanSibling}): a backup is a safety net for a destructive rewrite,
+ * not a plan the user wants cluttering the Plans list.
+ */
+export async function backupSavedPlan(planId: string): Promise<string> {
+	const entry = await findSavedPlanById(planId);
+	if (!entry) {
+		throw new Error(`Plan "${planId}" was not found in the library.`);
+	}
+	if (!(await pathExists(entry.path))) {
+		throw new Error(`Plan file is missing: ${entry.path}`);
+	}
+	const parentDir = dirname(entry.path);
+	const extension = extname(entry.path);
+	const fileName = await resolveUniqueSuffixedFileName(parentDir, `${stemFromPath(entry.path)}.bak`, extension);
+	const backupPath = normalizeAbsolutePath(join(parentDir, fileName));
+	if (!isPathWithinRoot(parentDir, backupPath)) {
+		throw new Error("Access denied: backup path is outside the plan directory.");
+	}
+	const content = await readFile(entry.path);
+	await writeFile(backupPath, content);
+	return backupPath;
 }
 
 async function resolveUniquePlanFileName(plansDir: string, baseName: string): Promise<string> {
@@ -275,11 +311,12 @@ export function getPlanAssetsDir(entry: SavedPlanEntry): string {
 	return join(dirname(entry.path), `${stemFromPath(entry.path)}.assets`);
 }
 
-async function resolveUniqueAssetFileName(assetsDir: string, baseName: string, extension: string): Promise<string> {
+/** `<baseName>-<n><extension>` in `directory`, incrementing `n` until nothing is overwritten. */
+async function resolveUniqueSuffixedFileName(directory: string, baseName: string, extension: string): Promise<string> {
 	let attempt = 1;
 	while (true) {
 		const candidate = `${baseName}-${attempt}${extension}`;
-		if (!(await pathExists(join(assetsDir, candidate)))) {
+		if (!(await pathExists(join(directory, candidate)))) {
 			return candidate;
 		}
 		attempt += 1;
@@ -306,7 +343,7 @@ export async function writeSavedPlanAsset(
 
 	const assetsDir = getPlanAssetsDir(entry);
 	await mkdir(assetsDir, { recursive: true });
-	const fileName = await resolveUniqueAssetFileName(assetsDir, baseName, extension);
+	const fileName = await resolveUniqueSuffixedFileName(assetsDir, baseName, extension);
 	await writeFile(join(assetsDir, fileName), Buffer.from(input.data, "base64"));
 	return `${basename(assetsDir)}/${fileName}`;
 }
@@ -323,15 +360,17 @@ const PLAN_ASSET_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp"]
  *
  * `planDir` doubles as the agent's cwd, which is what makes the relative
  * `<stem>.assets/foo.png` links inside the markdown resolvable on the agent side.
+ * The sandbox is the plan's own folder, not just `<stem>.assets/`: a hand-authored
+ * plan legitimately points at `./images/foo.png` or a screenshot sitting next to it,
+ * and those used to be reported as unresolvable even though they were right there.
  * Remote links (`http(s):`) and inline `data:` URIs are excluded from BOTH lists:
  * there is nothing local to open, so they are not "unresolved" — they simply
  * never become a Read grant.
  *
  * Every other link that fails to resolve (bad extension, escapes the plan's
- * `<stem>.assets/` folder, or does not exist on disk) is collected into
- * `unresolvedLinks` instead of being dropped silently — the brief prompt tells
- * the model about these so it stops reaching for a Read tool it was never
- * granted for a path it can't open anyway.
+ * folder, or does not exist on disk) is collected into `unresolvedLinks` instead of
+ * being dropped silently — the brief prompt tells the model about these so it stops
+ * reaching for a Read tool it was never granted for a path it can't open anyway.
  */
 export async function resolvePlanImageAssets(
 	planId: string,
@@ -342,7 +381,6 @@ export async function resolvePlanImageAssets(
 		throw new Error(`Plan "${planId}" was not found in the library.`);
 	}
 	const planDir = dirname(entry.path);
-	const assetsDir = getPlanAssetsDir(entry);
 	const seen = new Set<string>();
 	const flaggedUnresolved = new Set<string>();
 	const assetPaths: string[] = [];
@@ -364,10 +402,10 @@ export async function resolvePlanImageAssets(
 			flagUnresolved(link);
 			continue;
 		}
-		// Links are written relative to the plan file, and assets always live in
-		// `<stem>.assets/`; resolving from the plan dir covers both spellings.
+		// Links are written relative to the plan file, so resolving from the plan dir
+		// covers pasted `<stem>.assets/…` links and hand-written siblings alike.
 		const resolvedPath = resolve(planDir, link);
-		if (!isPathWithinRoot(assetsDir, resolvedPath)) {
+		if (!isPathWithinRoot(planDir, resolvedPath)) {
 			flagUnresolved(link);
 			continue;
 		}
@@ -384,6 +422,20 @@ export async function resolvePlanImageAssets(
 	return { planDir, assetPaths, unresolvedLinks };
 }
 
+const MIME_TYPE_BY_ASSET_EXTENSION: Record<string, string> = {
+	".png": "image/png",
+	".jpg": "image/jpeg",
+	".jpeg": "image/jpeg",
+	".gif": "image/gif",
+	".webp": "image/webp",
+};
+
+/**
+ * Serve a file the plan references, resolved relative to the plan's own folder.
+ * Sandboxed to that folder rather than `<stem>.assets/` so hand-authored
+ * `./images/foo.png` links render the same as pasted ones — see
+ * {@link resolvePlanImageAssets}, which grants the agent reads on the same set.
+ */
 export async function readSavedPlanAsset(
 	planId: string,
 	relativePath: string,
@@ -392,23 +444,16 @@ export async function readSavedPlanAsset(
 	if (!entry) {
 		throw new Error(`Plan "${planId}" was not found in the library.`);
 	}
-	const assetsDir = getPlanAssetsDir(entry);
-	const resolvedPath = resolve(assetsDir, relativePath);
-	if (!isPathWithinRoot(assetsDir, resolvedPath)) {
-		throw new Error("Access denied: asset path is outside the plan's assets directory.");
+	const planDir = dirname(entry.path);
+	const resolvedPath = resolve(planDir, relativePath);
+	if (!isPathWithinRoot(planDir, resolvedPath)) {
+		throw new Error("Access denied: asset path is outside the plan's directory.");
 	}
 	if (!(await pathExists(resolvedPath))) {
 		throw new Error(`Plan asset is missing: ${relativePath}`);
 	}
 	const extension = extname(resolvedPath).toLowerCase();
-	const mimeTypeByExtension: Record<string, string> = {
-		".png": "image/png",
-		".jpg": "image/jpeg",
-		".jpeg": "image/jpeg",
-		".gif": "image/gif",
-		".webp": "image/webp",
-	};
-	const contentType = mimeTypeByExtension[extension] ?? "application/octet-stream";
+	const contentType = MIME_TYPE_BY_ASSET_EXTENSION[extension] ?? "application/octet-stream";
 	const content = await readFile(resolvedPath);
 	return { content, contentType };
 }

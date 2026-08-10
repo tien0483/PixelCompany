@@ -139,6 +139,8 @@ import type {
 	RuntimePlansRemoveResponse,
 	RuntimePlansWriteAssetRequest,
 	RuntimePlansWriteAssetResponse,
+	RuntimePlansWriteBackupRequest,
+	RuntimePlansWriteBackupResponse,
 	RuntimePlansWriteRequest,
 	RuntimePlansWriteResponse,
 	RuntimePlansWriteSiblingRequest,
@@ -337,6 +339,8 @@ import {
 	runtimePlansRemoveResponseSchema,
 	runtimePlansWriteAssetRequestSchema,
 	runtimePlansWriteAssetResponseSchema,
+	runtimePlansWriteBackupRequestSchema,
+	runtimePlansWriteBackupResponseSchema,
 	runtimePlansWriteRequestSchema,
 	runtimePlansWriteResponseSchema,
 	runtimePlansWriteSiblingRequestSchema,
@@ -671,6 +675,7 @@ export interface RuntimeTrpcContext {
 		read: (input: RuntimePlansReadRequest) => Promise<RuntimePlansReadResponse>;
 		write: (input: RuntimePlansWriteRequest) => Promise<RuntimePlansWriteResponse>;
 		writeSibling: (input: RuntimePlansWriteSiblingRequest) => Promise<RuntimePlansWriteSiblingResponse>;
+		writeBackup: (input: RuntimePlansWriteBackupRequest) => Promise<RuntimePlansWriteBackupResponse>;
 		writeAsset: (input: RuntimePlansWriteAssetRequest) => Promise<RuntimePlansWriteAssetResponse>;
 	};
 	hooksApi: {
@@ -1298,6 +1303,12 @@ export const runtimeAppRouter = t.router({
 			.output(runtimePlansWriteSiblingResponseSchema)
 			.mutation(async ({ ctx, input }) => {
 				return await ctx.plansApi.writeSibling(input);
+			}),
+		writeBackup: t.procedure
+			.input(runtimePlansWriteBackupRequestSchema)
+			.output(runtimePlansWriteBackupResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.plansApi.writeBackup(input);
 			}),
 		writeAsset: t.procedure
 			.input(runtimePlansWriteAssetRequestSchema)
