@@ -49,6 +49,24 @@ export function isPlanBackupFileName(name: string): boolean {
 	return /\.bak-\d+$/.test(basename(name, extname(name)));
 }
 
+/** `<stem>.html.src.md` extension, split out so the path and the filter agree by construction. */
+const PLAN_HTML_SOURCE_SUFFIX = ".html.src.md";
+
+/**
+ * `<stem>.html.src.md` as written by {@link writeSavedPlanHtmlSource}: the markdown that
+ * `<stem>.html` was generated from, which is what Refine diffs against. Excluded from folder
+ * import and the directory browser for the same reason as {@link isPlanBackupFileName} — it is
+ * bookkeeping for another file, not a plan somebody wants to open.
+ */
+export function isPlanHtmlSourceFileName(name: string): boolean {
+	return basename(name).toLowerCase().endsWith(PLAN_HTML_SOURCE_SUFFIX);
+}
+
+/** Auxiliary files that live beside a plan but must never be offered as one. */
+export function isPlanAuxiliaryFileName(name: string): boolean {
+	return isPlanBackupFileName(name) || isPlanHtmlSourceFileName(name);
+}
+
 async function pathExists(pathValue: string): Promise<boolean> {
 	try {
 		await access(pathValue);
@@ -144,7 +162,7 @@ export async function importPlansFromFolder(folderPath: string): Promise<{
 	const now = Date.now();
 
 	for (const dirEntry of dirEntries) {
-		if (!dirEntry.isFile() || !isPlanFileName(dirEntry.name) || isPlanBackupFileName(dirEntry.name)) {
+		if (!dirEntry.isFile() || !isPlanFileName(dirEntry.name) || isPlanAuxiliaryFileName(dirEntry.name)) {
 			continue;
 		}
 		const filePath = normalizeAbsolutePath(join(resolvedFolder, dirEntry.name));
@@ -232,6 +250,49 @@ export async function backupSavedPlan(planId: string): Promise<string> {
 	const content = await readFile(entry.path);
 	await writeFile(backupPath, content);
 	return backupPath;
+}
+
+function resolvePlanHtmlSourcePath(entry: SavedPlanEntry): string {
+	const parentDir = dirname(entry.path);
+	const sourcePath = normalizeAbsolutePath(join(parentDir, `${stemFromPath(entry.path)}${PLAN_HTML_SOURCE_SUFFIX}`));
+	if (!isPathWithinRoot(parentDir, sourcePath)) {
+		throw new Error("Access denied: HTML source path is outside the plan directory.");
+	}
+	return sourcePath;
+}
+
+/**
+ * Record the markdown that the plan's `<stem>.html` was generated from, as `<stem>.html.src.md`.
+ * Refine diffs the current markdown against this, so it has to survive a page reload — an
+ * in-memory ref does not, and a Refine with no base silently becomes a full regeneration.
+ *
+ * Deliberately NOT registered in the plan library (like {@link backupSavedPlan}): see
+ * {@link isPlanHtmlSourceFileName}.
+ */
+export async function writeSavedPlanHtmlSource(planId: string, content: string): Promise<string> {
+	const entry = await findSavedPlanById(planId);
+	if (!entry) {
+		throw new Error(`Plan "${planId}" was not found in the library.`);
+	}
+	const sourcePath = resolvePlanHtmlSourcePath(entry);
+	await writeFile(sourcePath, content, "utf8");
+	return sourcePath;
+}
+
+/** The recorded markdown for `<stem>.html`, or `null` when nothing has been recorded yet. */
+export async function readSavedPlanHtmlSource(planId: string): Promise<string | null> {
+	const entry = await findSavedPlanById(planId);
+	if (!entry) {
+		throw new Error(`Plan "${planId}" was not found in the library.`);
+	}
+	try {
+		return await readFile(resolvePlanHtmlSourcePath(entry), "utf8");
+	} catch (error) {
+		if (error && typeof error === "object" && "code" in error && (error as NodeJS.ErrnoException).code === "ENOENT") {
+			return null;
+		}
+		throw error;
+	}
 }
 
 async function resolveUniquePlanFileName(plansDir: string, baseName: string): Promise<string> {

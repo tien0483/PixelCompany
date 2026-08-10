@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { buildEditPrompt } from "@/lib/templates/build-edit-prompt";
+import { buildDiffEditPrompt, buildEditPrompt } from "@/lib/templates/build-edit-prompt";
 import { loadSkill } from "@/lib/templates/loader";
 import { assemblePrompt } from "@/lib/templates/shared";
 
@@ -13,6 +13,11 @@ type Body = {
   /** Prior HTML + prior content → diff-edit prompt instead of full assemble. */
   editFromHtml?: string;
   editFromContent?: string;
+  /**
+   * Prior HTML + a unified diff of the source document → the leaner diff-edit prompt. Preferred
+   * over `editFromContent`, which makes the model derive the delta from two full documents.
+   */
+  editDiff?: string;
 };
 
 /**
@@ -32,6 +37,7 @@ export async function POST(req: NextRequest) {
     format = "text",
     editFromHtml,
     editFromContent,
+    editDiff,
   } = body;
   if (!templateId || !content) {
     return new Response("missing required fields: templateId, content", {
@@ -44,7 +50,15 @@ export async function POST(req: NextRequest) {
   }
 
   const prompt =
-    editFromHtml && editFromContent
+    editFromHtml && editDiff
+      ? buildDiffEditPrompt({
+          templateName: skill.zhName,
+          templateAspect: skill.aspectHint,
+          diff: editDiff,
+          oldHtml: editFromHtml,
+          format,
+        })
+      : editFromHtml && editFromContent
       ? buildEditPrompt({
           templateName: skill.zhName,
           templateAspect: skill.aspectHint,

@@ -1,6 +1,6 @@
-// Standalone-package copies of the 5 REST/SSE handlers from `server/runtime-server.ts`
+// Standalone-package copies of the 6 REST/SSE handlers from `server/runtime-server.ts`
 // (`/api/html-proxy/*`, `/api/html/generate`, `/api/html/brief`, `/api/html/draft`,
-// `/api/plans/asset`).
+// `/api/plans/asset`, `/api/plans/<planId>/file/<rel>`).
 // Manager account pinning (`buildHtmlAgentPinInput`) is dropped entirely — the
 // standalone package has no Manager process, so `runAgentOneShot` runs with no
 // `pinInput`, which falls back to the caller's own logged-in Claude Code CLI session.
@@ -130,6 +130,7 @@ export async function tryHandlePlanEditorHtmlRoute(
 			format: input.format,
 			editFromHtml: input.editFromHtml,
 			editFromContent: input.editFromContent,
+			editDiff: input.editDiff,
 		});
 		if (!promptResult.ok) {
 			const { status, error } = describeHtmlPromptFailure(promptResult.failure);
@@ -330,6 +331,30 @@ export async function tryHandlePlanEditorHtmlRoute(
 			const asset = await readSavedPlanAsset(planId, relativePath);
 			res.writeHead(200, { "Content-Type": asset.contentType, "Cache-Control": "no-store" });
 			res.end(asset.content);
+		} catch {
+			res.writeHead(404, { "Content-Type": "application/json; charset=utf-8" });
+			res.end('{"error":"Not found"}');
+		}
+		return true;
+	}
+
+	// Path-style twin of `/api/plans/asset` (see `runtime-server.ts`): the HTML preview injects
+	// `<base href="/api/plans/<planId>/file/">`, because a `srcDoc` iframe resolves relative URLs
+	// against `about:srcdoc` and a query-string route cannot serve as a base URL. Without this
+	// route every relative `<img>` in a generated page 404s in the standalone package.
+	const planFileMatch = /^\/api\/plans\/([^/]+)\/file\/(.+)$/.exec(pathname);
+	if (planFileMatch) {
+		const planId = decodeURIComponent(planFileMatch[1] ?? "");
+		const relativePath = decodeURIComponent(planFileMatch[2] ?? "");
+		if (!planId || !relativePath) {
+			res.writeHead(400, { "Content-Type": "application/json; charset=utf-8" });
+			res.end('{"error":"Missing planId or path"}');
+			return true;
+		}
+		try {
+			const planFile = await readSavedPlanAsset(planId, relativePath);
+			res.writeHead(200, { "Content-Type": planFile.contentType, "Cache-Control": "no-store" });
+			res.end(planFile.content);
 		} catch {
 			res.writeHead(404, { "Content-Type": "application/json; charset=utf-8" });
 			res.end('{"error":"Not found"}');

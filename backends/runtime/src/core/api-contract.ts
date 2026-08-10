@@ -1260,6 +1260,12 @@ export const RuntimeHtmlGenerateRequestSchema = z.object({
 	planId: z.string().optional(),
 	editFromHtml: z.string().optional(),
 	editFromContent: z.string().optional(),
+	/**
+	 * Unified diff of the markdown requirement against the version the current HTML was
+	 * generated from. Refine sends this instead of `editFromContent` so the prompt carries the
+	 * delta rather than the whole requirement twice.
+	 */
+	editDiff: z.string().optional(),
 	managerAccountId: z.number().int().positive().optional(),
 });
 export type RuntimeHtmlGenerateRequest = z.infer<typeof RuntimeHtmlGenerateRequestSchema>;
@@ -1545,6 +1551,37 @@ export const runtimePlansWriteBackupResponseSchema = z.object({
 	error: z.string().optional(),
 });
 export type RuntimePlansWriteBackupResponse = z.infer<typeof runtimePlansWriteBackupResponseSchema>;
+
+/**
+ * The markdown a plan's generated `<stem>.html` came from, stored as `<stem>.html.src.md`.
+ * Refine diffs the current markdown against it, which is why it is a file rather than
+ * in-memory state: the base has to survive a reload.
+ */
+export const runtimePlansHtmlSourceRequestSchema = z.object({
+	planId: z.string(),
+});
+export type RuntimePlansHtmlSourceRequest = z.infer<typeof runtimePlansHtmlSourceRequestSchema>;
+
+export const runtimePlansReadHtmlSourceResponseSchema = z.object({
+	ok: z.boolean(),
+	/** `null` when nothing has been recorded for this plan yet — not an error. */
+	content: z.string().nullable(),
+	error: z.string().optional(),
+});
+export type RuntimePlansReadHtmlSourceResponse = z.infer<typeof runtimePlansReadHtmlSourceResponseSchema>;
+
+export const runtimePlansWriteHtmlSourceRequestSchema = z.object({
+	planId: z.string(),
+	content: z.string(),
+});
+export type RuntimePlansWriteHtmlSourceRequest = z.infer<typeof runtimePlansWriteHtmlSourceRequestSchema>;
+
+export const runtimePlansWriteHtmlSourceResponseSchema = z.object({
+	ok: z.boolean(),
+	path: z.string().nullable(),
+	error: z.string().optional(),
+});
+export type RuntimePlansWriteHtmlSourceResponse = z.infer<typeof runtimePlansWriteHtmlSourceResponseSchema>;
 
 /** ~10 MB of image bytes, expressed as a base64 character-count ceiling (4/3 expansion). */
 export const PLAN_ASSET_MAX_BASE64_LENGTH = 14_000_000;

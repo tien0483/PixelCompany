@@ -736,6 +736,7 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 					format: input.format,
 					editFromHtml: input.editFromHtml,
 					editFromContent: input.editFromContent,
+					editDiff: input.editDiff,
 				});
 				if (!promptResult.ok) {
 					const { status, error } = describeHtmlPromptFailure(promptResult.failure);

@@ -20,15 +20,21 @@ import {
 	runtimePlansCreateResponseSchema,
 	runtimePlansImportFileRequestSchema,
 	runtimePlansImportFileResponseSchema,
+	runtimePlansHtmlSourceRequestSchema,
 	runtimePlansImportFromFolderRequestSchema,
 	runtimePlansImportFromFolderResponseSchema,
 	runtimePlansListResponseSchema,
+	runtimePlansReadHtmlSourceResponseSchema,
 	runtimePlansReadRequestSchema,
 	runtimePlansReadResponseSchema,
 	runtimePlansRemoveRequestSchema,
 	runtimePlansRemoveResponseSchema,
 	runtimePlansWriteAssetRequestSchema,
 	runtimePlansWriteAssetResponseSchema,
+	runtimePlansWriteBackupRequestSchema,
+	runtimePlansWriteBackupResponseSchema,
+	runtimePlansWriteHtmlSourceRequestSchema,
+	runtimePlansWriteHtmlSourceResponseSchema,
 	runtimePlansWriteRequestSchema,
 	runtimePlansWriteResponseSchema,
 	runtimePlansWriteSiblingRequestSchema,
@@ -41,7 +47,7 @@ import {
 import { parseDirectoryListRequest } from "../core/api-validation";
 import type { HtmlClient } from "../html/html-client";
 import { pickDirectoryPathFromSystemDialog } from "../server/directory-picker";
-import { isPlanFileName } from "../state/saved-plans";
+import { isPlanAuxiliaryFileName, isPlanFileName } from "../state/saved-plans";
 import type { RuntimeTrpcContext } from "../trpc/app-router";
 import { createHtmlApi } from "../trpc/html-api";
 import { createPlansApi } from "../trpc/plans-api";
@@ -119,7 +125,9 @@ function createPlanEditorProjectsApi(serverCwd: string): PlanEditorTrpcContext["
 				const dirEntries = await readdir(resolvedPath, { withFileTypes: true });
 				const directoryEntries = dirEntries.filter((entry) => entry.isDirectory());
 				const planFileEntries = body.includeFiles
-					? dirEntries.filter((entry) => entry.isFile() && isPlanFileName(entry.name))
+					? dirEntries.filter(
+							(entry) => entry.isFile() && isPlanFileName(entry.name) && !isPlanAuxiliaryFileName(entry.name),
+						)
 					: [];
 
 				directoryEntries.sort((a, b) => a.name.localeCompare(b.name));
@@ -235,6 +243,26 @@ export const planEditorRouter = t.router({
 			.output(runtimePlansWriteSiblingResponseSchema)
 			.mutation(async ({ ctx, input }) => {
 				return await ctx.plansApi.writeSibling(input);
+			}),
+		// Brief expansion backs the plan up before it rewrites it, unconditionally — without
+		// this procedure every compliant Expand response died here on "no such procedure".
+		writeBackup: t.procedure
+			.input(runtimePlansWriteBackupRequestSchema)
+			.output(runtimePlansWriteBackupResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.plansApi.writeBackup(input);
+			}),
+		readHtmlSource: t.procedure
+			.input(runtimePlansHtmlSourceRequestSchema)
+			.output(runtimePlansReadHtmlSourceResponseSchema)
+			.query(async ({ ctx, input }) => {
+				return await ctx.plansApi.readHtmlSource(input);
+			}),
+		writeHtmlSource: t.procedure
+			.input(runtimePlansWriteHtmlSourceRequestSchema)
+			.output(runtimePlansWriteHtmlSourceResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.plansApi.writeHtmlSource(input);
 			}),
 		writeAsset: t.procedure
 			.input(runtimePlansWriteAssetRequestSchema)
