@@ -152,7 +152,7 @@ export type AgentParse =
   /**
    * Canonical HTML rescued from a file-write tool call (e.g. Claude's `Write`
    * tool). Replaces any previously streamed text — the preamble like
-   * "I'll save it as output.html\n已输出至 …" is junk; the tool's input is the
+   * "I'll save it as output.html\nWritten to …" is junk; the tool's input is the
    * real HTML. Downstream calls `setHtmlFor`, not `appendHtmlFor`.
    */
   | { kind: "html"; text: string }
@@ -197,7 +197,7 @@ export function parseLine(agent: string, line: string): AgentParse[] {
 /**
  * Some agents (Claude + bypassPermissions, qoder, …) ignore the "stream HTML
  * inline" prompt and decide to dump the document into a file via the `Write`
- * tool, leaving the assistant text as just a confirmation ("已输出至 …").
+ * tool, leaving the assistant text as just a confirmation ("Written to …").
  * Rescue the HTML from the tool_use input so the preview still gets the real
  * content. Returns an empty string if no Write/create_file tool_use was found
  * or its input has no usable content field.

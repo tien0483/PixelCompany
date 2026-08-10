@@ -1,5 +1,5 @@
 /**
- * Tests for the Bilibili 专栏 HTML sanitizer. The sanitizer runs in a real
+ * Tests for the Bilibili column HTML sanitizer. The sanitizer runs in a real
  * (happy-dom) browser-like environment so it exercises the actual DOMParser
  * + Element APIs the production code uses. Each test parses the cleaned
  * output back through DOMParser and asserts on the resulting tree shape.

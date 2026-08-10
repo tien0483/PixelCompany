@@ -56,7 +56,7 @@ export function useConvert() {
       const summary = summarizeForAgent(inlinedContent);
       const enrichedContent =
         summary.preview && summary.format !== "markdown" && summary.format !== "html" && summary.format !== "text"
-          ? `${summary.preview}\n\n--- 原始内容 ---\n${summary.raw}`
+          ? `${summary.preview}\n\n--- Raw content ---\n${summary.raw}`
           : summary.raw;
 
       const useModel = req.model && req.model !== "default" ? req.model : undefined;

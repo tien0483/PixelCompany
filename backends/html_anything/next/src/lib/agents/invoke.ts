@@ -161,7 +161,7 @@ export function invokeAgent(opts: InvokeOpts): ReadableStream<InvokeEvent> {
         // On Windows, `spawn` cannot launch a `.cmd` / `.bat` shim (which is
         // what npm installs for most CLI agents) without going through the
         // shell. Without this, every agent invocation fails with
-        // EINVAL / "spawn 无效的参数". macOS/Linux use direct exec.
+        // EINVAL / "spawn invalid argument". macOS/Linux use direct exec.
         // Safety: prompt content is delivered via stdin or `--message
         // <text>` (argv-message), not interpolated into a shell command,
         // so this does not introduce a shell-injection vector.
