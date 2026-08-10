@@ -1323,6 +1323,12 @@ export default function App(): ReactElement {
 						>
 							{editingPlan ? (
 								<PlanEditorView
+									// Load-bearing: this key forces a full remount on every plan switch.
+									// PlanEditorView's internal state (brief/generated-HTML refs, in-flight
+									// SSE streams, autosave timers) is keyed to the component instance, not
+									// to the `plan` prop, so a same-instance prop swap would leak a
+									// previous plan's brief/HTML into the new plan's file. Do not remove.
+									key={editingPlan.id}
 									plan={editingPlan}
 									workspaceId={currentProjectId}
 									onClose={() => setEditingPlan(null)}

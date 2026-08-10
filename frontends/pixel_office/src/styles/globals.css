@@ -1398,6 +1398,137 @@ body.kb-dependency-link-mode {
 	margin-top: 0.5em;
 }
 
+/* -- Rich prose formatting (plan editor + plan preview) -- */
+/* Mirrors the Tailwind utility classes markdownComponents applies to chat
+   markdown (cline-markdown-content.tsx), but as plain CSS scoped to
+   .kb-prose since TipTap emits bare tags with no per-element classes. */
+
+.kb-prose h1,
+.kb-prose h2 {
+	margin-top: 0.75rem;
+	font-size: 1rem;
+	line-height: 1.5rem;
+	font-weight: 600;
+	color: var(--color-text-primary);
+}
+
+.kb-prose h3,
+.kb-prose h4,
+.kb-prose h5,
+.kb-prose h6 {
+	margin-top: 0.5rem;
+	font-size: 0.875rem;
+	line-height: 1.25rem;
+	font-weight: 600;
+	color: var(--color-text-primary);
+}
+
+.kb-prose p {
+	font-size: 0.875rem;
+	line-height: 1.375;
+	color: var(--color-text-primary);
+}
+
+.kb-prose ul {
+	list-style: disc;
+	padding-left: 1.25rem;
+}
+
+.kb-prose ol {
+	list-style: decimal;
+	padding-left: 1.25rem;
+}
+
+.kb-prose li {
+	font-size: 0.875rem;
+	color: var(--color-text-primary);
+	line-height: 1.375;
+}
+
+.kb-prose ul ul,
+.kb-prose ul ol,
+.kb-prose ol ul,
+.kb-prose ol ol {
+	margin-top: 0.25rem;
+	margin-bottom: 0.25rem;
+}
+
+.kb-prose blockquote {
+	border-left: 2px solid var(--color-border-bright);
+	padding-left: 0.75rem;
+	font-size: 0.875rem;
+	color: var(--color-text-secondary);
+}
+
+.kb-prose hr {
+	border: none;
+	border-top: 1px solid var(--color-border);
+	margin: 0.75rem 0;
+}
+
+.kb-prose a {
+	color: var(--color-accent-2);
+	text-decoration: underline;
+}
+
+.kb-prose code {
+	border-radius: var(--radius-md);
+	background: var(--color-surface-2);
+	padding: 0.125rem 0.25rem;
+	font-family: var(--font-mono);
+	font-size: 0.75rem;
+}
+
+.kb-prose pre {
+	overflow-x: auto;
+	border-radius: var(--radius-md);
+	border: 1px solid var(--color-border);
+	background: var(--color-surface-1);
+	padding: 0.375rem 0.5rem;
+}
+
+.kb-prose pre code {
+	background: transparent;
+	padding: 0;
+	border-radius: 0;
+	font-size: 0.75rem;
+}
+
+.kb-prose table {
+	border-collapse: collapse;
+	width: 100%;
+}
+
+.kb-prose th,
+.kb-prose td {
+	border: 1px solid var(--color-border);
+	padding: 0.375rem 0.5rem;
+	font-size: 0.875rem;
+	text-align: left;
+}
+
+.kb-prose img {
+	max-width: 100%;
+	border-radius: var(--radius-md);
+	border: 1px solid var(--color-border);
+}
+
+.kb-prose img.ProseMirror-selectednode {
+	outline: 2px solid var(--color-accent);
+}
+
+.kb-prose .ProseMirror {
+	outline: none;
+}
+
+.kb-prose p.is-editor-empty:first-child::before {
+	content: attr(data-placeholder);
+	float: left;
+	height: 0;
+	pointer-events: none;
+	color: var(--color-text-secondary);
+}
+
 /* -- Mobile: prevent Safari auto-zoom on input focus -- */
 
 @media (max-width: 768px) {

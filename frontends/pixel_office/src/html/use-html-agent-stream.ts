@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 export type HtmlStreamStatus = "idle" | "running" | "done" | "error";
 
@@ -58,6 +58,18 @@ export function useHtmlAgentStream<TRequest>(endpoint: string) {
 		abortRef.current?.abort();
 		abortRef.current = null;
 		setState((prev) => ({ ...prev, status: "idle" }));
+	}, []);
+
+	/**
+	 * Full teardown for a plan switch: abort any in-flight request and drop back to
+	 * the pristine initial state. Unlike `cancel()`, this also clears `text`/`status`
+	 * so a stale "done" stream from the previous plan can't be mistaken for the new
+	 * plan's content when the completion effects re-fire.
+	 */
+	const reset = useCallback(() => {
+		abortRef.current?.abort();
+		abortRef.current = null;
+		setState(INITIAL);
 	}, []);
 
 	const run = useCallback(
@@ -183,7 +195,18 @@ export function useHtmlAgentStream<TRequest>(endpoint: string) {
 		[endpoint],
 	);
 
-	return { ...state, run, cancel };
+	// `key={editingPlan.id}` on the owning `PlanEditorView` means a plan switch
+	// unmounts this hook's instance rather than re-rendering it with a new `plan.id` —
+	// so `reset()`'s abort-in-flight-request behavior is never reached on a live plan
+	// switch unless something aborts here too. Without this, the fetch keeps running
+	// server-side with nobody listening to its result after the component is gone.
+	useEffect(() => {
+		return () => {
+			abortRef.current?.abort();
+		};
+	}, []);
+
+	return { ...state, run, cancel, reset };
 }
 
 /** Template → single-file HTML document. */

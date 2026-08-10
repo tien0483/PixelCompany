@@ -42,6 +42,7 @@ describe("pickDirectoryPathFromSystemDialog", () => {
 		const selectedPath = await pickDirectoryPathFromSystemDialog({
 			platform: "linux",
 			cwd: "/tmp",
+			env: { DISPLAY: ":0" },
 			runCommand: createRunCommand(
 				{
 					zenity: createSpawnResult({
@@ -75,6 +76,7 @@ describe("pickDirectoryPathFromSystemDialog", () => {
 		const commands: RecordedCommand[] = [];
 		const selectedPath = await pickDirectoryPathFromSystemDialog({
 			platform: "linux",
+			env: { DISPLAY: ":0" },
 			runCommand: createRunCommand(
 				{
 					zenity: createSpawnResult({
@@ -94,11 +96,52 @@ describe("pickDirectoryPathFromSystemDialog", () => {
 		]);
 	});
 
+	it("skips zenity/kdialog outright when no DISPLAY or WAYLAND_DISPLAY is set", async () => {
+		const commands: RecordedCommand[] = [];
+		await expect(
+			pickDirectoryPathFromSystemDialog({
+				platform: "linux",
+				env: {},
+				runCommand: createRunCommand(
+					{
+						zenity: createSpawnResult({ stdout: "/tmp/should-not-be-reached\n" }),
+						kdialog: createSpawnResult({ stdout: "/tmp/should-not-be-reached\n" }),
+					},
+					commands,
+				),
+			}),
+		).rejects.toThrow('Could not open directory picker. Install "zenity" or "kdialog" and try again.');
+		expect(commands).toEqual([]);
+	});
+
+	it("attempts zenity when WAYLAND_DISPLAY is set even without DISPLAY", async () => {
+		const commands: RecordedCommand[] = [];
+		const selectedPath = await pickDirectoryPathFromSystemDialog({
+			platform: "linux",
+			env: { WAYLAND_DISPLAY: "wayland-0" },
+			runCommand: createRunCommand(
+				{
+					zenity: createSpawnResult({ stdout: "/tmp/my-repo\n" }),
+				},
+				commands,
+			),
+		});
+
+		expect(selectedPath).toBe("/tmp/my-repo");
+		expect(commands).toEqual([
+			{
+				command: "zenity",
+				args: ["--file-selection", "--directory", "--title=Select project folder"],
+			},
+		]);
+	});
+
 	it("throws a clear error when no linux picker commands are installed", async () => {
 		const commands: RecordedCommand[] = [];
 		await expect(
 			pickDirectoryPathFromSystemDialog({
 				platform: "linux",
+				env: { DISPLAY: ":0" },
 				runCommand: createRunCommand(
 					{
 						zenity: createSpawnResult({
@@ -124,6 +167,7 @@ describe("pickDirectoryPathFromSystemDialog", () => {
 		await expect(
 			pickDirectoryPathFromSystemDialog({
 				platform: "linux",
+				env: { DISPLAY: ":0" },
 				runCommand: createRunCommand(
 					{
 						zenity: createSpawnResult({

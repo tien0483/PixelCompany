@@ -24,6 +24,7 @@ interface PickDirectoryPathFromSystemDialogOptions {
 	platform?: NodeJS.Platform;
 	cwd?: string;
 	runCommand?: RunCommand;
+	env?: NodeJS.ProcessEnv;
 }
 
 const WINDOWS_DIRECTORY_PICKER_SCRIPT = [
@@ -132,6 +133,7 @@ export async function pickDirectoryPathFromSystemDialog(
 	const platform = options.platform ?? process.platform;
 	const cwd = options.cwd ?? process.cwd();
 	const runCommand = options.runCommand ?? defaultRunCommand;
+	const env = options.env ?? process.env;
 
 	if (platform === "darwin") {
 		const result = await runDirectoryPickerCommand(
@@ -151,6 +153,14 @@ export async function pickDirectoryPathFromSystemDialog(
 	}
 
 	if (platform === "linux") {
+		// A headless runtime (e.g. WSL2 without WSLg) has no DISPLAY/WAYLAND_DISPLAY, so zenity/kdialog
+		// can never draw a window even if installed — spawning them would just hang the caller waiting
+		// on a dialog that will never appear. Skip straight to the same "unavailable" outcome used below
+		// when zenity/kdialog themselves are missing, so the frontend falls back instantly.
+		if (!env.DISPLAY && !env.WAYLAND_DISPLAY) {
+			throw new Error('Could not open directory picker. Install "zenity" or "kdialog" and try again.');
+		}
+
 		const candidates: DirectoryPickerCommandCandidate[] = [
 			{
 				command: "zenity",

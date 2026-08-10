@@ -56,7 +56,7 @@ import {
 import { findSavedPlanById, readSavedPlanAsset, resolvePlanImageAssets } from "../state/saved-plans";
 import { loadWorkspaceContextById, loadWorkspaceState } from "../state/workspace-state";
 import { runAgentOneShot } from "../terminal/agent-oneshot";
-import { resolveHtmlAgentCwd, resolveHtmlAllowedTools } from "../html/html-agent-args";
+import { HTML_NO_TOOLS, resolveHtmlAgentCwd, resolveHtmlAllowedTools } from "../html/html-agent-args";
 import type { TerminalSessionManager } from "../terminal/session-manager";
 import { createTerminalWebSocketBridge } from "../terminal/ws-server";
 import { type RuntimeTrpcContext, type RuntimeTrpcWorkspaceScope, runtimeAppRouter } from "../trpc/app-router";
@@ -294,6 +294,17 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 	});
 
 	/**
+	 * Watchdog shared by every one-shot HTML agent route (`/api/html/brief` and
+	 * `/api/html/generate`). Cancels a run that goes quiet (a stray permission
+	 * prompt the one-shot `-p` process cannot answer) and puts a hard ceiling on
+	 * the whole request regardless of output. Both routes share one constant pair
+	 * rather than duplicating the numbers, since both hang for the exact same
+	 * reason: a `-p` run has no UI to answer a permission prompt with.
+	 */
+	const HTML_AGENT_IDLE_TIMEOUT_MS = 120_000;
+	const HTML_AGENT_HARD_TIMEOUT_MS = 10 * 60_000;
+
+	/**
 	 * Which images the brief pass may open, and where to run it.
 	 *
 	 * Generation gets its cwd from `resolveHtmlAgentCwd` and its Read grant from
@@ -304,14 +315,14 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 	const resolveBriefPlanContext = async (
 		planId: string,
 		content: string,
-	): Promise<{ cwd?: string; assetPaths: string[] }> => {
+	): Promise<{ cwd?: string; assetPaths: string[]; unresolvedLinks: string[] }> => {
 		try {
-			const { planDir, assetPaths } = await resolvePlanImageAssets(planId, content);
-			return { cwd: planDir, assetPaths };
+			const { planDir, assetPaths, unresolvedLinks } = await resolvePlanImageAssets(planId, content);
+			return { cwd: planDir, assetPaths, unresolvedLinks };
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
 			deps.warn(`Brief expansion could not resolve plan ${planId}: ${message}`);
-			return { assetPaths: [] };
+			return { assetPaths: [], unresolvedLinks: [] };
 		}
 	};
 
@@ -743,7 +754,15 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 				// still answer with JSON instead of corrupting the stream.
 				const plan = input.planId ? await findSavedPlanById(input.planId).catch(() => null) : null;
 				const agentCwd = resolveHtmlAgentCwd({ cwd: input.cwd, planPath: plan?.path });
-				const allowedTools = resolveHtmlAllowedTools(promptResult.value.template.allowRead);
+				// Same reasoning as the brief route: a one-shot `-p` run has no UI to
+				// answer a permission prompt, so the grant is explicit — and falls back
+				// to HTML_NO_TOOLS rather than undefined when the template didn't declare
+				// `allow_read`, so --allowedTools is always present on the command line
+				// instead of leaving the run to hang on a stray permission prompt.
+				const allowedTools = resolveHtmlAllowedTools(
+					promptResult.value.template.allowRead,
+					HTML_NO_TOOLS,
+				);
 
 				res.writeHead(200, {
 					"Content-Type": "text/event-stream; charset=utf-8",
@@ -765,6 +784,12 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 					cwd: agentCwd,
 					model: input.model,
 					allowedTools,
+					// Watchdog for the same stall class the brief route guards against: a
+					// stray permission prompt (or a template whose --allowedTools grant
+					// still leaves an opening for one) has no UI to answer it, and without
+					// a timeout it would hang the SSE stream until the client gives up.
+					idleTimeoutMs: HTML_AGENT_IDLE_TIMEOUT_MS,
+					timeoutMs: HTML_AGENT_HARD_TIMEOUT_MS,
 					signal: abortCtl.signal,
 					onEvent: (event) => {
 						send(event.type, event);
@@ -813,6 +838,7 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 						promptMasterBody: await loadPromptMasterBody(),
 						content: input.content,
 						assetPaths: planContext.assetPaths,
+						unresolvedLinks: planContext.unresolvedLinks,
 						...(input.templateId ? { templateId: input.templateId } : {}),
 					});
 				} catch (error) {
@@ -843,8 +869,16 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 					model: input.model,
 					// Same reasoning as a template's `allow_read`: a one-shot `-p` run has
 					// no UI to answer a permission prompt, so the grant is explicit — and
-					// only when there is actually an image to open.
-					allowedTools: resolveHtmlAllowedTools(briefAssetCount > 0),
+					// falls back to HTML_NO_TOOLS rather than undefined when there is no
+					// image to open, so --allowedTools is always present on the command
+					// line and a stray tool call is denied fast instead of prompting.
+					allowedTools: resolveHtmlAllowedTools(briefAssetCount > 0, HTML_NO_TOOLS),
+					// Watchdog for the stall this route exists to prevent: a plan whose
+					// image link cannot be resolved still shows the model an `![](…)`
+					// link in the prompt text, and without a timeout a stray permission
+					// prompt would hang the SSE stream until the client gives up.
+					idleTimeoutMs: HTML_AGENT_IDLE_TIMEOUT_MS,
+					timeoutMs: HTML_AGENT_HARD_TIMEOUT_MS,
 					signal: abortCtl.signal,
 					onEvent: (event) => {
 						send(event.type, event);

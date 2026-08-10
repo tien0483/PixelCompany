@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { PlanEditorView } from "@/components/plan-editor/plan-editor-view";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { HTML_LABELS } from "@/html/html-labels";
 import type { RuntimeSavedPlan } from "@/runtime/types";
 
 const mockReadQuery = vi.fn();
@@ -30,8 +31,9 @@ vi.mock("@/runtime/trpc-client", () => ({
 	}),
 }));
 
+const mockShowAppToast = vi.fn();
 vi.mock("@/components/app-toaster", () => ({
-	showAppToast: vi.fn(),
+	showAppToast: (...args: unknown[]) => mockShowAppToast(...args),
 }));
 
 vi.mock("@/components/plan-editor/plan-rich-editor", () => ({
@@ -58,6 +60,13 @@ const HTML_PLAN: RuntimeSavedPlan = {
 	id: "plan-html",
 	name: "roadmap",
 	path: "/tmp/roadmap.html",
+	addedAt: 0,
+};
+
+const PLAN2: RuntimeSavedPlan = {
+	id: "plan-2",
+	name: "plan-2",
+	path: "/tmp/plan-2.md",
 	addedAt: 0,
 };
 
@@ -112,7 +121,13 @@ describe("PlanEditorView", () => {
 		return act(async () => {
 			root.render(
 				<TooltipProvider>
-					<PlanEditorView plan={plan} workspaceId="workspace-1" onClose={() => {}} />
+					{/*
+					 * `key={plan.id}` mirrors the real App.tsx render call (`key={editingPlan.id}`,
+					 * task 3c) — in production a plan switch always remounts, so the regression test
+					 * for the cross-plan leak should exercise that same remount rather than a bare
+					 * prop swap on a surviving instance, which is not a shape the shipped app produces.
+					 */}
+					<PlanEditorView key={plan.id} plan={plan} workspaceId="workspace-1" onClose={() => {}} />
 				</TooltipProvider>,
 			);
 		});
@@ -126,7 +141,9 @@ describe("PlanEditorView", () => {
 			Promise.resolve(
 				planId === HTML_SIBLING.id
 					? { ok: true, plan: HTML_SIBLING, content: "<h1>Generated</h1>" }
-					: { ok: true, plan: PLAN, content: "# Roadmap\n" },
+					: planId === PLAN2.id
+						? { ok: true, plan: PLAN2, content: "# Plan 2\n" }
+						: { ok: true, plan: PLAN, content: "# Roadmap\n" },
 			),
 		);
 		mockWriteMutate.mockReset().mockResolvedValue({ ok: true, plan: PLAN });
@@ -135,6 +152,7 @@ describe("PlanEditorView", () => {
 		mockListQuery.mockReset().mockResolvedValue({ ok: true, plans: [PLAN] });
 		mockHtmlStatusQuery.mockReset().mockResolvedValue({ online: false });
 		mockHtmlTemplatesQuery.mockReset().mockResolvedValue([]);
+		mockShowAppToast.mockReset();
 	});
 
 	afterEach(() => {
@@ -200,6 +218,37 @@ describe("PlanEditorView", () => {
 		expect(mockWriteMutate).toHaveBeenCalledWith({ planId: "plan-1", content: "# Roadmap\n\nUpdated" });
 	});
 
+	it("recovers autosave after a single failed save instead of getting stuck", async () => {
+		await render(PLAN);
+		await flush();
+		await waitFor(() => container.textContent?.includes("Saved") === true, "saved status");
+
+		mockWriteMutate.mockRejectedValueOnce(new Error("disk full"));
+
+		await act(async () => {
+			setTextareaValue(getTextarea(container), "# Roadmap\n\nFirst edit");
+		});
+		await act(async () => {
+			await new Promise((resolveWait) => setTimeout(resolveWait, 600));
+		});
+		expect(mockWriteMutate).toHaveBeenCalledWith({ planId: "plan-1", content: "# Roadmap\n\nFirst edit" });
+		await waitFor(() => container.textContent?.includes("disk full") === true, "error status");
+
+		mockWriteMutate.mockResolvedValue({ ok: true, plan: PLAN });
+
+		// The bug: once `status` flips to "error" after a failed *save*, every later
+		// `updateContent` call must still reach the write mutation on the next keystroke
+		// — a failed autosave must not permanently block future saves.
+		await act(async () => {
+			setTextareaValue(getTextarea(container), "# Roadmap\n\nSecond edit");
+		});
+		await act(async () => {
+			await new Promise((resolveWait) => setTimeout(resolveWait, 600));
+		});
+
+		expect(mockWriteMutate).toHaveBeenCalledWith({ planId: "plan-1", content: "# Roadmap\n\nSecond edit" });
+	});
+
 	it("wraps the selection in bold markers via the raw-pane toolbar", async () => {
 		await render(PLAN);
 		await flush();
@@ -247,6 +296,18 @@ describe("PlanEditorView", () => {
 				start(controller) {
 					const encoder = new TextEncoder();
 					controller.enqueue(encoder.encode(`event: delta\ndata: ${JSON.stringify({ text })}\n\n`));
+					controller.enqueue(encoder.encode(`event: done\ndata: ${JSON.stringify({ code: 0 })}\n\n`));
+					controller.close();
+				},
+			});
+			return new Response(body, { status: 200 });
+		}
+
+		/** `done` with no preceding `delta` at all — a stream that produced nothing. */
+		function emptyStreamResponse(): Response {
+			const body = new ReadableStream<Uint8Array>({
+				start(controller) {
+					const encoder = new TextEncoder();
 					controller.enqueue(encoder.encode(`event: done\ndata: ${JSON.stringify({ code: 0 })}\n\n`));
 					controller.close();
 				},
@@ -329,6 +390,111 @@ describe("PlanEditorView", () => {
 			expect(value.indexOf("# Roadmap")).toBeLessThan(value.indexOf("# Brief"));
 		});
 
+		it("surfaces an error toast instead of a silent no-op when the brief finishes empty", async () => {
+			fetchMock.mockImplementation(() => Promise.resolve(emptyStreamResponse()));
+			await render(PLAN);
+			await flush();
+			await waitFor(() => !getButton("plan-html-brief-run").disabled, "enabled expand");
+
+			await act(async () => {
+				getButton("plan-html-brief-run").click();
+			});
+			await waitFor(
+				() => mockShowAppToast.mock.calls.some((call) => call[0]?.message === HTML_LABELS.expandEmpty),
+				"empty-brief toast",
+			);
+
+			expect(mockShowAppToast).toHaveBeenCalledWith({ intent: "danger", message: HTML_LABELS.expandEmpty });
+			expect(getTextarea(container).value).toBe("# Roadmap\n");
+		});
+
+		it("surfaces an error toast instead of a silent no-op when generation finishes empty", async () => {
+			fetchMock.mockImplementation(() => Promise.resolve(emptyStreamResponse()));
+			await render(PLAN);
+			await flush();
+			await waitFor(() => !getButton("plan-html-generate-run").disabled, "loaded templates");
+
+			await act(async () => {
+				getButton("plan-html-generate-run").click();
+			});
+			await waitFor(
+				() => mockShowAppToast.mock.calls.some((call) => call[0]?.message === HTML_LABELS.generateEmpty),
+				"empty-generate toast",
+			);
+
+			expect(mockShowAppToast).toHaveBeenCalledWith({ intent: "danger", message: HTML_LABELS.generateEmpty });
+			expect(mockWriteSiblingMutate).not.toHaveBeenCalled();
+		});
+
+		it("does not leak a completed brief into the next plan after switching", async () => {
+			fetchMock.mockImplementation(() =>
+				Promise.resolve(streamResponse("# Brief\n\n## Goal\nShip it.")),
+			);
+			await render(PLAN);
+			await flush();
+			await waitFor(() => !getButton("plan-html-brief-run").disabled, "enabled expand");
+
+			await act(async () => {
+				getButton("plan-html-brief-run").click();
+			});
+			await waitFor(
+				() => getTextarea(container).value.includes("## Goal"),
+				"brief appended to plan 1",
+			);
+
+			// `render()` applies `key={plan.id}` (see above), so this switch to PLAN2 is a
+			// key-driven remount — matching production, where App.tsx's own
+			// `key={editingPlan.id}` remounts PlanEditorView on every plan switch.
+			await render(PLAN2);
+			await flush();
+			await waitFor(
+				() => getTextarea(container).value === "# Plan 2\n",
+				"plan 2 content loaded without the old brief",
+			);
+
+			expect(getTextarea(container).value).not.toContain("## Goal");
+
+			// Let any pending autosave fire so a leaked write would actually surface.
+			await act(async () => {
+				await new Promise((resolveWait) => setTimeout(resolveWait, 600));
+			});
+
+			expect(
+				mockWriteMutate.mock.calls.some(
+					(call) =>
+						(call[0] as { planId?: string; content?: string })?.planId === PLAN2.id &&
+						(call[0] as { content?: string })?.content?.includes("## Goal"),
+				),
+			).toBe(false);
+		});
+
+		it("does not write a generated-HTML sibling for the next plan using the old plan's HTML", async () => {
+			mockListQuery.mockResolvedValue({ ok: true, plans: [PLAN, HTML_SIBLING] });
+			fetchMock.mockImplementation(() => Promise.resolve(streamResponse("<h1>Old plan HTML</h1>")));
+			await render(PLAN);
+			await flush();
+			await waitFor(() => !getButton("plan-html-generate-run").disabled, "loaded templates");
+
+			await act(async () => {
+				getButton("plan-html-generate-run").click();
+			});
+			await waitFor(
+				() => mockWriteSiblingMutate.mock.calls.length > 0,
+				"sibling written for plan 1",
+			);
+			mockWriteSiblingMutate.mockClear();
+
+			await render(PLAN2);
+			await flush();
+			await waitFor(
+				() => getTextarea(container).value === "# Plan 2\n",
+				"plan 2 content loaded without the old HTML",
+			);
+
+			expect(mockWriteSiblingMutate).not.toHaveBeenCalled();
+			expect(container.querySelector('[data-testid="plan-editor-html-preview"]')).toBeNull();
+		});
+
 		it("expands even while the template sidecar is offline", async () => {
 			mockHtmlStatusQuery.mockResolvedValue({ online: false });
 			mockHtmlTemplatesQuery.mockResolvedValue([]);
@@ -337,6 +503,37 @@ describe("PlanEditorView", () => {
 
 			expect(getButton("plan-html-brief-run").disabled).toBe(false);
 			expect(getButton("plan-html-generate-run").disabled).toBe(true);
+		});
+
+		it("aborts an in-flight generate request when the editor unmounts mid-stream", async () => {
+			let capturedSignal: AbortSignal | undefined;
+			fetchMock.mockImplementation((_url: string, init: RequestInit) => {
+				capturedSignal = init.signal as AbortSignal;
+				// A stream that never enqueues or closes — stands in for a request still
+				// running server-side when the plan switch (or close) unmounts this component.
+				const body = new ReadableStream<Uint8Array>({ start() {} });
+				return Promise.resolve(new Response(body, { status: 200 }));
+			});
+			await render(PLAN);
+			await flush();
+			await waitFor(() => !getButton("plan-html-generate-run").disabled, "loaded templates");
+
+			await act(async () => {
+				getButton("plan-html-generate-run").click();
+			});
+			await flush();
+
+			expect(capturedSignal).toBeDefined();
+			expect(capturedSignal?.aborted).toBe(false);
+
+			// Regression: with `key={editingPlan.id}` (App.tsx) remounting PlanEditorView on
+			// every plan switch, `reset()`'s abort never runs on a live switch — only an
+			// unmount-time abort inside the hook itself catches this in-flight request.
+			await act(async () => {
+				root.unmount();
+			});
+
+			expect(capturedSignal?.aborted).toBe(true);
 		});
 	});
 
@@ -353,5 +550,30 @@ describe("PlanEditorView", () => {
 		expect(container.querySelector('[data-testid="plan-rich-editor"]')).toBeNull();
 		expect(container.querySelector('[data-testid="plan-html-generate-bar"]')).toBeNull();
 		expect(getHtmlSwitchButton(container).disabled).toBe(true);
+	});
+
+	it("shows an empty-file hint in the rendered pane when the successfully-loaded document is empty", async () => {
+		mockReadQuery.mockResolvedValue({ ok: true, plan: PLAN, content: "" });
+		await render(PLAN);
+		await flush();
+		await waitFor(
+			() => container.textContent?.includes("This plan file is empty.") === true,
+			"empty file message",
+		);
+
+		expect(container.querySelector('[data-testid="plan-rich-editor"]')).toBeNull();
+		expect(container.textContent).toContain("This plan file is empty.");
+
+		// Typing a character should dismiss the message by re-rendering the rich editor
+		await act(async () => {
+			setTextareaValue(getTextarea(container), "x");
+		});
+		// The rendered pane debounces for 250ms, so wait for it to catch up
+		await act(async () => {
+			await new Promise((resolveWait) => setTimeout(resolveWait, 300));
+		});
+
+		expect(container.querySelector('[data-testid="plan-rich-editor"]')).not.toBeNull();
+		expect(container.textContent?.includes("This plan file is empty.")).toBe(false);
 	});
 });

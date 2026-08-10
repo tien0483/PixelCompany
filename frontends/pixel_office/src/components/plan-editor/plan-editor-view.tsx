@@ -174,7 +174,12 @@ export function PlanEditorView({
 		savedHtmlRef.current = null;
 		lastGeneratedContentRef.current = null;
 		savedBriefRef.current = null;
-	}, [plan.id]);
+		// Without this, a stale "done" stream from the previous plan survives the
+		// switch and the completion effects below re-fire, writing plan A's brief/HTML
+		// into plan B's files.
+		brief.reset();
+		generate.reset();
+	}, [plan.id, brief.reset, generate.reset]);
 
 	// Rendered pane trails raw-pane typing so TipTap isn't rebuilt on every keystroke.
 	const [renderedMarkdown, setRenderedMarkdown] = useState(mdDoc.content);
@@ -314,7 +319,16 @@ export function PlanEditorView({
 	const briefStatus = brief.status;
 	const briefText = brief.text;
 	useEffect(() => {
-		if (briefStatus !== "done" || briefText.trim() === "") {
+		if (briefStatus !== "done") {
+			return;
+		}
+		if (briefText.trim() === "") {
+			if (savedBriefRef.current === briefText) {
+				return;
+			}
+			savedBriefRef.current = briefText;
+			setLogOpen(true);
+			showAppToast({ intent: "danger", message: HTML_LABELS.expandEmpty });
 			return;
 		}
 		if (savedBriefRef.current === briefText) {
@@ -338,7 +352,16 @@ export function PlanEditorView({
 	const generateStatus = generate.status;
 	const generatedHtml = generate.text;
 	useEffect(() => {
-		if (generateStatus !== "done" || generatedHtml.trim() === "") {
+		if (generateStatus !== "done") {
+			return;
+		}
+		if (generatedHtml.trim() === "") {
+			if (savedHtmlRef.current === generatedHtml) {
+				return;
+			}
+			savedHtmlRef.current = generatedHtml;
+			setLogOpen(true);
+			showAppToast({ intent: "danger", message: HTML_LABELS.generateEmpty });
 			return;
 		}
 		if (savedHtmlRef.current === generatedHtml) {
@@ -444,6 +467,13 @@ export function PlanEditorView({
 					<div className="kb-skeleton h-4 w-5/6" />
 					<div className="kb-skeleton h-4 w-2/3" />
 					<div className="kb-skeleton h-4 w-1/2" />
+				</div>
+			);
+		}
+		if (mdDoc.status === "saved" && mdDoc.content === "") {
+			return (
+				<div className="flex min-h-0 flex-1 flex-col items-center justify-center px-4 text-center text-sm text-text-tertiary">
+					<span>This plan file is empty.</span>
 				</div>
 			);
 		}
