@@ -5,7 +5,6 @@ import { showAppToast } from "@/components/app-toaster";
 import { RemoteFileBrowserDialog } from "@/components/remote-file-browser-dialog";
 import { cn } from "@/components/ui/cn";
 import { Spinner } from "@/components/ui/spinner";
-import { useNativeDirectoryPicker } from "@/hooks/use-native-directory-picker";
 import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
 import type { RuntimeSavedPlan } from "@/runtime/types";
 import { LocalStorageKey, readLocalStorageItem, writeLocalStorageItem } from "@/storage/local-storage-store";
@@ -44,7 +43,6 @@ export function HomeSidebarPlansPanel({
 	const [plans, setPlans] = useState<RuntimeSavedPlan[]>([]);
 	const [isLoading, setIsLoading] = useState(true);
 	const [isImporting, setIsImporting] = useState(false);
-	const [isPickingFolder, setIsPickingFolder] = useState(false);
 	const [isBrowserOpen, setIsBrowserOpen] = useState(false);
 	const [lastImportFolder, setLastImportFolder] = useState<string | undefined>(
 		() => readLocalStorageItem(LocalStorageKey.PlansLastImportFolder) ?? undefined,
@@ -99,7 +97,7 @@ export function HomeSidebarPlansPanel({
 						addedCount === 0
 							? response.skipped > 0
 								? "No new plans (already in library)."
-								: "No .md, .txt, or .html plans found in that folder."
+								: "No .md, .txt, or .html files directly in that folder — subfolders are not scanned."
 							: `Added ${addedCount} plan${addedCount === 1 ? "" : "s"}.`,
 				});
 				await refreshPlans();
@@ -115,23 +113,37 @@ export function HomeSidebarPlansPanel({
 		[refreshPlans, workspaceId],
 	);
 
-	const handleImportFile = useCallback(
-		async (filePath: string) => {
+	const handleImportFiles = useCallback(
+		async (filePaths: string[]) => {
+			if (filePaths.length === 0) {
+				return;
+			}
 			setIsImporting(true);
 			try {
 				const trpcClient = getRuntimeTrpcClient(workspaceId);
-				const response = await trpcClient.plans.importFile.mutate({ filePath });
-				if (!response.ok) {
-					showAppToast({
-						intent: "danger",
-						message: response.error ?? "Failed to import plan.",
-					});
-					return;
+				let added = 0;
+				let alreadyPresent = 0;
+				const failures: string[] = [];
+				for (const filePath of filePaths) {
+					const response = await trpcClient.plans.importFile.mutate({ filePath });
+					if (!response.ok) {
+						failures.push(response.error ?? `Failed to import ${filePath}.`);
+						continue;
+					}
+					if (response.alreadyExists) {
+						alreadyPresent += 1;
+					} else {
+						added += 1;
+					}
 				}
-				showAppToast({
-					intent: "success",
-					message: response.alreadyExists ? "Already in library." : "Added plan.",
-				});
+				if (failures.length > 0) {
+					showAppToast({ intent: "danger", message: failures.join(" ") });
+				}
+				if (added > 0) {
+					showAppToast({ intent: "success", message: `Added ${added} plan${added === 1 ? "" : "s"}.` });
+				} else if (alreadyPresent > 0 && failures.length === 0) {
+					showAppToast({ intent: "success", message: "Already in library." });
+				}
 				await refreshPlans();
 			} catch (error) {
 				showAppToast({
@@ -144,36 +156,6 @@ export function HomeSidebarPlansPanel({
 		},
 		[refreshPlans, workspaceId],
 	);
-
-	const { pickDirectory } = useNativeDirectoryPicker(workspaceId);
-
-	const handleAddFromFolder = useCallback(async () => {
-		setIsPickingFolder(true);
-		try {
-			const result = await pickDirectory();
-			if (result.path) {
-				writeLocalStorageItem(LocalStorageKey.PlansLastImportFolder, result.path);
-				setLastImportFolder(result.path);
-				await handleImportFolder(result.path);
-				return;
-			}
-			if (result.unavailable) {
-				showAppToast({
-					intent: "warning",
-					message: "No native folder picker is available on this system. Use the file browser instead.",
-				});
-				setIsBrowserOpen(true);
-			}
-			// Clean cancellation (path: null, no unavailable flag): do nothing.
-		} catch (error) {
-			showAppToast({
-				intent: "danger",
-				message: error instanceof Error ? error.message : String(error),
-			});
-		} finally {
-			setIsPickingFolder(false);
-		}
-	}, [handleImportFolder, pickDirectory]);
 
 	const handleRemove = useCallback(
 		async (planId: string) => {
@@ -262,30 +244,41 @@ export function HomeSidebarPlansPanel({
 				<button
 					type="button"
 					className="kb-project-row flex cursor-pointer items-center gap-1.5 rounded-md text-text-secondary hover:text-text-primary px-2 py-1.5 disabled:opacity-40"
-					onClick={handleAddFromFolder}
-					disabled={isImporting || isPickingFolder}
-					data-testid="sidebar-plans-add-from-folder"
+					onClick={() => setIsBrowserOpen(true)}
+					disabled={isImporting}
+					data-testid="sidebar-plans-add"
 				>
-					{isImporting || isPickingFolder ? <Spinner size={14} /> : <Plus size={14} className="shrink-0" />}
-					<span className="text-sm">Add from folder</span>
+					{isImporting ? <Spinner size={14} /> : <Plus size={14} className="shrink-0" />}
+					<span className="text-sm">Add plan…</span>
 					<FolderOpen size={12} className="ml-auto opacity-60" />
 				</button>
 			</div>
 
+			{/*
+			 * The browser handles both shapes of import, so it replaces the native folder
+			 * dialog entirely: that dialog can only ever return a directory, which left
+			 * single-file import unreachable on any machine that had one installed.
+			 */}
 			<RemoteFileBrowserDialog
 				open={isBrowserOpen}
 				onOpenChange={setIsBrowserOpen}
 				workspaceId={workspaceId}
 				initialPath={lastImportFolder}
+				multiSelectFiles
+				selectLabel="Import"
 				onSelect={(path, type) => {
 					setIsBrowserOpen(false);
 					if (type === "file") {
-						void handleImportFile(path);
+						void handleImportFiles([path]);
 						return;
 					}
 					writeLocalStorageItem(LocalStorageKey.PlansLastImportFolder, path);
 					setLastImportFolder(path);
 					void handleImportFolder(path);
+				}}
+				onSelectFiles={(paths) => {
+					setIsBrowserOpen(false);
+					void handleImportFiles(paths);
 				}}
 			/>
 		</div>

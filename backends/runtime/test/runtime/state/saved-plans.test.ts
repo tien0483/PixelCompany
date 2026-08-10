@@ -1,6 +1,6 @@
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const runtimeHome = { path: "" };
@@ -11,6 +11,7 @@ vi.mock("../../../src/state/workspace-state", () => ({
 
 import { composePromptWithAttachedPlan } from "../../../src/prompts/compose-prompt-with-plan";
 import {
+	backupSavedPlan,
 	createSavedPlan,
 	importPlanFile,
 	importPlansFromFolder,
@@ -52,6 +53,23 @@ describe("saved-plans library", () => {
 		const listed = await listSavedPlans();
 		expect(listed.map((plan) => plan.name).sort()).toEqual(["alpha", "beta", "gamma"]);
 		expect(listed.every((plan) => plan.missing === false)).toBe(true);
+	});
+
+	it("skips expansion backups on folder import but still imports one by explicit path", async () => {
+		const folder = join(runtimeHome.path, "plans");
+		await mkdir(folder, { recursive: true });
+		await writeFile(join(folder, "roadmap.md"), "# Roadmap\n", "utf8");
+		await writeFile(join(folder, "roadmap.bak-1.md"), "# Roadmap (old)\n", "utf8");
+		await writeFile(join(folder, "roadmap.bak-12.md"), "# Roadmap (older)\n", "utf8");
+
+		const imported = await importPlansFromFolder(folder);
+
+		expect(imported.added.map((entry) => entry.name)).toEqual(["roadmap"]);
+		expect(imported.skipped).toBe(0);
+
+		// Recovering an old version is still possible — the exclusion is bulk-import only.
+		const explicit = await importPlanFile(join(folder, "roadmap.bak-1.md"));
+		expect(explicit.isNew).toBe(true);
 	});
 
 	it("writes an html sibling beside a plan and sandboxes the path", async () => {
@@ -213,14 +231,26 @@ describe("plan assets", () => {
 		const planId = imported.added[0]!.id;
 
 		const relativePath = await writeSavedPlanAsset(planId, { data: ONE_PIXEL_PNG_BASE64, mimeType: "image/png" });
-		const assetFileName = relativePath.split("/").pop()!;
-		const asset = await readSavedPlanAsset(planId, assetFileName);
+		const asset = await readSavedPlanAsset(planId, relativePath);
 
 		expect(asset.contentType).toBe("image/png");
 		expect(asset.content).toEqual(Buffer.from(ONE_PIXEL_PNG_BASE64, "base64"));
 	});
 
-	it("refuses to read a path that escapes the assets directory", async () => {
+	it("reads an image that sits outside the assets folder but inside the plan folder", async () => {
+		const folder = join(runtimeHome.path, "plans");
+		await mkdir(join(folder, "images"), { recursive: true });
+		await writeFile(join(folder, "roadmap.md"), "# Roadmap\n", "utf8");
+		await writeFile(join(folder, "images", "hand-authored.png"), Buffer.from(ONE_PIXEL_PNG_BASE64, "base64"));
+		const imported = await importPlansFromFolder(folder);
+		const planId = imported.added.find((plan) => plan.name === "roadmap")!.id;
+
+		const asset = await readSavedPlanAsset(planId, "images/hand-authored.png");
+
+		expect(asset.contentType).toBe("image/png");
+	});
+
+	it("refuses to read a path that escapes the plan directory", async () => {
 		const folder = join(runtimeHome.path, "plans");
 		await mkdir(folder, { recursive: true });
 		await writeFile(join(folder, "roadmap.md"), "# Roadmap\n", "utf8");
@@ -229,6 +259,38 @@ describe("plan assets", () => {
 		await writeSavedPlanAsset(planId, { data: ONE_PIXEL_PNG_BASE64, mimeType: "image/png" });
 
 		await expect(readSavedPlanAsset(planId, "../../../etc/passwd")).rejects.toThrow(/access denied/i);
+	});
+
+	describe("backupSavedPlan", () => {
+		it("copies the plan's bytes beside it without registering the copy as a plan", async () => {
+			const created = await createSavedPlan({ name: "roadmap", content: "# Roadmap\n\noriginal\n" });
+
+			const backupPath = await backupSavedPlan(created.entry.id);
+
+			expect(backupPath).toBe(join(dirname(created.entry.path), `${created.entry.name}.bak-1.md`));
+			expect(await readFile(backupPath, "utf8")).toBe("# Roadmap\n\noriginal\n");
+			const listed = await listSavedPlans();
+			expect(listed.map((plan) => plan.name)).toEqual([created.entry.name]);
+		});
+
+		it("suffixes repeated backups instead of overwriting the first one", async () => {
+			const created = await createSavedPlan({ name: "roadmap", content: "first\n" });
+			const first = await backupSavedPlan(created.entry.id);
+			await writeSavedPlanContent(created.entry.id, "second\n");
+			const second = await backupSavedPlan(created.entry.id);
+
+			expect(first.endsWith(`${created.entry.name}.bak-1.md`)).toBe(true);
+			expect(second.endsWith(`${created.entry.name}.bak-2.md`)).toBe(true);
+			expect(await readFile(first, "utf8")).toBe("first\n");
+			expect(await readFile(second, "utf8")).toBe("second\n");
+		});
+
+		it("fails when the plan file is gone rather than writing an empty backup", async () => {
+			const created = await createSavedPlan({ name: "roadmap", content: "# Roadmap\n" });
+			await rm(created.entry.path);
+
+			await expect(backupSavedPlan(created.entry.id)).rejects.toThrow(/missing/i);
+		});
 	});
 
 	describe("resolvePlanImageAssets", () => {
@@ -255,7 +317,18 @@ describe("plan assets", () => {
 			expect(resolved.assetPaths).toEqual([join(folder, "roadmap.assets", "dashboard-1.png")]);
 		});
 
-		it("drops links that escape the assets directory into unresolvedLinks, not assetPaths", async () => {
+		it("resolves an image link that points outside the assets folder but inside the plan folder", async () => {
+			const { planId, folder } = await importPlanWithMarkdown("# Roadmap\n");
+			await mkdir(join(folder, "images"), { recursive: true });
+			await writeFile(join(folder, "images", "shot.png"), Buffer.from(ONE_PIXEL_PNG_BASE64, "base64"));
+
+			const resolved = await resolvePlanImageAssets(planId, "![sibling](images/shot.png)");
+
+			expect(resolved.assetPaths).toEqual([join(folder, "images", "shot.png")]);
+			expect(resolved.unresolvedLinks).toEqual([]);
+		});
+
+		it("drops links that escape the plan directory into unresolvedLinks, not assetPaths", async () => {
 			const { planId } = await importPlanWithMarkdown("# Roadmap\n");
 			await writeSavedPlanAsset(planId, { data: ONE_PIXEL_PNG_BASE64, mimeType: "image/png" });
 

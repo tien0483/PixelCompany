@@ -15,6 +15,12 @@ export interface RemoteFileBrowserDialogProps {
 	onSelect: (path: string, type: "file" | "folder") => void;
 	initialPath?: string;
 	workspaceId?: string | null;
+	/** Ctrl/⌘-click adds files to the selection instead of replacing it. */
+	multiSelectFiles?: boolean;
+	/** Called instead of `onSelect` when more than one file is selected. */
+	onSelectFiles?: (paths: string[]) => void;
+	/** Verb on the confirm button. Defaults to "Select". */
+	selectLabel?: string;
 }
 
 export function RemoteFileBrowserDialog({
@@ -23,6 +29,9 @@ export function RemoteFileBrowserDialog({
 	onSelect,
 	initialPath,
 	workspaceId = null,
+	multiSelectFiles = false,
+	onSelectFiles,
+	selectLabel = "Select",
 }: RemoteFileBrowserDialogProps): ReactElement {
 	const [currentPath, setCurrentPath] = useState<string>("");
 	const [rootPath, setRootPath] = useState<string>("");
@@ -31,7 +40,7 @@ export function RemoteFileBrowserDialog({
 	const [isLoading, setIsLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [pathInput, setPathInput] = useState("");
-	const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null);
+	const [selectedFilePaths, setSelectedFilePaths] = useState<string[]>([]);
 	const [selectedFolderPath, setSelectedFolderPath] = useState<string | null>(null);
 	const fetchIdRef = useRef(0);
 
@@ -40,7 +49,7 @@ export function RemoteFileBrowserDialog({
 			const fetchId = ++fetchIdRef.current;
 			setIsLoading(true);
 			setError(null);
-			setSelectedFilePath(null);
+			setSelectedFilePaths([]);
 			setSelectedFolderPath(null);
 			try {
 				const trpcClient = getRuntimeTrpcClient(workspaceId);
@@ -110,19 +119,32 @@ export function RemoteFileBrowserDialog({
 		[pathInput, fetchContents],
 	);
 
-	const handleSelectFile = useCallback((path: string) => {
-		setSelectedFilePath(path);
-		setSelectedFolderPath(null);
-	}, []);
+	const handleSelectFile = useCallback(
+		(path: string, additive: boolean) => {
+			setSelectedFolderPath(null);
+			setSelectedFilePaths((previous) => {
+				if (!multiSelectFiles || !additive) {
+					return [path];
+				}
+				return previous.includes(path) ? previous.filter((entry) => entry !== path) : [...previous, path];
+			});
+		},
+		[multiSelectFiles],
+	);
 
 	const handleSelectFolder = useCallback((path: string) => {
 		setSelectedFolderPath(path);
-		setSelectedFilePath(null);
+		setSelectedFilePaths([]);
 	}, []);
 
 	const handleSelect = useCallback(() => {
-		if (selectedFilePath) {
-			onSelect(selectedFilePath, "file");
+		if (selectedFilePaths.length > 1 && onSelectFiles) {
+			onSelectFiles(selectedFilePaths);
+			return;
+		}
+		const singleFile = selectedFilePaths[0];
+		if (singleFile) {
+			onSelect(singleFile, "file");
 			return;
 		}
 		if (selectedFolderPath) {
@@ -130,7 +152,14 @@ export function RemoteFileBrowserDialog({
 			return;
 		}
 		onSelect(currentPath, "folder");
-	}, [currentPath, selectedFilePath, selectedFolderPath, onSelect]);
+	}, [currentPath, onSelect, onSelectFiles, selectedFilePaths, selectedFolderPath]);
+
+	const selectionSummary =
+		selectedFilePaths.length > 1
+			? `${selectLabel} ${selectedFilePaths.length} files`
+			: selectedFilePaths.length === 1
+				? `${selectLabel} file`
+				: selectLabel;
 
 	const breadcrumbSegments = buildBreadcrumbs(currentPath, rootPath);
 
@@ -156,10 +185,11 @@ export function RemoteFileBrowserDialog({
 					isLoading={isLoading}
 					error={error}
 					entries={entries}
-					selectedFilePath={selectedFilePath}
+					selectedFilePaths={selectedFilePaths}
 					onSelectFile={handleSelectFile}
 					selectedFolderPath={selectedFolderPath}
 					onSelectFolder={handleSelectFolder}
+					multiSelectFiles={multiSelectFiles}
 				/>
 			</DialogBody>
 			<DialogFooter>
@@ -169,9 +199,10 @@ export function RemoteFileBrowserDialog({
 				<Button
 					variant="primary"
 					onClick={handleSelect}
-					disabled={isLoading || (!currentPath && !selectedFilePath && !selectedFolderPath)}
+					data-testid="remote-file-browser-select"
+					disabled={isLoading || (!currentPath && selectedFilePaths.length === 0 && !selectedFolderPath)}
 				>
-					Select
+					{selectionSummary}
 				</Button>
 			</DialogFooter>
 		</Dialog>
@@ -195,10 +226,11 @@ function RemoteFileBrowserContent({
 	isLoading,
 	error,
 	entries,
-	selectedFilePath,
+	selectedFilePaths,
 	onSelectFile,
 	selectedFolderPath,
 	onSelectFolder,
+	multiSelectFiles,
 }: {
 	rootPath: string;
 	pathInput: string;
@@ -211,10 +243,11 @@ function RemoteFileBrowserContent({
 	isLoading: boolean;
 	error: string | null;
 	entries: RuntimeDirectoryListEntry[];
-	selectedFilePath: string | null;
-	onSelectFile: (path: string) => void;
+	selectedFilePaths: string[];
+	onSelectFile: (path: string, additive: boolean) => void;
 	selectedFolderPath: string | null;
 	onSelectFolder: (path: string) => void;
+	multiSelectFiles: boolean;
 }): ReactElement {
 	return (
 		<>
@@ -276,11 +309,17 @@ function RemoteFileBrowserContent({
 				error={error}
 				entries={entries}
 				onNavigate={onNavigate}
-				selectedFilePath={selectedFilePath}
+				selectedFilePaths={selectedFilePaths}
 				onSelectFile={onSelectFile}
 				selectedFolderPath={selectedFolderPath}
 				onSelectFolder={onSelectFolder}
 			/>
+
+			{multiSelectFiles ? (
+				<p className="px-4 text-[11px] text-text-tertiary">
+					Click a file to import it, Ctrl/⌘-click to add more, or pick a folder to import every plan in it.
+				</p>
+			) : null}
 
 			{/* Hidden description for accessibility */}
 			<p id="remote-file-browser-description" className="sr-only">
@@ -295,7 +334,7 @@ function DirectoryEntryList({
 	error,
 	entries,
 	onNavigate,
-	selectedFilePath,
+	selectedFilePaths,
 	onSelectFile,
 	selectedFolderPath,
 	onSelectFolder,
@@ -304,8 +343,8 @@ function DirectoryEntryList({
 	error: string | null;
 	entries: RuntimeDirectoryListEntry[];
 	onNavigate: (path: string) => void;
-	selectedFilePath: string | null;
-	onSelectFile: (path: string) => void;
+	selectedFilePaths: string[];
+	onSelectFile: (path: string, additive: boolean) => void;
 	selectedFolderPath: string | null;
 	onSelectFolder: (path: string) => void;
 }): ReactElement {
@@ -372,13 +411,14 @@ function DirectoryEntryList({
 							<button
 								key={entry.path}
 								type="button"
+								aria-pressed={selectedFilePaths.includes(entry.path)}
 								className={cn(
 									"flex items-center gap-2 px-4 py-2 text-left cursor-pointer bg-transparent border-none",
 									"transition-colors hover:bg-surface-2 active:bg-surface-3",
 									"text-[13px] text-text-primary",
-									selectedFilePath === entry.path && "bg-surface-3",
+									selectedFilePaths.includes(entry.path) && "bg-surface-3",
 								)}
-								onClick={() => onSelectFile(entry.path)}
+								onClick={(event) => onSelectFile(entry.path, event.ctrlKey || event.metaKey)}
 								data-testid={`file-entry-${entry.name}`}
 							>
 								<FileText size={16} className="text-text-secondary shrink-0" />

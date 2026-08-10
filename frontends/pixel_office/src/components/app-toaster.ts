@@ -5,6 +5,8 @@ interface AppToastProps {
 	icon?: string;
 	message: string;
 	timeout?: number;
+	/** Inline button on the toast — the only affordance for one-shot Undo of a destructive write. */
+	action?: { label: string; onClick: () => void };
 }
 
 interface NotifyErrorOptions {
@@ -16,6 +18,7 @@ export function showAppToast(props: AppToastProps, key?: string): void {
 	const options: Parameters<typeof toast>[1] = {
 		id: key,
 		duration: props.timeout ?? 5000,
+		...(props.action ? { action: props.action } : {}),
 	};
 
 	if (props.intent === "danger") {
