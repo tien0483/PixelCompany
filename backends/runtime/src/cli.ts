@@ -403,6 +403,8 @@ async function startServer(): Promise<{
 		{ createHtmlClient },
 		{ startHtmlProcess },
 		{ startStackProcess },
+		{ startHeadroomProcess },
+		{ startCcrProcess, startDevToolsProcess },
 		{ stopAllSeatRouters },
 		{ describeRuntimeHomeMigration, migrateRuntimeHome },
 		{ startOmniRouteProcess },
@@ -422,6 +424,8 @@ async function startServer(): Promise<{
 		import("./html/html-client.js"),
 		import("./html/html-process.js"),
 		import("./stack/stack-process.js"),
+		import("./stack/headroom-process.js"),
+		import("./stack/stack-extra-daemons.js"),
 		import("./stack/ccr-process.js"),
 		import("./state/runtime-home-migration.js"),
 		import("./omniroute/omniroute-process.js"),
@@ -506,9 +510,7 @@ async function startServer(): Promise<{
 		log: (message) => {
 			console.log(`[kanban] ${message}`);
 		},
-		...(agentDataRoot === null
-			? {}
-			: { expectedTemplateSkillsDir: join(agentDataRoot, "templates", "skills") }),
+		...(agentDataRoot === null ? {} : { expectedTemplateSkillsDir: join(agentDataRoot, "templates", "skills") }),
 	});
 	const HtmlClient = createHtmlClient({
 		warn: (message) => {
@@ -526,6 +528,22 @@ async function startServer(): Promise<{
 			console.log(`[kanban] ${message}`);
 		},
 	});
+	// The rest of what `activate-stack.sh` starts, so a `pnpm run solo` needs no
+	// sourced shell. Each one is flag-gated and skips a port that is already
+	// served, so an activated shell keeps ownership of its own daemons.
+	// `server.py` probes these ports per request, so coming up after the
+	// switchboard needs no coordination.
+	const stackDaemonLogging = {
+		warn: (message: string) => {
+			console.warn(`[kanban] ${message}`);
+		},
+		log: (message: string) => {
+			console.log(`[kanban] ${message}`);
+		},
+	};
+	const HeadroomProcess = await startHeadroomProcess(stackDaemonLogging);
+	const CcrProcess = await startCcrProcess(stackDaemonLogging);
+	const DevToolsProcess = await startDevToolsProcess(stackDaemonLogging);
 	runtimeStateHub = createRuntimeStateHub({
 		workspaceRegistry,
 		ManagerMonitor,
@@ -622,6 +640,9 @@ async function startServer(): Promise<{
 		// Same rule for the switchboard: a shell that sourced activate-stack.sh owns
 		// its own daemon and must survive the runtime exiting.
 		await StackProcess.close();
+		await HeadroomProcess.close();
+		await CcrProcess.close();
+		await DevToolsProcess.close();
 		// Per-seat subagent routers are always ours — they only exist because a task pinned
 		// a subagent seat — so unlike the daemons above they are unconditionally stopped.
 		await stopAllSeatRouters();

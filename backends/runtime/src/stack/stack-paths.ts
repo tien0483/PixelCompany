@@ -54,9 +54,11 @@ export function findStackBinDir(): string | null {
  * activated shell, a task agent could only reach `rtk` by relative path. Doing
  * it here makes a task's tooling independent of how Kanban was launched.
  *
- * Only PATH: the rest of what the activator exports (`ANTHROPIC_BASE_URL`, the
- * dummy API key) must never reach a spawned agent — see the header of
- * `stack-process.ts`.
+ * Only PATH. The dummy API key must never reach a spawned agent — Claude Code
+ * prefers it over its OAuth credential (see the header of `stack-process.ts`).
+ * `ANTHROPIC_BASE_URL` is a separate, opt-in decision made one level up by
+ * `scripts/solo.mjs`, which exports it *without* a key so the session's own OAuth
+ * bearer survives the proxy hop.
  *
  * Prepended, matching the activator, and skipped when already present so
  * repeated calls cannot grow PATH without bound.
