@@ -802,14 +802,16 @@ describe("PlanEditorView", () => {
 			expect(container.querySelector('[data-testid="plan-editor-html-preview"]')).toBeNull();
 		});
 
-		it("expands even while the template sidecar is offline", async () => {
+		it("expands and generates even while the template sidecar is offline", async () => {
 			mockHtmlStatusQuery.mockResolvedValue({ online: false });
 			mockHtmlTemplatesQuery.mockResolvedValue([]);
 			await render(PLAN);
 			await flush();
 
 			expect(getButton("plan-html-brief-run").disabled).toBe(false);
-			expect(getButton("plan-html-generate-run").disabled).toBe(true);
+			// No templates means no selection, and a template-free run builds its prompt in
+			// the runtime — nothing about it needs the sidecar.
+			expect(getButton("plan-html-generate-run").disabled).toBe(false);
 		});
 
 		it("aborts an in-flight generate request when the editor unmounts mid-stream", async () => {
@@ -1241,6 +1243,63 @@ describe("PlanEditorView", () => {
 				expect(JSON.parse(init.body as string)).toMatchObject({
 					templateId: "papp-status-grid",
 				});
+			} finally {
+				vi.unstubAllGlobals();
+			}
+		});
+
+		it("clears the selection when the selected card is clicked again, and keeps it cleared", async () => {
+			await render(PLAN);
+			await flush();
+			await waitFor(() => cards()[0]?.getAttribute("aria-pressed") === "true", "preselected card");
+
+			await act(async () => {
+				cards()[0]?.click();
+			});
+			await flush();
+
+			expect(cards().map((card) => card.getAttribute("aria-pressed"))).toEqual(["false", "false"]);
+			expect(container.querySelector('[data-testid="plan-html-no-template"]')?.textContent).toBe(
+				HTML_LABELS.noTemplate,
+			);
+			// The registry default must not creep back in on the next pass of the auto-select effect.
+			await act(async () => {
+				await new Promise((resolveWait) => setTimeout(resolveWait, 50));
+			});
+			expect(cards().map((card) => card.getAttribute("aria-pressed"))).toEqual(["false", "false"]);
+		});
+
+		it("generates with no templateId once the selection is cleared", async () => {
+			const fetchMock = vi.fn().mockImplementation(() => {
+				const body = new ReadableStream<Uint8Array>({
+					start(controller) {
+						controller.enqueue(new TextEncoder().encode(`event: done\ndata: ${JSON.stringify({ code: 0 })}\n\n`));
+						controller.close();
+					},
+				});
+				return Promise.resolve(new Response(body, { status: 200 }));
+			});
+			vi.stubGlobal("fetch", fetchMock);
+			try {
+				await render(PLAN);
+				await flush();
+				await waitFor(() => cards()[0]?.getAttribute("aria-pressed") === "true", "preselected card");
+
+				await act(async () => {
+					cards()[0]?.click();
+				});
+				const run = container.querySelector('[data-testid="plan-html-generate-run"]') as HTMLButtonElement;
+				// Freestyle builds its prompt in the runtime, so nothing about it is gated on the sidecar.
+				expect(run.disabled).toBe(false);
+				await act(async () => {
+					run.click();
+				});
+
+				const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+				expect(url).toBe("/api/html/generate");
+				const body = JSON.parse(init.body as string) as Record<string, unknown>;
+				expect(body).toMatchObject({ planId: PLAN.id, content: "# Roadmap\n" });
+				expect(body.templateId).toBeUndefined();
 			} finally {
 				vi.unstubAllGlobals();
 			}

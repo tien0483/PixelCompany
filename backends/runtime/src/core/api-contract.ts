@@ -1275,7 +1275,13 @@ export const RuntimeHtmlPromptResponseSchema = z.object({
 export type RuntimeHtmlPromptResponse = z.infer<typeof RuntimeHtmlPromptResponseSchema>;
 
 export const RuntimeHtmlGenerateRequestSchema = z.object({
-	templateId: z.string().min(1),
+	/**
+	 * Absent = freestyle: the plan's own markdown is the spec, and the prompt is built by
+	 * the runtime (`html-freestyle.ts`) instead of fetched from the html-anything sidecar.
+	 * That path deliberately needs no sidecar at all, so generation still works with the
+	 * template registry offline.
+	 */
+	templateId: z.string().min(1).optional(),
 	content: z.string().min(1),
 	format: z.string().optional(),
 	model: z.string().optional(),

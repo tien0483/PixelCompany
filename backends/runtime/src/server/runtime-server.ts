@@ -35,6 +35,7 @@ import { HTML_NO_TOOLS, resolveHtmlAgentCwd, resolveHtmlAllowedTools } from "../
 import { buildBriefPrompt, loadPromptMasterBody } from "../html/html-brief";
 import type { HtmlClient, HtmlPromptFailure } from "../html/html-client";
 import { buildDraftPrompt } from "../html/html-draft";
+import { resolveFreestyleGenerateRun } from "../html/html-freestyle";
 import {
 	createUsageResumeScheduler,
 	isUsageResumeCandidate,
@@ -742,30 +743,54 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 					return;
 				}
 				const input = parsed.data;
-				const promptResult = await deps.html.client.fetchPrompt({
-					templateId: input.templateId,
-					content: input.content,
-					format: input.format,
-					editFromHtml: input.editFromHtml,
-					editFromContent: input.editFromContent,
-					editDiff: input.editDiff,
-				});
-				if (!promptResult.ok) {
-					const { status, error } = describeHtmlPromptFailure(promptResult.failure);
-					res.writeHead(status, { "Content-Type": "application/json; charset=utf-8" });
-					res.end(JSON.stringify({ error }));
-					return;
+				let prompt: string;
+				let agentCwd: string | undefined;
+				let allowedTools: string[] | undefined;
+				if (input.templateId) {
+					const promptResult = await deps.html.client.fetchPrompt({
+						templateId: input.templateId,
+						content: input.content,
+						format: input.format,
+						editFromHtml: input.editFromHtml,
+						editFromContent: input.editFromContent,
+						editDiff: input.editDiff,
+					});
+					if (!promptResult.ok) {
+						const { status, error } = describeHtmlPromptFailure(promptResult.failure);
+						res.writeHead(status, { "Content-Type": "application/json; charset=utf-8" });
+						res.end(JSON.stringify({ error }));
+						return;
+					}
+					prompt = promptResult.value.prompt;
+					// Resolved before the SSE headers go out so a plan-lookup failure can
+					// still answer with JSON instead of corrupting the stream.
+					const plan = input.planId ? await findSavedPlanById(input.planId).catch(() => null) : null;
+					agentCwd = resolveHtmlAgentCwd({ cwd: input.cwd, planPath: plan?.path });
+					// Same reasoning as the brief route: a one-shot `-p` run has no UI to
+					// answer a permission prompt, so the grant is explicit — and falls back
+					// to HTML_NO_TOOLS rather than undefined when the template didn't declare
+					// `allow_read`, so --allowedTools is always present on the command line
+					// instead of leaving the run to hang on a stray permission prompt.
+					allowedTools = resolveHtmlAllowedTools(promptResult.value.template.allowRead, HTML_NO_TOOLS);
+				} else {
+					// No template picked: the markdown is the spec and the prompt is built
+					// here, so this path never touches the sidecar — freestyle generation
+					// keeps working with the template registry offline.
+					const run = await resolveFreestyleGenerateRun({
+						...(input.planId === undefined ? {} : { planId: input.planId }),
+						content: input.content,
+						...(input.format === undefined ? {} : { format: input.format }),
+						...(input.editFromHtml === undefined ? {} : { editFromHtml: input.editFromHtml }),
+						...(input.editDiff === undefined ? {} : { editDiff: input.editDiff }),
+						...(input.editFromContent === undefined ? {} : { editFromContent: input.editFromContent }),
+						warn: deps.warn,
+					});
+					prompt = run.prompt;
+					// An explicit caller `cwd` still wins; otherwise the plan's own folder, which is
+					// what makes the markdown's relative image links resolvable agent-side.
+					agentCwd = input.cwd ?? run.cwd;
+					allowedTools = run.allowedTools;
 				}
-				// Resolved before the SSE headers go out so a plan-lookup failure can
-				// still answer with JSON instead of corrupting the stream.
-				const plan = input.planId ? await findSavedPlanById(input.planId).catch(() => null) : null;
-				const agentCwd = resolveHtmlAgentCwd({ cwd: input.cwd, planPath: plan?.path });
-				// Same reasoning as the brief route: a one-shot `-p` run has no UI to
-				// answer a permission prompt, so the grant is explicit — and falls back
-				// to HTML_NO_TOOLS rather than undefined when the template didn't declare
-				// `allow_read`, so --allowedTools is always present on the command line
-				// instead of leaving the run to hang on a stray permission prompt.
-				const allowedTools = resolveHtmlAllowedTools(promptResult.value.template.allowRead, HTML_NO_TOOLS);
 
 				res.writeHead(200, {
 					"Content-Type": "text/event-stream; charset=utf-8",
@@ -783,7 +808,7 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 
 				await runAgentOneShot({
 					agentId: "claude",
-					prompt: promptResult.value.prompt,
+					prompt,
 					cwd: agentCwd,
 					model: input.model,
 					allowedTools,

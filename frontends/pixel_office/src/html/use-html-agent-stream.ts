@@ -24,7 +24,12 @@ const INITIAL: HtmlStreamState = {
 };
 
 export interface HtmlGenerateRequest {
-	templateId: string;
+	/**
+	 * Omitted when no template is selected: the runtime then builds the prompt from the
+	 * plan's own markdown instead of asking the sidecar for a template's, so generation
+	 * works with the template registry offline.
+	 */
+	templateId?: string;
 	content: string;
 	format?: string;
 	model?: string;
