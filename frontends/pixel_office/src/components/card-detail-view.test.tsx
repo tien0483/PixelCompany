@@ -1255,15 +1255,12 @@ describe("CardDetailView", () => {
 			);
 		});
 
-		// The account-mismatch button lives inside the collapsed "Task configuration"
-		// section; expand it first (it starts collapsed whenever a session exists).
+		// The "Task configuration" section auto-expands when an account-mismatch
+		// restart is available, so the button is visible without manual expansion.
 		const configToggle = container.querySelector(
 			'[data-testid="task-config-toggle"]',
 		);
-		expect(configToggle).toBeInstanceOf(HTMLButtonElement);
-		await act(async () => {
-			(configToggle as HTMLButtonElement).click();
-		});
+		expect(configToggle?.getAttribute("aria-expanded")).toBe("true");
 
 		const restartButton = container.querySelector(
 			'[data-testid="restart-task-with-account"]',
