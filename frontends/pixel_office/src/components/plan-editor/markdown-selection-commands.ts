@@ -87,3 +87,27 @@ export function insertAtCursor(state: TextSelectionState, text: string): TextSel
 		selectionEnd: nextCursor,
 	};
 }
+
+/** How many newlines the end of `before` is short of a `\n\n` paragraph boundary. */
+function missingLeadingBreaks(before: string): number {
+	if (before.length === 0) return 0;
+	if (before.endsWith("\n\n")) return 0;
+	return before.endsWith("\n") ? 1 : 2;
+}
+
+/**
+ * Insert `block` as its own paragraph: pads with newlines so a table or fence never welds
+ * onto the tail of the line the cursor happens to sit in, and never stacks more than one
+ * blank line on either side. Cursor lands after the block, as with `insertAtCursor`.
+ */
+export function insertBlock(state: TextSelectionState, block: string): TextSelectionState {
+	const { value, selectionStart, selectionEnd } = state;
+	const before = value.slice(0, selectionStart);
+	const after = value.slice(selectionEnd);
+
+	const body = block.endsWith("\n") ? block : `${block}\n`;
+	const lead = "\n".repeat(missingLeadingBreaks(before));
+	const trail = after.length > 0 && !after.startsWith("\n") ? "\n" : "";
+
+	return insertAtCursor(state, `${lead}${body}${trail}`);
+}
