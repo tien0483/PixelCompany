@@ -89,15 +89,38 @@ export function DocsRunPanel({ project, onBuildDone }: DocsRunPanelProps): React
 
 	// After the SSE stream reaches "done", chain a build so the site viewer reloads
 	// automatically rather than requiring a second manual click.
+	//
+	// `status` stays "done" indefinitely once a run finishes (useHtmlAgentStream
+	// never resets it back to idle), so these effects re-run on *any* re-render
+	// that changes `triggerBuild`'s identity — including the build's own
+	// onBuildDone -> setCacheBustKey -> re-render -> (previously) new
+	// onBuildDone/triggerBuild -> effect re-fires -> build again, forever. A
+	// stable `onBuildDone` (see docs-view.tsx) removes the main source of churn,
+	// but `triggerBuild` still changes identity when `project.id` changes (e.g.
+	// switching the selected project while a previous project's run is still
+	// "done"), so belt-and-suspenders: track the last `doneAt` this effect has
+	// already acted on and only build when it's a *new* doneAt.
+	const lastHandledAuditDoneAtRef = useRef<number | null>(null);
+	const lastHandledRoundDoneAtRef = useRef<number | null>(null);
 	const auditDoneAt = audit.doneAt;
 	const roundDoneAt = round.doneAt;
 	useEffect(() => {
-		if (audit.status === "done" && auditDoneAt) {
+		if (
+			audit.status === "done" &&
+			auditDoneAt &&
+			lastHandledAuditDoneAtRef.current !== auditDoneAt
+		) {
+			lastHandledAuditDoneAtRef.current = auditDoneAt;
 			void triggerBuild();
 		}
 	}, [audit.status, auditDoneAt, triggerBuild]);
 	useEffect(() => {
-		if (round.status === "done" && roundDoneAt) {
+		if (
+			round.status === "done" &&
+			roundDoneAt &&
+			lastHandledRoundDoneAtRef.current !== roundDoneAt
+		) {
+			lastHandledRoundDoneAtRef.current = roundDoneAt;
 			void triggerBuild();
 		}
 	}, [round.status, roundDoneAt, triggerBuild]);

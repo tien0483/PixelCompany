@@ -1,5 +1,5 @@
 import { BookOpen } from "lucide-react";
-import { type ReactElement, useEffect, useState } from "react";
+import { type ReactElement, useCallback, useEffect, useState } from "react";
 
 import { DocsProjectSidebar } from "@/components/docs/docs-project-sidebar";
 import { DocsRunPanel } from "@/components/docs/docs-run-panel";
@@ -34,6 +34,15 @@ export function DocsView({ workspaceId }: DocsViewProps): ReactElement {
 	}, [projects, selectedProjectId]);
 
 	const selectedProject = projects.find((p) => p.id === selectedProjectId) ?? null;
+
+	// Stable identity across renders: DocsRunPanel's "auto-build once a stream
+	// reaches done" effects list this in their dependency array, so a callback
+	// that changed identity on every render (e.g. an inline arrow here) would
+	// re-fire those effects on every unrelated re-render — including the
+	// re-render this callback itself causes, producing a runaway build loop.
+	const handleBuildDone = useCallback(() => {
+		setCacheBustKey((k) => k + 1);
+	}, []);
 
 	if (loading) {
 		return (
@@ -79,7 +88,7 @@ export function DocsView({ workspaceId }: DocsViewProps): ReactElement {
 				<div className="h-56 shrink-0">
 					<DocsRunPanel
 						project={selectedProject}
-						onBuildDone={() => setCacheBustKey((k) => k + 1)}
+						onBuildDone={handleBuildDone}
 					/>
 				</div>
 			) : null}
