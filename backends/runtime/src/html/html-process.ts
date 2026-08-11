@@ -64,6 +64,12 @@ export interface StartHtmlProcessDependencies {
 	 * package — that caller passes its own (`./build.sh`).
 	 */
 	installHint?: string[];
+	/**
+	 * Serve only `/api/*` and 404 the rest (`HTML_ANYTHING_API_ONLY`). Callers that embed
+	 * the sidecar purely as a template/prompt backend set this so its own HTML Anything
+	 * editor UI is not reachable alongside theirs — see `next/src/middleware.ts`.
+	 */
+	apiOnly?: boolean;
 }
 
 /**
@@ -368,6 +374,7 @@ export async function startHtmlProcess(deps: StartHtmlProcessDependencies): Prom
 				...process.env,
 				NODE_ENV: "production",
 				HTML_ANYTHING_ALLOWED_HOSTS: host,
+				...(deps.apiOnly === true ? { HTML_ANYTHING_API_ONLY: "1" } : {}),
 			},
 			stdio: sidecarLog === null ? "ignore" : ["ignore", sidecarLog.fd, sidecarLog.fd],
 			shell: false,
