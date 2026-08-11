@@ -3,7 +3,7 @@
 // package or its build is missing, the board and office keep running and the
 // HTML surface reports offline.
 import { type ChildProcess, spawn } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { closeSync, existsSync, openSync, readFileSync, realpathSync } from "node:fs";
 import { connect } from "node:net";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -13,9 +13,27 @@ import { terminateProcessForTimeout } from "../server/process-termination";
 const DEFAULT_HTML_HOST = "127.0.0.1";
 const DEFAULT_HTML_PORT = 8322;
 const PORT_PROBE_TIMEOUT_MS = 1_000;
-const STARTUP_TIMEOUT_MS = 20_000;
+/**
+ * `next start` needs well under 20 s from a native filesystem, which is what this
+ * used to allow. It needs far more when the install lives on a Windows drive under
+ * `/mnt/<letter>`: 9p/drvfs turns Next's module resolution into thousands of slow
+ * stat calls (the same I/O problem the repo's WSL dev-setup note describes). The
+ * standalone Plan Editor package is meant to be handed to people who unzip it
+ * wherever, and there it timed out, warned "Install: pnpm install …", and left an
+ * empty template rail — while the sidecar it had just spawned came up seconds later
+ * and served fine. Waiting is cheap because `waitForPort` returns as soon as the
+ * child exits, so a genuinely broken sidecar is still reported promptly.
+ */
+const DEFAULT_STARTUP_TIMEOUT_MS = 120_000;
+const STARTUP_TIMEOUT_ENV = "PIXELOFFICE_HTML_STARTUP_TIMEOUT_MS";
+/** Emit a "still starting" line this far in, so a slow start doesn't read as a hang. */
+const SLOW_START_NOTICE_MS = 15_000;
 const PORT_POLL_INTERVAL_MS = 250;
 const BUILD_ID_PROBE_TIMEOUT_MS = 2_000;
+const DEFAULT_INSTALL_HINT = [
+	"  Install deps: pnpm install  (workspace includes backends/html_anything)",
+	"  Then build:   pnpm --filter @html-anything/next build",
+];
 
 export interface HtmlProcess {
 	/** Null when the sidecar was already listening or could not be started. */
@@ -34,6 +52,24 @@ export interface StartHtmlProcessDependencies {
 	htmlRoot?: string | null;
 	host?: string;
 	port?: number;
+	/**
+	 * The `agent-data/templates/skills` directory this caller expects the sidecar to
+	 * serve. When set, an already-listening sidecar that resolved a *different*
+	 * directory is refused instead of adopted — see {@link findForeignSidecar}.
+	 */
+	expectedTemplateSkillsDir?: string;
+	/**
+	 * Lines printed when the sidecar's dependencies or build look missing. Defaults to
+	 * the monorepo's pnpm commands, which mean nothing inside a shipped standalone
+	 * package — that caller passes its own (`./build.sh`).
+	 */
+	installHint?: string[];
+	/**
+	 * Serve only `/api/*` and 404 the rest (`HTML_ANYTHING_API_ONLY`). Callers that embed
+	 * the sidecar purely as a template/prompt backend set this so its own HTML Anything
+	 * editor UI is not reachable alongside theirs — see `next/src/middleware.ts`.
+	 */
+	apiOnly?: boolean;
 }
 
 /**
@@ -101,15 +137,42 @@ async function waitForPort(
 	port: number,
 	timeoutMs: number,
 	shouldKeepWaiting: () => boolean,
+	onSlowStart?: () => void,
 ): Promise<boolean> {
-	const deadline = Date.now() + timeoutMs;
+	const startedAt = Date.now();
+	const deadline = startedAt + timeoutMs;
+	let noticed = false;
 	while (Date.now() < deadline && shouldKeepWaiting()) {
 		if (await probePort(host, port)) {
 			return true;
 		}
+		if (!noticed && Date.now() - startedAt >= SLOW_START_NOTICE_MS) {
+			noticed = true;
+			onSlowStart?.();
+		}
 		await new Promise((resolvePromise) => setTimeout(resolvePromise, PORT_POLL_INTERVAL_MS));
 	}
 	return false;
+}
+
+function resolveStartupTimeoutMs(): number {
+	const raw = process.env[STARTUP_TIMEOUT_ENV]?.trim();
+	return raw !== undefined && /^\d+$/.test(raw) && Number(raw) > 0 ? Number(raw) : DEFAULT_STARTUP_TIMEOUT_MS;
+}
+
+/**
+ * The sidecar is spawned detached so it outlives the runtime, which rules out piping
+ * its output through this process: the child would write into a broken pipe once the
+ * parent goes away. A log file keeps its crashes readable — before this, `stdio:
+ * "ignore"` meant a sidecar that failed to boot left no trace anywhere.
+ */
+function openSidecarLog(nextPkg: string): { fd: number; path: string } | null {
+	const path = join(nextPkg, "sidecar.log");
+	try {
+		return { fd: openSync(path, "a"), path };
+	} catch {
+		return null;
+	}
 }
 
 function readBuiltBuildId(nextPkg: string): string | null {
@@ -132,10 +195,7 @@ async function fetchRunningBuildId(host: string, port: number): Promise<string |
 			return null;
 		}
 		const parsed: unknown = await response.json();
-		const buildId =
-			typeof parsed === "object" && parsed !== null
-				? (parsed as { buildId?: unknown }).buildId
-				: null;
+		const buildId = typeof parsed === "object" && parsed !== null ? (parsed as { buildId?: unknown }).buildId : null;
 		return typeof buildId === "string" && buildId.length > 0 ? buildId : null;
 	} catch {
 		return null;
@@ -175,6 +235,69 @@ async function findStaleSidecar(
 	return { running, onDisk };
 }
 
+async function fetchRunningTemplateSkillsDir(host: string, port: number): Promise<string | null> {
+	const controller = new AbortController();
+	const timer = setTimeout(() => controller.abort(), BUILD_ID_PROBE_TIMEOUT_MS);
+	try {
+		const response = await fetch(`http://${host}:${port}/api/agent-data-root`, {
+			signal: controller.signal,
+		});
+		if (!response.ok) {
+			return null;
+		}
+		const parsed: unknown = await response.json();
+		const skillsDir =
+			typeof parsed === "object" && parsed !== null
+				? (parsed as { templateSkillsDir?: unknown }).templateSkillsDir
+				: null;
+		return typeof skillsDir === "string" && skillsDir.length > 0 ? skillsDir : null;
+	} catch {
+		return null;
+	} finally {
+		clearTimeout(timer);
+	}
+}
+
+/** Symlink-tolerant path comparison — a task worktree reaches the same dir by another name. */
+function samePath(left: string, right: string): boolean {
+	const canonical = (value: string): string => {
+		try {
+			return realpathSync(value);
+		} catch {
+			return resolve(value);
+		}
+	};
+	return canonical(left) === canonical(right);
+}
+
+/**
+ * The full app and the standalone Plan Editor package both supervise a sidecar on
+ * loopback, and an already-listening one is adopted as-is. That adoption is what
+ * made the standalone package's picker list all 86 repo templates instead of its
+ * three papp skills: a full-app sidecar owned the port, and the package's
+ * `PIXELOFFICE_AGENT_DATA` override only reaches a process it spawns itself.
+ *
+ * Comparing the template-skills directory the running process reports against the
+ * one this caller expects separates "already running, mine" from "already running,
+ * someone else's". Returns null when the caller stated no expectation or the
+ * running sidecar predates `/api/agent-data-root` — an unknown answer is not a
+ * foreign one, so those cases keep the adopt-and-continue behaviour.
+ */
+async function findForeignSidecar(
+	host: string,
+	port: number,
+	expectedTemplateSkillsDir: string | undefined,
+): Promise<{ running: string; expected: string } | null> {
+	if (expectedTemplateSkillsDir === undefined) {
+		return null;
+	}
+	const running = await fetchRunningTemplateSkillsDir(host, port);
+	if (running === null || samePath(running, expectedTemplateSkillsDir)) {
+		return null;
+	}
+	return { running, expected: expectedTemplateSkillsDir };
+}
+
 function createNoopProcess(isAlreadyUp: boolean): HtmlProcess {
 	return {
 		pid: null,
@@ -196,6 +319,14 @@ export async function startHtmlProcess(deps: StartHtmlProcessDependencies): Prom
 	const nextPkg = htmlRoot === null ? null : join(htmlRoot, "next");
 
 	if (await probePort(host, port)) {
+		const foreign = await findForeignSidecar(host, port, deps.expectedTemplateSkillsDir);
+		if (foreign) {
+			deps.warn(`HTML sidecar on ${host}:${port} belongs to another install.`);
+			deps.warn(`  It serves templates from ${foreign.running}, not ${foreign.expected}.`);
+			deps.warn("  Refusing to use it — its template list and prompts are not this install's.");
+			deps.warn(`  Free the port, or pick another one with PLAN_EDITOR_HTML_PORT.`);
+			return createNoopProcess(false);
+		}
 		const stale = await findStaleSidecar(host, port, nextPkg);
 		if (stale) {
 			deps.warn(
@@ -214,21 +345,26 @@ export async function startHtmlProcess(deps: StartHtmlProcessDependencies): Prom
 		return createNoopProcess(false);
 	}
 
+	const installHint = deps.installHint ?? DEFAULT_INSTALL_HINT;
 	const nextBin = join(nextPkg, "node_modules", "next", "dist", "bin", "next");
 	if (!existsSync(nextBin)) {
 		deps.warn(`HTML sidecar next binary missing at ${nextBin}.`);
-		deps.warn("  Install deps: pnpm install  (workspace includes backends/html_anything/next)");
-		deps.warn("  Then build:   pnpm --filter @html-anything/next build");
+		for (const line of installHint) {
+			deps.warn(line);
+		}
 		return createNoopProcess(false);
 	}
 	if (!existsSync(join(nextPkg, ".next"))) {
 		deps.warn(`HTML sidecar build missing at ${join(nextPkg, ".next")}.`);
-		deps.warn("  Build with: pnpm --filter @html-anything/next build");
+		for (const line of installHint) {
+			deps.warn(line);
+		}
 		deps.warn("  Board and office keep running; HTML templates stay offline until built.");
 		return createNoopProcess(false);
 	}
 
 	log(`Starting HTML sidecar with ${process.execPath} ${nextBin}`);
+	const sidecarLog = openSidecarLog(nextPkg);
 	let child: ChildProcess;
 	try {
 		child = spawn(process.execPath, [nextBin, "start", "--port", String(port), "--hostname", host], {
@@ -238,8 +374,9 @@ export async function startHtmlProcess(deps: StartHtmlProcessDependencies): Prom
 				...process.env,
 				NODE_ENV: "production",
 				HTML_ANYTHING_ALLOWED_HOSTS: host,
+				...(deps.apiOnly === true ? { HTML_ANYTHING_API_ONLY: "1" } : {}),
 			},
-			stdio: "ignore",
+			stdio: sidecarLog === null ? "ignore" : ["ignore", sidecarLog.fd, sidecarLog.fd],
 			shell: false,
 			windowsHide: true,
 			detached: process.platform !== "win32",
@@ -248,6 +385,17 @@ export async function startHtmlProcess(deps: StartHtmlProcessDependencies): Prom
 		const message = error instanceof Error ? error.message : String(error);
 		deps.warn(`Could not launch HTML sidecar: ${message}`);
 		return createNoopProcess(false);
+	} finally {
+		// The child holds its own duplicate of the descriptor, so the parent's copy is
+		// dead weight — and leaving it open would keep this process's handle count growing
+		// across restarts.
+		if (sidecarLog !== null) {
+			try {
+				closeSync(sidecarLog.fd);
+			} catch {
+				// Already closed by a failed spawn; nothing to recover.
+			}
+		}
 	}
 
 	let exited = false;
@@ -262,13 +410,26 @@ export async function startHtmlProcess(deps: StartHtmlProcessDependencies): Prom
 		deps.warn(`Could not launch HTML sidecar: ${error.message}`);
 	});
 
-	const ready = waitForPort(host, port, STARTUP_TIMEOUT_MS, () => !exited).then((isUp) => {
+	const startupTimeoutMs = resolveStartupTimeoutMs();
+	const ready = waitForPort(
+		host,
+		port,
+		startupTimeoutMs,
+		() => !exited,
+		() => log(`HTML sidecar is still starting (slow disks — a Windows drive under /mnt — take a while)...`),
+	).then((isUp) => {
 		if (isUp) {
 			log(`HTML sidecar listening on ${host}:${port}.`);
 			return true;
 		}
-		deps.warn(`HTML sidecar did not open ${host}:${port}.`);
-		deps.warn("  Install: pnpm install && pnpm --filter @html-anything/next build");
+		deps.warn(`HTML sidecar did not open ${host}:${port} within ${Math.round(startupTimeoutMs / 1000)}s.`);
+		for (const line of installHint) {
+			deps.warn(line);
+		}
+		if (sidecarLog !== null) {
+			deps.warn(`  Its output is in ${sidecarLog.path}.`);
+		}
+		deps.warn(`  A slower disk may just need longer: raise ${STARTUP_TIMEOUT_ENV}.`);
 		deps.warn("  Board and office keep running; HTML templates stay offline until the sidecar is up.");
 		return false;
 	});

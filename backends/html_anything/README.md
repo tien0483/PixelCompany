@@ -29,13 +29,13 @@
   <a href="https://github.com/nexu-io/open-design"><img alt="Built on open-design" src="https://img.shields.io/badge/built%20on-nexu--io%2Fopen--design-ff7043?style=flat-square&logo=github&logoColor=white" /></a>
 </p>
 
-<p align="center"><b>English</b> · <a href="README.zh-CN.md">简体中文</a></p>
+<p align="center"><b>English</b></p>
 
 ---
 
 ## Showcase
 
-The eight skills that surface at the top of the picker's **Featured / 推荐** group — sorted by their `recommended:` rank in `SKILL.md` frontmatter (lower = higher). Each ships a real `example.html` you can open straight from the repo, no auth, no setup.
+The eight skills that surface at the top of the picker's **Featured** group — sorted by their `recommended:` rank in `SKILL.md` frontmatter (lower = higher). Each ships a real `example.html` you can open straight from the repo, no auth, no setup.
 
 <table>
 <tr>
@@ -471,7 +471,7 @@ Issues, PRs, new skills, new agent adapters, new export targets, and translation
 - **Sharpen a `SKILL.md`** — strengthen the hard-constraints (CJK font stack, 8 px baseline, contrast ≥ 4.5, must-use-real-data), add a 5-dimensional self-critique, swap in a better palette. Anti-AI-slop discipline is the most underrated PR shape we accept.
 - **Translations & docs** — [`README.zh-CN.md`](README.zh-CN.md) and [`CONTRIBUTING.zh-CN.md`](CONTRIBUTING.zh-CN.md) are kept in parallel with the English files; please update both.
 
-Full walkthrough, bar-for-merging, code style, and what we **don't** accept → [`CONTRIBUTING.md`](CONTRIBUTING.md) ([简体中文](CONTRIBUTING.zh-CN.md)).
+Full walkthrough, bar-for-merging, code style, and what we **don't** accept → [`CONTRIBUTING.md`](CONTRIBUTING.md) ([Simplified Chinese](CONTRIBUTING.zh-CN.md)).
 
 ## References & lineage
 

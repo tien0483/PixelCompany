@@ -660,3 +660,108 @@ describe("project-local inventory + bridge", () => {
 		}
 	});
 });
+
+/** Manager shelf ON writes into `<repo>/.claude` — those ids are trusted without the local-assets opt-in. */
+function writeManagerInstalls(repo: string): void {
+	mkdirSync(join(repo, ".claude", "skills", "foo"), { recursive: true });
+	writeAsset(join(repo, ".claude", "skills", "foo", "SKILL.md"), "foo", "Manager-installed skill.");
+	mkdirSync(join(repo, ".claude", "skills", "untrusted"), { recursive: true });
+	writeAsset(join(repo, ".claude", "skills", "untrusted", "SKILL.md"), "untrusted", "Repo-authored skill.");
+	writeAsset(join(repo, ".claude", "agents", "bar.md"), "bar", "Manager-installed agent.");
+	writeAsset(join(repo, ".claude", "agents", "snoop.md"), "snoop", "Repo-authored agent.");
+	writeAsset(join(repo, ".claude", "commands", "ship.md"), "ship", "Manager-installed command.");
+}
+
+const MANAGER_FEATURES = ["knowledge/skill_foo", "agents/bar", "commands/ship", "knowledge/rules", "hooks/sounds"];
+
+describe("Manager-installed project features", () => {
+	it("TRUST: surfaces recorded Manager installs with local assets off", async () => {
+		setupTempHome();
+		const repo = makeProjectRepo();
+		try {
+			writeManagerInstalls(repo);
+			const inv = await listClaudeSkillInventory(repo, {
+				localAssetsEnabled: false,
+				managerFeatures: MANAGER_FEATURES,
+			});
+			expect(inv.skills.map((s) => s.id)).toEqual(["foo"]);
+			expect(inv.skills[0]?.origin).toBe("project");
+			expect(inv.skills[0]?.root).toBe("claude");
+			expect(inv.agents.map((a) => a.id)).toEqual(["bar"]);
+			expect(inv.commands.map((c) => c.id)).toEqual(["ship"]);
+			expect(inv.workflows).toEqual([]);
+		} finally {
+			rmSync(repo, { recursive: true, force: true });
+		}
+	});
+
+	it("GATE: repo-authored siblings stay hidden until local assets are enabled", async () => {
+		setupTempHome();
+		const repo = makeProjectRepo();
+		try {
+			writeManagerInstalls(repo);
+			const gated = await listClaudeSkillInventory(repo, {
+				localAssetsEnabled: false,
+				managerFeatures: MANAGER_FEATURES,
+			});
+			expect(gated.skills.map((s) => s.id)).not.toContain("untrusted");
+			expect(gated.agents.map((a) => a.id)).not.toContain("snoop");
+
+			const opted = await listClaudeSkillInventory(repo, {
+				localAssetsEnabled: true,
+				managerFeatures: MANAGER_FEATURES,
+			});
+			expect(opted.skills.map((s) => s.id).sort()).toEqual(["foo", "untrusted"]);
+			expect(opted.agents.map((a) => a.id).sort()).toEqual(["bar", "snoop"]);
+		} finally {
+			rmSync(repo, { recursive: true, force: true });
+		}
+	});
+
+	it("BRIDGE: allowlisted Manager installs are linked from the repo into the scoped config dir", async () => {
+		const home = setupTempHome();
+		const repo = makeProjectRepo();
+		try {
+			writeFileSync(join(home, ".claude.json"), JSON.stringify({ hasCompletedOnboarding: true }), "utf8");
+			mkdirSync(join(home, ".claude"), { recursive: true });
+			writeFileSync(join(home, ".claude", "settings.json"), "{}", "utf8");
+			writeManagerInstalls(repo);
+
+			const scoped = await prepareClaudeSkillScopedConfigDir({
+				taskId: "task-manager-bridge",
+				skillIds: ["foo", "untrusted"],
+				agentIds: ["bar", "snoop"],
+				commandIds: ["ship"],
+				managerRepoPath: repo,
+				managerFeatures: MANAGER_FEATURES,
+			});
+			expect(readdirSync(join(scoped.configDir, "skills"))).toEqual(["foo"]);
+			expect(readdirSync(join(scoped.configDir, "agents"))).toEqual(["bar.md"]);
+			expect(readdirSync(join(scoped.configDir, "commands"))).toEqual(["ship.md"]);
+			await scoped.cleanup();
+		} finally {
+			rmSync(repo, { recursive: true, force: true });
+		}
+	});
+
+	it("BRIDGE: no Manager repo path leaves the scoped dir untouched", async () => {
+		const home = setupTempHome();
+		const repo = makeProjectRepo();
+		try {
+			writeFileSync(join(home, ".claude.json"), JSON.stringify({ hasCompletedOnboarding: true }), "utf8");
+			mkdirSync(join(home, ".claude"), { recursive: true });
+			writeFileSync(join(home, ".claude", "settings.json"), "{}", "utf8");
+			writeManagerInstalls(repo);
+
+			const scoped = await prepareClaudeSkillScopedConfigDir({
+				taskId: "task-manager-bridge-off",
+				skillIds: ["foo"],
+				managerFeatures: MANAGER_FEATURES,
+			});
+			expect(readdirSync(join(scoped.configDir, "skills"))).toEqual([]);
+			await scoped.cleanup();
+		} finally {
+			rmSync(repo, { recursive: true, force: true });
+		}
+	});
+});

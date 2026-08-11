@@ -30,6 +30,10 @@ export enum LocalStorageKey {
 	MaxRunningTasks = "kanban.max-running-tasks",
 	PlansLastImportFolder = "kanban.plans-last-import-folder",
 	PlanEditorRawPaneRatio = "kanban.plan-editor-raw-pane-ratio",
+	PlanEditorTemplatePaneWidth = "kanban.plan-editor-template-pane-width",
+	PlanEditorTemplatePaneCollapsed = "kanban.plan-editor-template-pane-collapsed",
+	/** Which of the plan editor's panes are on screen: "editor", "split" or "preview". */
+	PlanEditorPaneViewMode = "kanban.plan-editor-pane-view-mode",
 	AddProjectLastBrowseFolder = "kanban.add-project-last-browse-folder",
 }
 
@@ -50,6 +54,9 @@ export const LAYOUT_CUSTOMIZATION_LOCAL_STORAGE_KEYS = [
 	LocalStorageKey.HomeRightColumnWidth,
 	LocalStorageKey.HomeRightSplitRatio,
 	LocalStorageKey.PlanEditorRawPaneRatio,
+	LocalStorageKey.PlanEditorTemplatePaneWidth,
+	LocalStorageKey.PlanEditorTemplatePaneCollapsed,
+	LocalStorageKey.PlanEditorPaneViewMode,
 ] as const;
 
 function getLocalStorage(): Storage | null {

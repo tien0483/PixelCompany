@@ -69,6 +69,10 @@ export default defineConfig({
 		minify: false,
 		sourcemap: true,
 		rollupOptions: {
+			input: {
+				main: resolve(__dirname, "index.html"),
+				planEditor: resolve(__dirname, "index-plan-editor.html"),
+			},
 			output: {
 				manualChunks(id) {
 					if (isXtermModule(id)) {

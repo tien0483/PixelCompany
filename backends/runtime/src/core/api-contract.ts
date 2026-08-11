@@ -124,6 +124,15 @@ export const runtimeTaskLaunchSettingsSchema = z.object({
 	commandIds: z.array(z.string().min(1)).optional(),
 	workflowIds: z.array(z.string().min(1)).optional(),
 	mcpServerIds: z.array(z.string().min(1)).optional(),
+	/**
+	 * API seat the session's subagents bill instead of the card's own seat, as a Cline
+	 * provider id from `listClineApiSeats`. Claude Code only: the split rides on
+	 * `CLAUDE_CODE_SUBAGENT_MODEL`, which no other CLI reads. Omitted = subagents inherit
+	 * the card's seat, which is the pre-existing behavior.
+	 */
+	subagentSeatProviderId: z.string().min(1).optional(),
+	/** Model the subagent seat runs; falls back to the seat's default model when absent. */
+	subagentSeatModelId: z.string().min(1).optional(),
 });
 export type RuntimeTaskLaunchSettings = z.infer<typeof runtimeTaskLaunchSettingsSchema>;
 export const runtimeTaskImageSchema = z.object({
@@ -1233,6 +1242,29 @@ export const RuntimeHtmlStatusSchema = z.object({
 });
 export type RuntimeHtmlStatus = z.infer<typeof RuntimeHtmlStatusSchema>;
 
+/**
+ * The local Claude account's rolling usage windows, read straight from Anthropic
+ * rather than from the Manager, so the standalone Plan Editor (which has no Manager
+ * process) can show them too. Field names mirror `RuntimeManagerAccountSchema` so the
+ * frontend's existing usage formatters apply unchanged.
+ */
+export const RuntimeClaudeUsageSchema = z.union([
+	z.object({
+		available: z.literal(true),
+		fiveHourPercent: z.number().nullable(),
+		sevenDayPercent: z.number().nullable(),
+		fiveHourResetsAt: z.string().nullable(),
+		sevenDayResetsAt: z.string().nullable(),
+		/** Unix seconds. */
+		fetchedAt: z.number(),
+	}),
+	z.object({
+		available: z.literal(false),
+		reason: z.enum(["no-credentials", "unauthorized", "unreachable"]),
+	}),
+]);
+export type RuntimeClaudeUsage = z.infer<typeof RuntimeClaudeUsageSchema>;
+
 export const RuntimeHtmlTemplateExampleSchema = z.object({
 	id: z.string(),
 	name: z.string().nullable(),
@@ -1250,7 +1282,13 @@ export const RuntimeHtmlPromptResponseSchema = z.object({
 export type RuntimeHtmlPromptResponse = z.infer<typeof RuntimeHtmlPromptResponseSchema>;
 
 export const RuntimeHtmlGenerateRequestSchema = z.object({
-	templateId: z.string().min(1),
+	/**
+	 * Absent = freestyle: the plan's own markdown is the spec, and the prompt is built by
+	 * the runtime (`html-freestyle.ts`) instead of fetched from the html-anything sidecar.
+	 * That path deliberately needs no sidecar at all, so generation still works with the
+	 * template registry offline.
+	 */
+	templateId: z.string().min(1).optional(),
 	content: z.string().min(1),
 	format: z.string().optional(),
 	model: z.string().optional(),
@@ -1258,6 +1296,12 @@ export const RuntimeHtmlGenerateRequestSchema = z.object({
 	planId: z.string().optional(),
 	editFromHtml: z.string().optional(),
 	editFromContent: z.string().optional(),
+	/**
+	 * Unified diff of the markdown requirement against the version the current HTML was
+	 * generated from. Refine sends this instead of `editFromContent` so the prompt carries the
+	 * delta rather than the whole requirement twice.
+	 */
+	editDiff: z.string().optional(),
 	managerAccountId: z.number().int().positive().optional(),
 });
 export type RuntimeHtmlGenerateRequest = z.infer<typeof RuntimeHtmlGenerateRequestSchema>;
@@ -1276,6 +1320,22 @@ export const RuntimeHtmlBriefRequestSchema = z.object({
 	managerAccountId: z.number().int().positive().optional(),
 });
 export type RuntimeHtmlBriefRequest = z.infer<typeof RuntimeHtmlBriefRequestSchema>;
+
+/**
+ * Inline prompt bar: one instruction plus the document it applies to. `context`
+ * may be empty (drafting into a blank plan is the common first move), so unlike
+ * the brief request it carries no `min(1)`. `selection` present switches the
+ * prompt from "append a draft" to "replace exactly this excerpt".
+ */
+export const RuntimeHtmlDraftRequestSchema = z.object({
+	planId: z.string().min(1),
+	instruction: z.string().min(1),
+	context: z.string(),
+	selection: z.string().optional(),
+	model: z.string().optional(),
+	managerAccountId: z.number().int().positive().optional(),
+});
+export type RuntimeHtmlDraftRequest = z.infer<typeof RuntimeHtmlDraftRequestSchema>;
 
 /**
  * Which steps the colleague-facing usage form renders: `authorize` asks for a
@@ -1491,6 +1551,11 @@ export type RuntimePlansReadResponse = z.infer<typeof runtimePlansReadResponseSc
 export const runtimePlansWriteRequestSchema = z.object({
 	planId: z.string(),
 	content: z.string(),
+	/**
+	 * How this write should appear in the plan's version history. Defaults to `autosave`, which is
+	 * throttled; a milestone (`expand`, `ai-edit`, …) is always recorded.
+	 */
+	historyLabel: z.enum(["generate", "refine", "expand", "ai-edit", "autosave", "manual"]).optional(),
 });
 export type RuntimePlansWriteRequest = z.infer<typeof runtimePlansWriteRequestSchema>;
 
@@ -1505,6 +1570,8 @@ export const runtimePlansWriteSiblingRequestSchema = z.object({
 	planId: z.string(),
 	ext: z.string().min(1),
 	content: z.string(),
+	/** How this page should appear in history. Defaults to `generate`; Refine sends `refine`. */
+	historyLabel: z.enum(["generate", "refine", "expand", "ai-edit", "autosave", "manual"]).optional(),
 });
 export type RuntimePlansWriteSiblingRequest = z.infer<typeof runtimePlansWriteSiblingRequestSchema>;
 
@@ -1516,8 +1583,143 @@ export const runtimePlansWriteSiblingResponseSchema = z.object({
 });
 export type RuntimePlansWriteSiblingResponse = z.infer<typeof runtimePlansWriteSiblingResponseSchema>;
 
+export const runtimePlansWriteBackupRequestSchema = z.object({
+	planId: z.string(),
+});
+export type RuntimePlansWriteBackupRequest = z.infer<typeof runtimePlansWriteBackupRequestSchema>;
+
+export const runtimePlansWriteBackupResponseSchema = z.object({
+	ok: z.boolean(),
+	path: z.string().nullable(),
+	error: z.string().optional(),
+});
+export type RuntimePlansWriteBackupResponse = z.infer<typeof runtimePlansWriteBackupResponseSchema>;
+
+/**
+ * The markdown a plan's generated `<stem>.html` came from, stored as `<stem>.html.src.md`.
+ * Refine diffs the current markdown against it, which is why it is a file rather than
+ * in-memory state: the base has to survive a reload.
+ */
+export const runtimePlansHtmlSourceRequestSchema = z.object({
+	planId: z.string(),
+});
+export type RuntimePlansHtmlSourceRequest = z.infer<typeof runtimePlansHtmlSourceRequestSchema>;
+
+export const runtimePlansReadHtmlSourceResponseSchema = z.object({
+	ok: z.boolean(),
+	/** `null` when nothing has been recorded for this plan yet — not an error. */
+	content: z.string().nullable(),
+	error: z.string().optional(),
+});
+export type RuntimePlansReadHtmlSourceResponse = z.infer<typeof runtimePlansReadHtmlSourceResponseSchema>;
+
+export const runtimePlansWriteHtmlSourceRequestSchema = z.object({
+	planId: z.string(),
+	content: z.string(),
+});
+export type RuntimePlansWriteHtmlSourceRequest = z.infer<typeof runtimePlansWriteHtmlSourceRequestSchema>;
+
+export const runtimePlansWriteHtmlSourceResponseSchema = z.object({
+	ok: z.boolean(),
+	path: z.string().nullable(),
+	error: z.string().optional(),
+});
+export type RuntimePlansWriteHtmlSourceResponse = z.infer<typeof runtimePlansWriteHtmlSourceResponseSchema>;
+
+/**
+ * Version history for a plan's two documents. The store is a bare git repository under the runtime
+ * home (`state/plan-history.ts`); these types are the editor's window onto it.
+ */
+export const runtimePlanHistoryTargetSchema = z.enum(["md", "html"]);
+export type RuntimePlanHistoryTarget = z.infer<typeof runtimePlanHistoryTargetSchema>;
+
+export const runtimePlanHistoryLabelSchema = z.enum(["generate", "refine", "expand", "ai-edit", "autosave", "manual"]);
+export type RuntimePlanHistoryLabel = z.infer<typeof runtimePlanHistoryLabelSchema>;
+
+export const runtimePlanHistoryEntrySchema = z.object({
+	id: z.string(),
+	target: runtimePlanHistoryTargetSchema,
+	oid: z.string(),
+	bytes: z.number(),
+	label: runtimePlanHistoryLabelSchema,
+	createdAt: z.number(),
+	pairedSrcOid: z.string().optional(),
+	/** True for the version currently written to disk. */
+	isCurrent: z.boolean().optional(),
+});
+export type RuntimePlanHistoryEntry = z.infer<typeof runtimePlanHistoryEntrySchema>;
+
+export const runtimePlansHistoryListRequestSchema = z.object({
+	planId: z.string(),
+});
+export type RuntimePlansHistoryListRequest = z.infer<typeof runtimePlansHistoryListRequestSchema>;
+
+export const runtimePlansHistoryListResponseSchema = z.object({
+	ok: z.boolean(),
+	/** False when `git` is missing — the editor hides its history controls rather than erroring. */
+	available: z.boolean(),
+	entries: z.array(runtimePlanHistoryEntrySchema),
+	cursor: z.object({ md: z.string().nullable(), html: z.string().nullable() }),
+	reason: z.string().optional(),
+	error: z.string().optional(),
+});
+export type RuntimePlansHistoryListResponse = z.infer<typeof runtimePlansHistoryListResponseSchema>;
+
+export const runtimePlansHistoryMoveRequestSchema = z.object({
+	planId: z.string(),
+	target: runtimePlanHistoryTargetSchema,
+});
+export type RuntimePlansHistoryMoveRequest = z.infer<typeof runtimePlansHistoryMoveRequestSchema>;
+
+export const runtimePlansHistoryRestoreRequestSchema = z.object({
+	planId: z.string(),
+	entryId: z.string(),
+});
+export type RuntimePlansHistoryRestoreRequest = z.infer<typeof runtimePlansHistoryRestoreRequestSchema>;
+
+export const runtimePlansHistoryMaterializeResponseSchema = z.object({
+	ok: z.boolean(),
+	/** Null when there was nothing to move to — the caller treats that as "no-op", not failure. */
+	entry: runtimePlanHistoryEntrySchema.nullable(),
+	target: runtimePlanHistoryTargetSchema.nullable(),
+	/** The restored document, so the editor can show it without re-reading the file. */
+	content: z.string().nullable(),
+	error: z.string().optional(),
+});
+export type RuntimePlansHistoryMaterializeResponse = z.infer<typeof runtimePlansHistoryMaterializeResponseSchema>;
+
+export const runtimePlansHistoryMarkRequestSchema = z.object({
+	planId: z.string(),
+	target: runtimePlanHistoryTargetSchema,
+	label: runtimePlanHistoryLabelSchema,
+});
+export type RuntimePlansHistoryMarkRequest = z.infer<typeof runtimePlansHistoryMarkRequestSchema>;
+
+export const runtimePlansHistoryMarkResponseSchema = z.object({
+	ok: z.boolean(),
+	/** Null when nothing was recorded: unchanged content, or a throttled autosave. */
+	entry: runtimePlanHistoryEntrySchema.nullable(),
+	error: z.string().optional(),
+});
+export type RuntimePlansHistoryMarkResponse = z.infer<typeof runtimePlansHistoryMarkResponseSchema>;
+
+export const runtimePlansHistoryDiffRequestSchema = z.object({
+	planId: z.string(),
+	entryId: z.string(),
+});
+export type RuntimePlansHistoryDiffRequest = z.infer<typeof runtimePlansHistoryDiffRequestSchema>;
+
+export const runtimePlansHistoryDiffResponseSchema = z.object({
+	ok: z.boolean(),
+	/** Unified diff from the chosen version to the current file; empty when identical. */
+	diff: z.string(),
+	changed: z.boolean(),
+	error: z.string().optional(),
+});
+export type RuntimePlansHistoryDiffResponse = z.infer<typeof runtimePlansHistoryDiffResponseSchema>;
+
 /** ~10 MB of image bytes, expressed as a base64 character-count ceiling (4/3 expansion). */
-const PLAN_ASSET_MAX_BASE64_LENGTH = 14_000_000;
+export const PLAN_ASSET_MAX_BASE64_LENGTH = 14_000_000;
 
 export const runtimePlansWriteAssetRequestSchema = z.object({
 	planId: z.string(),
@@ -1533,6 +1735,113 @@ export const runtimePlansWriteAssetResponseSchema = z.object({
 	error: z.string().optional(),
 });
 export type RuntimePlansWriteAssetResponse = z.infer<typeof runtimePlansWriteAssetResponseSchema>;
+
+/**
+ * Publishing a plan's generated HTML as a Google Apps Script web app, restricted to the
+ * configured Workspace domain. Driven by the `clasp` CLI, so the failures the UI can act on
+ * are surfaced as a discriminator rather than only as prose.
+ */
+export const runtimeDeployFailureSchema = z.enum(["needsLogin", "needsApiEnabled", "needsNetwork"]);
+export type RuntimeDeployFailure = z.infer<typeof runtimeDeployFailureSchema>;
+
+export const runtimeDeployConfigSchema = z.object({
+	/** Browser binary launched for the Workspace sign-in; null falls back to the OS default. */
+	chromePath: z.string().nullable(),
+	/** Chrome profile *directory* name (`Default`, `Profile 1`, …) signed in as the Workspace user. */
+	chromeProfile: z.string().nullable(),
+	domain: z.string(),
+});
+export type RuntimeDeployConfig = z.infer<typeof runtimeDeployConfigSchema>;
+
+export const runtimeDeployPlanStateSchema = z.object({
+	scriptId: z.string(),
+	deploymentId: z.string().nullable(),
+	webAppUrl: z.string().nullable(),
+	deployedAt: z.number().nullable(),
+});
+export type RuntimeDeployPlanState = z.infer<typeof runtimeDeployPlanStateSchema>;
+
+export const runtimeDeployStatusRequestSchema = z.object({
+	/** The HTML plan whose previous deployment should be reported; null for config only. */
+	planId: z.string().nullable(),
+});
+export type RuntimeDeployStatusRequest = z.infer<typeof runtimeDeployStatusRequestSchema>;
+
+export const runtimeDeployStatusResponseSchema = z.object({
+	ok: z.boolean(),
+	config: runtimeDeployConfigSchema,
+	loggedIn: z.boolean(),
+	account: z.string().nullable(),
+	planState: runtimeDeployPlanStateSchema.nullable(),
+	error: z.string().optional(),
+});
+export type RuntimeDeployStatusResponse = z.infer<typeof runtimeDeployStatusResponseSchema>;
+
+/** An omitted key keeps its stored value; an explicit null clears it. */
+export const runtimeDeployConfigUpdateRequestSchema = z.object({
+	chromePath: z.string().nullable().optional(),
+	chromeProfile: z.string().nullable().optional(),
+	domain: z.string().nullable().optional(),
+});
+export type RuntimeDeployConfigUpdateRequest = z.infer<typeof runtimeDeployConfigUpdateRequestSchema>;
+
+export const runtimeDeployLoginStartRequestSchema = z.object({
+	/**
+	 * Ask clasp for the paste-a-code flow instead of the loopback redirect. Needed when the
+	 * browser cannot reach the runtime's localhost (a Windows browser against a WSL runtime).
+	 */
+	noLocalhost: z.boolean().optional(),
+});
+export type RuntimeDeployLoginStartRequest = z.infer<typeof runtimeDeployLoginStartRequestSchema>;
+
+export const runtimeDeployLoginStatusSchema = z.object({
+	ok: z.boolean(),
+	state: z.enum(["idle", "awaiting-consent", "awaiting-code", "done", "failed"]),
+	url: z.string().nullable(),
+	awaitingCode: z.boolean(),
+	/** True when the browser was opened on the configured profile rather than the default one. */
+	usedProfile: z.boolean(),
+	loggedIn: z.boolean(),
+	account: z.string().nullable(),
+	error: z.string().nullable(),
+	failure: runtimeDeployFailureSchema.nullable(),
+	log: z.string(),
+});
+export type RuntimeDeployLoginStatus = z.infer<typeof runtimeDeployLoginStatusSchema>;
+
+export const runtimeDeployLoginCodeRequestSchema = z.object({
+	code: z.string().min(1),
+});
+export type RuntimeDeployLoginCodeRequest = z.infer<typeof runtimeDeployLoginCodeRequestSchema>;
+
+export const runtimeDeployRunRequestSchema = z.object({
+	planId: z.string().min(1),
+});
+export type RuntimeDeployRunRequest = z.infer<typeof runtimeDeployRunRequestSchema>;
+
+export const runtimeDeployRunResponseSchema = z.object({
+	ok: z.boolean(),
+	webAppUrl: z.string().nullable(),
+	scriptId: z.string().nullable(),
+	deploymentId: z.string().nullable(),
+	/** Step-by-step transcript, shown whether the run succeeded or not. */
+	log: z.array(z.string()),
+	error: z.string().nullable(),
+	failure: runtimeDeployFailureSchema.nullable(),
+});
+export type RuntimeDeployRunResponse = z.infer<typeof runtimeDeployRunResponseSchema>;
+
+export const runtimeDeployOpenUrlRequestSchema = z.object({
+	url: z.string().min(1),
+});
+export type RuntimeDeployOpenUrlRequest = z.infer<typeof runtimeDeployOpenUrlRequestSchema>;
+
+export const runtimeDeployOpenUrlResponseSchema = z.object({
+	ok: z.boolean(),
+	usedProfile: z.boolean(),
+	error: z.string().optional(),
+});
+export type RuntimeDeployOpenUrlResponse = z.infer<typeof runtimeDeployOpenUrlResponseSchema>;
 
 export const runtimeProjectRemoveRequestSchema = z.object({
 	projectId: z.string(),

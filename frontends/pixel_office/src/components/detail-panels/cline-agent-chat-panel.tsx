@@ -178,10 +178,8 @@ export const ClineAgentChatPanel = React.forwardRef<ClineAgentChatPanelHandle, C
 			return persistedMode ?? summary?.mode ?? defaultMode;
 		});
 		const [draftImages, setDraftImages] = useState<TaskImage[]>([]);
-		const {
-			isVisible: isClineReasoningVisible,
-			setVisible: setClineReasoningVisible,
-		} = useClineReasoningVisibility();
+		const { isVisible: isClineReasoningVisible, setVisible: setClineReasoningVisible } =
+			useClineReasoningVisibility();
 		const clineSettings = useRuntimeSettingsClineController({
 			open: true,
 			workspaceId,
@@ -361,7 +359,9 @@ export const ClineAgentChatPanel = React.forwardRef<ClineAgentChatPanelHandle, C
 				void (async () => {
 					// Persist first: the pin is what every restart path reads, so it must survive
 					// even if the live swap fails or the view unmounts mid-flight.
-					const persisted = await persistClineModelSettings({ modelId: nextModelId });
+					const persisted = await persistClineModelSettings({
+						modelId: nextModelId,
+					});
 					if (!persisted || !onApplyModelToSession) {
 						return;
 					}
@@ -507,10 +507,9 @@ export const ClineAgentChatPanel = React.forwardRef<ClineAgentChatPanelHandle, C
 						isModelSaving={isSavingModel}
 						modelPickerDisabled={isSavingModel || clineSettings.providerId.trim().length === 0}
 						isSending={isSavingModel || isSending}
-					showReasoningToggle
-					isReasoningVisible={isClineReasoningVisible}
-					onReasoningVisibilityChange={setClineReasoningVisible}
-
+						showReasoningToggle
+						isReasoningVisible={isClineReasoningVisible}
+						onReasoningVisibilityChange={setClineReasoningVisible}
 						warningMessage={summary?.warningMessage ?? null}
 						attachmentWarningMessage={attachmentWarningMessage}
 						workspaceId={workspaceId}
@@ -520,13 +519,7 @@ export const ClineAgentChatPanel = React.forwardRef<ClineAgentChatPanelHandle, C
 					<div className="flex flex-col gap-2 px-3 pb-3">
 						{showReviewActions ? (
 							<div className="flex gap-2">
-								<Button
-									variant="primary"
-									size="sm"
-									fill
-									disabled={isCommitLoading}
-									onClick={onCommit}
-								>
+								<Button variant="primary" size="sm" fill disabled={isCommitLoading} onClick={onCommit}>
 									{isCommitLoading ? "..." : "Commit"}
 								</Button>
 							</div>

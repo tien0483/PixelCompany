@@ -718,6 +718,7 @@ async function startTask(input: { cwd: string; taskId: string; projectPath?: str
 			baseRef: task.baseRef,
 			agentId: task.agentId,
 			clineSettings: task.clineSettings,
+			taskLaunchSettings: task.taskLaunchSettings,
 		});
 		if (!started.ok || !started.summary) {
 			throw new Error(started.error ?? "Could not start task session.");

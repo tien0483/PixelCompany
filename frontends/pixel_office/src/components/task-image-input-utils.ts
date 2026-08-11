@@ -75,6 +75,36 @@ export function collectImageFilesFromDataTransfer(dataTransfer: DataTransfer): F
 	return files;
 }
 
+/**
+ * Like {@link collectImageFilesFromDataTransfer}, but keeps every `image/*` file rather
+ * than only the accepted subset — so a caller can tell the user *why* their screenshot was
+ * refused instead of ignoring it. Non-image files are still skipped: dropping a text file
+ * is not a failed image paste.
+ */
+export function collectImageLikeFilesFromDataTransfer(dataTransfer: DataTransfer): File[] {
+	const files: File[] = [];
+	const push = (file: File | null) => {
+		if (file?.type.startsWith("image/")) {
+			files.push(file);
+		}
+	};
+	if (dataTransfer.items?.length) {
+		for (let i = 0; i < dataTransfer.items.length; i++) {
+			const item = dataTransfer.items[i];
+			if (item?.kind !== "file") {
+				continue;
+			}
+			push(item.getAsFile());
+		}
+	}
+	if (files.length === 0) {
+		for (const file of Array.from(dataTransfer.files)) {
+			push(file);
+		}
+	}
+	return files;
+}
+
 export async function extractImagesFromDataTransfer(dataTransfer: DataTransfer): Promise<TaskImage[]> {
 	const files = collectImageFilesFromDataTransfer(dataTransfer);
 	const images: TaskImage[] = [];

@@ -1,14 +1,14 @@
-import { ListChecks, Sparkles, Wand2, Zap } from "lucide-react";
-import { type ReactElement, useEffect, useMemo, useState } from "react";
+import { ListChecks, Rocket, Sparkles, Wand2, Zap } from "lucide-react";
+import { type ReactElement, useMemo } from "react";
 
-import { showAppToast } from "@/components/app-toaster";
+import { PlanClaudeUsageChip } from "@/components/plan-editor/plan-claude-usage-chip";
+import { PlanHtmlRunMetrics } from "@/components/plan-editor/plan-html-run-metrics";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
-import { NativeSelect } from "@/components/ui/native-select";
 import { Spinner } from "@/components/ui/spinner";
 import { HTML_LABELS } from "@/html/html-labels";
 import type { HtmlStreamStatus } from "@/html/use-html-agent-stream";
-import { useHtmlTemplates } from "@/html/use-html-templates";
+import type { HtmlTemplateMeta } from "@/html/use-html-templates";
 
 export interface PlanHtmlGenerateBarProps {
 	status: HtmlStreamStatus;
@@ -18,29 +18,34 @@ export interface PlanHtmlGenerateBarProps {
 	firstByteAt: number | null;
 	doneAt: number | null;
 	htmlSizeBytes: number;
+	/**
+	 * Template state is owned by the editor view and shared with the left rail, which
+	 * is where templates are actually picked; the bar only reports and acts on it.
+	 */
+	templates: HtmlTemplateMeta[];
+	selectedTemplateId: string | null;
+	/** Reflects the html_anything sidecar, not the Claude account. */
+	online: boolean;
+	templatesLoading: boolean;
 	/** False until the plan has a generated HTML sibling to edit. */
 	canRefine: boolean;
+	/** False until there is a saved HTML page on disk to publish. */
+	canDeploy: boolean;
 	/** False for an unsaved plan, whose images are not on disk yet. */
 	canExpand: boolean;
 	disabled?: boolean;
 	onExpand: (templateId: string | null) => void;
-	onGenerate: (templateId: string) => void;
-	onRefine: (templateId: string) => void;
+	/** `null` = freestyle: the runtime builds the prompt from the plan's markdown. */
+	onGenerate: (templateId: string | null) => void;
+	onRefine: (templateId: string | null) => void;
+	onDeploy: () => void;
 	onCancel: () => void;
 }
 
-function formatElapsed(ms: number): string {
-	return `${(ms / 1000).toFixed(1)}s`;
-}
-
-function formatBytes(bytes: number): string {
-	if (bytes < 1024) return `${bytes} B`;
-	return `${(bytes / 1024).toFixed(1)} KB`;
-}
-
 /**
- * Template picker + Generate/Cancel for the plan editor's rendered pane.
- * Generation state is owned by the editor view so the pane can stream the result.
+ * Claude status + Generate/Cancel for the plan editor's rendered pane. The template
+ * itself is picked in the left rail (`PlanTemplateRail`); generation state is owned by
+ * the editor view so the pane can stream the result.
  */
 export function PlanHtmlGenerateBar({
 	status,
@@ -49,59 +54,37 @@ export function PlanHtmlGenerateBar({
 	firstByteAt,
 	doneAt,
 	htmlSizeBytes,
+	templates,
+	selectedTemplateId: selectedId,
+	online,
+	templatesLoading: loading,
 	canRefine,
+	canDeploy,
 	canExpand,
 	disabled,
 	onExpand,
 	onGenerate,
 	onRefine,
+	onDeploy,
 	onCancel,
 }: PlanHtmlGenerateBarProps): ReactElement {
-	const { online, templates, loading } = useHtmlTemplates();
-	const [selectedId, setSelectedId] = useState<string | null>(null);
-	const [tick, setTick] = useState(0);
 	const isRunning = status === "running";
 	const isExpanding = briefStatus === "running";
-
-	useEffect(() => {
-		if (!isRunning) return;
-		const id = window.setInterval(() => setTick((n) => n + 1), 100);
-		return () => window.clearInterval(id);
-	}, [isRunning]);
-
-	useEffect(() => {
-		if (templates.length > 0 && selectedId === null) {
-			setSelectedId(templates[0]?.id ?? null);
-		}
-	}, [templates, selectedId]);
 
 	const selectedTemplate = useMemo(
 		() => templates.find((t) => t.id === selectedId) ?? null,
 		[templates, selectedId],
 	);
 
-	void tick;
-	const elapsedMs = startedAt ? (doneAt ?? Date.now()) - startedAt : null;
-	const ttfbMs = startedAt && firstByteAt ? firstByteAt - startedAt : null;
-
-	const handleGenerate = () => {
-		if (!selectedId) {
-			showAppToast({ intent: "warning", message: HTML_LABELS.pickTemplate });
-			return;
-		}
-		onGenerate(selectedId);
-	};
-
-	const handleRefine = () => {
-		if (!selectedId) {
-			showAppToast({ intent: "warning", message: HTML_LABELS.pickTemplate });
-			return;
-		}
-		onRefine(selectedId);
-	};
+	/**
+	 * A template's prompt comes from the sidecar, so picking one makes the run depend on it
+	 * being up and its registry loaded. Freestyle has no such dependency — the runtime builds
+	 * that prompt itself — so an offline sidecar must not disable the button.
+	 */
+	const sidecarBlocked = selectedId !== null && (!online || loading);
 
 	return (
-		<div className="flex flex-wrap items-center gap-2" data-testid="plan-html-generate-bar">
+		<div className="flex shrink-0 flex-nowrap items-center gap-2" data-testid="plan-html-generate-bar">
 			<span
 				className="hidden shrink-0 items-center gap-1 rounded-md border border-border bg-surface-3 px-1.5 py-0.5 text-[10px] font-medium text-text-secondary lg:inline-flex"
 				title="HTML generation always runs on the Claude agent"
@@ -114,25 +97,21 @@ export function PlanHtmlGenerateBar({
 				title={online ? HTML_LABELS.online : HTML_LABELS.offlineHint}
 				aria-label={online ? HTML_LABELS.online : HTML_LABELS.offlineShort}
 			/>
-			<NativeSelect
-				size="sm"
-				value={selectedId ?? ""}
-				disabled={loading || !online || isRunning || templates.length === 0 || disabled}
-				onChange={(e) => setSelectedId(e.target.value || null)}
-				aria-label={HTML_LABELS.pickTemplate}
-				className="max-w-[180px]"
-			>
-				{templates.length === 0 ? (
-					<option value="">{online ? HTML_LABELS.emptyTemplates : HTML_LABELS.offline}</option>
-				) : (
-					templates.map((t) => (
-						<option key={t.id} value={t.id}>
-							{t.emoji ? `${t.emoji} ` : ""}
-							{t.enName || t.zhName || t.id}
-						</option>
-					))
-				)}
-			</NativeSelect>
+			<PlanClaudeUsageChip />
+			{selectedTemplate ? (
+				<span className="hidden max-w-[160px] truncate text-[11px] text-text-secondary lg:inline">
+					{selectedTemplate.emoji ? `${selectedTemplate.emoji} ` : ""}
+					{selectedTemplate.enName || selectedTemplate.zhName || selectedTemplate.id}
+				</span>
+			) : (
+				<span
+					className="hidden text-[11px] text-text-tertiary lg:inline"
+					title={HTML_LABELS.noTemplateHint}
+					data-testid="plan-html-no-template"
+				>
+					{HTML_LABELS.noTemplate}
+				</span>
+			)}
 			{selectedTemplate?.aspectHint ? (
 				<span className="hidden text-[10px] text-text-tertiary xl:inline">{selectedTemplate.aspectHint}</span>
 			) : null}
@@ -160,42 +139,54 @@ export function PlanHtmlGenerateBar({
 					>
 						{isExpanding ? HTML_LABELS.expanding : HTML_LABELS.expand}
 					</Button>
+					{/* Once an HTML sibling exists, refining is the cheaper intent — emphasis flips to it. */}
 					<Button
-						variant="primary"
+						variant={canRefine ? "default" : "primary"}
 						size="sm"
 						icon={<Zap size={13} />}
-						disabled={!selectedId || !online || loading || disabled}
-						onClick={handleGenerate}
+						disabled={sidecarBlocked || disabled}
+						onClick={() => onGenerate(selectedId)}
+						{...(selectedId ? {} : { title: HTML_LABELS.noTemplateHint })}
 						data-testid="plan-html-generate-run"
 					>
 						{HTML_LABELS.convert}
 					</Button>
 					<Button
-						variant="default"
+						variant={canRefine ? "primary" : "default"}
 						size="sm"
 						icon={<Wand2 size={13} />}
-						disabled={!canRefine || !selectedId || !online || loading || disabled}
-						onClick={handleRefine}
+						disabled={!canRefine || sidecarBlocked || disabled}
+						onClick={() => onRefine(selectedId)}
 						title={canRefine ? HTML_LABELS.refineHint : HTML_LABELS.refineNeedsHtml}
 						data-testid="plan-html-refine-run"
 					>
 						{HTML_LABELS.refine}
 					</Button>
+					{/*
+					 * Publishing reads the page from disk, not the sidecar, so it is not gated on
+					 * `online`. Opens the deploy dialog rather than firing immediately: the first
+					 * deploy needs a Google sign-in and a browser profile picked.
+					 */}
+					<Button
+						variant="default"
+						size="sm"
+						icon={<Rocket size={13} />}
+						disabled={!canDeploy || disabled}
+						onClick={onDeploy}
+						title={canDeploy ? HTML_LABELS.deployHint : HTML_LABELS.deployNeedsHtml}
+						data-testid="plan-html-deploy-run"
+					>
+						{HTML_LABELS.deploy}
+					</Button>
 				</>
 			)}
-			{startedAt !== null ? (
-				<span className="hidden items-center gap-2 font-mono text-[10px] uppercase tracking-wide text-text-tertiary xl:inline-flex">
-					<span>
-						{HTML_LABELS.elapsed} {elapsedMs !== null ? formatElapsed(elapsedMs) : "—"}
-					</span>
-					<span>
-						{HTML_LABELS.ttfb} {ttfbMs !== null ? formatElapsed(ttfbMs) : "—"}
-					</span>
-					<span>
-						{HTML_LABELS.size} {htmlSizeBytes > 0 ? formatBytes(htmlSizeBytes) : "—"}
-					</span>
-				</span>
-			) : null}
+			<PlanHtmlRunMetrics
+				running={isRunning}
+				startedAt={startedAt}
+				firstByteAt={firstByteAt}
+				doneAt={doneAt}
+				htmlSizeBytes={htmlSizeBytes}
+			/>
 		</div>
 	);
 }

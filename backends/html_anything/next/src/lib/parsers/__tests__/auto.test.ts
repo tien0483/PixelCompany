@@ -19,6 +19,6 @@ describe("PDF summaries", () => {
 
     const summary = summarizeForAgent(input);
     expect(summary.format).toBe("pdf");
-    expect(summary.preview).toBe("[PDF 文档, 2 页, 86 字符, extraction: embedded text]");
+    expect(summary.preview).toBe("[PDF document, 2 pages, 86 chars, extraction: embedded text]");
   });
 });

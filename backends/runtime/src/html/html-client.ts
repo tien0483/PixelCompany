@@ -39,6 +39,8 @@ export interface HtmlClient {
 		format?: string;
 		editFromHtml?: string;
 		editFromContent?: string;
+		/** Unified diff of the requirement; selects the sidecar's diff-edit prompt. */
+		editDiff?: string;
 	}) => Promise<HtmlPromptResult>;
 	proxyRequest: (
 		method: string,

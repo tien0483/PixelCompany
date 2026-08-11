@@ -27,6 +27,7 @@ import type {
 } from "../core/api-contract";
 import {
 	fetchOmniRouteModelIds,
+	OMNIROUTE_FALLBACK_MODEL_ID,
 	OMNIROUTE_PROVIDER_ID,
 	omniRouteMissingApiKeyMessage,
 	resolveOmniRouteApiKey,
@@ -61,6 +62,7 @@ import {
 	SDK_DEFAULT_MODEL_ID,
 	SDK_DEFAULT_PROVIDER_ID,
 	type SdkCustomProviderCapability,
+	type SdkCustomProviderSummary,
 	type SdkProviderSettings,
 	saveSdkProviderSettings,
 	startClineDeviceAuth as startSdkDeviceAuth,
@@ -90,6 +92,18 @@ type ClineRemoteConfig = z.infer<typeof CLINE_REMOTE_CONFIG_SCHEMA>;
 type LiteLlmModelListPathname = (typeof LITELLM_MODEL_LIST_PATHNAMES)[number];
 type LiteLlmModelListItem = NonNullable<z.infer<typeof LITELLM_MODELS_RESPONSE_SCHEMA>["data"]>[number];
 type SdkReasoningEffort = NonNullable<NonNullable<SdkProviderSettings["reasoning"]>["effort"]>;
+
+/**
+ * A launchable API seat, credential included. Unlike `RuntimeClineApiSeat` this never
+ * crosses the tRPC boundary — it exists so a local subprocess can be handed the key.
+ */
+export interface ClineApiSeatCredentials {
+	providerId: string;
+	name: string;
+	baseUrl: string;
+	modelId: string;
+	apiKey: string;
+}
 
 export interface ResolvedClineLaunchConfig {
 	/**
@@ -1156,6 +1170,63 @@ export function createClineProviderService() {
 
 			return {
 				seats: [...seats.values()].sort((left, right) => left.name.localeCompare(right.name)),
+			};
+		},
+
+		/**
+		 * Resolves everything needed to *launch on* an API seat — including its key, which
+		 * `listApiSeats` deliberately never returns.
+		 *
+		 * Only for callers that hand the credential straight to a local process (today: the
+		 * per-seat subagent router). Null whenever the seat is not launchable — no key, no
+		 * base URL, or no model — so callers can degrade instead of starting something that
+		 * would fail on its first request.
+		 */
+		async resolveApiSeatCredentials(input: {
+			providerId: string;
+			modelId?: string | null;
+		}): Promise<ClineApiSeatCredentials | null> {
+			const providerId = input.providerId.trim().toLowerCase();
+			if (providerId.length === 0) {
+				return null;
+			}
+			const settings = getSdkProviderSettings(providerId);
+			const apiKey =
+				providerId === OMNIROUTE_PROVIDER_ID
+					? resolveOmniRouteApiKey(settings)
+					: resolveVisibleApiKey(settings);
+			if (!apiKey) {
+				return null;
+			}
+
+			const [customProviders, catalog] = await Promise.all([
+				listSdkCustomProviders().catch((): SdkCustomProviderSummary[] => []),
+				listSdkProviderCatalog().catch((): Awaited<ReturnType<typeof listSdkProviderCatalog>> => []),
+			]);
+			const custom = customProviders.find((provider) => provider.providerId === providerId) ?? null;
+			const configured = listSdkConfiguredProviders().find((provider) => provider.providerId === providerId) ?? null;
+			const catalogEntry = catalog.find((provider) => provider.id === providerId) ?? null;
+
+			const baseUrl =
+				providerId === OMNIROUTE_PROVIDER_ID
+					? resolveOmniRouteBaseUrl(settings)
+					: (custom?.baseUrl || configured?.baseUrl || catalogEntry?.baseUrl || "");
+			const modelId =
+				input.modelId?.trim() ||
+				custom?.defaultModelId ||
+				configured?.modelId ||
+				catalogEntry?.defaultModelId ||
+				(providerId === OMNIROUTE_PROVIDER_ID ? OMNIROUTE_FALLBACK_MODEL_ID : "") ||
+				"";
+			if (!baseUrl || !modelId) {
+				return null;
+			}
+			return {
+				providerId,
+				name: custom?.name ?? catalogEntry?.name ?? providerId,
+				baseUrl,
+				modelId,
+				apiKey,
 			};
 		},
 

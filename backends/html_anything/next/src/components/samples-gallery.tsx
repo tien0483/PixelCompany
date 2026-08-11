@@ -11,7 +11,7 @@ import {
 } from "@/lib/templates";
 
 /**
- * Samples gallery — rendered on the "示例" tab in the editor pane. The list
+ * Samples gallery — rendered on the "Samples" tab in the editor pane. The list
  * comes from `/api/templates` filtered to skills that ship a pre-rendered
  * `example.html` (so every card has something to preview). Each card uses
  * `<iframe src=…>` pointing at `/api/templates/<id>/preview` — the browser

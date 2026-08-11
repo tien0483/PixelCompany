@@ -60,10 +60,10 @@ export function useAutosave() {
 export function relativeTime(ts: number | null): string {
   if (!ts) return "";
   const diff = Math.max(0, Date.now() - ts) / 1000;
-  if (diff < 5) return "刚刚";
-  if (diff < 60) return `${Math.round(diff)} 秒前`;
-  if (diff < 3600) return `${Math.round(diff / 60)} 分钟前`;
-  if (diff < 86400) return `${Math.round(diff / 3600)} 小时前`;
+  if (diff < 5) return "just now";
+  if (diff < 60) return `${Math.round(diff)}s ago`;
+  if (diff < 3600) return `${Math.round(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.round(diff / 3600)}h ago`;
   return new Date(ts).toLocaleString();
 }
 

@@ -1,24 +1,26 @@
 ---
 name: blog-post
-zh_name: "博客长文"
 en_name: "Blog Post"
 emoji: "📰"
-description: "杂志感长文, 含 masthead、hero、figures、pull quote、作者署名"
+description: "Magazine-style long-form article with masthead, hero, figures, pull quotes, author byline"
 category: article
 scenario: marketing
-aspect_hint: "长页面"
-tags: ["blog", "essay", "case study", "长文"]
+aspect_hint: "Long page"
+tags: ["blog", "essay", "case study"]
 ---
 
-【模板: 博客长文 / Blog Post】
-【意图】≥ 600 字的真正的长文章, 排版以 typography 为主, 70% 文字 20% 图 10% chrome。
-【布局】
+# Template: Blog Post
+
+**Intent**: A genuine long-form article of 600+ words, layout driven by typography — 70% text, 20% images, 10% chrome.
+
+**Layout**
 - Masthead (publication name + date)
-- Hero (大标题 + 副标 + 作者署名 + 阅读时间)
-- 正文 (单栏 65ch, 含 figures, pull quotes, 行内引用)
-- Author bio 卡片
-- Related posts (3 张卡)
-【设计细节】
-- Pull quote 用大号 serif 斜体 + 左侧色条
-- Figures 自带 caption (italic, smaller)
-- 代码块: 圆角 + 深色 + 语言标签
+- Hero (big title + subtitle + author byline + reading time)
+- Body (single column 65ch, with figures, pull quotes, inline citations)
+- Author bio card
+- Related posts (3 cards)
+
+**Design Details**
+- Pull quotes use large serif italic + left accent bar
+- Figures have captions (italic, smaller)
+- Code blocks: rounded + dark + language label

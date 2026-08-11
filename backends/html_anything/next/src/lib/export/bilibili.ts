@@ -3,7 +3,7 @@
 import { copyHtml } from "./clipboard";
 
 /**
- * Bilibili 专栏 (column) editor accepts a narrow subset of HTML and rejects
+ * Bilibili column (column) editor accepts a narrow subset of HTML and rejects
  * everything else (drops the tag, sometimes drops the whole paste). Images
  * must be on a bili-hosted CDN — external src URLs are silently stripped at
  * publish time. We replace external images with a placeholder that the user

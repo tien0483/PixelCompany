@@ -11,6 +11,13 @@ export type PlanSaveStatus = "idle" | "loading" | "saving" | "saved" | "error";
 export interface UsePlanEditorDocumentResult {
 	content: string;
 	updateContent: (next: string) => void;
+	/**
+	 * Takes on `next` as the document's current state *without* writing it back. For content the
+	 * caller has already put on disk under this same plan id — a freshly generated `<stem>.html`, a
+	 * restored version — where the load effect below would never notice, because it only re-reads
+	 * when `planId` changes and a rewritten file keeps its id.
+	 */
+	adopt: (next: string) => void;
 	status: PlanSaveStatus;
 	statusLabel: string;
 	/** Flushes any pending autosave immediately; call before navigating away. */
@@ -27,6 +34,14 @@ export function usePlanEditorDocument(
 	const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const pendingContentRef = useRef<string | null>(null);
 	const inFlightRef = useRef<Promise<void> | null>(null);
+	/**
+	 * Which plan's content has actually arrived. Until the read resolves there is nothing
+	 * on screen for the user to have edited, so any `updateContent` in that window comes
+	 * from a mounting editor echoing its own empty document — saving it would truncate
+	 * the file on disk. Deliberately untouched by a failed *save* (which only moves
+	 * `status` to "error") so autosave can still recover on the next successful write.
+	 */
+	const loadedPlanIdRef = useRef<string | null>(null);
 	const planId = plan?.id ?? null;
 
 	const clearSaveTimer = useCallback(() => {
@@ -89,10 +104,30 @@ export function usePlanEditorDocument(
 
 	const updateContent = useCallback(
 		(next: string) => {
+			if (!planId || loadedPlanIdRef.current !== planId) {
+				return;
+			}
 			setContent(next);
 			scheduleSave(next);
 		},
-		[scheduleSave],
+		[planId, scheduleSave],
+	);
+
+	const adopt = useCallback(
+		(next: string) => {
+			if (!planId) {
+				return;
+			}
+			// Drop any queued autosave: it holds pre-adoption text, and letting it land would
+			// overwrite the bytes the caller just wrote with a stale draft.
+			clearSaveTimer();
+			pendingContentRef.current = null;
+			loadedPlanIdRef.current = planId;
+			setContent(next);
+			setErrorMessage(null);
+			setStatus("saved");
+		},
+		[clearSaveTimer, planId],
 	);
 
 	const flush = useCallback(async () => {
@@ -113,7 +148,12 @@ export function usePlanEditorDocument(
 		setStatus("loading");
 		setErrorMessage(null);
 		pendingContentRef.current = null;
+		loadedPlanIdRef.current = null;
 		clearSaveTimer();
+		// Clear the previous plan's content immediately — before the async read
+		// resolves — so a stale document from the last plan is never shown, edited, or
+		// autosaved as if it belonged to the new one while the real content loads.
+		setContent("");
 		void (async () => {
 			try {
 				const trpcClient = getRuntimeTrpcClient(workspaceId ?? null);
@@ -122,12 +162,17 @@ export function usePlanEditorDocument(
 					return;
 				}
 				if (!response.ok || response.content === null) {
+					// Content is already "" from the top of this effect. Leaving it
+					// there (rather than re-asserting empty here) keeps "load failed"
+					// distinct from "loaded and it's genuinely empty" for callers that
+					// branch on `status`, since both cases would otherwise look
+					// identical by content alone.
 					setStatus("error");
 					setErrorMessage(response.error ?? "Failed to load plan.");
-					setContent("");
 					return;
 				}
 				setContent(response.content);
+				loadedPlanIdRef.current = planId;
 				setStatus("saved");
 			} catch (error) {
 				if (cancelled) {
@@ -135,7 +180,6 @@ export function usePlanEditorDocument(
 				}
 				setStatus("error");
 				setErrorMessage(error instanceof Error ? error.message : String(error));
-				setContent("");
 			}
 		})();
 		return () => {
@@ -160,5 +204,5 @@ export function usePlanEditorDocument(
 						? (errorMessage ?? "Error")
 						: "";
 
-	return { content, updateContent, status, statusLabel, flush };
+	return { content, updateContent, adopt, status, statusLabel, flush };
 }

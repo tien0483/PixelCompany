@@ -8,6 +8,9 @@ This follows the usual split a small engineering team would want:
 - `docs/` holds stable onboarding and architecture references for humans.
 - `.plan/docs/` holds active plans, handoffs, and deeper change-history context for larger refactors.
 
+
+
+
 If you are new to the codebase, read these in order:
 
 1. [`../README.md`](../README.md) for the product overview and local setup.

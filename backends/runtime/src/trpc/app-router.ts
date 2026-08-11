@@ -49,6 +49,16 @@ import type {
 	RuntimeConfigResponse,
 	RuntimeConfigSaveRequest,
 	RuntimeDebugResetAllStateResponse,
+	RuntimeDeployConfigUpdateRequest,
+	RuntimeDeployLoginCodeRequest,
+	RuntimeDeployLoginStartRequest,
+	RuntimeDeployLoginStatus,
+	RuntimeDeployOpenUrlRequest,
+	RuntimeDeployOpenUrlResponse,
+	RuntimeDeployRunRequest,
+	RuntimeDeployRunResponse,
+	RuntimeDeployStatusRequest,
+	RuntimeDeployStatusResponse,
 	RuntimeDirectoryListRequest,
 	RuntimeDirectoryListResponse,
 	RuntimeFeaturebaseTokenResponse,
@@ -129,17 +139,32 @@ import type {
 	RuntimeOpenFileResponse,
 	RuntimePlansCreateRequest,
 	RuntimePlansCreateResponse,
+	RuntimePlansHistoryDiffRequest,
+	RuntimePlansHistoryDiffResponse,
+	RuntimePlansHistoryListRequest,
+	RuntimePlansHistoryListResponse,
+	RuntimePlansHistoryMarkRequest,
+	RuntimePlansHistoryMarkResponse,
+	RuntimePlansHistoryMaterializeResponse,
+	RuntimePlansHistoryMoveRequest,
+	RuntimePlansHistoryRestoreRequest,
+	RuntimePlansHtmlSourceRequest,
 	RuntimePlansImportFileRequest,
 	RuntimePlansImportFileResponse,
 	RuntimePlansImportFromFolderRequest,
 	RuntimePlansImportFromFolderResponse,
 	RuntimePlansListResponse,
+	RuntimePlansReadHtmlSourceResponse,
 	RuntimePlansReadRequest,
 	RuntimePlansReadResponse,
 	RuntimePlansRemoveRequest,
 	RuntimePlansRemoveResponse,
 	RuntimePlansWriteAssetRequest,
 	RuntimePlansWriteAssetResponse,
+	RuntimePlansWriteBackupRequest,
+	RuntimePlansWriteBackupResponse,
+	RuntimePlansWriteHtmlSourceRequest,
+	RuntimePlansWriteHtmlSourceResponse,
 	RuntimePlansWriteRequest,
 	RuntimePlansWriteResponse,
 	RuntimePlansWriteSiblingRequest,
@@ -194,6 +219,8 @@ import type {
 	RuntimeWorktreeEnsureResponse,
 } from "../core/api-contract";
 import {
+	type RuntimeClaudeUsage,
+	RuntimeClaudeUsageSchema,
 	type RuntimeHtmlStatus,
 	RuntimeHtmlStatusSchema,
 	type RuntimeHtmlTemplate,
@@ -278,6 +305,16 @@ import {
 	runtimeConfigResponseSchema,
 	runtimeConfigSaveRequestSchema,
 	runtimeDebugResetAllStateResponseSchema,
+	runtimeDeployConfigUpdateRequestSchema,
+	runtimeDeployLoginCodeRequestSchema,
+	runtimeDeployLoginStartRequestSchema,
+	runtimeDeployLoginStatusSchema,
+	runtimeDeployOpenUrlRequestSchema,
+	runtimeDeployOpenUrlResponseSchema,
+	runtimeDeployRunRequestSchema,
+	runtimeDeployRunResponseSchema,
+	runtimeDeployStatusRequestSchema,
+	runtimeDeployStatusResponseSchema,
 	runtimeDirectoryListRequestSchema,
 	runtimeDirectoryListResponseSchema,
 	runtimeFeaturebaseTokenResponseSchema,
@@ -329,17 +366,32 @@ import {
 	runtimeOpenFileResponseSchema,
 	runtimePlansCreateRequestSchema,
 	runtimePlansCreateResponseSchema,
+	runtimePlansHistoryDiffRequestSchema,
+	runtimePlansHistoryDiffResponseSchema,
+	runtimePlansHistoryListRequestSchema,
+	runtimePlansHistoryListResponseSchema,
+	runtimePlansHistoryMarkRequestSchema,
+	runtimePlansHistoryMarkResponseSchema,
+	runtimePlansHistoryMaterializeResponseSchema,
+	runtimePlansHistoryMoveRequestSchema,
+	runtimePlansHistoryRestoreRequestSchema,
+	runtimePlansHtmlSourceRequestSchema,
 	runtimePlansImportFileRequestSchema,
 	runtimePlansImportFileResponseSchema,
 	runtimePlansImportFromFolderRequestSchema,
 	runtimePlansImportFromFolderResponseSchema,
 	runtimePlansListResponseSchema,
+	runtimePlansReadHtmlSourceResponseSchema,
 	runtimePlansReadRequestSchema,
 	runtimePlansReadResponseSchema,
 	runtimePlansRemoveRequestSchema,
 	runtimePlansRemoveResponseSchema,
 	runtimePlansWriteAssetRequestSchema,
 	runtimePlansWriteAssetResponseSchema,
+	runtimePlansWriteBackupRequestSchema,
+	runtimePlansWriteBackupResponseSchema,
+	runtimePlansWriteHtmlSourceRequestSchema,
+	runtimePlansWriteHtmlSourceResponseSchema,
 	runtimePlansWriteRequestSchema,
 	runtimePlansWriteResponseSchema,
 	runtimePlansWriteSiblingRequestSchema,
@@ -679,7 +731,25 @@ export interface RuntimeTrpcContext {
 		read: (input: RuntimePlansReadRequest) => Promise<RuntimePlansReadResponse>;
 		write: (input: RuntimePlansWriteRequest) => Promise<RuntimePlansWriteResponse>;
 		writeSibling: (input: RuntimePlansWriteSiblingRequest) => Promise<RuntimePlansWriteSiblingResponse>;
+		writeBackup: (input: RuntimePlansWriteBackupRequest) => Promise<RuntimePlansWriteBackupResponse>;
+		readHtmlSource: (input: RuntimePlansHtmlSourceRequest) => Promise<RuntimePlansReadHtmlSourceResponse>;
+		writeHtmlSource: (input: RuntimePlansWriteHtmlSourceRequest) => Promise<RuntimePlansWriteHtmlSourceResponse>;
 		writeAsset: (input: RuntimePlansWriteAssetRequest) => Promise<RuntimePlansWriteAssetResponse>;
+		historyList: (input: RuntimePlansHistoryListRequest) => Promise<RuntimePlansHistoryListResponse>;
+		historyMark: (input: RuntimePlansHistoryMarkRequest) => Promise<RuntimePlansHistoryMarkResponse>;
+		historyUndo: (input: RuntimePlansHistoryMoveRequest) => Promise<RuntimePlansHistoryMaterializeResponse>;
+		historyRedo: (input: RuntimePlansHistoryMoveRequest) => Promise<RuntimePlansHistoryMaterializeResponse>;
+		historyRestore: (input: RuntimePlansHistoryRestoreRequest) => Promise<RuntimePlansHistoryMaterializeResponse>;
+		historyDiff: (input: RuntimePlansHistoryDiffRequest) => Promise<RuntimePlansHistoryDiffResponse>;
+	};
+	deployApi: {
+		status: (input: RuntimeDeployStatusRequest) => Promise<RuntimeDeployStatusResponse>;
+		setConfig: (input: RuntimeDeployConfigUpdateRequest) => Promise<RuntimeDeployStatusResponse>;
+		login: (input: RuntimeDeployLoginStartRequest) => Promise<RuntimeDeployLoginStatus>;
+		loginStatus: () => Promise<RuntimeDeployLoginStatus>;
+		loginSubmitCode: (input: RuntimeDeployLoginCodeRequest) => Promise<RuntimeDeployLoginStatus>;
+		run: (input: RuntimeDeployRunRequest) => Promise<RuntimeDeployRunResponse>;
+		openUrl: (input: RuntimeDeployOpenUrlRequest) => Promise<RuntimeDeployOpenUrlResponse>;
 	};
 	hooksApi: {
 		ingest: (input: RuntimeHookIngestRequest) => Promise<RuntimeHookIngestResponse>;
@@ -731,6 +801,9 @@ export interface RuntimeTrpcContext {
 		status: () => Promise<RuntimeHtmlStatus>;
 		templates: () => Promise<RuntimeHtmlTemplate[]>;
 		templateExample: (id: string) => Promise<RuntimeHtmlTemplateExample | null>;
+	};
+	claudeUsageApi: {
+		get: () => Promise<RuntimeClaudeUsage>;
 	};
 }
 
@@ -1311,11 +1384,108 @@ export const runtimeAppRouter = t.router({
 			.mutation(async ({ ctx, input }) => {
 				return await ctx.plansApi.writeSibling(input);
 			}),
+		writeBackup: t.procedure
+			.input(runtimePlansWriteBackupRequestSchema)
+			.output(runtimePlansWriteBackupResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.plansApi.writeBackup(input);
+			}),
+		readHtmlSource: t.procedure
+			.input(runtimePlansHtmlSourceRequestSchema)
+			.output(runtimePlansReadHtmlSourceResponseSchema)
+			.query(async ({ ctx, input }) => {
+				return await ctx.plansApi.readHtmlSource(input);
+			}),
+		writeHtmlSource: t.procedure
+			.input(runtimePlansWriteHtmlSourceRequestSchema)
+			.output(runtimePlansWriteHtmlSourceResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.plansApi.writeHtmlSource(input);
+			}),
 		writeAsset: t.procedure
 			.input(runtimePlansWriteAssetRequestSchema)
 			.output(runtimePlansWriteAssetResponseSchema)
 			.mutation(async ({ ctx, input }) => {
 				return await ctx.plansApi.writeAsset(input);
+			}),
+		historyList: t.procedure
+			.input(runtimePlansHistoryListRequestSchema)
+			.output(runtimePlansHistoryListResponseSchema)
+			.query(async ({ ctx, input }) => {
+				return await ctx.plansApi.historyList(input);
+			}),
+		historyMark: t.procedure
+			.input(runtimePlansHistoryMarkRequestSchema)
+			.output(runtimePlansHistoryMarkResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.plansApi.historyMark(input);
+			}),
+		historyUndo: t.procedure
+			.input(runtimePlansHistoryMoveRequestSchema)
+			.output(runtimePlansHistoryMaterializeResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.plansApi.historyUndo(input);
+			}),
+		historyRedo: t.procedure
+			.input(runtimePlansHistoryMoveRequestSchema)
+			.output(runtimePlansHistoryMaterializeResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.plansApi.historyRedo(input);
+			}),
+		historyRestore: t.procedure
+			.input(runtimePlansHistoryRestoreRequestSchema)
+			.output(runtimePlansHistoryMaterializeResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.plansApi.historyRestore(input);
+			}),
+		historyDiff: t.procedure
+			.input(runtimePlansHistoryDiffRequestSchema)
+			.output(runtimePlansHistoryDiffResponseSchema)
+			.query(async ({ ctx, input }) => {
+				return await ctx.plansApi.historyDiff(input);
+			}),
+	}),
+	// Publishing a generated page as an Apps Script web app. Mirrored in the standalone
+	// plan-editor router (`plan-editor-standalone/router.ts`), which shares `deployApi`.
+	deploy: t.router({
+		status: t.procedure
+			.input(runtimeDeployStatusRequestSchema)
+			.output(runtimeDeployStatusResponseSchema)
+			.query(async ({ ctx, input }) => {
+				return await ctx.deployApi.status(input);
+			}),
+		setConfig: t.procedure
+			.input(runtimeDeployConfigUpdateRequestSchema)
+			.output(runtimeDeployStatusResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.deployApi.setConfig(input);
+			}),
+		login: t.procedure
+			.input(runtimeDeployLoginStartRequestSchema)
+			.output(runtimeDeployLoginStatusSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.deployApi.login(input);
+			}),
+		loginStatus: t.procedure.output(runtimeDeployLoginStatusSchema).query(async ({ ctx }) => {
+			return await ctx.deployApi.loginStatus();
+		}),
+		loginSubmitCode: t.procedure
+			.input(runtimeDeployLoginCodeRequestSchema)
+			.output(runtimeDeployLoginStatusSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.deployApi.loginSubmitCode(input);
+			}),
+		run: t.procedure
+			.input(runtimeDeployRunRequestSchema)
+			.output(runtimeDeployRunResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.deployApi.run(input);
+			}),
+		openUrl: t.procedure
+			.input(runtimeDeployOpenUrlRequestSchema)
+			.output(runtimeDeployOpenUrlResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.deployApi.openUrl(input);
 			}),
 	}),
 	hooks: t.router({
@@ -1567,6 +1737,11 @@ export const runtimeAppRouter = t.router({
 			.query(async ({ ctx, input }) => {
 				return await ctx.htmlApi.templateExample(input.id);
 			}),
+	}),
+	claude: t.router({
+		usage: t.procedure.output(RuntimeClaudeUsageSchema).query(async ({ ctx }) => {
+			return await ctx.claudeUsageApi.get();
+		}),
 	}),
 });
 

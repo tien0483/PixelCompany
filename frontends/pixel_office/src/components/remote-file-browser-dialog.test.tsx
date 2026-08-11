@@ -72,8 +72,11 @@ describe("RemoteFileBrowserDialog", () => {
 		overrides: {
 			open?: boolean;
 			onSelect?: (p: string, type: "file" | "folder") => void;
+			onSelectFiles?: (paths: string[]) => void;
 			onOpenChange?: (o: boolean) => void;
 			initialPath?: string;
+			multiSelectFiles?: boolean;
+			selectLabel?: string;
 		} = {},
 	) {
 		const props = {
@@ -271,13 +274,72 @@ describe("RemoteFileBrowserDialog", () => {
 		// Selecting a file must not trigger a directory-list refetch.
 		expect(mockQuery).toHaveBeenCalledTimes(1);
 
-		const selectBtn = Array.from(document.body.querySelectorAll("button")).find(
-			(b) => b.textContent?.trim() === "Select",
-		)!;
+		const selectBtn = q('[data-testid="remote-file-browser-select"]') as HTMLButtonElement;
 		act(() => {
 			selectBtn.click();
 		});
 		expect(onSelect).toHaveBeenCalledWith("/srv/projects/notes.md", "file");
+	});
+
+	it("adds files to the selection on ctrl-click and reports them together", async () => {
+		mockQuery.mockResolvedValue(
+			makeResponse({
+				entries: [
+					{ name: "a.md", path: "/srv/projects/a.md", isGitRepository: false, isDirectory: false },
+					{ name: "b.md", path: "/srv/projects/b.md", isGitRepository: false, isDirectory: false },
+				],
+			}),
+		);
+		const onSelect = vi.fn();
+		const onSelectFiles = vi.fn();
+		renderDialog({ onSelect, onSelectFiles, multiSelectFiles: true, selectLabel: "Import" });
+		await flushQuery();
+
+		act(() => {
+			(q('[data-testid="file-entry-a.md"]') as HTMLButtonElement).click();
+		});
+		act(() => {
+			(q('[data-testid="file-entry-b.md"]') as HTMLButtonElement).dispatchEvent(
+				new MouseEvent("click", { bubbles: true, ctrlKey: true }),
+			);
+		});
+
+		const selectBtn = q('[data-testid="remote-file-browser-select"]') as HTMLButtonElement;
+		expect(selectBtn.textContent).toContain("Import 2 files");
+		act(() => {
+			selectBtn.click();
+		});
+
+		expect(onSelectFiles).toHaveBeenCalledWith(["/srv/projects/a.md", "/srv/projects/b.md"]);
+		expect(onSelect).not.toHaveBeenCalled();
+	});
+
+	it("replaces the selection on a plain click even when multi-select is enabled", async () => {
+		mockQuery.mockResolvedValue(
+			makeResponse({
+				entries: [
+					{ name: "a.md", path: "/srv/projects/a.md", isGitRepository: false, isDirectory: false },
+					{ name: "b.md", path: "/srv/projects/b.md", isGitRepository: false, isDirectory: false },
+				],
+			}),
+		);
+		const onSelect = vi.fn();
+		const onSelectFiles = vi.fn();
+		renderDialog({ onSelect, onSelectFiles, multiSelectFiles: true });
+		await flushQuery();
+
+		act(() => {
+			(q('[data-testid="file-entry-a.md"]') as HTMLButtonElement).click();
+		});
+		act(() => {
+			(q('[data-testid="file-entry-b.md"]') as HTMLButtonElement).click();
+		});
+		act(() => {
+			(q('[data-testid="remote-file-browser-select"]') as HTMLButtonElement).click();
+		});
+
+		expect(onSelect).toHaveBeenCalledWith("/srv/projects/b.md", "file");
+		expect(onSelectFiles).not.toHaveBeenCalled();
 	});
 
 	it("shows error message when API returns ok: false", async () => {

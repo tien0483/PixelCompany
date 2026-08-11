@@ -38,6 +38,7 @@ import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useSavePlanFromSession } from "@/hooks/use-save-plan-from-session";
 import { useStackDevtools } from "@/hooks/use-stack-devtools";
 import {
+	applyTaskSubagentSeatSelection,
 	filterManagerAccountsForAgent,
 	shouldClearManagerAccountPin,
 	TaskAccountPicker,
@@ -782,6 +783,18 @@ export function CardDetailView({
 			) ?? null,
 		[managerAccounts, selection.card.managerAccountId],
 	);
+	// Only offer a restart when the card has an explicit pin that differs from the running session.
+	const canRestartWithPinnedAccount =
+		typeof sessionSummary?.managerAccountId === "number" &&
+		typeof selection.card.managerAccountId === "number" &&
+		sessionSummary.managerAccountId !== selection.card.managerAccountId &&
+		(sessionSummary.state === "running" ||
+			sessionSummary.state === "awaiting_review");
+	useEffect(() => {
+		if (canRestartWithPinnedAccount) {
+			setIsTaskConfigExpanded(true);
+		}
+	}, [canRestartWithPinnedAccount]);
 	// Clear a pin the task can no longer use so Auto can resolve a seat instead:
 	// a cross-provider leftover (Claude seat on a Cursor task after an agent
 	// switch) or a seat that has since been disabled in Manager.
@@ -1250,14 +1263,25 @@ export function CardDetailView({
 														: null,
 												);
 											}}
+											subagentSeatProviderId={
+												selection.card.taskLaunchSettings?.subagentSeatProviderId ??
+												null
+											}
+											{...(onTaskLaunchSettingsChanged
+												? {
+														onSubagentSeatChange: (subagentSelection) => {
+															onTaskLaunchSettingsChanged(
+																selection.card.id,
+																applyTaskSubagentSeatSelection(
+																	subagentSelection,
+																	selection.card.taskLaunchSettings,
+																) ?? null,
+															);
+														},
+													}
+												: {})}
 										/>
-										{/* Only offer a restart when the card has an explicit pin that differs from the running session. */}
-										{typeof sessionSummary?.managerAccountId === "number" &&
-										typeof selection.card.managerAccountId === "number" &&
-										sessionSummary.managerAccountId !==
-											selection.card.managerAccountId &&
-										(sessionSummary.state === "running" ||
-											sessionSummary.state === "awaiting_review") ? (
+										{canRestartWithPinnedAccount ? (
 											<button
 												type="button"
 												data-testid="restart-task-with-account"

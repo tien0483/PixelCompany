@@ -2,7 +2,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { stat } from "node:fs/promises";
 import { createServer as createNetServer } from "node:net";
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { Command, Option } from "commander";
 import ora, { type Ora } from "ora";
 import packageJson from "../package.json" with { type: "json" };
@@ -403,8 +403,10 @@ async function startServer(): Promise<{
 		{ createHtmlClient },
 		{ startHtmlProcess },
 		{ startStackProcess },
+		{ stopAllSeatRouters },
 		{ describeRuntimeHomeMigration, migrateRuntimeHome },
 		{ startOmniRouteProcess },
+		{ findAgentDataRoot },
 	] = await Promise.all([
 		import("./projects/project-path.js"),
 		import("./server/directory-picker.js"),
@@ -420,8 +422,10 @@ async function startServer(): Promise<{
 		import("./html/html-client.js"),
 		import("./html/html-process.js"),
 		import("./stack/stack-process.js"),
+		import("./stack/ccr-process.js"),
 		import("./state/runtime-home-migration.js"),
 		import("./omniroute/omniroute-process.js"),
+		import("./state/agent-data-manifest.js"),
 	]);
 
 	// Must run before the workspace registry, which is the first reader of the
@@ -491,6 +495,10 @@ async function startServer(): Promise<{
 		}
 		await ManagerClient.validateAccount(accountId);
 	};
+	// Stating the expected template-skills dir keeps this launch off a sidecar belonging to
+	// another install (e.g. the standalone Plan Editor package), which would otherwise be
+	// adopted for its port alone and serve that install's much smaller template list.
+	const agentDataRoot = findAgentDataRoot();
 	const HtmlProcess = await startHtmlProcess({
 		warn: (message) => {
 			console.warn(`[kanban] ${message}`);
@@ -498,6 +506,9 @@ async function startServer(): Promise<{
 		log: (message) => {
 			console.log(`[kanban] ${message}`);
 		},
+		...(agentDataRoot === null
+			? {}
+			: { expectedTemplateSkillsDir: join(agentDataRoot, "templates", "skills") }),
 	});
 	const HtmlClient = createHtmlClient({
 		warn: (message) => {
@@ -611,6 +622,9 @@ async function startServer(): Promise<{
 		// Same rule for the switchboard: a shell that sourced activate-stack.sh owns
 		// its own daemon and must survive the runtime exiting.
 		await StackProcess.close();
+		// Per-seat subagent routers are always ours — they only exist because a task pinned
+		// a subagent seat — so unlike the daemons above they are unconditionally stopped.
+		await stopAllSeatRouters();
 	};
 
 	const shutdown = async (options?: { skipSessionCleanup?: boolean }) => {

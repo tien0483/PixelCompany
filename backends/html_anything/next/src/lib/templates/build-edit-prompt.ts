@@ -10,28 +10,64 @@ export function buildEditPrompt(args: {
   oldHtml: string;
   format: string;
 }): string {
-  return `你正在执行一次**最小化差异编辑** (diff-edit), 不是从 0 重新生成。
+  return `You are performing a **minimal diff-edit**, not regenerating from scratch.
 
-模板风格: ${args.templateName} (${args.templateAspect})
-输入格式: ${args.format}
+Template style: ${args.templateName} (${args.templateAspect})
+Input format: ${args.format}
 
-【硬性规则】
-1. 仅输出完整的、修改后的 HTML。第一个字符必须是 \`<\`, 最后必须是 \`</html>\`。
-2. **不要**用 markdown 围栏包裹, 不要任何解释性文字。
-3. **禁止使用 Write / Edit / MultiEdit / Bash 等文件工具** — HTML 必须直接在助手回复正文里流式输出, 不要存到 \`.html\` 文件再回复"已输出至 …"。
-4. 保留原 HTML 的 \`<head>\` (CDN / 字体 / 样式 / meta), 保留所有不需要变化的 DOM 结构 — 字体、配色、布局、栅格、组件结构、动画都不许改。
-5. 仅根据 "旧内容 vs 新内容" 的差异, 替换或调整对应的文字 / 数据节点。
-6. 如果新内容增加了条目, 沿用原有的卡片 / 行 / slide / 章节结构添加; 如果删除了条目, 移除对应的元素。
-7. 如果新旧内容只差几个字, 也只改那几个字 — 不要顺手 "优化" 或 "重排"。
-8. 不要捏造数据。新内容里没有的就不要写。
+[HARD RULES]
+1. Output only the complete, modified HTML. The first character must be \`<\`, the last must be \`</html>\`.
+2. **Do not** wrap it in a markdown fence and include no explanatory prose.
+3. **Do NOT use file tools such as Write / Edit / MultiEdit / Bash** — the HTML must be streamed directly in the body of your reply; do not save it to a \`.html\` file and then reply "Written to…".
+4. Keep the original HTML's \`<head>\` (CDN / fonts / styles / meta) and preserve every DOM structure that does not need to change — fonts, palette, layout, grid, component structure and animations must stay untouched.
+5. Only replace or adjust the text / data nodes that differ between "old content" and "new content".
+6. If the new content adds items, reuse the existing card / row / slide / section structure; if it removes items, drop the corresponding elements.
+7. If old and new content differ by only a few characters, change only those characters — do not "optimise" or "reflow" as a side effect.
+8. Do not invent data. If it is not in the new content, do not write it.
 
-【旧内容】
+[OLD CONTENT]
 ${args.oldContent}
 
-【新内容】
+[NEW CONTENT]
 ${args.newContent}
 
-【已有 HTML — 请基于此修改, 输出完整的修改后版本】
+[EXISTING HTML — modify this and output the complete updated version]
+${args.oldHtml}
+`;
+}
+
+/**
+ * Diff-edit path proper: the caller already knows exactly what changed in the requirement, so
+ * the prompt carries a unified diff instead of both full versions of the markdown. That is the
+ * difference between "here are two documents, work out the delta" and "apply this delta" — and
+ * it keeps a one-line requirement change from costing a full requirement in tokens.
+ */
+export function buildDiffEditPrompt(args: {
+  templateName: string;
+  templateAspect: string;
+  diff: string;
+  oldHtml: string;
+  format: string;
+}): string {
+  return `You are performing a **minimal diff-edit**, not regenerating from scratch.
+
+Template style: ${args.templateName} (${args.templateAspect})
+Input format: ${args.format}
+
+[HARD RULES]
+1. Output only the complete, modified HTML. The first character must be \`<\`, the last must be \`</html>\`.
+2. **Do not** wrap it in a markdown fence and include no explanatory prose.
+3. **Do NOT use file tools such as Write / Edit / MultiEdit / Bash** — the HTML must be streamed directly in the body of your reply; do not save it to a \`.html\` file and then reply "Written to…".
+4. Keep the original HTML's \`<head>\` (CDN / fonts / styles / meta) and preserve every DOM structure that does not need to change — fonts, palette, layout, grid, component structure and animations must stay untouched.
+5. The diff below is the **only** change to apply. Every part of the HTML that the diff does not touch must come back byte-identical.
+6. If the diff adds items, reuse the existing card / row / slide / section structure; if it removes items, drop the corresponding elements.
+7. If the diff changes only a few characters, change only those characters — do not "optimise" or "reflow" as a side effect.
+8. Do not invent data. If it is not in the diff or already in the HTML, do not write it.
+
+[REQUIREMENT DIFF — unified diff of the source document; \`-\` lines were removed, \`+\` lines were added, unprefixed lines are unchanged context]
+${args.diff}
+
+[EXISTING HTML — modify this and output the complete updated version]
 ${args.oldHtml}
 `;
 }

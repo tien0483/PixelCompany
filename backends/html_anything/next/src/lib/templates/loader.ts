@@ -78,7 +78,7 @@ export type SkillMeta = {
   aspectHint: string;
   featured?: number;
   /**
-   * If set, the skill is included in the "推荐 / Featured" group at the top of
+   * If set, the skill is included in the "Featured" group at the top of
    * the picker. Lower number = higher rank in that group.
    */
   recommended?: number;
@@ -107,7 +107,7 @@ export type LoadedSkill = SkillMeta & {
 // `scripts/migrate-skills.mts`: strings (optionally quoted), integers, and
 // one-line array literals (`tags: ["a", "b"]`).
 
-function parseFrontmatter(raw: string): { fm: SkillFrontmatter; body: string } {
+export function parseFrontmatter(raw: string): { fm: SkillFrontmatter; body: string } {
   const m = /^---\s*\r?\n([\s\S]*?)\r?\n---\s*\r?\n?([\s\S]*)$/m.exec(raw);
   if (!m) return { fm: {}, body: raw };
   const block = m[1];
@@ -200,7 +200,7 @@ function fmToMeta(id: string, fm: SkillFrontmatter, hasHtml: boolean, hasMd: boo
   if (fm.example_id || hasMd || hasHtml) {
     meta.example = {
       id: fm.example_id ?? `example-${id}`,
-      name: fm.example_name ?? `${meta.zhName} 示例`,
+      name: fm.example_name ?? `${meta.enName} Example`,
       format: fm.example_format ?? "markdown",
       tagline: fm.example_tagline ?? "",
       desc: fm.example_desc ?? "",

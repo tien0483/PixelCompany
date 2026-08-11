@@ -37,6 +37,13 @@ const ACCEPTED_IMAGE_INPUT_ACCEPT = "image/png,image/jpeg,image/gif,image/webp";
 export interface PlanRichToolbarProps {
 	editor: Editor;
 	disabled?: boolean;
+	/**
+	 * The rendered pane's header already carries Undo / Redo / History for the recorded
+	 * versions of this document, so the in-editor pair is redundant wherever that header
+	 * exists. It stays only on runtimes with no git to keep versions in, where the header
+	 * controls are absent entirely. `Ctrl+Z` / `Ctrl+Shift+Z` work either way.
+	 */
+	showUndoRedo?: boolean;
 	onInsertImage: (file: File) => void;
 }
 
@@ -69,7 +76,12 @@ function ToolbarButton({
 	);
 }
 
-export function PlanRichToolbar({ editor, disabled, onInsertImage }: PlanRichToolbarProps): ReactElement {
+export function PlanRichToolbar({
+	editor,
+	disabled,
+	showUndoRedo = true,
+	onInsertImage,
+}: PlanRichToolbarProps): ReactElement {
 	const fileInputRef = useRef<HTMLInputElement>(null);
 	const [isColorOpen, setIsColorOpen] = useState(false);
 	const [, setTick] = useState(0);
@@ -106,20 +118,27 @@ export function PlanRichToolbar({ editor, disabled, onInsertImage }: PlanRichToo
 	};
 
 	return (
-		<div className="flex flex-wrap items-center gap-0.5 border-b border-border bg-surface-2 px-2 py-1" data-testid="plan-rich-toolbar">
-			<ToolbarButton
-				icon={<Undo2 size={14} />}
-				label="Undo"
-				disabled={disabled || !editor.can().undo()}
-				onClick={() => editor.chain().focus().undo().run()}
-			/>
-			<ToolbarButton
-				icon={<Redo2 size={14} />}
-				label="Redo"
-				disabled={disabled || !editor.can().redo()}
-				onClick={() => editor.chain().focus().redo().run()}
-			/>
-			<div className="mx-1 h-4 w-px bg-border" />
+		<div
+			className="kb-toolbar-scroll flex h-9 shrink-0 items-center gap-0.5 overflow-x-auto border-b border-border bg-surface-2 px-2 py-1"
+			data-testid="plan-rich-toolbar"
+		>
+			{showUndoRedo ? (
+				<>
+					<ToolbarButton
+						icon={<Undo2 size={14} />}
+						label="Undo"
+						disabled={disabled || !editor.can().undo()}
+						onClick={() => editor.chain().focus().undo().run()}
+					/>
+					<ToolbarButton
+						icon={<Redo2 size={14} />}
+						label="Redo"
+						disabled={disabled || !editor.can().redo()}
+						onClick={() => editor.chain().focus().redo().run()}
+					/>
+					<div className="mx-1 h-4 w-px bg-border" />
+				</>
+			) : null}
 			<ToolbarButton
 				icon={<Bold size={14} />}
 				label="Bold"

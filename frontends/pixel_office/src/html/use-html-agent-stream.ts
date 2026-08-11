@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 export type HtmlStreamStatus = "idle" | "running" | "done" | "error";
 
@@ -24,7 +24,12 @@ const INITIAL: HtmlStreamState = {
 };
 
 export interface HtmlGenerateRequest {
-	templateId: string;
+	/**
+	 * Omitted when no template is selected: the runtime then builds the prompt from the
+	 * plan's own markdown instead of asking the sidecar for a template's, so generation
+	 * works with the template registry offline.
+	 */
+	templateId?: string;
 	content: string;
 	format?: string;
 	model?: string;
@@ -32,6 +37,24 @@ export interface HtmlGenerateRequest {
 	planId?: string;
 	editFromHtml?: string;
 	editFromContent?: string;
+	/**
+	 * Unified diff of the markdown against the version `editFromHtml` was generated from.
+	 * Sent instead of `editFromContent` so a one-line requirement change costs a one-line
+	 * prompt instead of the whole requirement twice.
+	 */
+	editDiff?: string;
+	managerAccountId?: number;
+}
+
+export interface HtmlDraftRequest {
+	planId: string;
+	/** The user's natural-language instruction from the prompt bar. */
+	instruction: string;
+	/** The plan's current markdown, for voice and structure. May be empty. */
+	context: string;
+	/** The excerpt the answer replaces; omitted when the draft is appended instead. */
+	selection?: string;
+	model?: string;
 	managerAccountId?: number;
 }
 
@@ -58,6 +81,18 @@ export function useHtmlAgentStream<TRequest>(endpoint: string) {
 		abortRef.current?.abort();
 		abortRef.current = null;
 		setState((prev) => ({ ...prev, status: "idle" }));
+	}, []);
+
+	/**
+	 * Full teardown for a plan switch: abort any in-flight request and drop back to
+	 * the pristine initial state. Unlike `cancel()`, this also clears `text`/`status`
+	 * so a stale "done" stream from the previous plan can't be mistaken for the new
+	 * plan's content when the completion effects re-fire.
+	 */
+	const reset = useCallback(() => {
+		abortRef.current?.abort();
+		abortRef.current = null;
+		setState(INITIAL);
 	}, []);
 
 	const run = useCallback(
@@ -183,7 +218,18 @@ export function useHtmlAgentStream<TRequest>(endpoint: string) {
 		[endpoint],
 	);
 
-	return { ...state, run, cancel };
+	// `key={editingPlan.id}` on the owning `PlanEditorView` means a plan switch
+	// unmounts this hook's instance rather than re-rendering it with a new `plan.id` —
+	// so `reset()`'s abort-in-flight-request behavior is never reached on a live plan
+	// switch unless something aborts here too. Without this, the fetch keeps running
+	// server-side with nobody listening to its result after the component is gone.
+	useEffect(() => {
+		return () => {
+			abortRef.current?.abort();
+		};
+	}, []);
+
+	return { ...state, run, cancel, reset };
 }
 
 /** Template → single-file HTML document. */
@@ -194,4 +240,9 @@ export function useHtmlGenerate() {
 /** Rough notes + pasted screenshots → the structured brief generation reads from. */
 export function useHtmlBrief() {
 	return useHtmlAgentStream<HtmlBriefRequest>("/api/html/brief");
+}
+
+/** Prompt-bar instruction → markdown appended to, or replacing part of, the plan. */
+export function useHtmlDraft() {
+	return useHtmlAgentStream<HtmlDraftRequest>("/api/html/draft");
 }

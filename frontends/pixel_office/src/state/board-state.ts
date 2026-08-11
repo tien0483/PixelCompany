@@ -54,6 +54,8 @@ function normalizeTaskLaunchSettings(raw: unknown): RuntimeTaskLaunchSettings | 
 		agentIds?: unknown;
 		commandIds?: unknown;
 		mcpServerIds?: unknown;
+		subagentSeatProviderId?: unknown;
+		subagentSeatModelId?: unknown;
 	};
 	const modelId = typeof settings.modelId === "string" ? settings.modelId.trim() : "";
 	const effort =
@@ -75,6 +77,10 @@ function normalizeTaskLaunchSettings(raw: unknown): RuntimeTaskLaunchSettings | 
 	const agentIds = normalizeIds(settings.agentIds);
 	const commandIds = normalizeIds(settings.commandIds);
 	const mcpServerIds = normalizeIds(settings.mcpServerIds);
+	const subagentSeatProviderId =
+		typeof settings.subagentSeatProviderId === "string" ? settings.subagentSeatProviderId.trim() : "";
+	const subagentSeatModelId =
+		typeof settings.subagentSeatModelId === "string" ? settings.subagentSeatModelId.trim() : "";
 	const next: RuntimeTaskLaunchSettings = {
 		...(modelId ? { modelId } : {}),
 		...(effort ? { effort } : {}),
@@ -82,6 +88,9 @@ function normalizeTaskLaunchSettings(raw: unknown): RuntimeTaskLaunchSettings | 
 		...(agentIds && agentIds.length > 0 ? { agentIds } : {}),
 		...(commandIds && commandIds.length > 0 ? { commandIds } : {}),
 		...(mcpServerIds && mcpServerIds.length > 0 ? { mcpServerIds } : {}),
+		// The model alone names nothing resolvable, so it only survives with its provider.
+		...(subagentSeatProviderId ? { subagentSeatProviderId } : {}),
+		...(subagentSeatProviderId && subagentSeatModelId ? { subagentSeatModelId } : {}),
 	};
 	if (
 		next.modelId === undefined &&
@@ -89,7 +98,8 @@ function normalizeTaskLaunchSettings(raw: unknown): RuntimeTaskLaunchSettings | 
 		next.skillIds === undefined &&
 		next.agentIds === undefined &&
 		next.commandIds === undefined &&
-		next.mcpServerIds === undefined
+		next.mcpServerIds === undefined &&
+		next.subagentSeatProviderId === undefined
 	) {
 		return undefined;
 	}

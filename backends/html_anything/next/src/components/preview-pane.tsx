@@ -308,7 +308,7 @@ export function PreviewPane({
                       letterSpacing: "0.08em",
                     }}
                   >
-                    模板预览 · TEMPLATE EXAMPLE
+                    Template Preview · TEMPLATE EXAMPLE
                   </div>
                 )}
               </>

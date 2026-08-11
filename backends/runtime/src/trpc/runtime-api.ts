@@ -51,10 +51,12 @@ import {
 import { isHomeAgentSessionId } from "../core/home-agent-session";
 import { resolveTaskTitle } from "../core/task-title.js";
 import { type ManagerDonateAccountLike, resolveManagerAccountPin } from "../manager/manager-account-pin";
+import { loadWorkspaceState } from "../state/workspace-state";
 import { composePromptWithAttachedPlan } from "../prompts/compose-prompt-with-plan";
 import { openInBrowser } from "../server/browser";
 import {
 	getWorkspaceLocalAssetsSetting,
+	getWorkspaceManagerFeatures,
 	loadWorkspaceContextById,
 	setWorkspaceLocalAssets,
 } from "../state/workspace-state";
@@ -583,9 +585,13 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 				return listClaudeSkillInventory();
 			}
 			const setting = await getWorkspaceLocalAssetsSetting(workspaceId);
+			// Manager shelf installs land in `<repo>/.claude`; surface those ids even when
+			// the project has not opted into loading its own local assets.
+			const managerFeatures = await getWorkspaceManagerFeatures(workspaceId);
 			return listClaudeSkillInventory(context.repoPath, {
 				localAssetsEnabled: setting.enabled,
 				roots: setting.roots,
+				managerFeatures,
 			});
 		},
 		getWorkspaceLocalAssets: async (input) => await getWorkspaceLocalAssetsSetting(input.workspaceId),
@@ -605,6 +611,11 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 					const clineLaunchConfig = await clineProviderService.resolveLaunchConfig(
 						toClineLaunchOverrides(body.clineSettings),
 					);
+					// Load the card to get taskLaunchSettings for subagent seat
+					const workspaceState = await loadWorkspaceState(workspaceScope.workspacePath).catch(() => null);
+					const card =
+						workspaceState?.board.columns.flatMap((column) => column.cards).find((c) => c.id === body.taskId) ??
+						null;
 					summary = await clineTaskSessionService.startTaskSession({
 						taskId: body.taskId,
 						cwd: workspaceScope.workspacePath,
@@ -616,6 +627,7 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 						apiKey: clineLaunchConfig.apiKey,
 						baseUrl: clineLaunchConfig.baseUrl,
 						reasoningEffort: clineLaunchConfig.reasoningEffort,
+						taskLaunchSettings: card?.taskLaunchSettings,
 						launchWarnings: clineLaunchConfig.warnings,
 					});
 				}
@@ -843,6 +855,12 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 						const clineLaunchConfig = await clineProviderService.resolveLaunchConfig(
 							toClineLaunchOverrides(body.clineSettings),
 						);
+						// Load the card to get taskLaunchSettings for subagent seat
+						const workspaceState = await loadWorkspaceState(workspaceScope.workspacePath).catch(() => null);
+						const card =
+							workspaceState?.board.columns
+								.flatMap((column) => column.cards)
+								.find((c) => c.id === body.taskId) ?? null;
 						summary = await clineTaskSessionService.startTaskSession({
 							taskId: body.taskId,
 							cwd: workspaceScope.workspacePath,
@@ -856,6 +874,7 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 							apiKey: clineLaunchConfig.apiKey,
 							baseUrl: clineLaunchConfig.baseUrl,
 							reasoningEffort: clineLaunchConfig.reasoningEffort,
+							taskLaunchSettings: card?.taskLaunchSettings,
 							launchWarnings: clineLaunchConfig.warnings,
 						});
 					}

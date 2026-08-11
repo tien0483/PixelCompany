@@ -1,5 +1,5 @@
-import { act, useEffect } from "react";
 import type { ReactElement, ReactNode } from "react";
+import { act, useEffect } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -33,7 +33,15 @@ function createProvider(
 	enabled: boolean,
 	defaultModelId: string | null = null,
 ): RuntimeClineProviderCatalogItem {
-	return { id, name, oauthSupported: false, enabled, defaultModelId, baseUrl: null, supportsBaseUrl: false };
+	return {
+		id,
+		name,
+		oauthSupported: false,
+		enabled,
+		defaultModelId,
+		baseUrl: null,
+		supportsBaseUrl: false,
+	};
 }
 
 function createTaskClineSettings(settings?: RuntimeTaskClineSettings): RuntimeTaskClineSettings | undefined {
@@ -295,7 +303,10 @@ describe("useTaskAgentModelPicker – provider-aware model default label", () =>
 
 		expect(snapshot).not.toBeNull();
 		expect(snapshot!.effectiveDefaultModelId).toBeNull();
-		expect(snapshot!.clineModelOptions[0]).toEqual({ value: "", label: "Default" });
+		expect(snapshot!.clineModelOptions[0]).toEqual({
+			value: "",
+			label: "Default",
+		});
 	});
 
 	it("shows the selected provider's default model name when provider is overridden", async () => {
@@ -589,8 +600,16 @@ describe("TaskAgentModelPicker – inherited default reasoning effort", () => {
 					]}
 					effectiveDefaultModelId="openai/gpt-5.4"
 					providerModels={[
-						{ id: "openai/gpt-5.4", name: "GPT-5.4", supportsReasoningEffort: true },
-						{ id: "openai/gpt-5.3-codex", name: "GPT-5.3 Codex", supportsReasoningEffort: true },
+						{
+							id: "openai/gpt-5.4",
+							name: "GPT-5.4",
+							supportsReasoningEffort: true,
+						},
+						{
+							id: "openai/gpt-5.3-codex",
+							name: "GPT-5.3 Codex",
+							supportsReasoningEffort: true,
+						},
 					]}
 					isLoadingProviders={false}
 					isLoadingModels={false}
@@ -661,7 +680,11 @@ describe("TaskAgentModelPicker – inherited default reasoning effort", () => {
 
 		await renderPicker([
 			{ id: "openai/gpt-5.4", name: "GPT-5.4", supportsReasoningEffort: true },
-			{ id: "openai/gpt-5.3-codex", name: "GPT-5.3 Codex", supportsReasoningEffort: true },
+			{
+				id: "openai/gpt-5.3-codex",
+				name: "GPT-5.3 Codex",
+				supportsReasoningEffort: true,
+			},
 		]);
 
 		expect(container.textContent).toContain("GPT-5.4 (High)");
@@ -686,8 +709,16 @@ describe("TaskAgentModelPicker – inherited default reasoning effort", () => {
 					]}
 					effectiveDefaultModelId="openai/gpt-5.4"
 					providerModels={[
-						{ id: "openai/gpt-5.4", name: "GPT-5.4", supportsReasoningEffort: true },
-						{ id: "openai/gpt-5.3-codex", name: "GPT-5.3 Codex", supportsReasoningEffort: true },
+						{
+							id: "openai/gpt-5.4",
+							name: "GPT-5.4",
+							supportsReasoningEffort: true,
+						},
+						{
+							id: "openai/gpt-5.3-codex",
+							name: "GPT-5.3 Codex",
+							supportsReasoningEffort: true,
+						},
 					]}
 					isLoadingProviders={false}
 					isLoadingModels={false}
@@ -740,7 +771,13 @@ describe("TaskAgentModelPicker – inherited default reasoning effort", () => {
 					clineProviderOptions={[{ value: "", label: "Cline" }]}
 					clineModelOptions={[{ value: "", label: "GPT-5.4" }]}
 					effectiveDefaultModelId="openai/gpt-5.4"
-					providerModels={[{ id: "openai/gpt-5.4", name: "GPT-5.4", supportsReasoningEffort: true }]}
+					providerModels={[
+						{
+							id: "openai/gpt-5.4",
+							name: "GPT-5.4",
+							supportsReasoningEffort: true,
+						},
+					]}
 					isLoadingProviders={false}
 					isLoadingModels={false}
 					defaultAgentId={"cline" as RuntimeAgentId}
@@ -795,8 +832,16 @@ describe("TaskAgentModelPicker – inherited default reasoning effort", () => {
 					]}
 					effectiveDefaultModelId="openai/gpt-5.4"
 					providerModels={[
-						{ id: "openai/gpt-5.4", name: "GPT-5.4", supportsReasoningEffort: true },
-						{ id: "openai/gpt-5.3-codex", name: "GPT-5.3 Codex", supportsReasoningEffort: true },
+						{
+							id: "openai/gpt-5.4",
+							name: "GPT-5.4",
+							supportsReasoningEffort: true,
+						},
+						{
+							id: "openai/gpt-5.3-codex",
+							name: "GPT-5.3 Codex",
+							supportsReasoningEffort: true,
+						},
 					]}
 					isLoadingProviders={false}
 					isLoadingModels={false}

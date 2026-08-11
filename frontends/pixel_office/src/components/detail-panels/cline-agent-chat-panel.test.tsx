@@ -4,8 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ClineAgentChatPanel, type ClineAgentChatPanelHandle } from "@/components/detail-panels/cline-agent-chat-panel";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { resetClineReasoningVisibility } from "@/hooks/use-cline-reasoning-visibility";
 import type { ClineChatMessage } from "@/hooks/use-cline-chat-session";
+import { resetClineReasoningVisibility } from "@/hooks/use-cline-reasoning-visibility";
 import type { RuntimeTaskHookActivity, RuntimeTaskSessionSummary } from "@/runtime/types";
 import { LocalStorageKey } from "@/storage/local-storage-store";
 import { resetWorkspaceMetadataStore, setTaskWorkspaceSnapshot } from "@/stores/workspace-metadata-store";
@@ -81,7 +81,11 @@ function getMessageList(container: HTMLElement): HTMLDivElement {
 
 function mockScrollMetrics(
 	element: HTMLDivElement,
-	initialValues: { scrollHeight: number; clientHeight: number; scrollTop: number },
+	initialValues: {
+		scrollHeight: number;
+		clientHeight: number;
+		scrollTop: number;
+	},
 ): {
 	getScrollTop: () => number;
 	setScrollHeight: (value: number) => void;
@@ -868,7 +872,9 @@ describe("ClineAgentChatPanel", () => {
 			await Promise.resolve();
 		});
 
-		expect(onSendMessage).toHaveBeenCalledWith("task-1", "Ship it", { mode: "act" });
+		expect(onSendMessage).toHaveBeenCalledWith("task-1", "Ship it", {
+			mode: "act",
+		});
 
 		await act(async () => {
 			textarea.dispatchEvent(
@@ -941,7 +947,9 @@ describe("ClineAgentChatPanel", () => {
 			await Promise.resolve();
 		});
 
-		expect(onSendMessage).toHaveBeenCalledWith("task-1", "Investigate", { mode: "plan" });
+		expect(onSendMessage).toHaveBeenCalledWith("task-1", "Investigate", {
+			mode: "plan",
+		});
 	});
 
 	it("restores the previously selected mode when switching back to a task", async () => {
@@ -1158,7 +1166,9 @@ describe("ClineAgentChatPanel", () => {
 			await Promise.resolve();
 		});
 
-		expect(onSendMessage).toHaveBeenCalledWith("task-1", "Switch it", { mode: "plan" });
+		expect(onSendMessage).toHaveBeenCalledWith("task-1", "Switch it", {
+			mode: "plan",
+		});
 	});
 
 	it("hides the composer mode toggle when requested", async () => {
@@ -1228,7 +1238,9 @@ describe("ClineAgentChatPanel", () => {
 			await Promise.resolve();
 		});
 
-		expect(onSendMessage).toHaveBeenCalledWith("task-1", "Keep acting", { mode: "act" });
+		expect(onSendMessage).toHaveBeenCalledWith("task-1", "Keep acting", {
+			mode: "act",
+		});
 	});
 
 	it("keeps chat pinned to bottom when action footer appears", async () => {

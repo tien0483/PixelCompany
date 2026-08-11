@@ -6,6 +6,9 @@ import { describe, expect, it } from "vitest";
 import {
 	BRIEF_HEADINGS,
 	BRIEF_MAX_OPEN_QUESTIONS,
+	BRIEF_PLAN_HEADING,
+	BRIEF_SECTION_HEADING,
+	BRIEF_UNSORTED_HEADING,
 	buildBriefPrompt,
 	loadPromptMasterBody,
 	PROMPT_MASTER_SKILL_RELATIVE_PATH,
@@ -45,6 +48,7 @@ describe("buildBriefPrompt", () => {
 		promptMasterBody: SKILL_BODY,
 		content: "Customer hates the dashboard. Wants KPI cards.",
 		assetPaths: [] as string[],
+		unresolvedLinks: [] as string[],
 	};
 
 	it("carries the skill body, the user's plan and every heading of the output contract", () => {
@@ -90,5 +94,46 @@ describe("buildBriefPrompt", () => {
 
 	it("names the selected template so the brief is shaped for it", () => {
 		expect(buildBriefPrompt({ ...base, templateId: "live-dashboard" })).toContain("live-dashboard");
+	});
+
+	it("emits a could-not-be-opened block when unresolvedLinks is non-empty", () => {
+		const prompt = buildBriefPrompt({
+			...base,
+			unresolvedLinks: ["roadmap.assets/missing.png", "roadmap.assets/escaped.png"],
+		});
+
+		expect(prompt).toContain("could not be opened");
+		expect(prompt).toContain("roadmap.assets/missing.png");
+		expect(prompt).toContain("roadmap.assets/escaped.png");
+		expect(prompt).toContain("Do NOT attempt to read them");
+		expect(prompt).toContain("referenced image not available");
+	});
+
+	it("says nothing about unresolved links when there are none", () => {
+		expect(buildBriefPrompt(base)).not.toContain("could not be opened");
+	});
+
+	it("asks for the reorganized plan before the brief, since the answer replaces the user's file", () => {
+		const prompt = buildBriefPrompt(base);
+
+		expect(prompt).toContain(BRIEF_PLAN_HEADING);
+		expect(prompt).toContain(BRIEF_SECTION_HEADING);
+		expect(prompt.indexOf(`${BRIEF_PLAN_HEADING}\nThe user's own plan, reorganized`)).toBeLessThan(
+			prompt.lastIndexOf(BRIEF_SECTION_HEADING),
+		);
+	});
+
+	it("forbids losing user content: image links byte for byte, leftovers parked verbatim", () => {
+		const prompt = buildBriefPrompt(base);
+
+		expect(prompt).toContain("byte for byte");
+		expect(prompt).toContain(BRIEF_UNSORTED_HEADING);
+	});
+
+	it("requires an inline narrative under each image when the plan has images", () => {
+		const prompt = buildBriefPrompt({ ...base, assetPaths: ["/plans/roadmap.assets/old-dashboard.png"] });
+
+		expect(prompt).toContain("ONE italic\n  paragraph narrating what the image actually shows");
+		expect(prompt).toContain("who cannot see the image");
 	});
 });

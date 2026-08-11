@@ -13,3 +13,8 @@ allowBuilds:
 
 overrides:
   zod: 4.4.3
+
+# pnpm 11 otherwise runs `pnpm install --production` before every `pnpm run`.
+# That skips devDependencies, so backends/runtime's `prepare: husky` dies with
+# "husky: not found" and the script never starts.
+verifyDepsBeforeRun: false

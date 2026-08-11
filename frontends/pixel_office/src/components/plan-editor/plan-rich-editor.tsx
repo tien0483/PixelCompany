@@ -23,6 +23,8 @@ export interface PlanRichEditorProps {
 	onChange: (markdown: string) => void;
 	planId: string | null;
 	disabled?: boolean;
+	/** Forwarded to the toolbar — see `PlanRichToolbarProps.showUndoRedo`. */
+	showUndoRedo?: boolean;
 	onInsertImage: (file: File) => void;
 	onPaste?: (event: ClipboardEvent) => void;
 	onDrop?: (event: DragEvent) => void;
@@ -36,6 +38,7 @@ export default function PlanRichEditor({
 	onChange,
 	planId,
 	disabled,
+	showUndoRedo,
 	onInsertImage,
 	onPaste,
 	onDrop,
@@ -136,7 +139,11 @@ export default function PlanRichEditor({
 	}, [bridgeError, content, editor, planId, readMarkdown]);
 
 	useEffect(() => {
-		editor?.setEditable(!disabled);
+		// `setEditable` emits `update` unless told not to, and TipTap serializes whatever
+		// the doc holds at that moment — on mount that is still the empty doc, which the
+		// parent would then autosave over the real plan file. Toggling editability is not
+		// a content change, so it must never emit.
+		editor?.setEditable(!disabled, false);
 	}, [disabled, editor]);
 
 	const handleInsertImageFile = useCallback(
@@ -172,9 +179,10 @@ export default function PlanRichEditor({
 			<PlanRichToolbar
 				editor={editor}
 				disabled={disabled}
+				showUndoRedo={showUndoRedo}
 				onInsertImage={handleInsertImageFile}
 			/>
-			<div className="kb-markdown min-h-0 flex-1 overflow-y-auto px-3 py-2">
+			<div className="kb-markdown kb-prose min-h-0 flex-1 overflow-y-auto px-3 py-2">
 				<EditorContent editor={editor} />
 			</div>
 		</div>

@@ -66,7 +66,10 @@ export function useClineChatRuntimeActions({
 					...(options?.mode ? { mode: options.mode } : {}),
 				});
 				if (!payload.ok) {
-					return { ok: false, message: payload.error ?? "Task chat message failed." };
+					return {
+						ok: false,
+						message: payload.error ?? "Task chat message failed.",
+					};
 				}
 				if (payload.summary) {
 					onSessionSummary?.(payload.summary);
@@ -105,7 +108,10 @@ export function useClineChatRuntimeActions({
 			try {
 				const payload = await getRuntimeTrpcClient(currentProjectId).runtime.abortTaskChatTurn.mutate({ taskId });
 				if (!payload.ok) {
-					return { ok: false, message: payload.error ?? "Could not abort chat turn." };
+					return {
+						ok: false,
+						message: payload.error ?? "Could not abort chat turn.",
+					};
 				}
 				if (payload.summary) {
 					onSessionSummary?.(payload.summary);
@@ -126,7 +132,10 @@ export function useClineChatRuntimeActions({
 			try {
 				const payload = await getRuntimeTrpcClient(currentProjectId).runtime.cancelTaskChatTurn.mutate({ taskId });
 				if (!payload.ok) {
-					return { ok: false, message: payload.error ?? "Could not cancel chat turn." };
+					return {
+						ok: false,
+						message: payload.error ?? "Could not cancel chat turn.",
+					};
 				}
 				if (payload.summary) {
 					onSessionSummary?.(payload.summary);
@@ -153,12 +162,20 @@ export function useClineChatRuntimeActions({
 					...(providerId ? { providerId } : {}),
 				});
 				if (!payload.ok) {
-					return { ok: false, applied: false, message: payload.error ?? "Could not switch the model." };
+					return {
+						ok: false,
+						applied: false,
+						message: payload.error ?? "Could not switch the model.",
+					};
 				}
 				if (payload.summary) {
 					onSessionSummary?.(payload.summary);
 				}
-				return { ok: true, applied: payload.applied, warning: payload.warning ?? null };
+				return {
+					ok: true,
+					applied: payload.applied,
+					warning: payload.warning ?? null,
+				};
 			} catch (error) {
 				return { ok: false, applied: false, message: toErrorMessage(error) };
 			}

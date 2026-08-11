@@ -1,3 +1,3 @@
-Markdown 是给作者爽的, HTML 是给读者爽的。
+Markdown is for the writer's joy. HTML is for the reader's joy.
 
-— 一个把所有内部文档换成 HTML 的工程师, 2026
+— An engineer who rewrote all internal docs as HTML, 2026

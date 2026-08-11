@@ -1,25 +1,24 @@
 ---
 name: card-twitter
-zh_name: "Twitter 分享卡"
 en_name: "Twitter Share Card"
 emoji: "🐦"
-description: "推特金句 / 数据卡, 适合配推文"
+description: "Twitter quote / data card, perfect to pair with a tweet"
 category: card
 scenario: marketing
-aspect_hint: "1600×900 (16:9)"
-tags: ["twitter", "x", "quote", "金句"]
+aspect_hint: "1600x900 (16:9)"
+tags: ["twitter", "x", "quote"]
 example_id: sample-twitter-quote
-example_name: "推特卡 · 金句"
+example_name: "Twitter Card · Quote"
 example_format: text
-example_tagline: "16:9 暗色金句卡, 截图直接配推文"
-example_desc: "高对比金句模板, 含 grid 网格 + 渐变光晕背景"
+example_tagline: "16:9 dark quote card, screenshot straight into a tweet"
+example_desc: "High-contrast quote template with grid pattern + gradient glow background"
 ---
 
-【模板: Twitter 分享卡】
-- 容器 `w-[1600px] h-[900px]`, 暗色 / 亮色二选一根据内容情绪。
-- 中央一句 hero 金句 (text-6xl, font-semibold, 限 2-3 行)。
-- 下方作者署名 + 头像占位 + handle。
-- 左上角小标签 (类型: "Insight" / "Data" / "Quote")。
-- 右下角品牌水印。
-- 整张卡片有微妙的纹理 (grid 网格 / noise / dot pattern)。
-- 截图后可直接配推文发出, 视觉简洁有力。
+# Template: Twitter Share Card
+- Container `w-[1600px] h-[900px]`, choose dark or light based on content mood.
+- One centered hero quote (text-6xl, font-semibold, max 2-3 lines).
+- Author byline + avatar placeholder + handle below.
+- Small tag in top-left (type: "Insight" / "Data" / "Quote").
+- Brand watermark in bottom-right.
+- Subtle texture on the whole card (grid pattern / noise / dot pattern).
+- Screenshot and drop straight into a tweet — clean, punchy visual.

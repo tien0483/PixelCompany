@@ -11,7 +11,26 @@ import { isRequestHostAllowed } from "@/lib/security/host-validation";
  * rebinding). The agent-spawn, file-write, and credentialed network paths
  * all live under `/api/`.
  */
+/**
+ * When set to "1", every non-`/api` path answers 404 — the built page tree stays on
+ * disk but the HTML Anything editor UI is unreachable. The standalone Plan Editor
+ * package embeds this service purely as a template/prompt backend and ships its own
+ * UI on another port, so a second, unrelated editor answering on 8422 is confusing at
+ * best. The monorepo app leaves the flag unset and keeps the UI.
+ */
+const API_ONLY_ENV = "HTML_ANYTHING_API_ONLY";
+
 export function middleware(req: NextRequest) {
+  if (!req.nextUrl.pathname.startsWith("/api/")) {
+    // Read at request time, for the same reason the host allowlist is: see `runtime` below.
+    if (process.env[API_ONLY_ENV] === "1") {
+      return new NextResponse("Not found", {
+        status: 404,
+        headers: { "Content-Type": "text/plain; charset=utf-8" },
+      });
+    }
+    return NextResponse.next();
+  }
   if (isRequestHostAllowed(req)) return NextResponse.next();
   return new NextResponse(
     JSON.stringify({
@@ -39,7 +58,9 @@ export function middleware(req: NextRequest) {
 export const runtime = "nodejs";
 
 export const config = {
-  // Run on every API route. Excludes static assets, RSC payloads, and the
-  // page tree — those are not the rebinding-attack surface.
-  matcher: ["/api/:path*"],
+  // The host allowlist only guards `/api/*` — static assets, RSC payloads and the page
+  // tree are not the rebinding-attack surface. The page tree is matched anyway so
+  // `HTML_ANYTHING_API_ONLY` can refuse it; `_next/*` stays out so a normal (UI-serving)
+  // deployment does not pay for middleware on every chunk.
+  matcher: ["/((?!_next/static|_next/image).*)"],
 };
