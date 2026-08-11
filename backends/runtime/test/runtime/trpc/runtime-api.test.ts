@@ -75,8 +75,26 @@ vi.mock("../../../src/workspace/turn-checkpoints.js", () => ({
 	captureTaskTurnCheckpoint: turnCheckpointMocks.captureTaskTurnCheckpoint,
 }));
 
+// custom-seat-host.ts reads these from @clinebot/core to decide whether a seat needs the
+// borrowed-built-in-host swap, so the module mock has to provide them.
+const BUILT_IN_PROVIDER_IDS = new Set([
+	"anthropic",
+	"cline",
+	"openrouter",
+	"litellm",
+	"groq",
+	"openai-native",
+	"oca",
+	"openai-codex",
+	"deepseek",
+	"gemini",
+	"xai",
+]);
+
 vi.mock("@clinebot/core", () => ({
 	addLocalProvider: oauthMocks.addLocalProvider,
+	isBuiltInProviderId: (providerId: string) => BUILT_IN_PROVIDER_IDS.has(providerId),
+	normalizeProviderId: (providerId: string) => providerId,
 	ensureCustomProvidersLoaded: oauthMocks.ensureCustomProvidersLoaded,
 	getLocalProviderModels: localProviderMocks.getLocalProviderModels,
 	getValidClineCredentials: oauthMocks.getValidClineCredentials,
@@ -268,6 +286,13 @@ function createClineTaskSessionServiceMock() {
 		sendTaskSessionInput: vi.fn<(...args: unknown[]) => Promise<RuntimeTaskSessionSummary | null>>(async () => null),
 		clearTaskSession: vi.fn<(...args: unknown[]) => Promise<RuntimeTaskSessionSummary | null>>(async () => null),
 		reloadTaskSession: vi.fn<(...args: unknown[]) => Promise<RuntimeTaskSessionSummary | null>>(async () => null),
+		setTaskSessionModel: vi.fn<
+			(...args: unknown[]) => Promise<{
+				summary: RuntimeTaskSessionSummary | null;
+				applied: boolean;
+				warning: string | null;
+			}>
+		>(async () => ({ summary: null, applied: false, warning: null })),
 		rebindPersistedTaskSession: vi.fn<(...args: unknown[]) => Promise<RuntimeTaskSessionSummary | null>>(
 			async () => null,
 		),
@@ -1679,10 +1704,112 @@ describe("createRuntimeApi startTaskSession", () => {
 			prompt: "",
 			resumeFromPersistence: true,
 			providerId: "openrouter",
+			seatProviderId: "openrouter",
 			modelId: "openrouter/auto",
 			apiKey: "sk-or-test",
 			baseUrl: "https://openrouter.ai/api/v1",
 			reasoningEffort: undefined,
+			launchWarnings: undefined,
+		});
+	});
+
+	// Before this, the home reload/send paths called resolveLaunchConfig() bare, so a card-level
+	// pin silently reverted to the seat default on every cold start from chat.
+	it("forwards a card-level cline pin when the home chat session cold-starts on reload", async () => {
+		const summary = createSummary({ agentId: "cline", pid: null });
+		const clineTaskSessionService = createClineTaskSessionServiceMock();
+		clineTaskSessionService.reloadTaskSession.mockResolvedValue(null);
+		clineTaskSessionService.startTaskSession.mockResolvedValue(summary);
+		setSelectedProviderSettings({
+			provider: "openrouter",
+			model: "openrouter/auto",
+			apiKey: "sk-or-test",
+			baseUrl: "https://openrouter.ai/api/v1",
+			reasoning: {},
+		});
+
+		const api = createTestRuntimeApi({
+			getActiveWorkspaceId: vi.fn(() => "workspace-1"),
+			loadScopedRuntimeConfig: vi.fn(async () => createRuntimeConfigState()),
+			setActiveRuntimeConfig: vi.fn(),
+			getScopedTerminalManager: vi.fn(async () => ({}) as never),
+			getScopedClineTaskSessionService: vi.fn(async () => clineTaskSessionService as never),
+			resolveInteractiveShellCommand: vi.fn(),
+			runCommand: vi.fn(),
+		});
+
+		const response = await api.reloadTaskChatSession(
+			{ workspaceId: "workspace-1", workspacePath: "/tmp/repo" },
+			{
+				taskId: "__home_agent__:workspace-1:cline",
+				clineSettings: { providerId: "openrouter", modelId: "anthropic/claude-opus-4.7" },
+			},
+		);
+
+		expect(response.ok).toBe(true);
+		expect(clineTaskSessionService.startTaskSession).toHaveBeenCalledWith(
+			expect.objectContaining({ modelId: "anthropic/claude-opus-4.7" }),
+		);
+	});
+
+	it("routes a chat model switch to the Cline task session service", async () => {
+		const summary = createSummary({ agentId: "cline", pid: null });
+		const clineTaskSessionService = createClineTaskSessionServiceMock();
+		clineTaskSessionService.setTaskSessionModel.mockResolvedValue({
+			summary,
+			applied: true,
+			warning: null,
+		});
+
+		const api = createTestRuntimeApi({
+			getActiveWorkspaceId: vi.fn(() => "workspace-1"),
+			loadScopedRuntimeConfig: vi.fn(async () => createRuntimeConfigState()),
+			setActiveRuntimeConfig: vi.fn(),
+			getScopedTerminalManager: vi.fn(async () => ({}) as never),
+			getScopedClineTaskSessionService: vi.fn(async () => clineTaskSessionService as never),
+			resolveInteractiveShellCommand: vi.fn(),
+			runCommand: vi.fn(),
+		});
+
+		const response = await api.setTaskChatModel(
+			{ workspaceId: "workspace-1", workspacePath: "/tmp/repo" },
+			{ taskId: "task-1", modelId: "dva/claude-opus-4-6", providerId: "omniroute" },
+		);
+
+		expect(response).toEqual({ ok: true, summary, applied: true, warning: null });
+		expect(clineTaskSessionService.setTaskSessionModel).toHaveBeenCalledWith({
+			taskId: "task-1",
+			modelId: "dva/claude-opus-4-6",
+			seatProviderId: "omniroute",
+		});
+	});
+
+	it("reports a failed chat model switch instead of pretending it applied", async () => {
+		const clineTaskSessionService = createClineTaskSessionServiceMock();
+		clineTaskSessionService.setTaskSessionModel.mockRejectedValue(
+			new Error("Switching providers requires restarting the session."),
+		);
+
+		const api = createTestRuntimeApi({
+			getActiveWorkspaceId: vi.fn(() => "workspace-1"),
+			loadScopedRuntimeConfig: vi.fn(async () => createRuntimeConfigState()),
+			setActiveRuntimeConfig: vi.fn(),
+			getScopedTerminalManager: vi.fn(async () => ({}) as never),
+			getScopedClineTaskSessionService: vi.fn(async () => clineTaskSessionService as never),
+			resolveInteractiveShellCommand: vi.fn(),
+			runCommand: vi.fn(),
+		});
+
+		const response = await api.setTaskChatModel(
+			{ workspaceId: "workspace-1", workspacePath: "/tmp/repo" },
+			{ taskId: "task-1", modelId: "claude-sonnet-4-6", providerId: "anthropic" },
+		);
+
+		expect(response).toEqual({
+			ok: false,
+			summary: null,
+			applied: false,
+			error: "Switching providers requires restarting the session.",
 		});
 	});
 

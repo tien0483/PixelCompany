@@ -888,3 +888,118 @@ describe("InMemoryClineSessionRuntime", () => {
 		expect(runtime.getTaskSessionId("task-1")).toBeNull();
 	});
 });
+
+function createFakeSessionHost(overrides?: { runtimeAddress?: string }) {
+	return {
+		...(overrides?.runtimeAddress ? { runtimeAddress: overrides.runtimeAddress } : {}),
+		start: vi.fn(async (input: { config?: { sessionId?: string } }) => ({
+			sessionId: input.config?.sessionId ?? "session-1",
+			result: {},
+		})),
+		send: vi.fn(async () => ({})),
+		stop: vi.fn(async () => {}),
+		abort: vi.fn(async () => {}),
+		delete: vi.fn(async () => true),
+		dispose: vi.fn(async () => {}),
+		get: vi.fn(async () => undefined),
+		list: vi.fn(async () => []),
+		readMessages: vi.fn(async () => []),
+		subscribe: vi.fn(() => () => {}),
+		updateSessionModel: vi.fn(async () => {}),
+	};
+}
+
+describe("InMemoryClineSessionRuntime model switching", () => {
+	it("hot-swaps a live session and reuses the new model on restart", async () => {
+		const fakeHost = createFakeSessionHost();
+		const runtime = createInMemoryClineSessionRuntime({
+			createSessionHost: async () => fakeHost,
+			createMcpRuntimeService: createNoopMcpRuntimeService,
+		});
+
+		await runtime.startTaskSession({
+			taskId: "task-1",
+			cwd: "/tmp/worktree",
+			prompt: "Investigate startup",
+			providerId: "openrouter",
+			modelId: "auto/best-coding",
+			systemPrompt: "You are a helpful coding assistant.",
+		});
+
+		const result = await runtime.updateTaskSessionModel("task-1", "dva/claude-opus-4-6");
+
+		expect(result).toEqual({ applied: true });
+		expect(fakeHost.updateSessionModel).toHaveBeenCalledWith(
+			runtime.getTaskSessionId("task-1"),
+			"dva/claude-opus-4-6",
+		);
+		expect(runtime.getTaskModelId("task-1")).toBe("dva/claude-opus-4-6");
+
+		fakeHost.start.mockClear();
+		await runtime.restartTaskSession({ taskId: "task-1", prompt: "continue" });
+
+		expect(fakeHost.start).toHaveBeenCalledWith(
+			expect.objectContaining({
+				config: expect.objectContaining({ modelId: "dva/claude-opus-4-6" }),
+			}),
+		);
+	});
+
+	it("records the pin without calling the SDK when no session is bound", async () => {
+		const fakeHost = createFakeSessionHost();
+		const runtime = createInMemoryClineSessionRuntime({
+			createSessionHost: async () => fakeHost,
+			createMcpRuntimeService: createNoopMcpRuntimeService,
+		});
+
+		await runtime.startTaskSession({
+			taskId: "task-1",
+			cwd: "/tmp/worktree",
+			prompt: "Investigate startup",
+			providerId: "openrouter",
+			modelId: "auto/best-coding",
+			systemPrompt: "You are a helpful coding assistant.",
+		});
+		await runtime.stopTaskSession("task-1");
+
+		const result = await runtime.updateTaskSessionModel("task-1", "dva/claude-opus-4-6");
+
+		expect(result).toEqual({ applied: false, reason: "no_active_session" });
+		expect(fakeHost.updateSessionModel).not.toHaveBeenCalled();
+
+		fakeHost.start.mockClear();
+		await runtime.restartTaskSession({ taskId: "task-1", prompt: "continue" });
+
+		expect(fakeHost.start).toHaveBeenCalledWith(
+			expect.objectContaining({
+				config: expect.objectContaining({ modelId: "dva/claude-opus-4-6" }),
+			}),
+		);
+	});
+
+	it("refuses to hot-swap against a hub-backed host instead of silently no-opping", async () => {
+		// ClineCore binds updateSessionModel as `this.host.updateSessionModel?.(...) ?? resolve()`,
+		// and the hub protocol has no equivalent message, so calling it there would report success
+		// while changing nothing.
+		const fakeHost = createFakeSessionHost({ runtimeAddress: "http://127.0.0.1:9999" });
+		const runtime = createInMemoryClineSessionRuntime({
+			createSessionHost: async () => fakeHost,
+			createMcpRuntimeService: createNoopMcpRuntimeService,
+		});
+
+		await runtime.startTaskSession({
+			taskId: "task-1",
+			cwd: "/tmp/worktree",
+			prompt: "Investigate startup",
+			providerId: "openrouter",
+			modelId: "auto/best-coding",
+			systemPrompt: "You are a helpful coding assistant.",
+		});
+
+		const result = await runtime.updateTaskSessionModel("task-1", "dva/claude-opus-4-6");
+
+		expect(result).toEqual({ applied: false, reason: "host_unsupported" });
+		expect(fakeHost.updateSessionModel).not.toHaveBeenCalled();
+		expect(runtime.getTaskModelId("task-1")).toBe("dva/claude-opus-4-6");
+	});
+});

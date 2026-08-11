@@ -27,6 +27,16 @@ export { CLINE_MODEL_CATALOG_DEFAULTS } from "./sdk-provider-boundary";
 const DEFAULT_CLINE_MAX_CONSECUTIVE_MISTAKES = 6;
 
 interface ClineSessionHostBoundary {
+	/**
+	 * Set only when the SDK is talking to a hub daemon. `undefined` means the local
+	 * in-process host, which is the only backend that implements `updateSessionModel`.
+	 */
+	readonly runtimeAddress?: string;
+	/**
+	 * Swaps the model of a live session, keeping its state and message history.
+	 * Optional because hub-backed hosts do not implement it — see `updateTaskSessionModel`.
+	 */
+	updateSessionModel?(sessionId: string, modelId: string): Promise<void>;
 	start(input: ClineSdkStartSessionInput): Promise<{ sessionId: string; result?: unknown }>;
 	send(input: Parameters<ClineSdkSessionHost["send"]>[0]): Promise<unknown>;
 	stop(sessionId: string): Promise<void>;
@@ -96,6 +106,12 @@ export interface ClinePersistedTaskSessionSnapshot {
 	messages: ClineSdkPersistedMessage[];
 }
 
+export interface ClineTaskSessionModelUpdateResult {
+	/** true when the live session switched now; false when only the next start will use it. */
+	applied: boolean;
+	reason?: "no_active_session" | "host_unsupported";
+}
+
 export interface ClineSessionRuntime {
 	startTaskSession(request: StartClineSessionRuntimeRequest): Promise<StartClineSessionRuntimeResult>;
 	restartTaskSession(input: {
@@ -112,12 +128,14 @@ export interface ClineSessionRuntime {
 		images?: RuntimeTaskImage[],
 		delivery?: "queue" | "steer",
 	): Promise<unknown>;
+	updateTaskSessionModel(taskId: string, modelId: string): Promise<ClineTaskSessionModelUpdateResult>;
 	resumeTaskSession(taskId: string): Promise<ClinePersistedTaskSessionSnapshot | null>;
 	stopTaskSession(taskId: string): Promise<void>;
 	abortTaskSession(taskId: string): Promise<void>;
 	clearTaskSessions(taskId: string): Promise<void>;
 	getTaskSessionId(taskId: string): string | null;
 	getTaskProviderId(taskId: string): string | null;
+	getTaskModelId(taskId: string): string | null;
 	canRestartTaskSession(taskId: string): boolean;
 	readPersistedTaskSession(taskId: string): Promise<ClinePersistedTaskSessionSnapshot | null>;
 	dispose(): Promise<void>;
@@ -302,6 +320,35 @@ export class InMemoryClineSessionRuntime implements ClineSessionRuntime {
 		});
 	}
 
+	/**
+	 * Points a task at a different model. The pin is recorded first so it survives even when
+	 * the live swap is impossible, then applied to the running session when the backend
+	 * supports it.
+	 */
+	async updateTaskSessionModel(taskId: string, modelId: string): Promise<ClineTaskSessionModelUpdateResult> {
+		const nextModelId = modelId.trim();
+		if (nextModelId.length === 0) {
+			throw new Error("A model id is required to switch the session model.");
+		}
+		// Written before the SDK call: restartTaskSession replays this record, so a failed or
+		// unsupported hot swap still leaves the next start on the chosen model.
+		this.updateLastStartRequestModel(taskId, nextModelId);
+
+		const sessionId = this.sessionIdByTaskId.get(taskId);
+		if (!sessionId) {
+			return { applied: false, reason: "no_active_session" };
+		}
+		const sessionHost = await this.ensureSessionHost();
+		// Only the local in-process host implements updateSessionModel; ClineCore binds it as
+		// `this.host.updateSessionModel?.(...) ?? Promise.resolve()` and the hub protocol has no
+		// equivalent message, so calling it against a hub would resolve while changing nothing.
+		if (!sessionHost.updateSessionModel || sessionHost.runtimeAddress) {
+			return { applied: false, reason: "host_unsupported" };
+		}
+		await sessionHost.updateSessionModel(sessionId, nextModelId);
+		return { applied: true };
+	}
+
 	async sendTaskSessionInput(
 		taskId: string,
 		prompt: string,
@@ -409,6 +456,10 @@ export class InMemoryClineSessionRuntime implements ClineSessionRuntime {
 
 	getTaskProviderId(taskId: string): string | null {
 		return this.lastStartRequestByTaskId.get(taskId)?.providerId ?? null;
+	}
+
+	getTaskModelId(taskId: string): string | null {
+		return this.lastStartRequestByTaskId.get(taskId)?.modelId ?? null;
 	}
 
 	canRestartTaskSession(taskId: string): boolean {
@@ -551,6 +602,17 @@ export class InMemoryClineSessionRuntime implements ClineSessionRuntime {
 		this.lastStartRequestByTaskId.set(taskId, {
 			...lastStartRequest,
 			mode,
+		});
+	}
+
+	private updateLastStartRequestModel(taskId: string, modelId: string): void {
+		const lastStartRequest = this.lastStartRequestByTaskId.get(taskId);
+		if (!lastStartRequest) {
+			return;
+		}
+		this.lastStartRequestByTaskId.set(taskId, {
+			...lastStartRequest,
+			modelId,
 		});
 	}
 

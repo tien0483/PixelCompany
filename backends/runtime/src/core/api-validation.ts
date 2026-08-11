@@ -30,6 +30,7 @@ import {
 	type RuntimeTaskChatAbortRequest,
 	type RuntimeTaskChatCancelRequest,
 	type RuntimeTaskChatMessagesRequest,
+	type RuntimeTaskChatModelRequest,
 	type RuntimeTaskChatReloadRequest,
 	type RuntimeTaskChatSendRequest,
 	type RuntimeTaskSessionInputRequest,
@@ -72,6 +73,7 @@ import {
 	runtimeTaskChatAbortRequestSchema,
 	runtimeTaskChatCancelRequestSchema,
 	runtimeTaskChatMessagesRequestSchema,
+	runtimeTaskChatModelRequestSchema,
 	runtimeTaskChatReloadRequestSchema,
 	runtimeTaskChatSendRequestSchema,
 	runtimeTaskSessionInputRequestSchema,
@@ -437,7 +439,26 @@ export function parseTaskChatReloadRequest(value: unknown): RuntimeTaskChatReloa
 		throw new Error("Task chat taskId cannot be empty.");
 	}
 	return {
+		...parsed,
 		taskId,
+	};
+}
+
+export function parseTaskChatModelRequest(value: unknown): RuntimeTaskChatModelRequest {
+	const parsed = parseWithSchema(runtimeTaskChatModelRequestSchema, value);
+	const taskId = parsed.taskId.trim();
+	if (!taskId) {
+		throw new Error("Task chat taskId cannot be empty.");
+	}
+	const modelId = parsed.modelId.trim();
+	if (!modelId) {
+		throw new Error("Task chat modelId cannot be empty.");
+	}
+	const providerId = parsed.providerId?.trim();
+	return {
+		taskId,
+		modelId,
+		...(providerId ? { providerId } : {}),
 	};
 }
 

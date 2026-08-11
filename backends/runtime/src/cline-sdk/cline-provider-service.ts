@@ -32,11 +32,12 @@ import {
 	omniRouteMissingApiKeyMessage,
 	resolveOmniRouteApiKey,
 	resolveOmniRouteBaseUrl,
-	resolveOmniRouteDefaultModelId,
 	resolveOmniRouteHostProviderId,
+	resolveOmniRouteModelSelection,
 } from "../omniroute/omniroute-endpoint";
 import { openInBrowser } from "../server/browser";
 import { createKanbanClineLogger } from "./cline-runtime-logger";
+import { assertCustomSeatBaseUrl, resolveSeatHostProviderId } from "./custom-seat-host";
 import {
 	addSdkCustomProvider,
 	completeClineDeviceAuth as completeSdkDeviceAuth,
@@ -105,11 +106,19 @@ export interface ClineApiSeatCredentials {
 }
 
 export interface ResolvedClineLaunchConfig {
+	/**
+	 * Transport id handed to the SDK gateway. For a custom (models.json) seat this is a
+	 * borrowed built-in id — see `./custom-seat-host.ts` — not the seat the user picked.
+	 */
 	providerId: string;
+	/** User-facing seat identity ("omniroute", "fpt-ai", …). Equals `providerId` for built-ins. */
+	seatProviderId: string;
 	modelId: string | null;
 	apiKey: string | null;
 	baseUrl: string | null;
 	reasoningEffort?: RuntimeClineReasoningEffort | null;
+	/** Non-fatal launch notes surfaced on the task summary (e.g. a stale pinned model). */
+	warnings?: string[];
 }
 
 export interface AddCustomClineProviderInput {
@@ -547,6 +556,11 @@ export function createClineProviderService() {
 	async function resolveLaunchConfig(overrides?: {
 		providerIdOverride?: string;
 		modelIdOverride?: string;
+		/**
+		 * The model id came from an explicit pick rather than a stored default, so it must not
+		 * be silently swapped for a router fallback. Defaults to "there is an override".
+		 */
+		modelPinned?: boolean;
 		reasoningEffortOverride?: RuntimeClineReasoningEffort | null;
 	}): Promise<ResolvedClineLaunchConfig> {
 		const targetProviderId = (overrides?.providerIdOverride ?? "").trim().toLowerCase();
@@ -572,27 +586,29 @@ export function createClineProviderService() {
 			if (!apiKey) {
 				throw new Error(omniRouteMissingApiKeyMessage(baseUrl));
 			}
-			// An explicit per-task model override is taken as-is; otherwise the live catalog
-			// decides, because the saved model may name a route this instance no longer serves.
+			// An explicit pick is never replaced; a stale stored default still falls back, but
+			// says so instead of silently becoming `auto/best-coding`.
 			const modelOverride = overrides?.modelIdOverride?.trim() ?? "";
-			const modelId =
-				modelOverride ||
-				resolveOmniRouteDefaultModelId({
-					savedModelId: savedSettings?.model,
-					modelIds: await fetchOmniRouteModelIds({ baseUrl, apiKey, onWarn: logOmniRouteWarning }),
-				});
+			const modelPinned = overrides?.modelPinned ?? modelOverride.length > 0;
+			const selection = resolveOmniRouteModelSelection({
+				savedModelId: modelOverride || savedSettings?.model,
+				modelIds: await fetchOmniRouteModelIds({ baseUrl, apiKey, onWarn: logOmniRouteWarning }),
+				pinned: modelPinned,
+			});
 			return {
 				// Not OMNIROUTE_PROVIDER_ID: the agent gateway only resolves built-in ids, so a
 				// task launched as "omniroute" dies on its first turn with
-				// `Unknown or disabled provider "omniroute"`. See omniroute-endpoint.ts.
+				// `Unknown or disabled provider "omniroute"`. See cline-sdk/custom-seat-host.ts.
 				providerId: resolveOmniRouteHostProviderId(),
-				modelId,
+				seatProviderId: OMNIROUTE_PROVIDER_ID,
+				modelId: selection.modelId,
 				apiKey,
 				baseUrl,
 				reasoningEffort:
 					overrides && "reasoningEffortOverride" in overrides
 						? (overrides.reasoningEffortOverride ?? null)
 						: (toRuntimeReasoningEffort(savedSettings?.reasoning?.effort) ?? undefined),
+				...(selection.warning ? { warnings: [selection.warning] } : {}),
 			};
 		}
 
@@ -624,11 +640,17 @@ export function createClineProviderService() {
 			overrides?.modelIdOverride?.trim() ||
 			resolvedSettings.model?.trim() ||
 			(await resolveDefaultModelIdForProvider(normalizedProviderId));
+		const baseUrl = resolvedSettings.baseUrl?.trim() || null;
+		// A models.json seat is invisible to the SDK gateway, so it streams under a borrowed
+		// built-in id carrying its own endpoint/key/model. Without an endpoint that borrowed
+		// manifest would point at the host's own service, so refuse rather than leak the key.
+		assertCustomSeatBaseUrl(normalizedProviderId, baseUrl);
 		return {
-			providerId: normalizedProviderId,
+			providerId: resolveSeatHostProviderId(normalizedProviderId),
+			seatProviderId: normalizedProviderId,
 			modelId,
 			apiKey,
-			baseUrl: resolvedSettings.baseUrl?.trim() || null,
+			baseUrl,
 			reasoningEffort:
 				overrides && "reasoningEffortOverride" in overrides
 					? (overrides.reasoningEffortOverride ?? null)

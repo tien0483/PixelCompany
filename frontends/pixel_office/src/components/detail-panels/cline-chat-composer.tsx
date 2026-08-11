@@ -59,6 +59,7 @@ export function ClineChatComposer({
 	pinSelectedModelToTop = true,
 	selectedModelId,
 	selectedModelButtonText,
+	modelPickerTitle,
 	onSelectModel,
 	reasoningEnabledModelIds = [],
 	selectedReasoningEffort,
@@ -92,6 +93,7 @@ export function ClineChatComposer({
 	pinSelectedModelToTop?: boolean;
 	selectedModelId: string;
 	selectedModelButtonText: string;
+	modelPickerTitle?: string;
 	onSelectModel: (value: string) => void;
 	reasoningEnabledModelIds?: readonly string[];
 	selectedReasoningEffort: RuntimeClineReasoningEffort | "";
@@ -505,6 +507,7 @@ export function ClineChatComposer({
 						pinSelectedModelToTop={pinSelectedModelToTop}
 						selectedModelId={selectedModelId}
 						selectedModelButtonText={selectedModelButtonText}
+						{...(modelPickerTitle ? { triggerTitle: modelPickerTitle } : {})}
 						onSelectModel={onSelectModel}
 						reasoningEnabledModelIds={reasoningEnabledModelIds}
 						selectedReasoningEffort={selectedReasoningEffort}
