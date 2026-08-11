@@ -62,7 +62,8 @@ export interface PlanTemplateRailProps {
 	widthPx: number;
 	/** True while an imported zip is being installed. */
 	importing: boolean;
-	onSelect: (templateId: string) => void;
+	/** `null` when the selected card is clicked again — no template, build from the markdown. */
+	onSelect: (templateId: string | null) => void;
 	onToggleCollapsed: () => void;
 	onImport: (file: File) => void;
 }
@@ -132,8 +133,14 @@ export function PlanTemplateRail({
 							type="button"
 							disabled={disabled}
 							aria-pressed={isSelected}
-							onClick={() => onSelect(template.id)}
-							title={template.description || template.enName || template.id}
+							// Clicking the selected card clears the selection: that is how you say
+							// "no template, just follow my markdown" — there is no separate control for it.
+							onClick={() => onSelect(isSelected ? null : template.id)}
+							title={
+								isSelected
+									? HTML_LABELS.deselectTemplate
+									: template.description || template.enName || template.id
+							}
 							className={cn(
 								"flex w-full cursor-pointer flex-col overflow-hidden rounded-lg border bg-surface-2 p-0 text-left transition-colors",
 								"hover:border-border-bright disabled:cursor-not-allowed disabled:opacity-50",

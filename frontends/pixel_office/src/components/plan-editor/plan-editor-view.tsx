@@ -260,12 +260,20 @@ export function PlanEditorView({ plan, workspaceId, onClose, headerActions }: Pl
 		[refreshTemplates],
 	);
 
+	/**
+	 * Whether the registry's default has already been offered. Without it, clearing the
+	 * selection (clicking the selected card, i.e. asking for a template-free run) would be
+	 * undone by this effect on its very next pass.
+	 */
+	const templateDefaultAppliedRef = useRef(false);
 	useEffect(() => {
-		if (templates.length > 0 && selectedTemplateId === null) {
-			// `templates` arrives ranked by `recommended`, so this lands on the registry's
-			// own first choice rather than whatever sorted first on disk.
-			setSelectedTemplateId(templates[0]?.id ?? null);
+		if (templateDefaultAppliedRef.current || templates.length === 0 || selectedTemplateId !== null) {
+			return;
 		}
+		templateDefaultAppliedRef.current = true;
+		// `templates` arrives ranked by `recommended`, so this lands on the registry's
+		// own first choice rather than whatever sorted first on disk.
+		setSelectedTemplateId(templates[0]?.id ?? null);
 	}, [templates, selectedTemplateId]);
 
 	const activeDoc = source === "html" ? htmlDoc : mdDoc;
@@ -377,15 +385,20 @@ export function PlanEditorView({ plan, workspaceId, onClose, headerActions }: Pl
 		void Promise.all([mdDoc.flush(), siblingDoc.flush()]).then(onClose);
 	}, [mdDoc, onClose, siblingDoc]);
 
+	/**
+	 * `templateId === null` is a first-class mode, not a missing argument: the runtime then
+	 * builds the prompt from this plan's own markdown (and its images) instead of asking the
+	 * sidecar for a template's.
+	 */
 	const handleGenerate = useCallback(
-		(templateId: string) => {
+		(templateId: string | null) => {
 			savedHtmlRef.current = null;
 			setLogOpen(false);
 			pendingSourceRef.current = mdDoc.content;
 			pendingHistoryLabelRef.current = "generate";
 			setPreviewMode("debounce");
 			void generate.run({
-				templateId,
+				...(templateId ? { templateId } : {}),
 				content: mdDoc.content,
 				format: kind === "text" ? "text" : "markdown",
 				planId: plan.id,
@@ -405,7 +418,7 @@ export function PlanEditorView({ plan, workspaceId, onClose, headerActions }: Pl
 	 * the document) it falls back to the full-content edit prompt rather than refusing to run.
 	 */
 	const handleRefine = useCallback(
-		(templateId: string) => {
+		(templateId: string | null) => {
 			const currentHtml = htmlDoc.content;
 			if (!currentHtml.trim()) {
 				showAppToast({
@@ -439,7 +452,7 @@ export function PlanEditorView({ plan, workspaceId, onClose, headerActions }: Pl
 			pendingHistoryLabelRef.current = "refine";
 			setPreviewMode("hold");
 			void generate.run({
-				templateId,
+				...(templateId ? { templateId } : {}),
 				content: mdDoc.content,
 				format: kind === "text" ? "text" : "markdown",
 				planId: plan.id,

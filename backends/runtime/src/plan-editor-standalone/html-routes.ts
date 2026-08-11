@@ -15,6 +15,7 @@ import { HTML_NO_TOOLS, resolveHtmlAgentCwd, resolveHtmlAllowedTools } from "../
 import { buildBriefPrompt, loadPromptMasterBody } from "../html/html-brief";
 import type { HtmlClient, HtmlPromptFailure } from "../html/html-client";
 import { buildDraftPrompt } from "../html/html-draft";
+import { resolveFreestyleGenerateRun } from "../html/html-freestyle";
 import { findSavedPlanById, readSavedPlanAsset, resolvePlanImageAssets } from "../state/saved-plans";
 import { runAgentOneShot } from "../terminal/agent-oneshot";
 
@@ -130,23 +131,46 @@ export async function tryHandlePlanEditorHtmlRoute(
 			return true;
 		}
 		const input = parsed.data;
-		const promptResult = await htmlClient.fetchPrompt({
-			templateId: input.templateId,
-			content: input.content,
-			format: input.format,
-			editFromHtml: input.editFromHtml,
-			editFromContent: input.editFromContent,
-			editDiff: input.editDiff,
-		});
-		if (!promptResult.ok) {
-			const { status, error } = describeHtmlPromptFailure(promptResult.failure);
-			res.writeHead(status, { "Content-Type": "application/json; charset=utf-8" });
-			res.end(JSON.stringify({ error }));
-			return true;
+		let prompt: string;
+		let agentCwd: string | undefined;
+		let allowedTools: string[] | undefined;
+		if (input.templateId) {
+			const promptResult = await htmlClient.fetchPrompt({
+				templateId: input.templateId,
+				content: input.content,
+				format: input.format,
+				editFromHtml: input.editFromHtml,
+				editFromContent: input.editFromContent,
+				editDiff: input.editDiff,
+			});
+			if (!promptResult.ok) {
+				const { status, error } = describeHtmlPromptFailure(promptResult.failure);
+				res.writeHead(status, { "Content-Type": "application/json; charset=utf-8" });
+				res.end(JSON.stringify({ error }));
+				return true;
+			}
+			prompt = promptResult.value.prompt;
+			const plan = input.planId ? await findSavedPlanById(input.planId).catch(() => null) : null;
+			agentCwd = resolveHtmlAgentCwd({ cwd: input.cwd, planPath: plan?.path });
+			allowedTools = resolveHtmlAllowedTools(promptResult.value.template.allowRead, HTML_NO_TOOLS);
+		} else {
+			// No template picked: the prompt is built locally from the plan's own markdown,
+			// so this path never calls the sidecar (see `html-freestyle.ts`).
+			const run = await resolveFreestyleGenerateRun({
+				...(input.planId === undefined ? {} : { planId: input.planId }),
+				content: input.content,
+				...(input.format === undefined ? {} : { format: input.format }),
+				...(input.editFromHtml === undefined ? {} : { editFromHtml: input.editFromHtml }),
+				...(input.editDiff === undefined ? {} : { editDiff: input.editDiff }),
+				...(input.editFromContent === undefined ? {} : { editFromContent: input.editFromContent }),
+				warn: (message) => console.warn(message),
+			});
+			prompt = run.prompt;
+			// An explicit caller `cwd` still wins; otherwise the plan's own folder, which is
+			// what makes the markdown's relative image links resolvable agent-side.
+			agentCwd = input.cwd ?? run.cwd;
+			allowedTools = run.allowedTools;
 		}
-		const plan = input.planId ? await findSavedPlanById(input.planId).catch(() => null) : null;
-		const agentCwd = resolveHtmlAgentCwd({ cwd: input.cwd, planPath: plan?.path });
-		const allowedTools = resolveHtmlAllowedTools(promptResult.value.template.allowRead, HTML_NO_TOOLS);
 
 		res.writeHead(200, {
 			"Content-Type": "text/event-stream; charset=utf-8",
@@ -164,7 +188,7 @@ export async function tryHandlePlanEditorHtmlRoute(
 
 		await runAgentOneShot({
 			agentId: "claude",
-			prompt: promptResult.value.prompt,
+			prompt,
 			cwd: agentCwd,
 			model: input.model,
 			idleTimeoutMs: HTML_AGENT_IDLE_TIMEOUT_MS,

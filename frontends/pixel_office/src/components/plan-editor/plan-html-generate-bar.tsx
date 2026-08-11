@@ -1,7 +1,6 @@
 import { ListChecks, Sparkles, Wand2, Zap } from "lucide-react";
 import { type ReactElement, useMemo } from "react";
 
-import { showAppToast } from "@/components/app-toaster";
 import { PlanClaudeUsageChip } from "@/components/plan-editor/plan-claude-usage-chip";
 import { PlanHtmlRunMetrics } from "@/components/plan-editor/plan-html-run-metrics";
 import { Button } from "@/components/ui/button";
@@ -34,8 +33,9 @@ export interface PlanHtmlGenerateBarProps {
 	canExpand: boolean;
 	disabled?: boolean;
 	onExpand: (templateId: string | null) => void;
-	onGenerate: (templateId: string) => void;
-	onRefine: (templateId: string) => void;
+	/** `null` = freestyle: the runtime builds the prompt from the plan's markdown. */
+	onGenerate: (templateId: string | null) => void;
+	onRefine: (templateId: string | null) => void;
 	onCancel: () => void;
 }
 
@@ -71,21 +71,12 @@ export function PlanHtmlGenerateBar({
 		[templates, selectedId],
 	);
 
-	const handleGenerate = () => {
-		if (!selectedId) {
-			showAppToast({ intent: "warning", message: HTML_LABELS.pickTemplate });
-			return;
-		}
-		onGenerate(selectedId);
-	};
-
-	const handleRefine = () => {
-		if (!selectedId) {
-			showAppToast({ intent: "warning", message: HTML_LABELS.pickTemplate });
-			return;
-		}
-		onRefine(selectedId);
-	};
+	/**
+	 * A template's prompt comes from the sidecar, so picking one makes the run depend on it
+	 * being up and its registry loaded. Freestyle has no such dependency — the runtime builds
+	 * that prompt itself — so an offline sidecar must not disable the button.
+	 */
+	const sidecarBlocked = selectedId !== null && (!online || loading);
 
 	return (
 		<div className="flex shrink-0 flex-nowrap items-center gap-2" data-testid="plan-html-generate-bar">
@@ -108,8 +99,12 @@ export function PlanHtmlGenerateBar({
 					{selectedTemplate.enName || selectedTemplate.zhName || selectedTemplate.id}
 				</span>
 			) : (
-				<span className="hidden text-[11px] text-text-tertiary lg:inline">
-					{online ? HTML_LABELS.pickTemplate : HTML_LABELS.offline}
+				<span
+					className="hidden text-[11px] text-text-tertiary lg:inline"
+					title={HTML_LABELS.noTemplateHint}
+					data-testid="plan-html-no-template"
+				>
+					{HTML_LABELS.noTemplate}
 				</span>
 			)}
 			{selectedTemplate?.aspectHint ? (
@@ -144,8 +139,9 @@ export function PlanHtmlGenerateBar({
 						variant={canRefine ? "default" : "primary"}
 						size="sm"
 						icon={<Zap size={13} />}
-						disabled={!selectedId || !online || loading || disabled}
-						onClick={handleGenerate}
+						disabled={sidecarBlocked || disabled}
+						onClick={() => onGenerate(selectedId)}
+						{...(selectedId ? {} : { title: HTML_LABELS.noTemplateHint })}
 						data-testid="plan-html-generate-run"
 					>
 						{HTML_LABELS.convert}
@@ -154,8 +150,8 @@ export function PlanHtmlGenerateBar({
 						variant={canRefine ? "primary" : "default"}
 						size="sm"
 						icon={<Wand2 size={13} />}
-						disabled={!canRefine || !selectedId || !online || loading || disabled}
-						onClick={handleRefine}
+						disabled={!canRefine || sidecarBlocked || disabled}
+						onClick={() => onRefine(selectedId)}
 						title={canRefine ? HTML_LABELS.refineHint : HTML_LABELS.refineNeedsHtml}
 						data-testid="plan-html-refine-run"
 					>
