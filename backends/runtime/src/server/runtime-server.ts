@@ -67,6 +67,7 @@ import type { TerminalSessionManager } from "../terminal/session-manager";
 import { createTerminalWebSocketBridge } from "../terminal/ws-server";
 import { type RuntimeTrpcContext, type RuntimeTrpcWorkspaceScope, runtimeAppRouter } from "../trpc/app-router";
 import { createClaudeUsageApi } from "../trpc/claude-usage-api";
+import { createDeployApi } from "../trpc/deploy-api";
 import { createHooksApi } from "../trpc/hooks-api";
 import { createHtmlApi } from "../trpc/html-api";
 import { createManagerApi } from "../trpc/manager-api";
@@ -508,6 +509,7 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 			plansApi: createPlansApi({
 				serverCwd: process.cwd(),
 			}),
+			deployApi: createDeployApi(),
 			hooksApi: createHooksApi({
 				getWorkspacePathById: deps.workspaceRegistry.getWorkspacePathById,
 				ensureTerminalManagerForWorkspace: deps.ensureTerminalManagerForWorkspace,

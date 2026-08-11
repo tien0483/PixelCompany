@@ -18,6 +18,16 @@ import {
 	RuntimeHtmlStatusSchema,
 	RuntimeHtmlTemplateExampleSchema,
 	RuntimeHtmlTemplateSchema,
+	runtimeDeployConfigUpdateRequestSchema,
+	runtimeDeployLoginCodeRequestSchema,
+	runtimeDeployLoginStartRequestSchema,
+	runtimeDeployLoginStatusSchema,
+	runtimeDeployOpenUrlRequestSchema,
+	runtimeDeployOpenUrlResponseSchema,
+	runtimeDeployRunRequestSchema,
+	runtimeDeployRunResponseSchema,
+	runtimeDeployStatusRequestSchema,
+	runtimeDeployStatusResponseSchema,
 	runtimeDirectoryListRequestSchema,
 	runtimeDirectoryListResponseSchema,
 	runtimePlansCreateRequestSchema,
@@ -60,12 +70,14 @@ import { pickDirectoryPathFromSystemDialog } from "../server/directory-picker";
 import { isPlanAuxiliaryFileName, isPlanFileName } from "../state/saved-plans";
 import type { RuntimeTrpcContext } from "../trpc/app-router";
 import { createClaudeUsageApi } from "../trpc/claude-usage-api";
+import { createDeployApi } from "../trpc/deploy-api";
 import { createHtmlApi } from "../trpc/html-api";
 import { createPlansApi } from "../trpc/plans-api";
 import { isPathWithinRoot } from "../workspace/path-sandbox";
 
 export interface PlanEditorTrpcContext {
 	plansApi: RuntimeTrpcContext["plansApi"];
+	deployApi: RuntimeTrpcContext["deployApi"];
 	htmlApi: RuntimeTrpcContext["htmlApi"];
 	claudeUsageApi: RuntimeTrpcContext["claudeUsageApi"];
 	projectsApi: {
@@ -327,6 +339,49 @@ export const planEditorRouter = t.router({
 				return await ctx.plansApi.historyDiff(input);
 			}),
 	}),
+	// Same surface as the full router's `deploy` — the standalone package is where a plan is
+	// most often finished, so it needs the publish step too.
+	deploy: t.router({
+		status: t.procedure
+			.input(runtimeDeployStatusRequestSchema)
+			.output(runtimeDeployStatusResponseSchema)
+			.query(async ({ ctx, input }) => {
+				return await ctx.deployApi.status(input);
+			}),
+		setConfig: t.procedure
+			.input(runtimeDeployConfigUpdateRequestSchema)
+			.output(runtimeDeployStatusResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.deployApi.setConfig(input);
+			}),
+		login: t.procedure
+			.input(runtimeDeployLoginStartRequestSchema)
+			.output(runtimeDeployLoginStatusSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.deployApi.login(input);
+			}),
+		loginStatus: t.procedure.output(runtimeDeployLoginStatusSchema).query(async ({ ctx }) => {
+			return await ctx.deployApi.loginStatus();
+		}),
+		loginSubmitCode: t.procedure
+			.input(runtimeDeployLoginCodeRequestSchema)
+			.output(runtimeDeployLoginStatusSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.deployApi.loginSubmitCode(input);
+			}),
+		run: t.procedure
+			.input(runtimeDeployRunRequestSchema)
+			.output(runtimeDeployRunResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.deployApi.run(input);
+			}),
+		openUrl: t.procedure
+			.input(runtimeDeployOpenUrlRequestSchema)
+			.output(runtimeDeployOpenUrlResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.deployApi.openUrl(input);
+			}),
+	}),
 	html: t.router({
 		status: t.procedure.output(RuntimeHtmlStatusSchema).query(async ({ ctx }) => {
 			return await ctx.htmlApi.status();
@@ -355,6 +410,7 @@ export type PlanEditorAppRouter = typeof planEditorRouter;
 export function createPlanEditorContext(deps: { htmlClient: HtmlClient; serverCwd: string }): PlanEditorTrpcContext {
 	return {
 		plansApi: createPlansApi({ serverCwd: deps.serverCwd }),
+		deployApi: createDeployApi(),
 		htmlApi: createHtmlApi({ client: deps.htmlClient }),
 		claudeUsageApi: createClaudeUsageApi(),
 		projectsApi: createPlanEditorProjectsApi(deps.serverCwd),

@@ -1729,6 +1729,113 @@ export const runtimePlansWriteAssetResponseSchema = z.object({
 });
 export type RuntimePlansWriteAssetResponse = z.infer<typeof runtimePlansWriteAssetResponseSchema>;
 
+/**
+ * Publishing a plan's generated HTML as a Google Apps Script web app, restricted to the
+ * configured Workspace domain. Driven by the `clasp` CLI, so the failures the UI can act on
+ * are surfaced as a discriminator rather than only as prose.
+ */
+export const runtimeDeployFailureSchema = z.enum(["needsLogin", "needsApiEnabled", "needsNetwork"]);
+export type RuntimeDeployFailure = z.infer<typeof runtimeDeployFailureSchema>;
+
+export const runtimeDeployConfigSchema = z.object({
+	/** Browser binary launched for the Workspace sign-in; null falls back to the OS default. */
+	chromePath: z.string().nullable(),
+	/** Chrome profile *directory* name (`Default`, `Profile 1`, …) signed in as the Workspace user. */
+	chromeProfile: z.string().nullable(),
+	domain: z.string(),
+});
+export type RuntimeDeployConfig = z.infer<typeof runtimeDeployConfigSchema>;
+
+export const runtimeDeployPlanStateSchema = z.object({
+	scriptId: z.string(),
+	deploymentId: z.string().nullable(),
+	webAppUrl: z.string().nullable(),
+	deployedAt: z.number().nullable(),
+});
+export type RuntimeDeployPlanState = z.infer<typeof runtimeDeployPlanStateSchema>;
+
+export const runtimeDeployStatusRequestSchema = z.object({
+	/** The HTML plan whose previous deployment should be reported; null for config only. */
+	planId: z.string().nullable(),
+});
+export type RuntimeDeployStatusRequest = z.infer<typeof runtimeDeployStatusRequestSchema>;
+
+export const runtimeDeployStatusResponseSchema = z.object({
+	ok: z.boolean(),
+	config: runtimeDeployConfigSchema,
+	loggedIn: z.boolean(),
+	account: z.string().nullable(),
+	planState: runtimeDeployPlanStateSchema.nullable(),
+	error: z.string().optional(),
+});
+export type RuntimeDeployStatusResponse = z.infer<typeof runtimeDeployStatusResponseSchema>;
+
+/** An omitted key keeps its stored value; an explicit null clears it. */
+export const runtimeDeployConfigUpdateRequestSchema = z.object({
+	chromePath: z.string().nullable().optional(),
+	chromeProfile: z.string().nullable().optional(),
+	domain: z.string().nullable().optional(),
+});
+export type RuntimeDeployConfigUpdateRequest = z.infer<typeof runtimeDeployConfigUpdateRequestSchema>;
+
+export const runtimeDeployLoginStartRequestSchema = z.object({
+	/**
+	 * Ask clasp for the paste-a-code flow instead of the loopback redirect. Needed when the
+	 * browser cannot reach the runtime's localhost (a Windows browser against a WSL runtime).
+	 */
+	noLocalhost: z.boolean().optional(),
+});
+export type RuntimeDeployLoginStartRequest = z.infer<typeof runtimeDeployLoginStartRequestSchema>;
+
+export const runtimeDeployLoginStatusSchema = z.object({
+	ok: z.boolean(),
+	state: z.enum(["idle", "awaiting-consent", "awaiting-code", "done", "failed"]),
+	url: z.string().nullable(),
+	awaitingCode: z.boolean(),
+	/** True when the browser was opened on the configured profile rather than the default one. */
+	usedProfile: z.boolean(),
+	loggedIn: z.boolean(),
+	account: z.string().nullable(),
+	error: z.string().nullable(),
+	failure: runtimeDeployFailureSchema.nullable(),
+	log: z.string(),
+});
+export type RuntimeDeployLoginStatus = z.infer<typeof runtimeDeployLoginStatusSchema>;
+
+export const runtimeDeployLoginCodeRequestSchema = z.object({
+	code: z.string().min(1),
+});
+export type RuntimeDeployLoginCodeRequest = z.infer<typeof runtimeDeployLoginCodeRequestSchema>;
+
+export const runtimeDeployRunRequestSchema = z.object({
+	planId: z.string().min(1),
+});
+export type RuntimeDeployRunRequest = z.infer<typeof runtimeDeployRunRequestSchema>;
+
+export const runtimeDeployRunResponseSchema = z.object({
+	ok: z.boolean(),
+	webAppUrl: z.string().nullable(),
+	scriptId: z.string().nullable(),
+	deploymentId: z.string().nullable(),
+	/** Step-by-step transcript, shown whether the run succeeded or not. */
+	log: z.array(z.string()),
+	error: z.string().nullable(),
+	failure: runtimeDeployFailureSchema.nullable(),
+});
+export type RuntimeDeployRunResponse = z.infer<typeof runtimeDeployRunResponseSchema>;
+
+export const runtimeDeployOpenUrlRequestSchema = z.object({
+	url: z.string().min(1),
+});
+export type RuntimeDeployOpenUrlRequest = z.infer<typeof runtimeDeployOpenUrlRequestSchema>;
+
+export const runtimeDeployOpenUrlResponseSchema = z.object({
+	ok: z.boolean(),
+	usedProfile: z.boolean(),
+	error: z.string().optional(),
+});
+export type RuntimeDeployOpenUrlResponse = z.infer<typeof runtimeDeployOpenUrlResponseSchema>;
+
 export const runtimeProjectRemoveRequestSchema = z.object({
 	projectId: z.string(),
 });
