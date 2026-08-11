@@ -439,12 +439,14 @@ describe("PlanEditorView", () => {
 			vi.unstubAllGlobals();
 		});
 
-		it("keeps Refine disabled until generated HTML exists", async () => {
+		it("keeps Refine disabled and unemphasized until generated HTML exists", async () => {
 			await render(PLAN);
 			await flush();
 			await waitFor(() => !getButton("plan-html-generate-run").disabled, "loaded templates");
 
 			expect(getButton("plan-html-refine-run").disabled).toBe(true);
+			expect(getButton("plan-html-generate-run").className).toContain("bg-accent");
+			expect(getButton("plan-html-refine-run").className).not.toContain("bg-accent");
 		});
 
 		/** Long enough that a hunk is cheaper than shipping the document twice. */
@@ -480,6 +482,10 @@ describe("PlanEditorView", () => {
 			await render(PLAN);
 			await flush();
 			await waitFor(() => !getButton("plan-html-refine-run").disabled, "enabled refine");
+
+			// The HTML sibling exists, so Refine takes the accent and Generate steps back.
+			expect(getButton("plan-html-refine-run").className).toContain("bg-accent");
+			expect(getButton("plan-html-generate-run").className).not.toContain("bg-accent");
 
 			await act(async () => {
 				setTextareaValue(
