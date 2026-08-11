@@ -95,6 +95,13 @@ export interface SetClineTaskSessionModelResult {
 	warning: string | null;
 }
 
+export interface SetClineTaskSessionModelResult {
+	summary: RuntimeTaskSessionSummary | null;
+	/** true when the running session switched now; false when it only applies at next start. */
+	applied: boolean;
+	warning: string | null;
+}
+
 export interface ClineTaskSessionService {
 	onSummary(listener: (summary: RuntimeTaskSessionSummary) => void): () => void;
 	onMessage(listener: (taskId: string, message: ClineTaskMessage) => void): () => void;
