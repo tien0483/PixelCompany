@@ -17,6 +17,7 @@ import { type ReactElement, useState } from "react";
 import type { TextSelectionState } from "@/components/plan-editor/markdown-selection-commands";
 import { togglePrefix, toggleWrap } from "@/components/plan-editor/markdown-selection-commands";
 import { PlanImageButton } from "@/components/plan-editor/plan-image-button";
+import { PlanSnippetMenu } from "@/components/plan-editor/plan-snippet-menu";
 import { Button } from "@/components/ui/button";
 import { Tooltip } from "@/components/ui/tooltip";
 
@@ -57,7 +58,7 @@ export function PlanMarkdownToolbar({ disabled, onCommand, onInsertImage }: Plan
 	const [isColorOpen, setIsColorOpen] = useState(false);
 
 	return (
-		<div className="flex items-center gap-0.5 border-b border-border bg-surface-2 px-2 py-1">
+		<div className="kb-toolbar-scroll flex h-9 shrink-0 items-center gap-0.5 overflow-x-auto border-b border-border bg-surface-2 px-2 py-1">
 			<ToolbarButton
 				icon={<Bold size={14} />}
 				label="Bold"
@@ -158,6 +159,7 @@ export function PlanMarkdownToolbar({ disabled, onCommand, onInsertImage }: Plan
 				onClick={() => onCommand((s) => toggleWrap(s, "<mark>", "</mark>"))}
 			/>
 			<div className="mx-1 h-4 w-px bg-border" />
+			<PlanSnippetMenu disabled={disabled} onCommand={onCommand} />
 			<PlanImageButton disabled={disabled} onSelectFile={onInsertImage} />
 		</div>
 	);
