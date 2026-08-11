@@ -79,4 +79,7 @@ export const HTML_LABELS = {
 	redoHint: "Step forward to the next recorded version of this document.",
 	historyNothingOlder: "Nothing older was recorded for this document.",
 	historyNothingNewer: "Already at the newest recorded version.",
+	viewEditorOnly: "Editor only",
+	viewSplit: "Split view",
+	viewPreviewOnly: "Preview only",
 } as const;
