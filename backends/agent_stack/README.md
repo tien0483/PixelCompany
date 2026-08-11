@@ -35,14 +35,24 @@ relative paths instead of 2 GB copied per worktree.
 | Piece | Started by | Scope |
 |-------|-----------|-------|
 | Switchboard (`server.py`, :8000) | the runtime, on every Kanban launch (`backends/runtime/src/stack/stack-process.ts`) | shared |
-| Headroom / CCR / DevTools | `activate-stack.sh` | shared, outlive the shell |
-| `rtk` on PATH, venv, `ANTHROPIC_BASE_URL` | `activate-stack.sh` only | the sourcing shell |
+| Headroom (:8787) | the runtime (`src/stack/headroom-process.ts`), or `activate-stack.sh` | shared, restarted on crash |
+| CCR (:3456) / DevTools (:3001) | the runtime when flagged on (`src/stack/stack-extra-daemons.ts`), or `activate-stack.sh` | shared, restarted on crash |
+| `rtk` on PATH | the runtime per spawned session (`withStackBinOnPath`) and the activator | every task agent |
+| venv on PATH | `activate-stack.sh` only | the sourcing shell |
+| `ANTHROPIC_BASE_URL` for agents | `scripts/solo.mjs` (opt out with `--no-proxy-env`) or the activator | every task agent |
 | `.claude/skills` symlinks | `scripts/link-stack-skills.mjs` (run by `solo.mjs`) and the activator | this checkout |
 
-The runtime never exports the proxy env for the agents it spawns, and must not:
-`activate-stack.sh` sets `ANTHROPIC_API_KEY=sk-dummy-key-for-sandbox`, and CCR's
-default provider has no credentials, so every task agent would die on
-`Authentication failed`. Proxy routing stays opt-in per shell.
+Every runtime-owned daemon skips a port that is already served, so an activated
+shell keeps ownership of the daemons it started, and pidfiles stay usable by
+`stop-stack.sh` either way.
+
+`ANTHROPIC_API_KEY` is the one thing that must never reach a spawned agent:
+`activate-stack.sh` sets it to `sk-dummy-key-for-sandbox`, and Claude Code prefers
+an API key over its OAuth credential, so exporting it moves the session off the
+seat the card resolved and onto a key the switchboard has to substitute
+(`Authentication failed` when `STACK_UPSTREAM_ANTHROPIC_API_KEY` is unset).
+`solo.mjs` therefore exports only the base URL — `has_caller_credential()` sees
+the session's real OAuth bearer and forwards it untouched.
 
 `stop-stack.sh` only knows daemons that wrote a pidfile, i.e. the ones the
 activator started. A switchboard the runtime spawned is stopped by the runtime.

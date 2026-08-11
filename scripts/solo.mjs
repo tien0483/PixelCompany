@@ -11,9 +11,10 @@
  *   npm run solo -- --skip-build   # fail if missing, warn+serve if stale
  *   npm run solo -- --build        # always rebuild first
  *   npm run solo -- --no-stack-link # do not link agent-stack skills into .claude/skills
+ *   npm run solo -- --no-proxy-env  # do not route agent traffic through the stack chain
  */
 import { connect } from "node:net";
-import { constants as fsConstants, existsSync } from "node:fs";
+import { constants as fsConstants, existsSync, readFileSync } from "node:fs";
 import { access, lstat, readdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -150,6 +151,9 @@ const skipBuild = args.includes("--skip-build");
 const forceBuild = args.includes("--build");
 const noOpen = args.includes("--no-open");
 const noStackLink = args.includes("--no-stack-link");
+// `STACK_PROXY_ENV=0` is the env-side opt-out, for wrappers that cannot pass flags.
+const noProxyEnv = args.includes("--no-proxy-env") || process.env.STACK_PROXY_ENV?.trim() === "0";
+const stackRoot = join(repoRoot, "backends", "agent_stack");
 
 function freePort(port) {
 	if (isWindows) {
@@ -370,6 +374,53 @@ async function wireAgentStack() {
 	}
 }
 
+/**
+ * The half of `activate-stack.sh` that is an environment, not a daemon: it points
+ * Claude Code at the switchboard so a task's turns traverse the flagged proxy
+ * chain (`:8000 → headroom:8787 → upstream`). Sourcing the activator is no longer
+ * needed for this; `--no-proxy-env` opts out.
+ *
+ * Two deliberate differences from the activator:
+ *
+ * 1. `ANTHROPIC_API_KEY` is never set, and an inherited `sk-dummy-key-for-sandbox`
+ *    is actively dropped. Claude Code prefers an API key over its OAuth
+ *    credential, so exporting the placeholder moves every session off the seat the
+ *    card resolved and onto a key the switchboard has to replace — and if
+ *    STACK_UPSTREAM_ANTHROPIC_API_KEY is unset, that is a 401 per turn. With only
+ *    the base URL set, the session's own OAuth bearer travels with the request and
+ *    `has_caller_credential()` in server.py leaves it untouched. This is the same
+ *    trick `subagent-seat-launch.ts` already relies on.
+ * 2. It is announced, with the cost caveat. Headroom rewrites request context, and
+ *    Anthropic's prompt cache keys on an exact prefix — measured hit rate on this
+ *    repo's sessions is 97–99%, so a rewrite that breaks the prefix turns a cache
+ *    read (0.1x) into a cache write (1.25x) and costs more than the compression
+ *    saves. `--no-proxy-env` is the lever if usage jumps.
+ */
+function resolveStackProxyEnv() {
+	if (noProxyEnv || !existsSync(join(stackRoot, "server.py"))) {
+		return null;
+	}
+	let chain = "flags unreadable";
+	try {
+		const flags = JSON.parse(readFileSync(join(stackRoot, "stack-flags.json"), "utf8"));
+		const hops = [
+			`switchboard:${STACK_CONTROL_PORT}`,
+			...(flags.ENABLE_HEADROOM ? ["headroom:8787"] : []),
+			...(flags.ENABLE_CCR ? ["ccr:3456"] : []),
+			"upstream",
+		];
+		chain = hops.join(" → ");
+	} catch {
+		// server.py resolves the real chain per request; this string is cosmetic.
+	}
+	const delta = { ANTHROPIC_BASE_URL: `http://127.0.0.1:${STACK_CONTROL_PORT}` };
+	// A shell that sourced the activator before running solo would otherwise hand
+	// the placeholder key down to every agent.
+	const inheritedKey = process.env.ANTHROPIC_API_KEY ?? "";
+	const dropDummyKey = inheritedKey.startsWith("sk-dummy-key");
+	return { delta, chain, dropDummyKey };
+}
+
 async function main() {
 	await wireAgentStack();
 
@@ -428,11 +479,20 @@ async function main() {
 		console.warn("  HTML sidecar .next missing — templates stay offline (--skip-build).");
 	}
 
+	const proxyEnv = resolveStackProxyEnv();
+
 	console.log("");
 	console.log("  Pixel Office (solo) — one process, one URL");
 	console.log(`  App:     http://127.0.0.1:${RUNTIME_PORT}`);
 	console.log(`  Manager:  http://127.0.0.1:${MANAGER_PORT} (headless child of the runtime)`);
 	console.log(`  HTML:     http://127.0.0.1:${HTML_PORT} (template sidecar, headless)`);
+	if (proxyEnv) {
+		console.log(`  Agents:   ${proxyEnv.chain}`);
+		console.log("            OAuth is preserved (no ANTHROPIC_API_KEY is exported).");
+		console.log("            Watch cache hit rate; opt out with: npm run solo -- --no-proxy-env");
+	} else if (noProxyEnv) {
+		console.log("  Agents:   direct to api.anthropic.com (--no-proxy-env)");
+	}
 	console.log("");
 
 	// The runtime serves frontends/pixel_office/dist through server/assets.ts and
@@ -441,11 +501,20 @@ async function main() {
 	if (noOpen) {
 		runtimeArgs.push("--no-open");
 	}
+	const runtimeEnv = { ...process.env, KANBAN_RUNTIME_PORT: String(RUNTIME_PORT), ...(proxyEnv?.delta ?? {}) };
+	if (proxyEnv?.dropDummyKey || (noProxyEnv && (process.env.ANTHROPIC_API_KEY ?? "").startsWith("sk-dummy-key"))) {
+		delete runtimeEnv.ANTHROPIC_API_KEY;
+	}
+	if (noProxyEnv) {
+		// An activated shell exported the base URL too; --no-proxy-env has to undo
+		// both halves or agents still route through the chain.
+		delete runtimeEnv.ANTHROPIC_BASE_URL;
+	}
 	const runtime = spawn(process.execPath, [tsxCli, ...runtimeArgs], {
 		cwd: runtimeRoot,
 		stdio: "inherit",
 		shell: false,
-		env: { ...process.env, KANBAN_RUNTIME_PORT: String(RUNTIME_PORT) },
+		env: runtimeEnv,
 	});
 
 	const stop = () => {
@@ -471,7 +540,7 @@ async function main() {
 
 // Only launch when run as a script, so the freshness helpers above can be
 // imported and exercised directly without booting the whole stack.
-export { checkUiDistFreshness, newestMtimeMs, WATCHED_UI_PATHS };
+export { checkUiDistFreshness, newestMtimeMs, resolveStackProxyEnv, WATCHED_UI_PATHS };
 
 if (process.argv[1] && resolve(process.argv[1]) === __filename) {
 	main().catch((error) => {

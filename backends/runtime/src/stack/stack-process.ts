@@ -76,7 +76,7 @@ function resolveStackPython(stackRoot: string): string | null {
 	return existsSync(venvPython) ? venvPython : null;
 }
 
-function createNoopProcess(isAlreadyUp: boolean): StackProcess {
+export function createNoopProcess(isAlreadyUp: boolean): StackProcess {
 	return {
 		pid: null,
 		spawned: false,
@@ -93,8 +93,12 @@ function createNoopProcess(isAlreadyUp: boolean): StackProcess {
  * `STACK_*` vars), and forwarding a dummy credential to a proxy is exactly the
  * confusion the sandbox's real-key handling exists to avoid, so both are
  * dropped rather than passed through.
+ *
+ * Shared with `stack-daemon.ts`, where the same two vars are worse than useless:
+ * a headroom that inherited `ANTHROPIC_BASE_URL=<switchboard>` would dial the very
+ * proxy that fronts it.
  */
-function buildStackEnv(): NodeJS.ProcessEnv {
+export function buildStackEnv(): NodeJS.ProcessEnv {
 	const { ANTHROPIC_BASE_URL: _baseUrl, ANTHROPIC_API_KEY: _apiKey, ...rest } = process.env;
 	return rest;
 }
