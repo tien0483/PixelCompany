@@ -6,7 +6,11 @@ import { useCallback } from "react";
 
 import { notifyError, showAppToast } from "@/components/app-toaster";
 import { selectNewestTaskSessionSummary } from "@/hooks/home-sidebar-agent-panel-session-summary";
-import { type ClineChatActionResult, useClineChatRuntimeActions } from "@/hooks/use-cline-chat-runtime-actions";
+import {
+	type ClineChatActionResult,
+	type ClineChatModelActionResult,
+	useClineChatRuntimeActions,
+} from "@/hooks/use-cline-chat-runtime-actions";
 import { estimateTaskSessionGeometry } from "@/runtime/task-session-geometry";
 import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
 import type {
@@ -76,6 +80,7 @@ export interface UseTaskSessionsResult {
 	) => Promise<ClineChatActionResult>;
 	abortTaskChatTurn: (taskId: string) => Promise<ClineChatActionResult>;
 	cancelTaskChatTurn: (taskId: string) => Promise<ClineChatActionResult>;
+	setTaskChatModel: (taskId: string, modelId: string, providerId?: string) => Promise<ClineChatModelActionResult>;
 	fetchTaskChatMessages: (taskId: string) => Promise<RuntimeTaskChatMessage[] | null>;
 	cleanupTaskWorkspace: (taskId: string) => Promise<RuntimeWorktreeDeleteResponse | null>;
 	fetchTaskWorkspaceInfo: (
@@ -127,6 +132,7 @@ export function useTaskSessions({ currentProjectId, setSessions }: UseTaskSessio
 		loadTaskChatMessages: fetchTaskChatMessages,
 		abortTaskChatTurn,
 		cancelTaskChatTurn,
+		setTaskChatModel,
 	} = useClineChatRuntimeActions({
 		currentProjectId,
 		onSessionSummary: upsertSession,
@@ -364,6 +370,7 @@ export function useTaskSessions({ currentProjectId, setSessions }: UseTaskSessio
 		sendTaskChatMessage,
 		abortTaskChatTurn,
 		cancelTaskChatTurn,
+		setTaskChatModel,
 		fetchTaskChatMessages,
 		cleanupTaskWorkspace,
 		fetchTaskWorkspaceInfo,

@@ -516,6 +516,13 @@ export const runtimeTaskSessionSummarySchema = z.object({
 	state: runtimeTaskSessionStateSchema,
 	mode: runtimeTaskSessionModeSchema.nullable().optional(),
 	agentId: runtimeAgentIdSchema.nullable(),
+	/**
+	 * Cline only: the seat this session is running on ("omniroute", "fpt-ai", …), not the
+	 * built-in id a custom seat streams under. Null for non-Cline agents.
+	 */
+	providerId: z.string().nullable().optional(),
+	/** Cline only: the model the session is actually using right now, including live switches. */
+	modelId: z.string().nullable().optional(),
 	workspacePath: z.string().nullable(),
 	pid: z.number().nullable(),
 	startedAt: z.number().nullable(),
@@ -2258,6 +2265,8 @@ export const runtimeTaskChatSendRequestSchema = z.object({
 	text: z.string(),
 	images: z.array(runtimeTaskImageSchema).optional(),
 	mode: runtimeTaskSessionModeSchema.optional(),
+	/** Card-level seat/model pin, so a cold start from this path honors it like the start path. */
+	clineSettings: runtimeTaskClineSettingsSchema.optional(),
 });
 export type RuntimeTaskChatSendRequest = z.infer<typeof runtimeTaskChatSendRequestSchema>;
 
@@ -2271,6 +2280,8 @@ export type RuntimeTaskChatSendResponse = z.infer<typeof runtimeTaskChatSendResp
 
 export const runtimeTaskChatReloadRequestSchema = z.object({
 	taskId: z.string(),
+	/** Card-level seat/model pin, so a cold start from this path honors it like the start path. */
+	clineSettings: runtimeTaskClineSettingsSchema.optional(),
 });
 export type RuntimeTaskChatReloadRequest = z.infer<typeof runtimeTaskChatReloadRequestSchema>;
 
@@ -2304,6 +2315,24 @@ export const runtimeTaskChatCancelResponseSchema = z.object({
 	error: z.string().optional(),
 });
 export type RuntimeTaskChatCancelResponse = z.infer<typeof runtimeTaskChatCancelResponseSchema>;
+
+export const runtimeTaskChatModelRequestSchema = z.object({
+	taskId: z.string(),
+	modelId: z.string().min(1),
+	/** Optional guard: reject when the running session is on a different seat. */
+	providerId: z.string().optional(),
+});
+export type RuntimeTaskChatModelRequest = z.infer<typeof runtimeTaskChatModelRequestSchema>;
+
+export const runtimeTaskChatModelResponseSchema = z.object({
+	ok: z.boolean(),
+	summary: runtimeTaskSessionSummarySchema.nullable(),
+	/** true when the live session switched now; false when it only applies at the next start. */
+	applied: z.boolean().default(false),
+	warning: z.string().nullable().optional(),
+	error: z.string().optional(),
+});
+export type RuntimeTaskChatModelResponse = z.infer<typeof runtimeTaskChatModelResponseSchema>;
 
 export const runtimeShellSessionStartRequestSchema = z.object({
 	taskId: z.string(),

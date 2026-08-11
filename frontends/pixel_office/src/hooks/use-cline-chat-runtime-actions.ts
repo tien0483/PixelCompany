@@ -17,6 +17,12 @@ export interface ClineChatActionResult {
 	chatMessage?: RuntimeTaskChatMessage | null;
 }
 
+export interface ClineChatModelActionResult extends ClineChatActionResult {
+	/** false when the running session could not hot-swap and the model applies at next start. */
+	applied?: boolean;
+	warning?: string | null;
+}
+
 export interface SendClineChatMessageOptions {
 	mode?: RuntimeTaskSessionMode;
 	images?: RuntimeTaskImage[];
@@ -36,6 +42,7 @@ interface UseClineChatRuntimeActionsResult {
 	loadTaskChatMessages: (taskId: string) => Promise<RuntimeTaskChatMessage[] | null>;
 	abortTaskChatTurn: (taskId: string) => Promise<ClineChatActionResult>;
 	cancelTaskChatTurn: (taskId: string) => Promise<ClineChatActionResult>;
+	setTaskChatModel: (taskId: string, modelId: string, providerId?: string) => Promise<ClineChatModelActionResult>;
 }
 
 function toErrorMessage(error: unknown): string {
@@ -132,10 +139,38 @@ export function useClineChatRuntimeActions({
 		[currentProjectId, onSessionSummary],
 	);
 
+	// Switches the model of the live session. The card-level pin is persisted separately by the
+	// caller; this is what makes the choice take effect without restarting the conversation.
+	const setTaskChatModel = useCallback(
+		async (taskId: string, modelId: string, providerId?: string): Promise<ClineChatModelActionResult> => {
+			if (!currentProjectId) {
+				return { ok: false, message: "No project selected." };
+			}
+			try {
+				const payload = await getRuntimeTrpcClient(currentProjectId).runtime.setTaskChatModel.mutate({
+					taskId,
+					modelId,
+					...(providerId ? { providerId } : {}),
+				});
+				if (!payload.ok) {
+					return { ok: false, applied: false, message: payload.error ?? "Could not switch the model." };
+				}
+				if (payload.summary) {
+					onSessionSummary?.(payload.summary);
+				}
+				return { ok: true, applied: payload.applied, warning: payload.warning ?? null };
+			} catch (error) {
+				return { ok: false, applied: false, message: toErrorMessage(error) };
+			}
+		},
+		[currentProjectId, onSessionSummary],
+	);
+
 	return {
 		sendTaskChatMessage,
 		loadTaskChatMessages,
 		abortTaskChatTurn,
 		cancelTaskChatTurn,
+		setTaskChatModel,
 	};
 }

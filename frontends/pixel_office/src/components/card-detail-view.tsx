@@ -486,6 +486,7 @@ export function CardDetailView({
 	onRequestBlame,
 	onSendClineChatMessage,
 	onCancelClineChatTurn,
+	onApplyClineChatModel,
 	onLoadClineChatMessages,
 	latestClineChatMessage,
 	streamedClineChatMessages,
@@ -565,6 +566,11 @@ export function CardDetailView({
 	) => Promise<ClineChatActionResult>;
 	onCancelClineChatTurn?: (
 		taskId: string,
+	) => Promise<{ ok: boolean; message?: string }>;
+	onApplyClineChatModel?: (
+		taskId: string,
+		modelId: string,
+		providerId?: string,
 	) => Promise<{ ok: boolean; message?: string }>;
 	onLoadClineChatMessages?: (
 		taskId: string,
@@ -682,9 +688,6 @@ export function CardDetailView({
 	const { startDrag: startAgentPanelResize } = useResizeDrag();
 	const { startDrag: startDetailDiffResize } = useResizeDrag();
 	const detailLayoutRef = useRef<HTMLDivElement | null>(null);
-	const hasExplicitTaskClineSettings =
-		selection.card.agentId === "cline" ||
-		selection.card.clineSettings !== undefined;
 	const mainRowRef = useRef<HTMLDivElement | null>(null);
 	const detailDiffRowRef = useRef<HTMLDivElement | null>(null);
 	const clineAgentChatPanelRef = useRef<ClineAgentChatPanelHandle | null>(null);
@@ -938,11 +941,11 @@ export function CardDetailView({
 			workspaceId={currentProjectId}
 			runtimeConfig={runtimeConfig}
 			taskClineSettings={selection.card.clineSettings}
-			taskHasExplicitClineSettings={hasExplicitTaskClineSettings}
 			onClineSettingsSaved={onClineSettingsSaved}
 			onTaskClineSettingsChanged={onTaskClineSettingsChanged}
 			onSendMessage={onSendClineChatMessage}
 			onCancelTurn={onCancelClineChatTurn}
+			onApplyModelToSession={onApplyClineChatModel}
 			onLoadMessages={onLoadClineChatMessages}
 			incomingMessages={streamedClineChatMessages}
 			incomingMessage={latestClineChatMessage}

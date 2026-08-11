@@ -384,8 +384,8 @@ describe("useTaskAgentModelPicker – provider-aware model default label", () =>
 	});
 });
 
-describe("TaskAgentModelPicker – auto-reset invalid model selection", () => {
-	it("resets clineModelId to the first real model when the selected model is not in the options list", async () => {
+describe("TaskAgentModelPicker – unlisted model pin", () => {
+	it("keeps a pinned model the provider no longer lists and reports it instead of rewriting", async () => {
 		const onClineSettingsChange = vi.fn();
 		const modelOptions = [
 			{ value: "", label: "Llama 3.3 70B" },
@@ -416,11 +416,16 @@ describe("TaskAgentModelPicker – auto-reset invalid model selection", () => {
 			),
 		);
 
-		// The effect should have fired and selected the first real model
-		expect(onClineSettingsChange).toHaveBeenCalledWith({
-			providerId: "groq",
-			modelId: "llama-3.3-70b-versatile",
-		});
+		// Silently swapping the pin is what made the model selector look like it did nothing.
+		expect(onClineSettingsChange).not.toHaveBeenCalled();
+
+		const settingsTrigger = [...container.querySelectorAll("button")].find((button) =>
+			button.textContent?.includes("Cline model settings"),
+		);
+		await act(async () => settingsTrigger?.click());
+
+		expect(container.textContent).toContain("claude-opus-4-20250514");
+		expect(container.textContent).toContain("is not in this provider's current model list");
 	});
 
 	it("keeps a seat pin that names the default provider and model", async () => {

@@ -52,6 +52,7 @@ import type {
 	RuntimeDirectoryListRequest,
 	RuntimeDirectoryListResponse,
 	RuntimeFeaturebaseTokenResponse,
+	RuntimeGetWorkspaceLocalAssetsRequest,
 	RuntimeGitBlameRequest,
 	RuntimeGitBlameResponse,
 	RuntimeGitCheckoutRequest,
@@ -104,8 +105,6 @@ import type {
 	RuntimeManagerFeaturesRequest,
 	RuntimeManagerFeaturesResponse,
 	RuntimeManagerFeatureToggleRequest,
-	RuntimeManagerSyncFeaturesRequest,
-	RuntimeManagerSyncFeaturesResponse,
 	RuntimeManagerHookLogs,
 	RuntimeManagerInstallationsOverview,
 	RuntimeManagerMutationResponse,
@@ -122,6 +121,8 @@ import type {
 	RuntimeManagerState,
 	RuntimeManagerSwapLog,
 	RuntimeManagerSwapPauseRequest,
+	RuntimeManagerSyncFeaturesRequest,
+	RuntimeManagerSyncFeaturesResponse,
 	RuntimeManagerUsageOverview,
 	RuntimeMcpInventory,
 	RuntimeOpenFileRequest,
@@ -150,7 +151,6 @@ import type {
 	RuntimeProjectRemoveResponse,
 	RuntimeProjectsResponse,
 	RuntimeRunUpdateResponse,
-	RuntimeGetWorkspaceLocalAssetsRequest,
 	RuntimeSetWorkspaceLocalAssetsRequest,
 	RuntimeSetWorkspaceLocalAssetsResponse,
 	RuntimeShellSessionStartRequest,
@@ -164,6 +164,8 @@ import type {
 	RuntimeTaskChatCancelResponse,
 	RuntimeTaskChatMessagesRequest,
 	RuntimeTaskChatMessagesResponse,
+	RuntimeTaskChatModelRequest,
+	RuntimeTaskChatModelResponse,
 	RuntimeTaskChatReloadRequest,
 	RuntimeTaskChatReloadResponse,
 	RuntimeTaskChatSendRequest,
@@ -208,8 +210,6 @@ import {
 	RuntimeManagerFeaturesRequestSchema,
 	RuntimeManagerFeaturesResponseSchema,
 	RuntimeManagerFeatureToggleRequestSchema,
-	RuntimeManagerSyncFeaturesRequestSchema,
-	RuntimeManagerSyncFeaturesResponseSchema,
 	RuntimeManagerGitIdentitySchema,
 	RuntimeManagerHookLogsSchema,
 	RuntimeManagerInstallationsOverviewSchema,
@@ -227,6 +227,8 @@ import {
 	RuntimeManagerStateSchema,
 	RuntimeManagerSwapLogSchema,
 	RuntimeManagerSwapPauseRequestSchema,
+	RuntimeManagerSyncFeaturesRequestSchema,
+	RuntimeManagerSyncFeaturesResponseSchema,
 	RuntimeManagerUsageAuthCodeRequestSchema,
 	RuntimeManagerUsageAuthCodeResponseSchema,
 	RuntimeManagerUsageAuthSessionCreateRequestSchema,
@@ -279,6 +281,7 @@ import {
 	runtimeDirectoryListRequestSchema,
 	runtimeDirectoryListResponseSchema,
 	runtimeFeaturebaseTokenResponseSchema,
+	runtimeGetWorkspaceLocalAssetsRequestSchema,
 	runtimeGitBlameRequestSchema,
 	runtimeGitBlameResponseSchema,
 	runtimeGitCheckoutRequestSchema,
@@ -348,7 +351,6 @@ import {
 	runtimeProjectRemoveResponseSchema,
 	runtimeProjectsResponseSchema,
 	runtimeRunUpdateResponseSchema,
-	runtimeGetWorkspaceLocalAssetsRequestSchema,
 	runtimeSetWorkspaceLocalAssetsRequestSchema,
 	runtimeSetWorkspaceLocalAssetsResponseSchema,
 	runtimeShellSessionStartRequestSchema,
@@ -362,6 +364,8 @@ import {
 	runtimeTaskChatCancelResponseSchema,
 	runtimeTaskChatMessagesRequestSchema,
 	runtimeTaskChatMessagesResponseSchema,
+	runtimeTaskChatModelRequestSchema,
+	runtimeTaskChatModelResponseSchema,
 	runtimeTaskChatReloadRequestSchema,
 	runtimeTaskChatReloadResponseSchema,
 	runtimeTaskChatSendRequestSchema,
@@ -480,6 +484,10 @@ export interface RuntimeTrpcContext {
 			scope: RuntimeTrpcWorkspaceScope,
 			input: RuntimeTaskChatCancelRequest,
 		) => Promise<RuntimeTaskChatCancelResponse>;
+		setTaskChatModel: (
+			scope: RuntimeTrpcWorkspaceScope,
+			input: RuntimeTaskChatModelRequest,
+		) => Promise<RuntimeTaskChatModelResponse>;
 		getClineProviderCatalog: (
 			scope: RuntimeTrpcWorkspaceScope | null,
 		) => Promise<RuntimeClineProviderCatalogResponse>;
@@ -680,9 +688,7 @@ export interface RuntimeTrpcContext {
 		getState: () => Promise<RuntimeManagerState>;
 		setFeatureEnabled: (input: RuntimeManagerFeatureToggleRequest) => Promise<RuntimeManagerMutationResponse>;
 		features: (input: RuntimeManagerFeaturesRequest) => Promise<RuntimeManagerFeaturesResponse>;
-		syncFeaturesToProject: (
-			input: RuntimeManagerSyncFeaturesRequest,
-		) => Promise<RuntimeManagerSyncFeaturesResponse>;
+		syncFeaturesToProject: (input: RuntimeManagerSyncFeaturesRequest) => Promise<RuntimeManagerSyncFeaturesResponse>;
 		pauseSwap: (input: RuntimeManagerSwapPauseRequest) => Promise<RuntimeManagerMutationResponse>;
 		resumeSwap: () => Promise<RuntimeManagerMutationResponse>;
 		useAccount: (input: RuntimeManagerAccountIdRequest) => Promise<RuntimeManagerMutationResponse>;
@@ -934,6 +940,12 @@ export const runtimeAppRouter = t.router({
 			.output(runtimeTaskChatCancelResponseSchema)
 			.mutation(async ({ ctx, input }) => {
 				return await ctx.runtimeApi.cancelTaskChatTurn(ctx.workspaceScope, input);
+			}),
+		setTaskChatModel: workspaceProcedure
+			.input(runtimeTaskChatModelRequestSchema)
+			.output(runtimeTaskChatModelResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.runtimeApi.setTaskChatModel(ctx.workspaceScope, input);
 			}),
 		getClineProviderCatalog: t.procedure.output(runtimeClineProviderCatalogResponseSchema).query(async ({ ctx }) => {
 			return await ctx.runtimeApi.getClineProviderCatalog(ctx.workspaceScope);

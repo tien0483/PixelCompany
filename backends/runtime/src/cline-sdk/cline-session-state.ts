@@ -128,6 +128,8 @@ export function createDefaultSummary(taskId: string): RuntimeTaskSessionSummary 
 		state: "idle",
 		mode: null,
 		agentId: "cline",
+		providerId: null,
+		modelId: null,
 		workspacePath: null,
 		pid: null,
 		startedAt: null,

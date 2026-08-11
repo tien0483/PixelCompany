@@ -12,8 +12,12 @@ const providerMocks = vi.hoisted(() => ({
 	hasProvider: vi.fn(() => false),
 }));
 
+const BUILT_IN_PROVIDER_IDS = new Set(["anthropic", "cline", "openrouter", "litellm", "groq", "openai-native"]);
+
 vi.mock("@clinebot/core", () => ({
 	addLocalProvider: providerMocks.addLocalProvider,
+	isBuiltInProviderId: (providerId: string) => BUILT_IN_PROVIDER_IDS.has(providerId),
+	normalizeProviderId: (providerId: string) => providerId,
 	ensureCustomProvidersLoaded: vi.fn(),
 	getLocalProviderModels: vi.fn(async () => ({ providerId: "", models: [] })),
 	getValidClineCredentials: vi.fn(),

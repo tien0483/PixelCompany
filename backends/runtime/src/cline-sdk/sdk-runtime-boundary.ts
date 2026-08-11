@@ -108,13 +108,18 @@ export function loadClineSdkRulesForSystemPrompt(service: ClineSdkUserInstructio
 
 export async function resolveClineSdkSystemPrompt(input: {
 	cwd: string;
+	/** Transport id handed to the SDK (a borrowed built-in id for custom seats). */
 	providerId: string;
+	/** Seat the user picked. Defaults to `providerId`; see cline-sdk/custom-seat-host.ts. */
+	seatProviderId?: string;
 	rules?: string;
 }): Promise<string> {
 	// The Cline SDK can run against non-Cline providers too, but only the
 	// "cline" provider expects the extra workspace metadata block that powers
 	// its repo-aware behavior in the same way the official CLI does.
-	const shouldAppendWorkspaceMetadata = input.providerId === "cline";
+	// Gate on the *seat*: a custom seat streams under a borrowed built-in id, and that
+	// swap must not change prompt content.
+	const shouldAppendWorkspaceMetadata = (input.seatProviderId ?? input.providerId) === "cline";
 	const workspaceMetadata = shouldAppendWorkspaceMetadata ? await buildWorkspaceMetadata(input.cwd) : "";
 	return getClineDefaultSystemPrompt({
 		ide: "Kanban",

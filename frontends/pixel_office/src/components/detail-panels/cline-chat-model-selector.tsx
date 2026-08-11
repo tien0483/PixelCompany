@@ -25,6 +25,7 @@ export function ClineChatModelSelector({
 	pinSelectedModelToTop = true,
 	selectedModelId,
 	selectedModelButtonText,
+	triggerTitle,
 	onSelectModel,
 	reasoningEnabledModelIds = [],
 	defaultOptionSupportsReasoningEffort = false,
@@ -42,6 +43,8 @@ export function ClineChatModelSelector({
 	pinSelectedModelToTop?: boolean;
 	selectedModelId: string;
 	selectedModelButtonText: string;
+	/** Native tooltip on the trigger, e.g. when the live session differs from the pinned model. */
+	triggerTitle?: string;
 	onSelectModel: (value: string) => void;
 	reasoningEnabledModelIds?: readonly string[];
 	defaultOptionSupportsReasoningEffort?: boolean;
@@ -313,6 +316,7 @@ export function ClineChatModelSelector({
 					size="sm"
 					variant="default"
 					disabled={disabled}
+					{...(triggerTitle ? { title: triggerTitle } : {})}
 					iconRight={<ChevronDown size={14} />}
 					className={cn(
 						"min-w-0 max-w-full justify-between px-2 text-left shadow-none",
