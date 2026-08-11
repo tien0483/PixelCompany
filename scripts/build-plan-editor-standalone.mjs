@@ -3,14 +3,45 @@
 // papp template -> generate html, with no Kanban board, Office, gitview,
 // Manager/Jacked accounts, agent_stack, or OmniRoute. The output folder needs
 // only Node and a locally logged-in Claude Code CLI to run (see the generated
-// README.md). Usage: node scripts/build-plan-editor-standalone.mjs [outDir]
+// README.md).
+//
+// Usage: node scripts/build-plan-editor-standalone.mjs [outDir] [--slim] [--zip[=path]]
+//
+//   --slim        Ship no node_modules: the sidecar's prod dependencies are
+//                 installed once on the target machine by the generated
+//                 build.sh / build.bat. ~50 MB instead of ~490 MB.
+//   --zip[=path]  Archive the finished package (default:
+//                 dist/plan-editor-standalone.zip).
 import { execFileSync } from "node:child_process";
 import { chmodSync, cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const outDir = resolve(repoRoot, process.argv[2] ?? "plan-editor-standalone");
+
+let slim = false;
+let zipRequested = false;
+let zipArg = null;
+let outDirArg = null;
+for (const arg of process.argv.slice(2)) {
+	if (arg === "--slim") {
+		slim = true;
+	} else if (arg === "--zip") {
+		zipRequested = true;
+	} else if (arg.startsWith("--zip=")) {
+		zipRequested = true;
+		zipArg = arg.slice("--zip=".length);
+	} else if (arg.startsWith("--")) {
+		throw new Error(`Unknown flag "${arg}". Usage: build-plan-editor-standalone.mjs [outDir] [--slim] [--zip[=path]]`);
+	} else if (outDirArg === null) {
+		outDirArg = arg;
+	} else {
+		throw new Error(`Unexpected second output directory "${arg}".`);
+	}
+}
+
+const outDir = resolve(repoRoot, outDirArg ?? "plan-editor-standalone");
+const zipPath = resolve(repoRoot, zipArg ?? join("dist", `${basename(outDir)}.zip`));
 
 // The template registry under agent-data/templates/skills carries 80+ skills for the
 // full app; this package is an Akselos Papp tool, so it ships only those three. The
@@ -27,7 +58,7 @@ function run(command, args, cwd) {
 	execFileSync(command, args, { cwd: cwd ?? repoRoot, stdio: "inherit" });
 }
 
-console.log(`Building standalone Plan Editor package into ${outDir}\n`);
+console.log(`Building ${slim ? "slim " : ""}standalone Plan Editor package into ${outDir}\n`);
 rmSync(outDir, { recursive: true, force: true });
 mkdirSync(join(outDir, "server"), { recursive: true });
 
@@ -74,25 +105,29 @@ run(join(runtimeDir, "node_modules", ".bin", "esbuild"), [
 	`--banner:js=#!/usr/bin/env node\n${cjsShimBanner}`,
 ]);
 
-// 3. Sidecar: build backends/html_anything/next and ship it as a fully
-// self-contained copy (own node_modules + .next build output) so the package
-// needs no `pnpm install` of its own.
+// 3. Sidecar: build backends/html_anything/next and ship its build output.
 //
-// This uses `pnpm deploy` rather than copying backends/html_anything/next's own
-// node_modules directly. pnpm's per-workspace-package node_modules only holds a
-// symlink per direct dependency into the *workspace root's* .pnpm store, and a
-// package's peer dependencies (e.g. `next` requiring `@swc/helpers`) resolve via
-// *sibling* entries inside that same store directory — a plain `cp -RL` of the
-// per-package node_modules dereferences each direct-dependency symlink's own
-// folder but silently drops those siblings, producing a tree that's missing
-// modules `next start` needs at runtime. `pnpm deploy` (with `--legacy`, since
-// this workspace doesn't set `inject-workspace-packages`) is pnpm's supported
-// way to produce a relocatable, self-contained copy of one workspace member.
+// Both modes build in a throwaway `pnpm deploy` tree, because building needs
+// devDependencies (`tailwindcss`/`@tailwindcss/postcss`). `pnpm deploy` rather than a
+// copy of backends/html_anything/next's own node_modules: pnpm's per-workspace-package
+// node_modules only holds a symlink per direct dependency into the *workspace root's*
+// .pnpm store, and a package's peer dependencies (e.g. `next` requiring `@swc/helpers`)
+// resolve via *sibling* entries inside that same store directory — a plain `cp -RL` of
+// the per-package node_modules dereferences each direct-dependency symlink's own folder
+// but silently drops those siblings, producing a tree that's missing modules `next start`
+// needs at runtime. `pnpm deploy` (with `--legacy`, since this workspace doesn't set
+// `inject-workspace-packages`) is pnpm's supported way to produce a relocatable,
+// self-contained copy of one workspace member.
 //
-// Building needs devDependencies (`tailwindcss`/`@tailwindcss/postcss`), but
-// `next start` at runtime does not, so this deploys twice: once with dev deps
-// into a throwaway build dir to run `next build`, then a leaner `--prod` deploy
-// straight into the shipped location, with the just-built `.next` copied over.
+// Default mode then makes a second, `--prod` deploy the shipped sidecar, so the package
+// runs with no install step — at the cost of ~440 MB of node_modules.
+//
+// --slim ships no node_modules at all: only `.next` (minus its build cache), `public/`,
+// and `package.json`, with the target machine's one-time `build.sh` installing prod deps.
+// Nothing else from the source tree is needed — `next start` serves the prebuilt `.next`
+// and never reads `src/`, the TS/test config, or `next.config.ts` (HTML_ANYTHING_BUILD_ID
+// is inlined into the bundle at build time, and the build id `next start` reports comes
+// from `.next/BUILD_ID`).
 const sidecarBuildDir = join(outDir, ".sidecar-build-tmp");
 rmSync(sidecarBuildDir, { recursive: true, force: true });
 run("pnpm", ["--filter", "@html-anything/next", "deploy", "--legacy", sidecarBuildDir]);
@@ -101,8 +136,31 @@ run(join(sidecarBuildDir, "node_modules", ".bin", "next"), ["build"], sidecarBui
 const sidecarDest = join(outDir, "html_anything", "next");
 rmSync(sidecarDest, { recursive: true, force: true });
 mkdirSync(join(outDir, "html_anything"), { recursive: true });
-run("pnpm", ["--filter", "@html-anything/next", "deploy", "--legacy", "--prod", sidecarDest]);
-cpSync(join(sidecarBuildDir, ".next"), join(sidecarDest, ".next"), { recursive: true, dereference: true });
+
+if (slim) {
+	mkdirSync(sidecarDest, { recursive: true });
+	// `.next/cache` is `next build`'s incremental cache — dead weight for `next start`.
+	const nextCacheDir = join(sidecarBuildDir, ".next", "cache");
+	cpSync(join(sidecarBuildDir, ".next"), join(sidecarDest, ".next"), {
+		recursive: true,
+		dereference: true,
+		filter: (source) => source !== nextCacheDir && !source.startsWith(nextCacheDir + sep),
+	});
+	cpSync(join(sidecarBuildDir, "public"), join(sidecarDest, "public"), { recursive: true, dereference: true });
+	cpSync(join(sidecarBuildDir, "package.json"), join(sidecarDest, "package.json"), { dereference: true });
+	// A lockfile makes the target machine's install reproducible (`npm ci`). Best effort:
+	// it needs the registry, and an offline packaging run should still produce a package —
+	// build.sh falls back to `npm install`, and `next`/`react`/`react-dom` are pinned exact
+	// in the sidecar's package.json, so the drift that fallback risks is limited to leaf libs.
+	try {
+		run("npm", ["install", "--package-lock-only", "--omit=dev"], sidecarDest);
+	} catch {
+		console.warn("  ! could not generate package-lock.json (offline?) — build.sh will use `npm install`");
+	}
+} else {
+	run("pnpm", ["--filter", "@html-anything/next", "deploy", "--legacy", "--prod", sidecarDest]);
+	cpSync(join(sidecarBuildDir, ".next"), join(sidecarDest, ".next"), { recursive: true, dereference: true });
+}
 rmSync(sidecarBuildDir, { recursive: true, force: true });
 
 // 4. Templates: the papp skills live under agent-data/templates/skills, and only
@@ -140,12 +198,85 @@ cpSync(
 );
 
 // 5. Launch scripts + README.
+//
+// The slim package's start scripts refuse to boot before build.sh has run. Without that
+// check the failure surfaces as html-process.ts's generic "next binary missing → pnpm
+// install / pnpm --filter @html-anything/next build" warning, which names commands that
+// mean nothing outside the monorepo, and the editor comes up with an empty template rail.
+const startPreflight = join("html_anything", "next", "node_modules", "next", "dist", "bin", "next");
 writeFileSync(
 	join(outDir, "start.sh"),
-	['#!/usr/bin/env bash', "set -e", 'cd "$(dirname "$0")"', "exec node server/index.js", ""].join("\n"),
+	[
+		"#!/usr/bin/env bash",
+		"set -e",
+		'cd "$(dirname "$0")"',
+		...(slim
+			? [
+					`if [ ! -e "${startPreflight.split(sep).join("/")}" ]; then`,
+					'  echo "Dependencies are not installed yet. Run ./build.sh first (one time, needs network)." >&2',
+					"  exit 1",
+					"fi",
+				]
+			: []),
+		"exec node server/index.js",
+		"",
+	].join("\n"),
 );
 chmodSync(join(outDir, "start.sh"), 0o755);
-writeFileSync(join(outDir, "start.bat"), ["@echo off", "cd /d %~dp0", "node server\\index.js", ""].join("\r\n"));
+writeFileSync(
+	join(outDir, "start.bat"),
+	[
+		"@echo off",
+		"cd /d %~dp0",
+		...(slim
+			? [
+					`if not exist "${startPreflight.split(sep).join("\\")}" (`,
+					"  echo Dependencies are not installed yet. Run build.bat first ^(one time, needs network^).",
+					"  exit /b 1",
+					")",
+				]
+			: []),
+		"node server\\index.js",
+		"",
+	].join("\r\n"),
+);
+
+if (slim) {
+	writeFileSync(
+		join(outDir, "build.sh"),
+		[
+			"#!/usr/bin/env bash",
+			"# One-time setup: installs the HTML sidecar's runtime dependencies. Needs network.",
+			"set -e",
+			'cd "$(dirname "$0")/html_anything/next"',
+			"if [ -f package-lock.json ]; then",
+			"  npm ci --omit=dev || npm install --omit=dev",
+			"else",
+			"  npm install --omit=dev",
+			"fi",
+			'echo "Done. Start the editor with ./start.sh"',
+			"",
+		].join("\n"),
+	);
+	chmodSync(join(outDir, "build.sh"), 0o755);
+	writeFileSync(
+		join(outDir, "build.bat"),
+		[
+			"@echo off",
+			"REM One-time setup: installs the HTML sidecar's runtime dependencies. Needs network.",
+			"cd /d %~dp0html_anything\\next",
+			"if exist package-lock.json (",
+			"  call npm ci --omit=dev",
+			"  if errorlevel 1 call npm install --omit=dev",
+			") else (",
+			"  call npm install --omit=dev",
+			")",
+			"echo Done. Start the editor with start.bat",
+			"",
+		].join("\r\n"),
+	);
+}
+
 writeFileSync(
 	join(outDir, "README.md"),
 	[
@@ -163,7 +294,20 @@ writeFileSync(
 		"- Claude Code CLI installed and already logged in (`claude` on your PATH).",
 		"- `git` on your PATH, for version history. Without it the editor still works; the",
 		"  Undo / Redo / History controls simply do not appear.",
+		...(slim ? ["- Network access, once, for the setup step below."] : []),
 		"",
+		...(slim
+			? [
+					"## Set it up (once)",
+					"",
+					"- macOS/Linux: `./build.sh`",
+					"- Windows: double-click `build.bat`",
+					"",
+					"This installs the HTML sidecar's runtime dependencies into",
+					"`html_anything/next/node_modules`. Nothing is downloaded again on later runs.",
+					"",
+				]
+			: []),
 		"## Run it",
 		"",
 		"- macOS/Linux: `./start.sh`",
@@ -189,9 +333,59 @@ writeFileSync(
 		"",
 		"The toolbar's 5h / 7d meter reads your Claude account's usage windows from",
 		"`~/.claude/.credentials.json` (or `$CLAUDE_CONFIG_DIR`). It shows `—` when no",
-		"credential is found; nothing else in the editor depends on it.",
+		"credential is found; nothing else in the editor depends on it. No credential of any",
+		"kind is bundled in this package.",
 		"",
 	].join("\n"),
 );
 
-console.log(`\nDone. Run: cd ${outDir} && ./start.sh`);
+// 6. Archive. There is no `zip` binary on a stock WSL/Ubuntu image and Node ships no zip
+// writer, so python3's `zipfile` is the primary path. Not `python3 -m zipfile -c`: that
+// CLI drops the executable bit, and start.sh / build.sh would arrive unrunnable.
+const ZIP_WITH_MODES_PY = `
+import os, shutil, sys, zipfile
+
+source, dest = sys.argv[1], sys.argv[2]
+root = os.path.basename(source.rstrip(os.sep))
+with zipfile.ZipFile(dest, "w", zipfile.ZIP_DEFLATED) as archive:
+    for dirpath, dirnames, filenames in os.walk(source):
+        dirnames.sort()
+        for name in sorted(filenames):
+            full = os.path.join(dirpath, name)
+            info = zipfile.ZipInfo.from_file(full, os.path.join(root, os.path.relpath(full, source)))
+            info.compress_type = zipfile.ZIP_DEFLATED
+            info.external_attr = (0o755 if name.endswith(".sh") else 0o644) << 16
+            with open(full, "rb") as handle, archive.open(info, "w") as out:
+                shutil.copyfileobj(handle, out)
+`;
+
+function createArchive(sourceDir, destPath) {
+	mkdirSync(dirname(destPath), { recursive: true });
+	rmSync(destPath, { force: true });
+	try {
+		run("python3", ["-c", ZIP_WITH_MODES_PY, sourceDir, destPath]);
+		return destPath;
+	} catch {
+		console.warn("  ! python3 zipfile unavailable — trying the `zip` binary");
+	}
+	try {
+		run("zip", ["-r", "-q", destPath, basename(sourceDir)], dirname(sourceDir));
+		return destPath;
+	} catch {
+		console.warn("  ! `zip` unavailable — falling back to tar.gz");
+	}
+	const tarPath = `${destPath.replace(/\.zip$/, "")}.tar.gz`;
+	rmSync(tarPath, { force: true });
+	run("tar", ["-czf", tarPath, "-C", dirname(sourceDir), basename(sourceDir)]);
+	return tarPath;
+}
+
+let archivePath = null;
+if (zipRequested) {
+	archivePath = createArchive(outDir, zipPath);
+}
+
+console.log(`\nDone. Run: cd ${outDir} && ${slim ? "./build.sh && " : ""}./start.sh`);
+if (archivePath) {
+	console.log(`Archive: ${archivePath}`);
+}
