@@ -15,9 +15,11 @@ import type { ClineTaskSessionService } from "../cline-sdk/cline-task-session-se
 import type { RuntimeConfigState } from "../config/runtime-config";
 import { updateGlobalRuntimeConfig, updateRuntimeConfig } from "../config/runtime-config";
 import type {
+	RuntimeClineReasoningEffort,
 	RuntimeCommandRunResponse,
-	RuntimeRunUpdateResponse,
 	RuntimeHostEnvironmentResponse,
+	RuntimeRunUpdateResponse,
+	RuntimeTaskClineSettings,
 	RuntimeUpdateStatusResponse,
 } from "../core/api-contract";
 import {
@@ -29,8 +31,8 @@ import {
 	parseClineMcpSettingsSaveRequest,
 	parseClineOauthLoginRequest,
 	parseClineProviderModelsRequest,
-	parseClineTestProviderRequest,
 	parseClineProviderSettingsSaveRequest,
+	parseClineTestProviderRequest,
 	parseClineUpdateProviderRequest,
 	parseCommandRunRequest,
 	parseRuntimeConfigSaveRequest,
@@ -38,6 +40,7 @@ import {
 	parseTaskChatAbortRequest,
 	parseTaskChatCancelRequest,
 	parseTaskChatMessagesRequest,
+	parseTaskChatModelRequest,
 	parseTaskChatReloadRequest,
 	parseTaskChatSendRequest,
 	parseTaskSessionInputRequest,
@@ -50,28 +53,25 @@ import { resolveTaskTitle } from "../core/task-title.js";
 import { type ManagerDonateAccountLike, resolveManagerAccountPin } from "../manager/manager-account-pin";
 import { loadWorkspaceState } from "../state/workspace-state";
 import { composePromptWithAttachedPlan } from "../prompts/compose-prompt-with-plan";
-import {
-	LEGACY_RUNTIME_HOME_PARENT_DIR_NAME,
-	RUNTIME_HOME_PARENT_DIR_NAME,
-} from "../workspace/task-worktree-path";
 import { openInBrowser } from "../server/browser";
-import { buildRuntimeConfigResponse, resolveAgentCommand } from "../terminal/agent-registry";
-import type { TerminalSessionManager } from "../terminal/session-manager";
-import { listAgentModelInventory } from "../terminal/agent-model-inventory";
-import {
-	hasClaudeScopedConfigAllowlist,
-	listClaudeMcpInventory,
-	listClaudeSkillInventory,
-} from "../terminal/task-launch-settings";
 import {
 	getWorkspaceLocalAssetsSetting,
 	getWorkspaceManagerFeatures,
 	loadWorkspaceContextById,
 	setWorkspaceLocalAssets,
 } from "../state/workspace-state";
-import { resolveTaskCwd } from "../workspace/task-worktree";
-import { captureTaskTurnCheckpoint } from "../workspace/turn-checkpoints";
+import { listAgentModelInventory } from "../terminal/agent-model-inventory";
+import { buildRuntimeConfigResponse, resolveAgentCommand } from "../terminal/agent-registry";
+import type { TerminalSessionManager } from "../terminal/session-manager";
+import {
+	hasClaudeScopedConfigAllowlist,
+	listClaudeMcpInventory,
+	listClaudeSkillInventory,
+} from "../terminal/task-launch-settings";
 import { cleanClaudeCache, getClaudeCacheStatus } from "../workspace/claude-cache-cleanup";
+import { resolveTaskCwd } from "../workspace/task-worktree";
+import { LEGACY_RUNTIME_HOME_PARENT_DIR_NAME, RUNTIME_HOME_PARENT_DIR_NAME } from "../workspace/task-worktree-path";
+import { captureTaskTurnCheckpoint } from "../workspace/turn-checkpoints";
 import type { RuntimeTrpcContext, RuntimeTrpcWorkspaceScope } from "./app-router";
 
 export interface CreateRuntimeApiDependencies {
@@ -87,7 +87,9 @@ export interface CreateRuntimeApiDependencies {
 	getManagerAccountLaunchDir?: (accountId: number) => Promise<{ configDir: string } | null>;
 	/** Reads the Cursor API key snapshot for a pinned Cursor task. */
 	getManagerAccountLaunchCredential?: (accountId: number) => Promise<{ apiKey: string } | null>;
-	getManagerAccountProvider?: (accountId: number) => Promise<import("../core/api-contract").RuntimeManagerProvider | null>;
+	getManagerAccountProvider?: (
+		accountId: number,
+	) => Promise<import("../core/api-contract").RuntimeManagerProvider | null>;
 	/** Auto (unpinned) Cursor tasks: pick a Cursor jacked account for CURSOR_API_KEY. */
 	resolveDefaultCursormanagerAccountId?: () => Promise<number | null>;
 	/** Active Claude Jacked seat — used to prep CC creds for skill/MCP-tagged launches. */
@@ -107,6 +109,28 @@ export interface CreateRuntimeApiDependencies {
 	getUpdateStatus: () => RuntimeUpdateStatusResponse;
 	getHostEnvironment: () => RuntimeHostEnvironmentResponse;
 	runUpdateNow: () => Promise<RuntimeRunUpdateResponse>;
+}
+
+/**
+ * Card-level Cline pins in the shape `resolveLaunchConfig` expects. Shared by every launch
+ * path — start, home-chat reload, and home-chat send — because a pin that only the start
+ * path honored meant a restarted session silently reverted to the seat default.
+ *
+ * The presence check on the whole object (not just `reasoningEffort`) is what distinguishes
+ * "no override supplied" from "override that clears the reasoning effort".
+ */
+function toClineLaunchOverrides(clineSettings: RuntimeTaskClineSettings | undefined): {
+	providerIdOverride?: string;
+	modelIdOverride?: string;
+	modelPinned: boolean;
+	reasoningEffortOverride?: RuntimeClineReasoningEffort | null;
+} {
+	return {
+		providerIdOverride: clineSettings?.providerId ?? undefined,
+		modelIdOverride: clineSettings?.modelId ?? undefined,
+		modelPinned: (clineSettings?.modelId?.trim().length ?? 0) > 0,
+		...(clineSettings !== undefined ? { reasoningEffortOverride: clineSettings.reasoningEffort ?? null } : {}),
+	};
 }
 
 async function resolveExistingTaskCwdOrEnsure(options: {
@@ -294,16 +318,9 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 				}
 
 				if (useClinePath) {
-					const hasTaskLevelClineSettingsOverride = body.clineSettings !== undefined;
-					const clineLaunchConfig = await clineProviderService.resolveLaunchConfig({
-						providerIdOverride: body.clineSettings?.providerId ?? undefined,
-						modelIdOverride: body.clineSettings?.modelId ?? undefined,
-						...(hasTaskLevelClineSettingsOverride
-							? {
-									reasoningEffortOverride: body.clineSettings?.reasoningEffort ?? null,
-								}
-							: {}),
-					});
+					const clineLaunchConfig = await clineProviderService.resolveLaunchConfig(
+						toClineLaunchOverrides(body.clineSettings),
+					);
 					const clineTaskSessionService = await deps.getScopedClineTaskSessionService(workspaceScope);
 					const resolvedClineTitle = resolveTaskTitle(body.taskTitle?.trim(), body.prompt);
 					const summary = await clineTaskSessionService.startTaskSession({
@@ -315,12 +332,14 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 						resumeFromTrash: body.resumeFromTrash,
 						autoResumeOnUsageLimit: body.autoResumeOnUsageLimit ?? false,
 						providerId: clineLaunchConfig.providerId,
+						seatProviderId: clineLaunchConfig.seatProviderId,
 						modelId: clineLaunchConfig.modelId,
 						mode: requestedClineTaskMode,
 						startInPlanMode: body.startInPlanMode,
 						apiKey: clineLaunchConfig.apiKey,
 						baseUrl: clineLaunchConfig.baseUrl,
 						reasoningEffort: clineLaunchConfig.reasoningEffort,
+						launchWarnings: clineLaunchConfig.warnings,
 					});
 
 					let nextSummary = summary;
@@ -362,14 +381,9 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 				const accountPin = await resolveManagerAccountPin({
 					agentId: resolved.agentId,
 					managerAccountId: body.managerAccountId,
-					getAccountLaunchDir:
-						deps.getManagerAccountLaunchDir ??
-						(async () => null),
-					getAccountLaunchCredential:
-						deps.getManagerAccountLaunchCredential ??
-						(async () => null),
-					getAccountProvider: async (accountId) =>
-						(await deps.getManagerAccountProvider?.(accountId)) ?? null,
+					getAccountLaunchDir: deps.getManagerAccountLaunchDir ?? (async () => null),
+					getAccountLaunchCredential: deps.getManagerAccountLaunchCredential ?? (async () => null),
+					getAccountProvider: async (accountId) => (await deps.getManagerAccountProvider?.(accountId)) ?? null,
 					resolveDefaultCursorAccountId: deps.resolveDefaultCursormanagerAccountId,
 					resolveActiveClaudeAccountId: deps.resolveActiveClaudemanagerAccountId,
 					resolveLiveActiveClaudeAccountId: deps.resolveLiveActiveClaudemanagerAccountId,
@@ -382,8 +396,7 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 					return {
 						ok: false,
 						summary: null,
-						error:
-							accountPin.warning ?? "This seat is over its locked donate cap; the task was not launched.",
+						error: accountPin.warning ?? "This seat is over its locked donate cap; the task was not launched.",
 					};
 				}
 				// Cursor Auto: no CURSOR_API_KEY injection — same auth as interactive
@@ -595,21 +608,27 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 				const clineTaskSessionService = await deps.getScopedClineTaskSessionService(workspaceScope);
 				let summary = await clineTaskSessionService.reloadTaskSession(body.taskId);
 				if (!summary && isHomeAgentSessionId(body.taskId)) {
-					const clineLaunchConfig = await clineProviderService.resolveLaunchConfig();
+					const clineLaunchConfig = await clineProviderService.resolveLaunchConfig(
+						toClineLaunchOverrides(body.clineSettings),
+					);
 					// Load the card to get taskLaunchSettings for subagent seat
 					const workspaceState = await loadWorkspaceState(workspaceScope.workspacePath).catch(() => null);
-					const card = workspaceState?.board.columns.flatMap((column) => column.cards).find((c) => c.id === body.taskId) ?? null;
+					const card =
+						workspaceState?.board.columns.flatMap((column) => column.cards).find((c) => c.id === body.taskId) ??
+						null;
 					summary = await clineTaskSessionService.startTaskSession({
 						taskId: body.taskId,
 						cwd: workspaceScope.workspacePath,
 						prompt: "",
 						resumeFromPersistence: true,
 						providerId: clineLaunchConfig.providerId,
+						seatProviderId: clineLaunchConfig.seatProviderId,
 						modelId: clineLaunchConfig.modelId,
 						apiKey: clineLaunchConfig.apiKey,
 						baseUrl: clineLaunchConfig.baseUrl,
 						reasoningEffort: clineLaunchConfig.reasoningEffort,
 						taskLaunchSettings: card?.taskLaunchSettings,
+						launchWarnings: clineLaunchConfig.warnings,
 					});
 				}
 				if (!summary) {
@@ -678,6 +697,39 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 				return {
 					ok: false,
 					summary: null,
+					error: message,
+				};
+			}
+		},
+		setTaskChatModel: async (workspaceScope, input) => {
+			try {
+				const body = parseTaskChatModelRequest(input);
+				const clineTaskSessionService = await deps.getScopedClineTaskSessionService(workspaceScope);
+				const result = await clineTaskSessionService.setTaskSessionModel({
+					taskId: body.taskId,
+					modelId: body.modelId,
+					seatProviderId: body.providerId ?? null,
+				});
+				if (!result.summary) {
+					return {
+						ok: false,
+						summary: null,
+						applied: false,
+						error: "Task chat session is not available.",
+					};
+				}
+				return {
+					ok: true,
+					summary: result.summary,
+					applied: result.applied,
+					warning: result.warning,
+				};
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error);
+				return {
+					ok: false,
+					summary: null,
+					applied: false,
 					error: message,
 				};
 			}
@@ -800,10 +852,15 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 							};
 						}
 					} else {
-						const clineLaunchConfig = await clineProviderService.resolveLaunchConfig();
+						const clineLaunchConfig = await clineProviderService.resolveLaunchConfig(
+							toClineLaunchOverrides(body.clineSettings),
+						);
 						// Load the card to get taskLaunchSettings for subagent seat
 						const workspaceState = await loadWorkspaceState(workspaceScope.workspacePath).catch(() => null);
-						const card = workspaceState?.board.columns.flatMap((column) => column.cards).find((c) => c.id === body.taskId) ?? null;
+						const card =
+							workspaceState?.board.columns
+								.flatMap((column) => column.cards)
+								.find((c) => c.id === body.taskId) ?? null;
 						summary = await clineTaskSessionService.startTaskSession({
 							taskId: body.taskId,
 							cwd: workspaceScope.workspacePath,
@@ -811,12 +868,14 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 							images: body.images,
 							resumeFromPersistence: true,
 							providerId: clineLaunchConfig.providerId,
+							seatProviderId: clineLaunchConfig.seatProviderId,
 							modelId: clineLaunchConfig.modelId,
 							mode: requestedMode,
 							apiKey: clineLaunchConfig.apiKey,
 							baseUrl: clineLaunchConfig.baseUrl,
 							reasoningEffort: clineLaunchConfig.reasoningEffort,
 							taskLaunchSettings: card?.taskLaunchSettings,
+							launchWarnings: clineLaunchConfig.warnings,
 						});
 					}
 				}

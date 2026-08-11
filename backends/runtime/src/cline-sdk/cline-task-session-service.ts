@@ -69,16 +69,37 @@ export interface StartClineTaskSessionRequest {
 	resumeFromTrash?: boolean;
 	resumeFromPersistence?: boolean;
 	providerId?: string | null;
+	/**
+	 * Seat the user picked. Differs from `providerId` for custom seats, which stream under a
+	 * borrowed built-in id — see cline-sdk/custom-seat-host.ts. Defaults to `providerId`.
+	 */
+	seatProviderId?: string | null;
 	modelId?: string | null;
 	mode?: RuntimeTaskSessionMode;
 	apiKey?: string | null;
 	baseUrl?: string | null;
 	reasoningEffort?: RuntimeClineReasoningEffort | null;
 	systemPrompt?: string | null;
+	/** Non-fatal notes from launch-config resolution (e.g. a pinned model the router lost). */
+	launchWarnings?: string[];
 	/** Card opt-in: a usage-limit exit parks as "usage_paused" and auto-resumes at the reset. */
 	autoResumeOnUsageLimit?: boolean;
 	/** Per-task launch settings (skill/MCP allowlists, subagent seat, etc.) */
 	taskLaunchSettings?: RuntimeTaskLaunchSettings;
+}
+
+export interface SetClineTaskSessionModelResult {
+	summary: RuntimeTaskSessionSummary | null;
+	/** true when the running session switched now; false when it only applies at next start. */
+	applied: boolean;
+	warning: string | null;
+}
+
+export interface SetClineTaskSessionModelResult {
+	summary: RuntimeTaskSessionSummary | null;
+	/** true when the running session switched now; false when it only applies at next start. */
+	applied: boolean;
+	warning: string | null;
 }
 
 export interface ClineTaskSessionService {
@@ -94,6 +115,12 @@ export interface ClineTaskSessionService {
 		mode?: RuntimeTaskSessionMode,
 		images?: RuntimeTaskImage[],
 	): Promise<RuntimeTaskSessionSummary | null>;
+	/** Points a task at a different model, switching the live session when the backend allows it. */
+	setTaskSessionModel(input: {
+		taskId: string;
+		modelId: string;
+		seatProviderId?: string | null;
+	}): Promise<SetClineTaskSessionModelResult>;
 	reloadTaskSession(taskId: string): Promise<RuntimeTaskSessionSummary | null>;
 	clearTaskSession(taskId: string): Promise<RuntimeTaskSessionSummary | null>;
 	rebindPersistedTaskSession(taskId: string): Promise<RuntimeTaskSessionSummary | null>;
@@ -151,7 +178,7 @@ function formatStartWarnings(warnings: readonly string[] | undefined): string | 
 	if (normalized.length === 1) {
 		return normalized[0] ?? null;
 	}
-	return `${normalized[0]} (+${normalized.length - 1} more MCP warning${normalized.length === 2 ? "" : "s"})`;
+	return `${normalized[0]} (+${normalized.length - 1} more warning${normalized.length === 2 ? "" : "s"})`;
 }
 
 function buildClineStartPrompt(prompt: string, startInPlanMode?: boolean): string {
@@ -168,7 +195,10 @@ function buildClineStartPrompt(prompt: string, startInPlanMode?: boolean): strin
 }
 export class InMemoryClineTaskSessionService implements ClineTaskSessionService {
 	private readonly pendingTurnCancelTaskIds = new Set<string>();
+	/** Transport provider id (what the SDK streams under). Drives Cline-account detection. */
 	private readonly providerIdByTaskId = new Map<string, string>();
+	/** Seat the user picked; only the summary and the model-switch guard use it. */
+	private readonly seatProviderIdByTaskId = new Map<string, string>();
 	private readonly sessionRuntime: ClineSessionRuntime;
 	private readonly messageRepository: ClineMessageRepository;
 	private readonly watcherRegistry: ClineWatcherRegistry;
@@ -214,6 +244,55 @@ export class InMemoryClineTaskSessionService implements ClineTaskSessionService 
 
 	private isClineProviderForTask(taskId: string): boolean {
 		return this.resolveProviderIdForTask(taskId) === "cline";
+	}
+
+	private resolveSeatProviderIdForTask(taskId: string): string {
+		return this.seatProviderIdByTaskId.get(taskId) ?? this.resolveProviderIdForTask(taskId);
+	}
+
+	async setTaskSessionModel(input: {
+		taskId: string;
+		modelId: string;
+		seatProviderId?: string | null;
+	}): Promise<SetClineTaskSessionModelResult> {
+		const modelId = input.modelId.trim();
+		if (modelId.length === 0) {
+			throw new Error("A model id is required to switch the session model.");
+		}
+		const entry = this.messageRepository.getTaskEntry(input.taskId);
+		if (!entry) {
+			return { summary: null, applied: false, warning: null };
+		}
+		const requestedSeatProviderId = input.seatProviderId?.trim().toLowerCase() ?? "";
+		if (
+			requestedSeatProviderId.length > 0 &&
+			requestedSeatProviderId !== this.resolveSeatProviderIdForTask(input.taskId)
+		) {
+			// The SDK's hot-swap API only merges a model id into the live connection; changing
+			// the provider means new credentials and a new endpoint, so it needs a restart.
+			throw new Error("Switching providers requires restarting the session.");
+		}
+
+		const result = await this.sessionRuntime.updateTaskSessionModel(input.taskId, modelId);
+		const warning = ((): string | null => {
+			if (result.reason === "host_unsupported") {
+				return "This Cline backend cannot switch models mid-session; the new model applies on the next start.";
+			}
+			if (result.reason === "no_active_session") {
+				return "The Cline session is not running; the new model applies on the next start.";
+			}
+			if (result.applied && entry.summary.state === "running") {
+				return "Model switched; the running turn uses it from its next request.";
+			}
+			return null;
+		})();
+
+		const summary = updateSummary(entry, {
+			modelId,
+			...(warning ? { warningMessage: warning } : {}),
+		});
+		this.emitSummary(summary);
+		return { summary, applied: result.applied, warning };
 	}
 
 	private emitTaskFailure(
@@ -347,6 +426,8 @@ export class InMemoryClineTaskSessionService implements ClineTaskSessionService 
 
 		const providerId = request.providerId?.trim().toLowerCase() || SDK_DEFAULT_PROVIDER_ID;
 		this.providerIdByTaskId.set(request.taskId, providerId);
+		const seatProviderId = request.seatProviderId?.trim().toLowerCase() || providerId;
+		this.seatProviderIdByTaskId.set(request.taskId, seatProviderId);
 		const modelId = request.modelId?.trim() || SDK_DEFAULT_MODEL_ID;
 		const resolvedMode: RuntimeTaskSessionMode = request.startInPlanMode ? "act" : (request.mode ?? "act");
 		const normalizedPrompt = request.prompt.trim();
@@ -357,6 +438,8 @@ export class InMemoryClineTaskSessionService implements ClineTaskSessionService 
 				? "running"
 				: "idle";
 		const initialReviewReason = request.resumeFromTrash ? "attention" : null;
+		// Surfaced before the async start resolves, so a stale pin is visible even if start throws.
+		const launchWarningMessage = formatStartWarnings(request.launchWarnings);
 		const shouldHydratePersistedHistory = request.resumeFromTrash || request.resumeFromPersistence;
 		const persistedResumeSnapshot = shouldHydratePersistedHistory
 			? await this.sessionRuntime.readPersistedTaskSession(request.taskId).catch(() => null)
@@ -370,6 +453,9 @@ export class InMemoryClineTaskSessionService implements ClineTaskSessionService 
 					startedAt: now(),
 					lastOutputAt: now(),
 					reviewReason: initialReviewReason,
+					providerId: seatProviderId,
+					modelId,
+					warningMessage: launchWarningMessage,
 				})
 			: ({
 					summary: {
@@ -380,6 +466,9 @@ export class InMemoryClineTaskSessionService implements ClineTaskSessionService 
 						startedAt: now(),
 						lastOutputAt: now(),
 						reviewReason: initialReviewReason,
+						providerId: seatProviderId,
+						modelId,
+						warningMessage: launchWarningMessage,
 					},
 					messages: [],
 					activeAssistantMessageId: null,
@@ -427,6 +516,7 @@ export class InMemoryClineTaskSessionService implements ClineTaskSessionService 
 					(await resolveClineSdkSystemPrompt({
 						cwd: request.cwd,
 						providerId,
+						seatProviderId,
 						rules: runtimeSetup.loadRules(),
 					}));
 				const appendedSystemPrompt = resolveHomeAgentAppendSystemPrompt(request.taskId);
@@ -451,7 +541,12 @@ export class InMemoryClineTaskSessionService implements ClineTaskSessionService 
 					userInstructionService: runtimeSetup.userInstructionService,
 					requestToolApproval: runtimeSetup.requestToolApproval,
 				});
-				const warningMessage = formatStartWarnings(startResult.warnings);
+				// Launch-config notes are merged here so a stale pinned model survives the
+				// post-start summary write instead of being overwritten by MCP warnings.
+				const warningMessage = formatStartWarnings([
+					...(request.launchWarnings ?? []),
+					...(startResult.warnings ?? []),
+				]);
 				if (warningMessage) {
 					this.emitSummary(
 						updateSummary(entry, {
@@ -772,6 +867,11 @@ export class InMemoryClineTaskSessionService implements ClineTaskSessionService 
 			startedAt: Number.isFinite(startedAt) ? startedAt : null,
 			lastOutputAt: Number.isFinite(updatedAt) ? updatedAt : null,
 			warningMessage: existingEntry?.summary.warningMessage ?? null,
+			// Kanban's own value wins: it reflects live model switches, while the SDK record
+			// is written once at session creation. The record's `provider` is deliberately not
+			// mapped — it stores the transport id, which would mislabel a custom seat.
+			providerId: existingEntry?.summary.providerId ?? this.seatProviderIdByTaskId.get(taskId) ?? null,
+			modelId: existingEntry?.summary.modelId ?? this.sessionRuntime.getTaskModelId(taskId),
 			latestHookActivity: existingEntry?.summary.latestHookActivity ?? null,
 			latestTurnCheckpoint: existingEntry?.summary.latestTurnCheckpoint ?? null,
 			previousTurnCheckpoint: existingEntry?.summary.previousTurnCheckpoint ?? null,

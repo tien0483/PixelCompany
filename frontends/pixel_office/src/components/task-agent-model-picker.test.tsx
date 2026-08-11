@@ -1,5 +1,5 @@
-import { act, useEffect } from "react";
 import type { ReactElement, ReactNode } from "react";
+import { act, useEffect } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -33,7 +33,15 @@ function createProvider(
 	enabled: boolean,
 	defaultModelId: string | null = null,
 ): RuntimeClineProviderCatalogItem {
-	return { id, name, oauthSupported: false, enabled, defaultModelId, baseUrl: null, supportsBaseUrl: false };
+	return {
+		id,
+		name,
+		oauthSupported: false,
+		enabled,
+		defaultModelId,
+		baseUrl: null,
+		supportsBaseUrl: false,
+	};
 }
 
 function createTaskClineSettings(settings?: RuntimeTaskClineSettings): RuntimeTaskClineSettings | undefined {
@@ -295,7 +303,10 @@ describe("useTaskAgentModelPicker – provider-aware model default label", () =>
 
 		expect(snapshot).not.toBeNull();
 		expect(snapshot!.effectiveDefaultModelId).toBeNull();
-		expect(snapshot!.clineModelOptions[0]).toEqual({ value: "", label: "Default" });
+		expect(snapshot!.clineModelOptions[0]).toEqual({
+			value: "",
+			label: "Default",
+		});
 	});
 
 	it("shows the selected provider's default model name when provider is overridden", async () => {
@@ -384,8 +395,8 @@ describe("useTaskAgentModelPicker – provider-aware model default label", () =>
 	});
 });
 
-describe("TaskAgentModelPicker – auto-reset invalid model selection", () => {
-	it("resets clineModelId to the first real model when the selected model is not in the options list", async () => {
+describe("TaskAgentModelPicker – unlisted model pin", () => {
+	it("keeps a pinned model the provider no longer lists and reports it instead of rewriting", async () => {
 		const onClineSettingsChange = vi.fn();
 		const modelOptions = [
 			{ value: "", label: "Llama 3.3 70B" },
@@ -416,11 +427,16 @@ describe("TaskAgentModelPicker – auto-reset invalid model selection", () => {
 			),
 		);
 
-		// The effect should have fired and selected the first real model
-		expect(onClineSettingsChange).toHaveBeenCalledWith({
-			providerId: "groq",
-			modelId: "llama-3.3-70b-versatile",
-		});
+		// Silently swapping the pin is what made the model selector look like it did nothing.
+		expect(onClineSettingsChange).not.toHaveBeenCalled();
+
+		const settingsTrigger = [...container.querySelectorAll("button")].find((button) =>
+			button.textContent?.includes("Cline model settings"),
+		);
+		await act(async () => settingsTrigger?.click());
+
+		expect(container.textContent).toContain("claude-opus-4-20250514");
+		expect(container.textContent).toContain("is not in this provider's current model list");
 	});
 
 	it("keeps a seat pin that names the default provider and model", async () => {
@@ -584,8 +600,16 @@ describe("TaskAgentModelPicker – inherited default reasoning effort", () => {
 					]}
 					effectiveDefaultModelId="openai/gpt-5.4"
 					providerModels={[
-						{ id: "openai/gpt-5.4", name: "GPT-5.4", supportsReasoningEffort: true },
-						{ id: "openai/gpt-5.3-codex", name: "GPT-5.3 Codex", supportsReasoningEffort: true },
+						{
+							id: "openai/gpt-5.4",
+							name: "GPT-5.4",
+							supportsReasoningEffort: true,
+						},
+						{
+							id: "openai/gpt-5.3-codex",
+							name: "GPT-5.3 Codex",
+							supportsReasoningEffort: true,
+						},
 					]}
 					isLoadingProviders={false}
 					isLoadingModels={false}
@@ -656,7 +680,11 @@ describe("TaskAgentModelPicker – inherited default reasoning effort", () => {
 
 		await renderPicker([
 			{ id: "openai/gpt-5.4", name: "GPT-5.4", supportsReasoningEffort: true },
-			{ id: "openai/gpt-5.3-codex", name: "GPT-5.3 Codex", supportsReasoningEffort: true },
+			{
+				id: "openai/gpt-5.3-codex",
+				name: "GPT-5.3 Codex",
+				supportsReasoningEffort: true,
+			},
 		]);
 
 		expect(container.textContent).toContain("GPT-5.4 (High)");
@@ -681,8 +709,16 @@ describe("TaskAgentModelPicker – inherited default reasoning effort", () => {
 					]}
 					effectiveDefaultModelId="openai/gpt-5.4"
 					providerModels={[
-						{ id: "openai/gpt-5.4", name: "GPT-5.4", supportsReasoningEffort: true },
-						{ id: "openai/gpt-5.3-codex", name: "GPT-5.3 Codex", supportsReasoningEffort: true },
+						{
+							id: "openai/gpt-5.4",
+							name: "GPT-5.4",
+							supportsReasoningEffort: true,
+						},
+						{
+							id: "openai/gpt-5.3-codex",
+							name: "GPT-5.3 Codex",
+							supportsReasoningEffort: true,
+						},
 					]}
 					isLoadingProviders={false}
 					isLoadingModels={false}
@@ -735,7 +771,13 @@ describe("TaskAgentModelPicker – inherited default reasoning effort", () => {
 					clineProviderOptions={[{ value: "", label: "Cline" }]}
 					clineModelOptions={[{ value: "", label: "GPT-5.4" }]}
 					effectiveDefaultModelId="openai/gpt-5.4"
-					providerModels={[{ id: "openai/gpt-5.4", name: "GPT-5.4", supportsReasoningEffort: true }]}
+					providerModels={[
+						{
+							id: "openai/gpt-5.4",
+							name: "GPT-5.4",
+							supportsReasoningEffort: true,
+						},
+					]}
 					isLoadingProviders={false}
 					isLoadingModels={false}
 					defaultAgentId={"cline" as RuntimeAgentId}
@@ -790,8 +832,16 @@ describe("TaskAgentModelPicker – inherited default reasoning effort", () => {
 					]}
 					effectiveDefaultModelId="openai/gpt-5.4"
 					providerModels={[
-						{ id: "openai/gpt-5.4", name: "GPT-5.4", supportsReasoningEffort: true },
-						{ id: "openai/gpt-5.3-codex", name: "GPT-5.3 Codex", supportsReasoningEffort: true },
+						{
+							id: "openai/gpt-5.4",
+							name: "GPT-5.4",
+							supportsReasoningEffort: true,
+						},
+						{
+							id: "openai/gpt-5.3-codex",
+							name: "GPT-5.3 Codex",
+							supportsReasoningEffort: true,
+						},
 					]}
 					isLoadingProviders={false}
 					isLoadingModels={false}

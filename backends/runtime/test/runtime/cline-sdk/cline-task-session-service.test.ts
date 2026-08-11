@@ -4,6 +4,7 @@ import type { ClineRuntimeSetup } from "../../../src/cline-sdk/cline-runtime-set
 import type {
 	ClinePersistedTaskSessionSnapshot,
 	ClineSessionRuntime,
+	ClineTaskSessionModelUpdateResult,
 	CreateInMemoryClineSessionRuntimeOptions,
 	StartClineSessionRuntimeRequest,
 	StartClineSessionRuntimeResult,
@@ -12,8 +13,12 @@ import { createSessionId } from "../../../src/cline-sdk/cline-session-state";
 import type { ClineTaskSessionService } from "../../../src/cline-sdk/cline-task-session-service";
 import { createInMemoryClineTaskSessionService } from "../../../src/cline-sdk/cline-task-session-service";
 import { createClineWatcherRegistry } from "../../../src/cline-sdk/cline-watcher-registry";
+import type {
+	RuntimeTaskImage,
+	RuntimeTaskSessionMode,
+	RuntimeTaskSessionSummary,
+} from "../../../src/core/api-contract";
 import { buildShellCommandLine } from "../../../src/core/shell";
-import type { RuntimeTaskImage, RuntimeTaskSessionMode } from "../../../src/core/api-contract";
 
 const originalArgv = [...process.argv];
 const originalExecArgv = [...process.execArgv];
@@ -59,6 +64,7 @@ type StopTaskSessionMock = Mock<(taskId: string) => Promise<void>>;
 type AbortTaskSessionMock = Mock<(taskId: string) => Promise<void>>;
 type ClearTaskSessionsMock = Mock<(taskId: string) => Promise<void>>;
 type ReadPersistedTaskSessionMock = Mock<(taskId: string) => Promise<ClinePersistedTaskSessionSnapshot | null>>;
+type UpdateTaskSessionModelMock = Mock<(taskId: string, modelId: string) => Promise<ClineTaskSessionModelUpdateResult>>;
 type DisposeMock = Mock<() => Promise<void>>;
 
 interface FakeClineSessionRuntimeController {
@@ -70,6 +76,7 @@ interface FakeClineSessionRuntimeController {
 	abortTaskSessionMock: AbortTaskSessionMock;
 	clearTaskSessionsMock: ClearTaskSessionsMock;
 	readPersistedTaskSessionMock: ReadPersistedTaskSessionMock;
+	updateTaskSessionModelMock: UpdateTaskSessionModelMock;
 	disposeMock: DisposeMock;
 	createRuntime(options: CreateInMemoryClineSessionRuntimeOptions): ClineSessionRuntime;
 	getTaskSessionId(taskId: string): string | null;
@@ -128,6 +135,10 @@ function createFakeClineSessionRuntime(): FakeClineSessionRuntimeController {
 	const abortTaskSessionMock: AbortTaskSessionMock = vi.fn(async () => {});
 	const clearTaskSessionsMock: ClearTaskSessionsMock = vi.fn(async (_taskId: string) => {});
 	const readPersistedTaskSessionMock: ReadPersistedTaskSessionMock = vi.fn(async () => null);
+	const updateTaskSessionModelMock: UpdateTaskSessionModelMock = vi.fn(async (taskId: string) => ({
+		applied: sessionIdByTaskId.has(taskId),
+		...(sessionIdByTaskId.has(taskId) ? {} : { reason: "no_active_session" as const }),
+	}));
 	const disposeMock: DisposeMock = vi.fn(async () => {});
 
 	const createRuntime = (options: CreateInMemoryClineSessionRuntimeOptions): ClineSessionRuntime => {
@@ -197,6 +208,14 @@ function createFakeClineSessionRuntime(): FakeClineSessionRuntimeController {
 				}
 				return await sendTaskSessionInputMock(taskId, prompt, mode, images);
 			},
+			async updateTaskSessionModel(taskId: string, modelId: string): Promise<ClineTaskSessionModelUpdateResult> {
+				const result = await updateTaskSessionModelMock(taskId, modelId);
+				const lastStartRequest = lastStartRequestByTaskId.get(taskId);
+				if (lastStartRequest) {
+					lastStartRequestByTaskId.set(taskId, { ...lastStartRequest, modelId });
+				}
+				return result;
+			},
 			async resumeTaskSession(taskId: string): Promise<ClinePersistedTaskSessionSnapshot | null> {
 				const snapshot = await readPersistedTaskSessionMock(taskId);
 				if (snapshot) {
@@ -221,6 +240,9 @@ function createFakeClineSessionRuntime(): FakeClineSessionRuntimeController {
 			},
 			getTaskProviderId(taskId: string): string | null {
 				return lastStartRequestByTaskId.get(taskId)?.providerId ?? null;
+			},
+			getTaskModelId(taskId: string): string | null {
+				return lastStartRequestByTaskId.get(taskId)?.modelId ?? null;
 			},
 			canRestartTaskSession(taskId: string): boolean {
 				return lastStartRequestByTaskId.has(taskId);
@@ -282,6 +304,7 @@ function createFakeClineSessionRuntime(): FakeClineSessionRuntimeController {
 		abortTaskSessionMock,
 		clearTaskSessionsMock,
 		readPersistedTaskSessionMock,
+		updateTaskSessionModelMock,
 		disposeMock,
 		createRuntime,
 		getTaskSessionId(taskId: string): string | null {
@@ -1842,5 +1865,90 @@ describe("InMemoryClineTaskSessionService", () => {
 			.filter((message) => message.role === "assistant")
 			.map((message) => message.content);
 		expect(assistantMessages).toEqual(["Done."]);
+	});
+
+	describe("setTaskSessionModel", () => {
+		it("emits a summary carrying the new model and pins the runtime for restarts", async () => {
+			const { service, runtime } = createTrackedService();
+			const summaries: RuntimeTaskSessionSummary[] = [];
+			service.onSummary((summary) => summaries.push(summary));
+
+			await service.startTaskSession({
+				taskId: "task-1",
+				cwd: "/tmp/worktree",
+				prompt: "Investigate startup",
+				providerId: "openrouter",
+				seatProviderId: "omniroute",
+				modelId: "auto/best-coding",
+			});
+			await waitForTaskSessionId(runtime, "task-1");
+
+			const result = await service.setTaskSessionModel({
+				taskId: "task-1",
+				modelId: "dva/claude-opus-4-6",
+				seatProviderId: "omniroute",
+			});
+
+			expect(runtime.updateTaskSessionModelMock).toHaveBeenCalledWith("task-1", "dva/claude-opus-4-6");
+			expect(result.applied).toBe(true);
+			expect(result.summary?.modelId).toBe("dva/claude-opus-4-6");
+			expect(result.summary?.providerId).toBe("omniroute");
+			expect(summaries.at(-1)?.modelId).toBe("dva/claude-opus-4-6");
+		});
+
+		it("rejects a seat change, which the SDK hot-swap API cannot express", async () => {
+			const { service, runtime } = createTrackedService();
+
+			await service.startTaskSession({
+				taskId: "task-1",
+				cwd: "/tmp/worktree",
+				prompt: "Investigate startup",
+				providerId: "openrouter",
+				seatProviderId: "omniroute",
+				modelId: "auto/best-coding",
+			});
+			await waitForTaskSessionId(runtime, "task-1");
+
+			await expect(
+				service.setTaskSessionModel({
+					taskId: "task-1",
+					modelId: "claude-sonnet-4-6",
+					seatProviderId: "anthropic",
+				}),
+			).rejects.toThrow("Switching providers requires restarting the session.");
+			expect(runtime.updateTaskSessionModelMock).not.toHaveBeenCalled();
+		});
+
+		it("reports that an unbound session only picks the model up at the next start", async () => {
+			const { service, runtime } = createTrackedService();
+
+			await service.startTaskSession({
+				taskId: "task-1",
+				cwd: "/tmp/worktree",
+				prompt: "Investigate startup",
+				providerId: "openrouter",
+				seatProviderId: "omniroute",
+				modelId: "auto/best-coding",
+			});
+			await waitForTaskSessionId(runtime, "task-1");
+			await service.stopTaskSession("task-1");
+
+			const result = await service.setTaskSessionModel({
+				taskId: "task-1",
+				modelId: "dva/claude-opus-4-6",
+			});
+
+			expect(result.applied).toBe(false);
+			expect(result.warning).toContain("next start");
+			expect(result.summary?.modelId).toBe("dva/claude-opus-4-6");
+		});
+
+		it("returns no summary for a task that has no entry", async () => {
+			const { service } = createTrackedService();
+
+			const result = await service.setTaskSessionModel({ taskId: "missing", modelId: "dva/claude-opus-4-6" });
+
+			expect(result).toEqual({ summary: null, applied: false, warning: null });
+		});
 	});
 });
