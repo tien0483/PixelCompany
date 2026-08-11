@@ -139,8 +139,9 @@ export function PlanHtmlGenerateBar({
 					>
 						{isExpanding ? HTML_LABELS.expanding : HTML_LABELS.expand}
 					</Button>
+					{/* Once an HTML sibling exists, refining is the cheaper intent — emphasis flips to it. */}
 					<Button
-						variant="primary"
+						variant={canRefine ? "default" : "primary"}
 						size="sm"
 						icon={<Zap size={13} />}
 						disabled={!selectedId || !online || loading || disabled}
@@ -150,7 +151,7 @@ export function PlanHtmlGenerateBar({
 						{HTML_LABELS.convert}
 					</Button>
 					<Button
-						variant="default"
+						variant={canRefine ? "primary" : "default"}
 						size="sm"
 						icon={<Wand2 size={13} />}
 						disabled={!canRefine || !selectedId || !online || loading || disabled}
