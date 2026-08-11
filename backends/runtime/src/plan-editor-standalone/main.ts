@@ -45,6 +45,12 @@ async function main(): Promise<void> {
 		host: htmlHost,
 		port: htmlPort,
 		expectedTemplateSkillsDir: join(agentDataDir, "templates", "skills"),
+		// The default hint is the monorepo's `pnpm install` / `pnpm --filter … build`,
+		// which no recipient of the packaged editor can run.
+		installHint: [
+			"  Install deps: ./build.sh   (build.bat on Windows) — one time, needs network",
+			"  Then relaunch: ./start.sh",
+		],
 	});
 	const htmlReady = await htmlProcess.ready;
 	if (!htmlReady) {
