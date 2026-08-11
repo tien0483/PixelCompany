@@ -62,9 +62,21 @@ export function isPlanHtmlSourceFileName(name: string): boolean {
 	return basename(name).toLowerCase().endsWith(PLAN_HTML_SOURCE_SUFFIX);
 }
 
+/**
+ * `<planFileName>.deploy.json` as written by the Apps Script deploy flow: the script and
+ * deployment ids that let a re-deploy update the same web app instead of publishing a
+ * second one. The full file name rather than the stem, because `<stem>.md` and its
+ * generated `<stem>.html` would otherwise share one record and only the HTML is deployed.
+ */
+export const PLAN_DEPLOY_STATE_SUFFIX = ".deploy.json";
+
+export function isPlanDeployStateFileName(name: string): boolean {
+	return basename(name).toLowerCase().endsWith(PLAN_DEPLOY_STATE_SUFFIX);
+}
+
 /** Auxiliary files that live beside a plan but must never be offered as one. */
 export function isPlanAuxiliaryFileName(name: string): boolean {
-	return isPlanBackupFileName(name) || isPlanHtmlSourceFileName(name);
+	return isPlanBackupFileName(name) || isPlanHtmlSourceFileName(name) || isPlanDeployStateFileName(name);
 }
 
 async function pathExists(pathValue: string): Promise<boolean> {

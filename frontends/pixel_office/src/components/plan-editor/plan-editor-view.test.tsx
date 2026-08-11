@@ -24,6 +24,7 @@ const mockHistoryRedoMutate = vi.fn();
 const mockHistoryRestoreMutate = vi.fn();
 const mockHistoryMarkMutate = vi.fn();
 const mockHistoryDiffQuery = vi.fn();
+const mockDeployStatusQuery = vi.fn();
 
 vi.mock("@/runtime/trpc-client", () => ({
 	getRuntimeTrpcClient: () => ({
@@ -46,6 +47,9 @@ vi.mock("@/runtime/trpc-client", () => ({
 		html: {
 			status: { query: mockHtmlStatusQuery },
 			templates: { query: mockHtmlTemplatesQuery },
+		},
+		deploy: {
+			status: { query: mockDeployStatusQuery },
 		},
 	}),
 }));
@@ -214,6 +218,13 @@ describe("PlanEditorView", () => {
 		mockHistoryRestoreMutate.mockReset();
 		mockHistoryMarkMutate.mockReset().mockResolvedValue({ ok: true, entry: null });
 		mockHistoryDiffQuery.mockReset();
+		mockDeployStatusQuery.mockReset().mockResolvedValue({
+			ok: true,
+			config: { chromePath: null, chromeProfile: null, domain: "akselos.com" },
+			loggedIn: false,
+			account: null,
+			planState: null,
+		});
 		mockShowAppToast.mockReset();
 	});
 
@@ -447,6 +458,35 @@ describe("PlanEditorView", () => {
 			expect(getButton("plan-html-refine-run").disabled).toBe(true);
 			expect(getButton("plan-html-generate-run").className).toContain("bg-accent");
 			expect(getButton("plan-html-refine-run").className).not.toContain("bg-accent");
+		});
+
+		it("keeps Deploy disabled until there is a saved page, and does not ask the runtime early", async () => {
+			await render(PLAN);
+			await flush();
+			await waitFor(() => !getButton("plan-html-generate-run").disabled, "loaded templates");
+
+			expect(getButton("plan-html-deploy-run").disabled).toBe(true);
+			// The dialog is closed, so its status query must not have run.
+			expect(mockDeployStatusQuery).not.toHaveBeenCalled();
+		});
+
+		it("enables Deploy once an HTML sibling exists and opens the deploy dialog on click", async () => {
+			mockListQuery.mockResolvedValue({ ok: true, plans: [PLAN, HTML_SIBLING] });
+			await render(PLAN);
+			await flush();
+			await waitFor(() => !getButton("plan-html-deploy-run").disabled, "enabled deploy");
+
+			await act(async () => {
+				getButton("plan-html-deploy-run").click();
+			});
+			await flush();
+
+			// The dialog portals outside the container, so it is queried from the document.
+			await waitFor(
+				() => document.querySelector('[data-testid="plan-deploy-sign-in"]') !== null,
+				"deploy dialog open",
+			);
+			expect(mockDeployStatusQuery).toHaveBeenCalledWith({ planId: HTML_SIBLING.id });
 		});
 
 		/** Long enough that a hunk is cheaper than shipping the document twice. */

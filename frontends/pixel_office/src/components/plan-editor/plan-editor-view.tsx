@@ -1,5 +1,5 @@
 import type { Editor } from "@tiptap/react";
-import { AlertTriangle, Columns2, PanelLeft, PanelRight, X } from "lucide-react";
+import { AlertTriangle, Columns2, PanelLeft, PanelRight, Rocket, X } from "lucide-react";
 import {
 	lazy,
 	type ReactElement,
@@ -17,6 +17,7 @@ import { showAppToast } from "@/components/app-toaster";
 import { insertAtCursor, type TextSelectionState } from "@/components/plan-editor/markdown-selection-commands";
 import { PlanAiPromptBar, type PlanAiPromptMode } from "@/components/plan-editor/plan-ai-prompt-bar";
 import { splitBriefResult } from "@/components/plan-editor/plan-brief-result";
+import { PlanDeployDialog } from "@/components/plan-editor/plan-deploy-dialog";
 import { PlanEditorErrorBoundary } from "@/components/plan-editor/plan-editor-error-boundary";
 import { PlanHistoryControls } from "@/components/plan-editor/plan-history-controls";
 import { PlanHtmlGenerateBar } from "@/components/plan-editor/plan-html-generate-bar";
@@ -323,6 +324,14 @@ export function PlanEditorView({ plan, workspaceId, onClose, headerActions }: Pl
 
 	const activeDoc = source === "html" ? htmlDoc : mdDoc;
 	const htmlAvailable = isHtmlPlan || sibling !== null;
+	const [deployOpen, setDeployOpen] = useState(false);
+	/**
+	 * The plan record the deploy publishes: an HTML plan is itself the page, otherwise it is
+	 * the generated `<stem>.html` sibling. Null until one exists.
+	 */
+	const htmlPlanId = isHtmlPlan ? plan.id : (sibling?.id ?? null);
+	/** Deploy reads the file on disk, so an empty document means there is nothing to publish. */
+	const canDeploy = htmlPlanId !== null && htmlDoc.content.trim().length > 0;
 	/** A document we could not read must stay read-only: saving would overwrite what we failed to load. */
 	const activeDocReadOnly = activeDoc.status === "loading" || activeDoc.status === "error";
 
@@ -1215,13 +1224,31 @@ export function PlanEditorView({ plan, workspaceId, onClose, headerActions }: Pl
 										online={templatesOnline}
 										templatesLoading={templatesLoading}
 										canRefine={htmlAvailable && htmlDoc.content.trim().length > 0}
+										canDeploy={canDeploy}
 										canExpand={!plan.missing}
 										disabled={mdDoc.status === "loading"}
 										onExpand={handleExpand}
 										onGenerate={handleGenerate}
 										onRefine={handleRefine}
+										onDeploy={() => setDeployOpen(true)}
 										onCancel={brief.status === "running" ? brief.cancel : generate.cancel}
 									/>
+								) : canDeploy ? (
+									/*
+									 * The generate bar only exists on the markdown side, but a plan that *is* an
+									 * HTML file — and the HTML source view of a generated one — is just as
+									 * publishable, so the button is repeated on its own here.
+									 */
+									<Button
+										variant="default"
+										size="sm"
+										icon={<Rocket size={13} />}
+										onClick={() => setDeployOpen(true)}
+										title={HTML_LABELS.deployHint}
+										data-testid="plan-html-deploy-run"
+									>
+										{HTML_LABELS.deploy}
+									</Button>
 								) : null}
 							</div>
 							{renderedPaneBody()}
@@ -1265,6 +1292,14 @@ export function PlanEditorView({ plan, workspaceId, onClose, headerActions }: Pl
 				</span>
 				<span className="text-[11px] text-text-tertiary">{fileTypeLabel(source === "html" ? "html" : kind)}</span>
 			</div>
+
+			<PlanDeployDialog
+				open={deployOpen}
+				onOpenChange={setDeployOpen}
+				htmlPlanId={htmlPlanId}
+				planName={plan.name}
+				workspaceId={workspaceId}
+			/>
 		</div>
 	);
 }

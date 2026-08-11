@@ -1,4 +1,4 @@
-import { ListChecks, Sparkles, Wand2, Zap } from "lucide-react";
+import { ListChecks, Rocket, Sparkles, Wand2, Zap } from "lucide-react";
 import { type ReactElement, useMemo } from "react";
 
 import { PlanClaudeUsageChip } from "@/components/plan-editor/plan-claude-usage-chip";
@@ -29,6 +29,8 @@ export interface PlanHtmlGenerateBarProps {
 	templatesLoading: boolean;
 	/** False until the plan has a generated HTML sibling to edit. */
 	canRefine: boolean;
+	/** False until there is a saved HTML page on disk to publish. */
+	canDeploy: boolean;
 	/** False for an unsaved plan, whose images are not on disk yet. */
 	canExpand: boolean;
 	disabled?: boolean;
@@ -36,6 +38,7 @@ export interface PlanHtmlGenerateBarProps {
 	/** `null` = freestyle: the runtime builds the prompt from the plan's markdown. */
 	onGenerate: (templateId: string | null) => void;
 	onRefine: (templateId: string | null) => void;
+	onDeploy: () => void;
 	onCancel: () => void;
 }
 
@@ -56,11 +59,13 @@ export function PlanHtmlGenerateBar({
 	online,
 	templatesLoading: loading,
 	canRefine,
+	canDeploy,
 	canExpand,
 	disabled,
 	onExpand,
 	onGenerate,
 	onRefine,
+	onDeploy,
 	onCancel,
 }: PlanHtmlGenerateBarProps): ReactElement {
 	const isRunning = status === "running";
@@ -156,6 +161,22 @@ export function PlanHtmlGenerateBar({
 						data-testid="plan-html-refine-run"
 					>
 						{HTML_LABELS.refine}
+					</Button>
+					{/*
+					 * Publishing reads the page from disk, not the sidecar, so it is not gated on
+					 * `online`. Opens the deploy dialog rather than firing immediately: the first
+					 * deploy needs a Google sign-in and a browser profile picked.
+					 */}
+					<Button
+						variant="default"
+						size="sm"
+						icon={<Rocket size={13} />}
+						disabled={!canDeploy || disabled}
+						onClick={onDeploy}
+						title={canDeploy ? HTML_LABELS.deployHint : HTML_LABELS.deployNeedsHtml}
+						data-testid="plan-html-deploy-run"
+					>
+						{HTML_LABELS.deploy}
 					</Button>
 				</>
 			)}

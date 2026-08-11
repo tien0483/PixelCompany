@@ -49,6 +49,16 @@ import type {
 	RuntimeConfigResponse,
 	RuntimeConfigSaveRequest,
 	RuntimeDebugResetAllStateResponse,
+	RuntimeDeployConfigUpdateRequest,
+	RuntimeDeployLoginCodeRequest,
+	RuntimeDeployLoginStartRequest,
+	RuntimeDeployLoginStatus,
+	RuntimeDeployOpenUrlRequest,
+	RuntimeDeployOpenUrlResponse,
+	RuntimeDeployRunRequest,
+	RuntimeDeployRunResponse,
+	RuntimeDeployStatusRequest,
+	RuntimeDeployStatusResponse,
 	RuntimeDirectoryListRequest,
 	RuntimeDirectoryListResponse,
 	RuntimeFeaturebaseTokenResponse,
@@ -293,6 +303,16 @@ import {
 	runtimeConfigResponseSchema,
 	runtimeConfigSaveRequestSchema,
 	runtimeDebugResetAllStateResponseSchema,
+	runtimeDeployConfigUpdateRequestSchema,
+	runtimeDeployLoginCodeRequestSchema,
+	runtimeDeployLoginStartRequestSchema,
+	runtimeDeployLoginStatusSchema,
+	runtimeDeployOpenUrlRequestSchema,
+	runtimeDeployOpenUrlResponseSchema,
+	runtimeDeployRunRequestSchema,
+	runtimeDeployRunResponseSchema,
+	runtimeDeployStatusRequestSchema,
+	runtimeDeployStatusResponseSchema,
 	runtimeDirectoryListRequestSchema,
 	runtimeDirectoryListResponseSchema,
 	runtimeFeaturebaseTokenResponseSchema,
@@ -713,6 +733,15 @@ export interface RuntimeTrpcContext {
 		historyRedo: (input: RuntimePlansHistoryMoveRequest) => Promise<RuntimePlansHistoryMaterializeResponse>;
 		historyRestore: (input: RuntimePlansHistoryRestoreRequest) => Promise<RuntimePlansHistoryMaterializeResponse>;
 		historyDiff: (input: RuntimePlansHistoryDiffRequest) => Promise<RuntimePlansHistoryDiffResponse>;
+	};
+	deployApi: {
+		status: (input: RuntimeDeployStatusRequest) => Promise<RuntimeDeployStatusResponse>;
+		setConfig: (input: RuntimeDeployConfigUpdateRequest) => Promise<RuntimeDeployStatusResponse>;
+		login: (input: RuntimeDeployLoginStartRequest) => Promise<RuntimeDeployLoginStatus>;
+		loginStatus: () => Promise<RuntimeDeployLoginStatus>;
+		loginSubmitCode: (input: RuntimeDeployLoginCodeRequest) => Promise<RuntimeDeployLoginStatus>;
+		run: (input: RuntimeDeployRunRequest) => Promise<RuntimeDeployRunResponse>;
+		openUrl: (input: RuntimeDeployOpenUrlRequest) => Promise<RuntimeDeployOpenUrlResponse>;
 	};
 	hooksApi: {
 		ingest: (input: RuntimeHookIngestRequest) => Promise<RuntimeHookIngestResponse>;
@@ -1400,6 +1429,49 @@ export const runtimeAppRouter = t.router({
 			.output(runtimePlansHistoryDiffResponseSchema)
 			.query(async ({ ctx, input }) => {
 				return await ctx.plansApi.historyDiff(input);
+			}),
+	}),
+	// Publishing a generated page as an Apps Script web app. Mirrored in the standalone
+	// plan-editor router (`plan-editor-standalone/router.ts`), which shares `deployApi`.
+	deploy: t.router({
+		status: t.procedure
+			.input(runtimeDeployStatusRequestSchema)
+			.output(runtimeDeployStatusResponseSchema)
+			.query(async ({ ctx, input }) => {
+				return await ctx.deployApi.status(input);
+			}),
+		setConfig: t.procedure
+			.input(runtimeDeployConfigUpdateRequestSchema)
+			.output(runtimeDeployStatusResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.deployApi.setConfig(input);
+			}),
+		login: t.procedure
+			.input(runtimeDeployLoginStartRequestSchema)
+			.output(runtimeDeployLoginStatusSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.deployApi.login(input);
+			}),
+		loginStatus: t.procedure.output(runtimeDeployLoginStatusSchema).query(async ({ ctx }) => {
+			return await ctx.deployApi.loginStatus();
+		}),
+		loginSubmitCode: t.procedure
+			.input(runtimeDeployLoginCodeRequestSchema)
+			.output(runtimeDeployLoginStatusSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.deployApi.loginSubmitCode(input);
+			}),
+		run: t.procedure
+			.input(runtimeDeployRunRequestSchema)
+			.output(runtimeDeployRunResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.deployApi.run(input);
+			}),
+		openUrl: t.procedure
+			.input(runtimeDeployOpenUrlRequestSchema)
+			.output(runtimeDeployOpenUrlResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.deployApi.openUrl(input);
 			}),
 	}),
 	hooks: t.router({
