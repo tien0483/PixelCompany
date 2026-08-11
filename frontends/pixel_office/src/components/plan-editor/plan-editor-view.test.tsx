@@ -6,6 +6,7 @@ import { PlanEditorView } from "@/components/plan-editor/plan-editor-view";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { HTML_LABELS } from "@/html/html-labels";
 import type { RuntimeSavedPlan } from "@/runtime/types";
+import { LocalStorageKey } from "@/storage/local-storage-store";
 
 const mockReadQuery = vi.fn();
 const mockWriteMutate = vi.fn();
@@ -135,6 +136,17 @@ function getMarkdownSwitchButton(container: HTMLDivElement): HTMLButtonElement {
 	return button;
 }
 
+function getViewModeButton(container: HTMLDivElement, mode: "editor" | "split" | "preview"): HTMLButtonElement {
+	const index = mode === "editor" ? 0 : mode === "split" ? 1 : 2;
+	const button = container
+		.querySelector('[data-testid="plan-editor-view-mode-switch"]')
+		?.querySelectorAll("button")[index];
+	if (!(button instanceof HTMLButtonElement)) {
+		throw new Error(`${mode} view mode button not found`);
+	}
+	return button;
+}
+
 function setTextareaValue(textarea: HTMLTextAreaElement, value: string): void {
 	const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value")?.set;
 	setter?.call(textarea, value);
@@ -162,6 +174,9 @@ describe("PlanEditorView", () => {
 	}
 
 	beforeEach(() => {
+		// Layout preferences live in real localStorage here, so a test that flips one would
+		// otherwise decide the starting layout of every test after it.
+		window.localStorage.clear();
 		container = document.createElement("div");
 		document.body.appendChild(container);
 		root = createRoot(container);
@@ -218,6 +233,54 @@ describe("PlanEditorView", () => {
 		expect(container.querySelector('[data-testid="plan-editor-rendered-pane"]')).not.toBeNull();
 		expect(getTextarea(container).value).toBe("# Roadmap\n");
 		expect(container.querySelector('[data-testid="plan-html-generate-bar"]')).not.toBeNull();
+	});
+
+	it("shows one pane at a time in the editor-only and preview-only view modes", async () => {
+		await render(PLAN);
+		await flush();
+		await waitFor(() => container.querySelector('[data-testid="plan-rich-editor"]') !== null, "rich editor");
+
+		await act(async () => {
+			getViewModeButton(container, "editor").click();
+		});
+		expect(container.querySelector('[data-testid="plan-editor-raw-pane"]')).not.toBeNull();
+		expect(container.querySelector('[data-testid="plan-editor-rendered-pane"]')).toBeNull();
+		// Nothing left to drag against once a pane owns the whole row.
+		expect(container.querySelector('[aria-label="Resize plan editor panes"]')).toBeNull();
+
+		await act(async () => {
+			getViewModeButton(container, "preview").click();
+		});
+		expect(container.querySelector('[data-testid="plan-editor-raw-pane"]')).toBeNull();
+		expect(container.querySelector('[data-testid="plan-editor-rendered-pane"]')).not.toBeNull();
+
+		await act(async () => {
+			getViewModeButton(container, "split").click();
+		});
+		expect(container.querySelector('[data-testid="plan-editor-raw-pane"]')).not.toBeNull();
+		expect(container.querySelector('[data-testid="plan-editor-rendered-pane"]')).not.toBeNull();
+		expect(container.querySelector('[aria-label="Resize plan editor panes"]')).not.toBeNull();
+	});
+
+	it("persists the view mode and restores it on the next mount", async () => {
+		await render(PLAN);
+		await flush();
+
+		await act(async () => {
+			getViewModeButton(container, "preview").click();
+		});
+		expect(window.localStorage.getItem(LocalStorageKey.PlanEditorPaneViewMode)).toBe("preview");
+
+		// A fresh mount reading the stored value — the shape a page reload produces.
+		await act(async () => {
+			root.unmount();
+		});
+		root = createRoot(container);
+		await render(PLAN);
+		await flush();
+
+		expect(container.querySelector('[data-testid="plan-editor-raw-pane"]')).toBeNull();
+		expect(container.querySelector('[data-testid="plan-editor-rendered-pane"]')).not.toBeNull();
 	});
 
 	it("greys out the HTML switch until a sibling exists", async () => {

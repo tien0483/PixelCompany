@@ -1,5 +1,5 @@
 import type { Editor } from "@tiptap/react";
-import { AlertTriangle, X } from "lucide-react";
+import { AlertTriangle, Columns2, PanelLeft, PanelRight, X } from "lucide-react";
 import {
 	lazy,
 	type ReactElement,
@@ -34,12 +34,13 @@ import { usePlanImagePaste } from "@/components/plan-editor/use-plan-image-paste
 import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
 import { Spinner } from "@/components/ui/spinner";
+import { Tooltip } from "@/components/ui/tooltip";
 import { HTML_LABELS } from "@/html/html-labels";
 import { importTemplateFile } from "@/html/import-template";
 import { useHtmlBrief, useHtmlDraft, useHtmlGenerate } from "@/html/use-html-agent-stream";
 import { useHtmlTemplates } from "@/html/use-html-templates";
 import { ResizeHandle } from "@/resize/resize-handle";
-import { usePlanEditorLayout } from "@/resize/use-plan-editor-layout";
+import { type PlanEditorPaneViewMode, usePlanEditorLayout } from "@/resize/use-plan-editor-layout";
 import { useResizeDrag } from "@/resize/use-resize-drag";
 import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
 import type { RuntimeSavedPlan } from "@/runtime/types";
@@ -113,6 +114,48 @@ function SourceSwitch({
 					</button>
 				);
 			})}
+		</div>
+	);
+}
+
+const PANE_VIEW_OPTIONS: ReadonlyArray<{ id: PlanEditorPaneViewMode; icon: ReactElement; label: string }> = [
+	{ id: "editor", icon: <PanelLeft size={12} aria-hidden />, label: HTML_LABELS.viewEditorOnly },
+	{ id: "split", icon: <Columns2 size={12} aria-hidden />, label: HTML_LABELS.viewSplit },
+	{ id: "preview", icon: <PanelRight size={12} aria-hidden />, label: HTML_LABELS.viewPreviewOnly },
+];
+
+/**
+ * Which panes the editor shows. Lives in the top header rather than a pane header,
+ * since either pane header can itself be hidden by the mode it would carry.
+ */
+function PaneViewSwitch({
+	value,
+	onChange,
+}: {
+	value: PlanEditorPaneViewMode;
+	onChange: (next: PlanEditorPaneViewMode) => void;
+}): ReactElement {
+	return (
+		<div
+			className="inline-flex items-center gap-0.5 rounded-md border border-border bg-surface-3 p-0.5"
+			data-testid="plan-editor-view-mode-switch"
+		>
+			{PANE_VIEW_OPTIONS.map((option) => (
+				<Tooltip key={option.id} content={option.label}>
+					<button
+						type="button"
+						aria-pressed={value === option.id}
+						aria-label={option.label}
+						onClick={() => onChange(option.id)}
+						className={cn(
+							"flex cursor-pointer items-center rounded-[3px] px-1.5 py-1",
+							value === option.id ? "bg-surface-1 text-text-primary" : "text-text-tertiary hover:text-text-primary",
+						)}
+					>
+						{option.icon}
+					</button>
+				</Tooltip>
+			))}
 		</div>
 	);
 }
@@ -215,6 +258,8 @@ export function PlanEditorView({ plan, workspaceId, onClose, headerActions }: Pl
 		setTemplatePaneWidth,
 		templatePaneCollapsed,
 		toggleTemplatePaneCollapsed,
+		paneViewMode,
+		setPaneViewMode,
 	} = usePlanEditorLayout();
 	const { startDrag } = useResizeDrag();
 	/**
@@ -848,6 +893,21 @@ export function PlanEditorView({ plan, workspaceId, onClose, headerActions }: Pl
 		[setTemplatePaneWidth, startDrag],
 	);
 
+	const handlePaneViewModeChange = useCallback(
+		(mode: PlanEditorPaneViewMode) => {
+			setPaneViewMode(mode);
+			// `focusedPane` only ever moves on a pane's `onFocus`, and it routes real work —
+			// image insertion targets the rich editor, the prompt bar reads the raw selection.
+			// Hiding the focused pane would leave it pointing at UI that is no longer mounted.
+			if (mode === "editor") {
+				setFocusedPane("raw");
+			} else if (mode === "preview") {
+				setFocusedPane("rendered");
+			}
+		},
+		[setPaneViewMode],
+	);
+
 	const isStreaming = generate.status === "running";
 	// One log panel for every pass — whichever ran last is what the user is debugging.
 	const agentLog = useMemo(() => [...brief.log, ...generate.log, ...draft.log], [brief.log, draft.log, generate.log]);
@@ -941,6 +1001,7 @@ export function PlanEditorView({ plan, workspaceId, onClose, headerActions }: Pl
 					</span>
 				</div>
 				<div className="flex items-center gap-3">
+					<PaneViewSwitch value={paneViewMode} onChange={handlePaneViewModeChange} />
 					{headerActions}
 					<div className="flex items-center gap-1.5 text-[11px] text-text-secondary min-w-[80px] justify-end">
 						{activeDoc.status === "loading" || activeDoc.status === "saving" || isUploading ? (
@@ -990,151 +1051,159 @@ export function PlanEditorView({ plan, workspaceId, onClose, headerActions }: Pl
 				)}
 
 				<div ref={containerRef} className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
-					<div
-						className="flex min-h-0 min-w-0 flex-col overflow-hidden"
-						style={{ width: `${rawPaneRatio * 100}%` }}
-						onFocus={() => setFocusedPane("raw")}
-						data-testid="plan-editor-raw-pane"
-					>
-						<div className="flex shrink-0 items-center justify-between gap-2 border-b border-border bg-surface-2 px-2 py-1">
-							<span className="text-[11px] font-semibold uppercase tracking-wide text-text-tertiary">
-								{HTML_LABELS.source}
-							</span>
-							<SourceSwitch
-								value={source}
-								htmlEnabled={htmlAvailable}
-								disabled={isHtmlPlan || isStreaming}
-								onChange={setSourceState}
-								testId="plan-editor-raw-source-switch"
-							/>
-						</div>
-						{showMarkdownTools ? (
-							<PlanMarkdownToolbar
-								disabled={mdDoc.status === "loading"}
-								onCommand={applyTextCommand}
-								onInsertImage={(file) => void uploadImageFile(file)}
-							/>
-						) : (
-							// HTML has no markdown formatting to offer, but its images live in the same
-							// `<stem>.assets/` folder, so the picker still belongs here.
-							<div
-								className="flex items-center gap-0.5 border-b border-border bg-surface-2 px-2 py-1"
-								data-testid="plan-editor-html-tools"
-							>
-								<PlanImageButton
-									disabled={activeDocReadOnly}
-									onSelectFile={(file) => void uploadImageFile(file)}
-								/>
-							</div>
-						)}
-						{activeDoc.status === "loading" ? (
-							<div className="flex min-h-0 flex-1 flex-col gap-3 p-4">
-								<div className="kb-skeleton h-4 w-3/4" />
-								<div className="kb-skeleton h-4 w-full" />
-								<div className="kb-skeleton h-4 w-5/6" />
-								<div className="kb-skeleton h-4 w-2/3" />
-								<div className="kb-skeleton h-4 w-1/2" />
-							</div>
-						) : (
-							<textarea
-								ref={textareaRef}
-								value={activeDoc.content}
-								onChange={(event) => activeDoc.updateContent(event.currentTarget.value)}
-								onSelect={(event) =>
-									setRawSelection({
-										start: event.currentTarget.selectionStart,
-										end: event.currentTarget.selectionEnd,
-									})
-								}
-								onPaste={handlePaste}
-								onDrop={handleDrop}
-								onDragOver={handleDragOver}
-								disabled={activeDocReadOnly}
-								spellCheck={false}
-								className="min-h-0 w-full flex-1 resize-none border-0 bg-surface-1 px-3 py-2 font-mono text-[13px] leading-5 text-text-primary focus:outline-none disabled:opacity-50"
-								data-testid="plan-editor-textarea"
-							/>
-						)}
-						{showMarkdownTools ? (
-							<PlanAiPromptBar
-								mode={promptMode}
-								status={draft.status}
-								error={draft.error}
-								disabled={activeDocReadOnly || isStreaming}
-								onSubmit={handleAiSubmit}
-								onCancel={handleAiCancel}
-								onAttachFile={(file) => void uploadImageFile(file)}
-							/>
-						) : null}
-					</div>
-
-					<ResizeHandle
-						orientation="vertical"
-						ariaLabel="Resize plan editor panes"
-						onMouseDown={handleResizeStart}
-					/>
-
-					<div
-						className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
-						onFocus={() => setFocusedPane("rendered")}
-						data-testid="plan-editor-rendered-pane"
-					>
-						<div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border bg-surface-2 px-2 py-1">
-							<div className="flex items-center gap-2">
+					{/* Outside "split" the visible pane owns the whole row, so the ratio is not applied. */}
+					{paneViewMode === "preview" ? null : (
+						<div
+							className="flex min-h-0 min-w-0 flex-col overflow-hidden"
+							style={{ width: paneViewMode === "split" ? `${rawPaneRatio * 100}%` : "100%" }}
+							onFocus={() => setFocusedPane("raw")}
+							data-testid="plan-editor-raw-pane"
+						>
+							<div className="flex shrink-0 items-center justify-between gap-2 border-b border-border bg-surface-2 px-2 py-1">
 								<span className="text-[11px] font-semibold uppercase tracking-wide text-text-tertiary">
-									{HTML_LABELS.preview}
+									{HTML_LABELS.source}
 								</span>
 								<SourceSwitch
 									value={source}
 									htmlEnabled={htmlAvailable}
 									disabled={isHtmlPlan || isStreaming}
 									onChange={setSourceState}
-									testId="plan-editor-rendered-source-switch"
+									testId="plan-editor-raw-source-switch"
 								/>
-								{/*
-								 * Sits outside the generate bar below, which only exists on the markdown side —
-								 * undoing a generated page is something you do while looking at that page. Absent
-								 * entirely when the runtime has no git to keep versions in.
-								 */}
-								{history.available ? (
-									<PlanHistoryControls
-										entries={history.entries}
-										canUndo={history.canUndo}
-										canRedo={history.canRedo}
-										disabled={isStreaming}
-										onUndo={() => runHistoryAction(history.undo, HTML_LABELS.historyNothingOlder)}
-										onRedo={() => runHistoryAction(history.redo, HTML_LABELS.historyNothingNewer)}
-										onRestore={(entryId) =>
-											runHistoryAction(() => history.restore(entryId), HTML_LABELS.historyDiffUnavailable)
-										}
-										onDiff={history.diff}
-									/>
-								) : null}
 							</div>
-							{!isHtmlPlan && source === "md" ? (
-								<PlanHtmlGenerateBar
-									status={generate.status}
-									briefStatus={brief.status}
-									startedAt={generate.startedAt}
-									firstByteAt={generate.firstByteAt}
-									doneAt={generate.doneAt}
-									htmlSizeBytes={htmlSizeBytes}
-									templates={templates}
-									selectedTemplateId={selectedTemplateId}
-									online={templatesOnline}
-									templatesLoading={templatesLoading}
-									canRefine={htmlAvailable && htmlDoc.content.trim().length > 0}
-									canExpand={!plan.missing}
+							{showMarkdownTools ? (
+								<PlanMarkdownToolbar
 									disabled={mdDoc.status === "loading"}
-									onExpand={handleExpand}
-									onGenerate={handleGenerate}
-									onRefine={handleRefine}
-									onCancel={brief.status === "running" ? brief.cancel : generate.cancel}
+									onCommand={applyTextCommand}
+									onInsertImage={(file) => void uploadImageFile(file)}
+								/>
+							) : (
+								// HTML has no markdown formatting to offer, but its images live in the same
+								// `<stem>.assets/` folder, so the picker still belongs here.
+								<div
+									className="flex items-center gap-0.5 border-b border-border bg-surface-2 px-2 py-1"
+									data-testid="plan-editor-html-tools"
+								>
+									<PlanImageButton
+										disabled={activeDocReadOnly}
+										onSelectFile={(file) => void uploadImageFile(file)}
+									/>
+								</div>
+							)}
+							{activeDoc.status === "loading" ? (
+								<div className="flex min-h-0 flex-1 flex-col gap-3 p-4">
+									<div className="kb-skeleton h-4 w-3/4" />
+									<div className="kb-skeleton h-4 w-full" />
+									<div className="kb-skeleton h-4 w-5/6" />
+									<div className="kb-skeleton h-4 w-2/3" />
+									<div className="kb-skeleton h-4 w-1/2" />
+								</div>
+							) : (
+								<textarea
+									ref={textareaRef}
+									value={activeDoc.content}
+									onChange={(event) => activeDoc.updateContent(event.currentTarget.value)}
+									onSelect={(event) =>
+										setRawSelection({
+											start: event.currentTarget.selectionStart,
+											end: event.currentTarget.selectionEnd,
+										})
+									}
+									onPaste={handlePaste}
+									onDrop={handleDrop}
+									onDragOver={handleDragOver}
+									disabled={activeDocReadOnly}
+									spellCheck={false}
+									className="min-h-0 w-full flex-1 resize-none border-0 bg-surface-1 px-3 py-2 font-mono text-[13px] leading-5 text-text-primary focus:outline-none disabled:opacity-50"
+									data-testid="plan-editor-textarea"
+								/>
+							)}
+							{showMarkdownTools ? (
+								<PlanAiPromptBar
+									mode={promptMode}
+									status={draft.status}
+									error={draft.error}
+									disabled={activeDocReadOnly || isStreaming}
+									onSubmit={handleAiSubmit}
+									onCancel={handleAiCancel}
+									onAttachFile={(file) => void uploadImageFile(file)}
 								/>
 							) : null}
 						</div>
-						{renderedPaneBody()}
-					</div>
+					)}
+
+					{/* A handle with only one pane beside it has nothing to drag against. */}
+					{paneViewMode === "split" ? (
+						<ResizeHandle
+							orientation="vertical"
+							ariaLabel="Resize plan editor panes"
+							onMouseDown={handleResizeStart}
+						/>
+					) : null}
+
+					{paneViewMode === "editor" ? null : (
+						<div
+							className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
+							onFocus={() => setFocusedPane("rendered")}
+							data-testid="plan-editor-rendered-pane"
+						>
+							<div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border bg-surface-2 px-2 py-1">
+								<div className="flex items-center gap-2">
+									<span className="text-[11px] font-semibold uppercase tracking-wide text-text-tertiary">
+										{HTML_LABELS.preview}
+									</span>
+									<SourceSwitch
+										value={source}
+										htmlEnabled={htmlAvailable}
+										disabled={isHtmlPlan || isStreaming}
+										onChange={setSourceState}
+										testId="plan-editor-rendered-source-switch"
+									/>
+									{/*
+									 * Sits outside the generate bar below, which only exists on the markdown side —
+									 * undoing a generated page is something you do while looking at that page. Absent
+									 * entirely when the runtime has no git to keep versions in.
+									 */}
+									{history.available ? (
+										<PlanHistoryControls
+											entries={history.entries}
+											canUndo={history.canUndo}
+											canRedo={history.canRedo}
+											disabled={isStreaming}
+											onUndo={() => runHistoryAction(history.undo, HTML_LABELS.historyNothingOlder)}
+											onRedo={() => runHistoryAction(history.redo, HTML_LABELS.historyNothingNewer)}
+											onRestore={(entryId) =>
+												runHistoryAction(() => history.restore(entryId), HTML_LABELS.historyDiffUnavailable)
+											}
+											onDiff={history.diff}
+										/>
+									) : null}
+								</div>
+								{!isHtmlPlan && source === "md" ? (
+									<PlanHtmlGenerateBar
+										status={generate.status}
+										briefStatus={brief.status}
+										startedAt={generate.startedAt}
+										firstByteAt={generate.firstByteAt}
+										doneAt={generate.doneAt}
+										htmlSizeBytes={htmlSizeBytes}
+										templates={templates}
+										selectedTemplateId={selectedTemplateId}
+										online={templatesOnline}
+										templatesLoading={templatesLoading}
+										canRefine={htmlAvailable && htmlDoc.content.trim().length > 0}
+										canExpand={!plan.missing}
+										disabled={mdDoc.status === "loading"}
+										onExpand={handleExpand}
+										onGenerate={handleGenerate}
+										onRefine={handleRefine}
+										onCancel={brief.status === "running" ? brief.cancel : generate.cancel}
+									/>
+								) : null}
+							</div>
+							{renderedPaneBody()}
+						</div>
+					)}
 				</div>
 			</div>
 

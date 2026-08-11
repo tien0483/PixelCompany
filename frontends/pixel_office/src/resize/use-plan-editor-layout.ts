@@ -6,12 +6,18 @@ import {
 	getResizePreferenceDefaultValue,
 	loadBooleanResizePreference,
 	loadResizePreference,
+	loadStringResizePreference,
 	persistBooleanResizePreference,
 	persistResizePreference,
+	persistStringResizePreference,
 	type ResizeBooleanPreference,
 	type ResizeNumberPreference,
+	type ResizeStringPreference,
 } from "@/resize/resize-preferences";
 import { LocalStorageKey } from "@/storage/local-storage-store";
+
+/** Which of the source/preview panes are on screen. "split" keeps both, at `rawPaneRatio`. */
+export type PlanEditorPaneViewMode = "editor" | "split" | "preview";
 
 const RAW_PANE_RATIO_PREFERENCE: ResizeNumberPreference = {
 	key: LocalStorageKey.PlanEditorRawPaneRatio,
@@ -31,9 +37,15 @@ const TEMPLATE_PANE_COLLAPSED_PREFERENCE: ResizeBooleanPreference = {
 	defaultValue: false,
 };
 
+const PANE_VIEW_MODE_PREFERENCE: ResizeStringPreference<PlanEditorPaneViewMode> = {
+	key: LocalStorageKey.PlanEditorPaneViewMode,
+	defaultValue: "split",
+	values: ["editor", "split", "preview"],
+};
+
 /**
- * Plan editor pane geometry: the template rail's width/collapsed state, plus the
- * width split between the raw (left) and rendered (right) panes beside it.
+ * Plan editor pane geometry: the template rail's width/collapsed state, plus which of the
+ * raw (left) and rendered (right) panes beside it are shown and how they split the width.
  */
 export function usePlanEditorLayout(): {
 	rawPaneRatio: number;
@@ -42,6 +54,8 @@ export function usePlanEditorLayout(): {
 	setTemplatePaneWidth: (width: number) => void;
 	templatePaneCollapsed: boolean;
 	toggleTemplatePaneCollapsed: () => void;
+	paneViewMode: PlanEditorPaneViewMode;
+	setPaneViewMode: (mode: PlanEditorPaneViewMode) => void;
 } {
 	const [rawPaneRatio, setRawPaneRatioState] = useState(() => loadResizePreference(RAW_PANE_RATIO_PREFERENCE));
 	const [templatePaneWidth, setTemplatePaneWidthState] = useState(() =>
@@ -50,6 +64,7 @@ export function usePlanEditorLayout(): {
 	const [templatePaneCollapsed, setTemplatePaneCollapsedState] = useState(() =>
 		loadBooleanResizePreference(TEMPLATE_PANE_COLLAPSED_PREFERENCE),
 	);
+	const [paneViewMode, setPaneViewModeState] = useState(() => loadStringResizePreference(PANE_VIEW_MODE_PREFERENCE));
 
 	const setRawPaneRatio = useCallback((ratio: number) => {
 		setRawPaneRatioState(persistResizePreference(RAW_PANE_RATIO_PREFERENCE, ratio));
@@ -65,10 +80,17 @@ export function usePlanEditorLayout(): {
 		);
 	}, []);
 
+	// The ratio is deliberately left alone: switching to a single-pane mode and back
+	// should return to the split the user dragged, not to 50/50.
+	const setPaneViewMode = useCallback((mode: PlanEditorPaneViewMode) => {
+		setPaneViewModeState(persistStringResizePreference(PANE_VIEW_MODE_PREFERENCE, mode));
+	}, []);
+
 	useLayoutResetEffect(() => {
 		setRawPaneRatioState(getResizePreferenceDefaultValue(RAW_PANE_RATIO_PREFERENCE));
 		setTemplatePaneWidthState(getResizePreferenceDefaultValue(TEMPLATE_PANE_WIDTH_PREFERENCE));
 		setTemplatePaneCollapsedState(TEMPLATE_PANE_COLLAPSED_PREFERENCE.defaultValue);
+		setPaneViewModeState(PANE_VIEW_MODE_PREFERENCE.defaultValue);
 	});
 
 	return {
@@ -78,5 +100,7 @@ export function usePlanEditorLayout(): {
 		setTemplatePaneWidth,
 		templatePaneCollapsed,
 		toggleTemplatePaneCollapsed,
+		paneViewMode,
+		setPaneViewMode,
 	};
 }
