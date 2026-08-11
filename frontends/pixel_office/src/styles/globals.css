@@ -347,6 +347,19 @@ body,
 	background: var(--color-text-tertiary);
 }
 
+/*
+ * Fixed-height chrome rows (plan editor pane headers and toolbars) that scroll sideways
+ * when they run out of width. The 6px horizontal bar would eat into a 36px row and clip
+ * the buttons, so it is hidden — wheel / trackpad / focus scrolling still works.
+ */
+.kb-toolbar-scroll {
+	scrollbar-width: none;
+}
+
+.kb-toolbar-scroll::-webkit-scrollbar {
+	display: none;
+}
+
 /* -- Card shell -- */
 
 .kb-board-card-shell {

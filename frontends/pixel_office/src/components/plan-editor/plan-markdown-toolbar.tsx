@@ -57,7 +57,7 @@ export function PlanMarkdownToolbar({ disabled, onCommand, onInsertImage }: Plan
 	const [isColorOpen, setIsColorOpen] = useState(false);
 
 	return (
-		<div className="flex items-center gap-0.5 border-b border-border bg-surface-2 px-2 py-1">
+		<div className="kb-toolbar-scroll flex h-9 shrink-0 items-center gap-0.5 overflow-x-auto border-b border-border bg-surface-2 px-2 py-1">
 			<ToolbarButton
 				icon={<Bold size={14} />}
 				label="Bold"

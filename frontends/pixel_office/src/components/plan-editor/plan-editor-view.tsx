@@ -911,6 +911,9 @@ export function PlanEditorView({ plan, workspaceId, onClose, headerActions }: Pl
 						onChange={mdDoc.updateContent}
 						planId={plan.id}
 						disabled={mdDoc.status === "loading" || mdDoc.status === "error"}
+						// The pane header owns undo/redo whenever versions are recorded; only a
+						// git-less runtime falls back to the in-editor pair.
+						showUndoRedo={!history.available}
 						onInsertImage={(file) => void uploadImageFile(file)}
 						onPaste={handlePaste}
 						onDrop={handleDrop}
@@ -996,7 +999,8 @@ export function PlanEditorView({ plan, workspaceId, onClose, headerActions }: Pl
 						onFocus={() => setFocusedPane("raw")}
 						data-testid="plan-editor-raw-pane"
 					>
-						<div className="flex shrink-0 items-center justify-between gap-2 border-b border-border bg-surface-2 px-2 py-1">
+						{/* h-9 on every pane chrome row — see the rendered pane's header below. */}
+						<div className="flex h-9 shrink-0 items-center justify-between gap-2 border-b border-border bg-surface-2 px-2 py-1">
 							<span className="text-[11px] font-semibold uppercase tracking-wide text-text-tertiary">
 								{HTML_LABELS.source}
 							</span>
@@ -1018,7 +1022,7 @@ export function PlanEditorView({ plan, workspaceId, onClose, headerActions }: Pl
 							// HTML has no markdown formatting to offer, but its images live in the same
 							// `<stem>.assets/` folder, so the picker still belongs here.
 							<div
-								className="flex items-center gap-0.5 border-b border-border bg-surface-2 px-2 py-1"
+								className="flex h-9 shrink-0 items-center gap-0.5 border-b border-border bg-surface-2 px-2 py-1"
 								data-testid="plan-editor-html-tools"
 							>
 								<PlanImageButton
@@ -1079,8 +1083,14 @@ export function PlanEditorView({ plan, workspaceId, onClose, headerActions }: Pl
 						onFocus={() => setFocusedPane("rendered")}
 						data-testid="plan-editor-rendered-pane"
 					>
-						<div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border bg-surface-2 px-2 py-1">
-							<div className="flex items-center gap-2">
+						{/*
+						 * Fixed h-9 and no wrapping: this header and the raw pane's must be the same
+						 * height, otherwise the two formatting toolbars below them sit on different
+						 * lines. A narrow pane scrolls the generate bar sideways instead of growing
+						 * a second row.
+						 */}
+						<div className="kb-toolbar-scroll flex h-9 min-w-0 shrink-0 items-center justify-between gap-2 overflow-x-auto border-b border-border bg-surface-2 px-2 py-1">
+							<div className="flex shrink-0 items-center gap-2">
 								<span className="text-[11px] font-semibold uppercase tracking-wide text-text-tertiary">
 									{HTML_LABELS.preview}
 								</span>
