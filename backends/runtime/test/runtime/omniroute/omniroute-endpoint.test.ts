@@ -6,8 +6,8 @@ import {
 	OMNIROUTE_FALLBACK_MODEL_ID,
 	resolveOmniRouteApiKey,
 	resolveOmniRouteBaseUrl,
-	resolveOmniRouteDefaultModelId,
 	resolveOmniRouteHostProviderId,
+	resolveOmniRouteModelSelection,
 } from "../../../src/omniroute/omniroute-endpoint";
 
 const ENV_KEYS = ["OMNIROUTE_PORT", "OMNIROUTE_BASE_URL", "OMNIROUTE_API_KEY", "OMNIROUTE_HOST_PROVIDER_ID"] as const;
@@ -121,33 +121,50 @@ describe("fetchOmniRouteModelIds", () => {
 	});
 });
 
-describe("resolveOmniRouteDefaultModelId", () => {
+describe("resolveOmniRouteModelSelection", () => {
 	it("keeps a saved model the router still serves", () => {
 		expect(
-			resolveOmniRouteDefaultModelId({
+			resolveOmniRouteModelSelection({
 				savedModelId: "dva/claude-opus-4-6",
 				modelIds: ["auto/best-coding", "dva/claude-opus-4-6"],
 			}),
-		).toBe("dva/claude-opus-4-6");
+		).toEqual({ modelId: "dva/claude-opus-4-6", warning: null });
 	});
 
-	it("drops a saved model the router no longer serves", () => {
-		expect(
-			resolveOmniRouteDefaultModelId({
-				savedModelId: "anthropic/claude-sonnet-4-5",
-				modelIds: ["auto/best-coding", "oc/deepseek-v4-flash-free"],
-			}),
-		).toBe(OMNIROUTE_FALLBACK_MODEL_ID);
+	it("replaces an unpinned saved model the router no longer serves, and says so", () => {
+		const selection = resolveOmniRouteModelSelection({
+			savedModelId: "anthropic/claude-sonnet-4-5",
+			modelIds: ["auto/best-coding", "oc/deepseek-v4-flash-free"],
+		});
+		expect(selection.modelId).toBe(OMNIROUTE_FALLBACK_MODEL_ID);
+		expect(selection.warning).toContain("anthropic/claude-sonnet-4-5");
+	});
+
+	it("never replaces an explicitly pinned model, even when unlisted", () => {
+		const selection = resolveOmniRouteModelSelection({
+			savedModelId: "anthropic/claude-sonnet-4-5",
+			modelIds: ["auto/best-coding", "oc/deepseek-v4-flash-free"],
+			pinned: true,
+		});
+		expect(selection.modelId).toBe("anthropic/claude-sonnet-4-5");
+		expect(selection.warning).toContain("anthropic/claude-sonnet-4-5");
 	});
 
 	it("falls back to the first live id when no auto alias exists", () => {
-		expect(resolveOmniRouteDefaultModelId({ savedModelId: null, modelIds: ["oc/deepseek-v4-flash-free"] })).toBe(
-			"oc/deepseek-v4-flash-free",
-		);
+		expect(resolveOmniRouteModelSelection({ savedModelId: null, modelIds: ["oc/deepseek-v4-flash-free"] })).toEqual({
+			modelId: "oc/deepseek-v4-flash-free",
+			warning: null,
+		});
 	});
 
 	it("keeps the saved model when the catalog is unreachable", () => {
-		expect(resolveOmniRouteDefaultModelId({ savedModelId: "oc/whatever", modelIds: [] })).toBe("oc/whatever");
-		expect(resolveOmniRouteDefaultModelId({ savedModelId: null, modelIds: [] })).toBe(OMNIROUTE_FALLBACK_MODEL_ID);
+		expect(resolveOmniRouteModelSelection({ savedModelId: "oc/whatever", modelIds: [] })).toEqual({
+			modelId: "oc/whatever",
+			warning: null,
+		});
+		expect(resolveOmniRouteModelSelection({ savedModelId: null, modelIds: [] })).toEqual({
+			modelId: OMNIROUTE_FALLBACK_MODEL_ID,
+			warning: null,
+		});
 	});
 });

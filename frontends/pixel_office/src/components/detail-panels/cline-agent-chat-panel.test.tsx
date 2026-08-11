@@ -4,11 +4,39 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ClineAgentChatPanel, type ClineAgentChatPanelHandle } from "@/components/detail-panels/cline-agent-chat-panel";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { resetClineReasoningVisibility } from "@/hooks/use-cline-reasoning-visibility";
 import type { ClineChatMessage } from "@/hooks/use-cline-chat-session";
+import { resetClineReasoningVisibility } from "@/hooks/use-cline-reasoning-visibility";
 import type { RuntimeTaskHookActivity, RuntimeTaskSessionSummary } from "@/runtime/types";
 import { LocalStorageKey } from "@/storage/local-storage-store";
 import { resetWorkspaceMetadataStore, setTaskWorkspaceSnapshot } from "@/stores/workspace-metadata-store";
+
+// Only the fields the panel reads. The real controller does network work on mount, which this
+// suite neither needs nor can serve.
+const clineSettingsMock = vi.hoisted(() => ({
+	setModelId: vi.fn(),
+	setReasoningEffort: vi.fn(),
+	saveProviderSettings: vi.fn(async () => ({ ok: true })),
+	// Defaults match an unconfigured controller so the rest of the suite is unaffected; the
+	// model-switching suite installs a populated seat in its own beforeEach.
+	state: {
+		providerId: "",
+		modelId: "",
+		reasoningEffort: "" as const,
+		providerModels: [] as { id: string; name: string }[],
+		isLoadingProviderModels: false,
+		selectedModelSupportsReasoningEffort: false,
+		hasUnsavedChanges: false,
+	},
+}));
+
+vi.mock("@/hooks/use-runtime-settings-cline-controller", () => ({
+	useRuntimeSettingsClineController: () => ({
+		...clineSettingsMock.state,
+		setModelId: clineSettingsMock.setModelId,
+		setReasoningEffort: clineSettingsMock.setReasoningEffort,
+		saveProviderSettings: clineSettingsMock.saveProviderSettings,
+	}),
+}));
 
 function createSummary(
 	state: RuntimeTaskSessionSummary["state"],
@@ -53,7 +81,11 @@ function getMessageList(container: HTMLElement): HTMLDivElement {
 
 function mockScrollMetrics(
 	element: HTMLDivElement,
-	initialValues: { scrollHeight: number; clientHeight: number; scrollTop: number },
+	initialValues: {
+		scrollHeight: number;
+		clientHeight: number;
+		scrollTop: number;
+	},
 ): {
 	getScrollTop: () => number;
 	setScrollHeight: (value: number) => void;
@@ -840,7 +872,9 @@ describe("ClineAgentChatPanel", () => {
 			await Promise.resolve();
 		});
 
-		expect(onSendMessage).toHaveBeenCalledWith("task-1", "Ship it", { mode: "act" });
+		expect(onSendMessage).toHaveBeenCalledWith("task-1", "Ship it", {
+			mode: "act",
+		});
 
 		await act(async () => {
 			textarea.dispatchEvent(
@@ -913,7 +947,9 @@ describe("ClineAgentChatPanel", () => {
 			await Promise.resolve();
 		});
 
-		expect(onSendMessage).toHaveBeenCalledWith("task-1", "Investigate", { mode: "plan" });
+		expect(onSendMessage).toHaveBeenCalledWith("task-1", "Investigate", {
+			mode: "plan",
+		});
 	});
 
 	it("restores the previously selected mode when switching back to a task", async () => {
@@ -1130,7 +1166,9 @@ describe("ClineAgentChatPanel", () => {
 			await Promise.resolve();
 		});
 
-		expect(onSendMessage).toHaveBeenCalledWith("task-1", "Switch it", { mode: "plan" });
+		expect(onSendMessage).toHaveBeenCalledWith("task-1", "Switch it", {
+			mode: "plan",
+		});
 	});
 
 	it("hides the composer mode toggle when requested", async () => {
@@ -1200,7 +1238,9 @@ describe("ClineAgentChatPanel", () => {
 			await Promise.resolve();
 		});
 
-		expect(onSendMessage).toHaveBeenCalledWith("task-1", "Keep acting", { mode: "act" });
+		expect(onSendMessage).toHaveBeenCalledWith("task-1", "Keep acting", {
+			mode: "act",
+		});
 	});
 
 	it("keeps chat pinned to bottom when action footer appears", async () => {
@@ -1329,5 +1369,129 @@ describe("ClineAgentChatPanel", () => {
 
 		expect(container.textContent).toContain("Commit");
 		expect(container.textContent).not.toContain("Open PR");
+	});
+});
+
+describe("ClineAgentChatPanel model switching", () => {
+	let container: HTMLDivElement;
+	let root: Root;
+
+	beforeEach(() => {
+		clineSettingsMock.setModelId.mockClear();
+		clineSettingsMock.saveProviderSettings.mockClear();
+		clineSettingsMock.state.providerId = "omniroute";
+		clineSettingsMock.state.modelId = "auto/best-coding";
+		clineSettingsMock.state.providerModels = [
+			{ id: "auto/best-coding", name: "auto/best-coding" },
+			{ id: "dva/claude-opus-4-6", name: "dva/claude-opus-4-6" },
+		];
+		container = document.createElement("div");
+		document.body.appendChild(container);
+		root = createRoot(container);
+	});
+
+	afterEach(() => {
+		act(() => root.unmount());
+		container.remove();
+		clineSettingsMock.state.providerId = "";
+		clineSettingsMock.state.modelId = "";
+		clineSettingsMock.state.providerModels = [];
+	});
+
+	async function pickModel(modelId: string): Promise<void> {
+		const trigger = container.querySelector("#cline-chat-model-picker");
+		if (!(trigger instanceof HTMLButtonElement)) {
+			throw new Error("Expected the model picker trigger.");
+		}
+		await act(async () => {
+			trigger.click();
+			await Promise.resolve();
+		});
+		const option = [...document.querySelectorAll("button")].find((button) => button.textContent?.includes(modelId));
+		if (!option) {
+			throw new Error(`Expected a "${modelId}" option.`);
+		}
+		await act(async () => {
+			option.click();
+			await Promise.resolve();
+		});
+	}
+
+	it("pins the model to the card and applies it to the running session", async () => {
+		const onTaskClineSettingsChanged = vi.fn();
+		const onApplyModelToSession = vi.fn(async () => ({ ok: true }));
+
+		await act(async () => {
+			renderPanel(
+				root,
+				<ClineAgentChatPanel
+					taskId="task-1"
+					summary={createSummary("awaiting_review")}
+					workspaceId="workspace-1"
+					onLoadMessages={async () => []}
+					onTaskClineSettingsChanged={onTaskClineSettingsChanged}
+					onApplyModelToSession={onApplyModelToSession}
+				/>,
+			);
+			await Promise.resolve();
+		});
+
+		await pickModel("dva/claude-opus-4-6");
+
+		expect(onTaskClineSettingsChanged).toHaveBeenCalledWith({
+			providerId: "omniroute",
+			modelId: "dva/claude-opus-4-6",
+			reasoningEffort: "",
+		});
+		// Pinning to the card, never to the global provider settings that every other card inherits.
+		expect(clineSettingsMock.saveProviderSettings).not.toHaveBeenCalled();
+		expect(onApplyModelToSession).toHaveBeenCalledWith("task-1", "dva/claude-opus-4-6", "omniroute");
+	});
+
+	it("surfaces a failed live switch instead of leaving the picker looking applied", async () => {
+		const onApplyModelToSession = vi.fn(async () => ({
+			ok: false,
+			message: "Switching providers requires restarting the session.",
+		}));
+
+		await act(async () => {
+			renderPanel(
+				root,
+				<ClineAgentChatPanel
+					taskId="task-1"
+					summary={createSummary("awaiting_review")}
+					workspaceId="workspace-1"
+					onLoadMessages={async () => []}
+					onTaskClineSettingsChanged={vi.fn()}
+					onApplyModelToSession={onApplyModelToSession}
+				/>,
+			);
+			await Promise.resolve();
+		});
+
+		await pickModel("dva/claude-opus-4-6");
+
+		expect(container.textContent).toContain("Switching providers requires restarting the session.");
+	});
+
+	it("shows the model the session is actually running when it differs from the pin", async () => {
+		await act(async () => {
+			renderPanel(
+				root,
+				<ClineAgentChatPanel
+					taskId="task-1"
+					summary={createSummary("awaiting_review", null, {
+						modelId: "dva/claude-opus-4-6",
+					})}
+					workspaceId="workspace-1"
+					onLoadMessages={async () => []}
+				/>,
+			);
+			await Promise.resolve();
+		});
+
+		const trigger = container.querySelector("#cline-chat-model-picker");
+		expect(trigger?.textContent).toContain("dva/claude-opus-4-6");
+		expect(trigger?.getAttribute("title")).toContain("Session is running dva/claude-opus-4-6");
 	});
 });

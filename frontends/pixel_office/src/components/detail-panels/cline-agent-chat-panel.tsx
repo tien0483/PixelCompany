@@ -72,7 +72,6 @@ export interface ClineAgentChatPanelProps {
 	workspaceId?: string | null;
 	runtimeConfig?: RuntimeConfigResponse | null;
 	taskClineSettings?: RuntimeTaskClineSettings;
-	taskHasExplicitClineSettings?: boolean;
 	onClineSettingsSaved?: () => void;
 	onTaskClineSettingsChanged?: (settings: {
 		providerId: string;
@@ -85,6 +84,12 @@ export interface ClineAgentChatPanelProps {
 		options?: { mode?: RuntimeTaskSessionMode; images?: TaskImage[] },
 	) => Promise<ClineChatActionResult>;
 	onCancelTurn?: (taskId: string) => Promise<{ ok: boolean; message?: string }>;
+	/** Switches the model of the live session; the card pin is persisted separately. */
+	onApplyModelToSession?: (
+		taskId: string,
+		modelId: string,
+		providerId?: string,
+	) => Promise<{ ok: boolean; message?: string }>;
 	onLoadMessages?: (taskId: string) => Promise<ClineChatMessage[] | null>;
 	incomingMessages?: ClineChatMessage[] | null;
 	incomingMessage?: ClineChatMessage | null;
@@ -111,11 +116,11 @@ export const ClineAgentChatPanel = React.forwardRef<ClineAgentChatPanelHandle, C
 			workspaceId = null,
 			runtimeConfig = null,
 			taskClineSettings,
-			taskHasExplicitClineSettings = false,
 			onClineSettingsSaved,
 			onTaskClineSettingsChanged,
 			onSendMessage,
 			onCancelTurn,
+			onApplyModelToSession,
 			onLoadMessages,
 			incomingMessages,
 			incomingMessage,
@@ -173,10 +178,8 @@ export const ClineAgentChatPanel = React.forwardRef<ClineAgentChatPanelHandle, C
 			return persistedMode ?? summary?.mode ?? defaultMode;
 		});
 		const [draftImages, setDraftImages] = useState<TaskImage[]>([]);
-		const {
-			isVisible: isClineReasoningVisible,
-			setVisible: setClineReasoningVisible,
-		} = useClineReasoningVisibility();
+		const { isVisible: isClineReasoningVisible, setVisible: setClineReasoningVisible } =
+			useClineReasoningVisibility();
 		const clineSettings = useRuntimeSettingsClineController({
 			open: true,
 			workspaceId,
@@ -203,17 +206,25 @@ export const ClineAgentChatPanel = React.forwardRef<ClineAgentChatPanelHandle, C
 			[clineSettings.providerModels],
 		);
 
+		// What the session is *actually* running, straight from the runtime summary. The picker
+		// used to show only the settings value, which is why a stale or substituted model looked
+		// like the selector was being ignored.
+		const activeSessionModelId = summary?.modelId?.trim() ?? "";
+		const hasPendingModelChange =
+			activeSessionModelId.length > 0 && activeSessionModelId !== clineSettings.modelId.trim();
+
 		const selectedModelButtonText = useMemo(
 			() =>
 				buildClineSelectedModelButtonText({
 					modelOptions,
-					selectedModelId: clineSettings.modelId,
+					selectedModelId: activeSessionModelId || clineSettings.modelId,
 					reasoningEffort: clineSettings.reasoningEffort,
 					showReasoningEffort: clineSettings.selectedModelSupportsReasoningEffort,
 					isModelLoading: clineSettings.isLoadingProviderModels,
 					isModelSaving: isSavingModel,
 				}),
 			[
+				activeSessionModelId,
 				clineSettings.isLoadingProviderModels,
 				clineSettings.modelId,
 				clineSettings.reasoningEffort,
@@ -222,6 +233,10 @@ export const ClineAgentChatPanel = React.forwardRef<ClineAgentChatPanelHandle, C
 				modelOptions,
 			],
 		);
+
+		const modelPickerTitle = hasPendingModelChange
+			? `Session is running ${activeSessionModelId}; ${clineSettings.modelId} applies on the next start.`
+			: undefined;
 
 		const panelError = composerError ?? error;
 		const attachmentWarningMessage =
@@ -307,8 +322,11 @@ export const ClineAgentChatPanel = React.forwardRef<ClineAgentChatPanelHandle, C
 						overrides && "reasoningEffort" in overrides
 							? overrides.reasoningEffort || ""
 							: clineSettings.reasoningEffort;
-					if (taskHasExplicitClineSettings) {
-						onTaskClineSettingsChanged?.({
+					// Always pin to this card when the surface supports it. Falling through to
+					// saveProviderSettings for an unpinned card rewrote the *global* Cline
+					// defaults, silently changing the model for every other inheriting card.
+					if (onTaskClineSettingsChanged) {
+						onTaskClineSettingsChanged({
 							providerId: clineSettings.providerId,
 							modelId: nextModelId,
 							reasoningEffort: nextReasoningEffort,
@@ -329,7 +347,7 @@ export const ClineAgentChatPanel = React.forwardRef<ClineAgentChatPanelHandle, C
 					setIsSavingModel(false);
 				}
 			},
-			[clineSettings, onClineSettingsSaved, onTaskClineSettingsChanged, taskHasExplicitClineSettings, workspaceId],
+			[clineSettings, onClineSettingsSaved, onTaskClineSettingsChanged, workspaceId],
 		);
 
 		const handleSelectModel = useCallback(
@@ -338,9 +356,34 @@ export const ClineAgentChatPanel = React.forwardRef<ClineAgentChatPanelHandle, C
 					return;
 				}
 				clineSettings.setModelId(nextModelId);
-				void persistClineModelSettings({ modelId: nextModelId });
+				void (async () => {
+					// Persist first: the pin is what every restart path reads, so it must survive
+					// even if the live swap fails or the view unmounts mid-flight.
+					const persisted = await persistClineModelSettings({
+						modelId: nextModelId,
+					});
+					if (!persisted || !onApplyModelToSession) {
+						return;
+					}
+					setIsSavingModel(true);
+					try {
+						const result = await onApplyModelToSession(taskId, nextModelId, clineSettings.providerId);
+						if (!result.ok) {
+							setComposerError(result.message ?? "Could not switch the model for this session.");
+						}
+					} finally {
+						setIsSavingModel(false);
+					}
+				})();
 			},
-			[clineSettings.modelId, clineSettings.setModelId, persistClineModelSettings],
+			[
+				clineSettings.modelId,
+				clineSettings.providerId,
+				clineSettings.setModelId,
+				onApplyModelToSession,
+				persistClineModelSettings,
+				taskId,
+			],
 		);
 
 		const handleSelectReasoningEffort = useCallback(
@@ -455,6 +498,7 @@ export const ClineAgentChatPanel = React.forwardRef<ClineAgentChatPanelHandle, C
 						pinSelectedModelToTop={modelPickerOptions.shouldPinSelectedModelToTop}
 						selectedModelId={clineSettings.modelId}
 						selectedModelButtonText={selectedModelButtonText}
+						{...(modelPickerTitle ? { modelPickerTitle } : {})}
 						onSelectModel={handleSelectModel}
 						reasoningEnabledModelIds={reasoningEnabledModelIds}
 						selectedReasoningEffort={clineSettings.reasoningEffort}
@@ -463,10 +507,9 @@ export const ClineAgentChatPanel = React.forwardRef<ClineAgentChatPanelHandle, C
 						isModelSaving={isSavingModel}
 						modelPickerDisabled={isSavingModel || clineSettings.providerId.trim().length === 0}
 						isSending={isSavingModel || isSending}
-					showReasoningToggle
-					isReasoningVisible={isClineReasoningVisible}
-					onReasoningVisibilityChange={setClineReasoningVisible}
-
+						showReasoningToggle
+						isReasoningVisible={isClineReasoningVisible}
+						onReasoningVisibilityChange={setClineReasoningVisible}
 						warningMessage={summary?.warningMessage ?? null}
 						attachmentWarningMessage={attachmentWarningMessage}
 						workspaceId={workspaceId}
@@ -476,13 +519,7 @@ export const ClineAgentChatPanel = React.forwardRef<ClineAgentChatPanelHandle, C
 					<div className="flex flex-col gap-2 px-3 pb-3">
 						{showReviewActions ? (
 							<div className="flex gap-2">
-								<Button
-									variant="primary"
-									size="sm"
-									fill
-									disabled={isCommitLoading}
-									onClick={onCommit}
-								>
+								<Button variant="primary" size="sm" fill disabled={isCommitLoading} onClick={onCommit}>
 									{isCommitLoading ? "..." : "Commit"}
 								</Button>
 							</div>

@@ -427,41 +427,24 @@ export function TaskAgentModelPicker({
 		],
 	);
 
-	// When models finish loading and the currently selected model isn't in the
-	// options list, auto-select the first real model so the button never shows
-	// "No models available". Pick the first non-empty option (skipping the
-	// "Default" placeholder) so the user immediately sees a concrete model name.
+	// A pin the provider's current catalog doesn't list is reported, never rewritten.
 	//
-	// Guard: also skip when model options only contains the "Default"
-	// placeholder (length <= 1). This prevents a race condition where the
-	// effect fires on the initial render before models have been fetched —
-	// at that point isLoadingModels is still false (hasn't been set to true
-	// yet by the fetch effect) and the stale/empty options list would
-	// incorrectly clear a valid saved clineModelId.
-	// A pin that names the provider's default model is represented by the "" row, so it is
-	// deliberately absent from the explicit options — treat it as present, or this effect
-	// would rewrite every seat pin to whichever model sorts first.
-	useEffect(() => {
+	// This used to silently replace the pin with whichever model sorted first, which made a
+	// deliberate choice look like it had been ignored — the same class of bug as the router-side
+	// `auto/best-coding` substitution. A catalog can also be momentarily stale or partial (an
+	// offline OmniRoute returns nothing), so an absent id is not evidence the pin is wrong.
+	//
+	// Guard: skip while loading and when the options list holds only the "Default" placeholder
+	// (length <= 1) — on the initial render `isLoadingModels` is still false and the empty list
+	// would flag every valid pin. A pin naming the provider's default is represented by the ""
+	// row and is deliberately absent from the explicit options, so treat it as present.
+	const unlistedPinnedModelId = useMemo(() => {
 		if (isLoadingModels || !selectedModelOptionValue || modelPickerOptions.options.length <= 1) {
-			return;
+			return null;
 		}
 		const modelExists = modelPickerOptions.options.some((opt) => opt.value === selectedModelOptionValue);
-		if (!modelExists) {
-			const firstRealModel = modelPickerOptions.options.find((opt) => opt.value !== "");
-			updateTaskClineSettings((currentSettings) => {
-				const nextSettings = cloneTaskClineSettings(currentSettings) ?? {};
-				if (firstRealModel?.value) {
-					nextSettings.modelId = firstRealModel.value;
-					return nextSettings;
-				}
-				delete nextSettings.modelId;
-				const preserveEmptyOverride = currentSettings !== undefined && Object.keys(currentSettings).length === 0;
-				return nextSettings.providerId || nextSettings.reasoningEffort || preserveEmptyOverride
-					? nextSettings
-					: undefined;
-			});
-		}
-	}, [isLoadingModels, modelPickerOptions.options, selectedModelOptionValue, updateTaskClineSettings]);
+		return modelExists ? null : selectedModelOptionValue;
+	}, [isLoadingModels, modelPickerOptions.options, selectedModelOptionValue]);
 
 	return (
 		<div className="flex flex-col gap-2">
@@ -612,6 +595,12 @@ export function TaskAgentModelPicker({
 											triggerVariant="default"
 											onPopoverOpenChange={setIsModelPopoverOpen}
 										/>
+										{unlistedPinnedModelId ? (
+											<p className="mt-1 mb-0 text-[11px] text-status-orange">
+												{unlistedPinnedModelId} is not in this provider's current model list. It stays
+												pinned — pick another model if requests fail.
+											</p>
+										) : null}
 									</div>
 								) : null}
 							</div>

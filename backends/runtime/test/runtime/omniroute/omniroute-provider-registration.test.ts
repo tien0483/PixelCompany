@@ -12,8 +12,12 @@ const providerMocks = vi.hoisted(() => ({
 	hasProvider: vi.fn(() => false),
 }));
 
+const BUILT_IN_PROVIDER_IDS = new Set(["anthropic", "cline", "openrouter", "litellm", "groq", "openai-native"]);
+
 vi.mock("@clinebot/core", () => ({
 	addLocalProvider: providerMocks.addLocalProvider,
+	isBuiltInProviderId: (providerId: string) => BUILT_IN_PROVIDER_IDS.has(providerId),
+	normalizeProviderId: (providerId: string) => providerId,
 	ensureCustomProvidersLoaded: vi.fn(),
 	getLocalProviderModels: vi.fn(async () => ({ providerId: "", models: [] })),
 	getValidClineCredentials: vi.fn(),
@@ -156,5 +160,66 @@ describe("resolveLaunchConfig – custom provider registration", () => {
 		const service = createClineProviderService();
 
 		await expect(service.resolveLaunchConfig()).rejects.toThrow(/OmniRoute requires an API key/);
+	});
+});
+
+describe("resolveLaunchConfig – generic custom seats", () => {
+	const FPT_SETTINGS = {
+		provider: "fpt-ai",
+		model: "fpt/llama-3.3-70b",
+		baseUrl: "https://mkp-api.fptcloud.com/v1",
+		apiKey: "sk-fpt-test",
+	};
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+		delete process.env.CLINE_CUSTOM_SEAT_HOST_PROVIDER_ID;
+		providerMocks.hasProvider.mockReturnValue(true);
+		providerMocks.getLastUsedProviderSettings.mockReturnValue(FPT_SETTINGS);
+		providerMocks.getProviderSettings.mockImplementation((providerId: string) =>
+			providerId === "fpt-ai" ? FPT_SETTINGS : undefined,
+		);
+	});
+
+	// Without the swap the first turn dies with `Unknown or disabled provider "fpt-ai"`: the SDK
+	// gateway is built with providerConfigs only, so it never sees a models.json seat.
+	it("streams a user-added seat under a built-in host id while keeping the seat identity", async () => {
+		const service = createClineProviderService();
+
+		const launchConfig = await service.resolveLaunchConfig({ providerIdOverride: "fpt-ai" });
+
+		expect(launchConfig.providerId).toBe("openrouter");
+		expect(launchConfig.seatProviderId).toBe("fpt-ai");
+		expect(launchConfig.baseUrl).toBe("https://mkp-api.fptcloud.com/v1");
+		expect(launchConfig.apiKey).toBe("sk-fpt-test");
+		expect(launchConfig.modelId).toBe("fpt/llama-3.3-70b");
+	});
+
+	it("leaves a built-in seat on its own id", async () => {
+		providerMocks.getProviderSettings.mockImplementation((providerId: string) =>
+			providerId === "anthropic"
+				? { provider: "anthropic", model: "claude-sonnet-4-6", apiKey: "sk-anthropic-test" }
+				: undefined,
+		);
+		const service = createClineProviderService();
+
+		const launchConfig = await service.resolveLaunchConfig({ providerIdOverride: "anthropic" });
+
+		expect(launchConfig.providerId).toBe("anthropic");
+		expect(launchConfig.seatProviderId).toBe("anthropic");
+	});
+
+	// The borrowed manifest carries the *host's* endpoint, so a seat with no base URL would
+	// send the user's key to openrouter.ai.
+	it("refuses a custom seat with no base URL", async () => {
+		const { baseUrl: _baseUrl, ...withoutBaseUrl } = FPT_SETTINGS;
+		providerMocks.getProviderSettings.mockImplementation((providerId: string) =>
+			providerId === "fpt-ai" ? withoutBaseUrl : undefined,
+		);
+		const service = createClineProviderService();
+
+		await expect(service.resolveLaunchConfig({ providerIdOverride: "fpt-ai" })).rejects.toThrow(
+			/Custom provider "fpt-ai" has no base URL/,
+		);
 	});
 });

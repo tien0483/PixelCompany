@@ -189,6 +189,8 @@ import type {
 	RuntimeTaskChatCancelResponse,
 	RuntimeTaskChatMessagesRequest,
 	RuntimeTaskChatMessagesResponse,
+	RuntimeTaskChatModelRequest,
+	RuntimeTaskChatModelResponse,
 	RuntimeTaskChatReloadRequest,
 	RuntimeTaskChatReloadResponse,
 	RuntimeTaskChatSendRequest,
@@ -414,6 +416,8 @@ import {
 	runtimeTaskChatCancelResponseSchema,
 	runtimeTaskChatMessagesRequestSchema,
 	runtimeTaskChatMessagesResponseSchema,
+	runtimeTaskChatModelRequestSchema,
+	runtimeTaskChatModelResponseSchema,
 	runtimeTaskChatReloadRequestSchema,
 	runtimeTaskChatReloadResponseSchema,
 	runtimeTaskChatSendRequestSchema,
@@ -532,6 +536,10 @@ export interface RuntimeTrpcContext {
 			scope: RuntimeTrpcWorkspaceScope,
 			input: RuntimeTaskChatCancelRequest,
 		) => Promise<RuntimeTaskChatCancelResponse>;
+		setTaskChatModel: (
+			scope: RuntimeTrpcWorkspaceScope,
+			input: RuntimeTaskChatModelRequest,
+		) => Promise<RuntimeTaskChatModelResponse>;
 		getClineProviderCatalog: (
 			scope: RuntimeTrpcWorkspaceScope | null,
 		) => Promise<RuntimeClineProviderCatalogResponse>;
@@ -1005,6 +1013,12 @@ export const runtimeAppRouter = t.router({
 			.output(runtimeTaskChatCancelResponseSchema)
 			.mutation(async ({ ctx, input }) => {
 				return await ctx.runtimeApi.cancelTaskChatTurn(ctx.workspaceScope, input);
+			}),
+		setTaskChatModel: workspaceProcedure
+			.input(runtimeTaskChatModelRequestSchema)
+			.output(runtimeTaskChatModelResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.runtimeApi.setTaskChatModel(ctx.workspaceScope, input);
 			}),
 		getClineProviderCatalog: t.procedure.output(runtimeClineProviderCatalogResponseSchema).query(async ({ ctx }) => {
 			return await ctx.runtimeApi.getClineProviderCatalog(ctx.workspaceScope);
