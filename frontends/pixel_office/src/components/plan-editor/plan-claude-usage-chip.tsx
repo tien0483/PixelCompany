@@ -52,7 +52,7 @@ export function PlanClaudeUsageChip(): ReactElement {
 	if (!usage.available) {
 		return (
 			<div
-				className="hidden w-[74px] shrink-0 flex-col gap-0.5 rounded-md border border-border bg-surface-3 px-1.5 py-1 text-[9px] leading-none text-text-tertiary lg:flex"
+				className="hidden h-7 w-[74px] shrink-0 flex-col justify-center gap-0.5 rounded-md border border-border bg-surface-3 px-1.5 py-0.5 text-[9px] leading-none text-text-tertiary lg:flex"
 				title={unavailableHint(usage.reason)}
 				data-testid="plan-claude-usage-chip"
 			>
@@ -70,7 +70,7 @@ export function PlanClaudeUsageChip(): ReactElement {
 
 	return (
 		<div
-			className="hidden w-[74px] shrink-0 flex-col gap-1 rounded-md border border-border bg-surface-3 px-1.5 py-1 lg:flex"
+			className="hidden h-7 w-[74px] shrink-0 flex-col justify-center gap-0.5 rounded-md border border-border bg-surface-3 px-1.5 py-0.5 lg:flex"
 			title={`Claude usage · updated ${formatUsageCacheAge(usage.fetchedAt)}`}
 			data-testid="plan-claude-usage-chip"
 		>

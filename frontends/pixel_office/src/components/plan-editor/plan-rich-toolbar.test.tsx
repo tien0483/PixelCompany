@@ -70,6 +70,7 @@ describe("PlanRichToolbar", () => {
 				<TooltipProvider>
 					<PlanRichToolbar
 						editor={editor as never}
+						showUndoRedo
 						onInsertImage={() => {}}
 					/>
 				</TooltipProvider>,
@@ -100,6 +101,7 @@ describe("PlanRichToolbar", () => {
 				<TooltipProvider>
 					<PlanRichToolbar
 						editor={editor as never}
+						showUndoRedo
 						onInsertImage={() => {}}
 					/>
 				</TooltipProvider>,
@@ -108,5 +110,26 @@ describe("PlanRichToolbar", () => {
 
 		expect((container.querySelector('[aria-label="Undo"]') as HTMLButtonElement).disabled).toBe(true);
 		expect((container.querySelector('[aria-label="Redo"]') as HTMLButtonElement).disabled).toBe(true);
+	});
+
+	it("omits undo and redo when the pane header owns them", () => {
+		const editor = createMockEditor();
+
+		act(() => {
+			root.render(
+				<TooltipProvider>
+					<PlanRichToolbar
+						editor={editor as never}
+						showUndoRedo={false}
+						onInsertImage={() => {}}
+					/>
+				</TooltipProvider>,
+			);
+		});
+
+		expect(container.querySelector('[aria-label="Undo"]')).toBeNull();
+		expect(container.querySelector('[aria-label="Redo"]')).toBeNull();
+		// Formatting controls are untouched by the swap.
+		expect(container.querySelector('[aria-label="Bold"]')).toBeInstanceOf(HTMLButtonElement);
 	});
 });

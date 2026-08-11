@@ -88,7 +88,7 @@ export function PlanHtmlGenerateBar({
 	};
 
 	return (
-		<div className="flex flex-wrap items-center gap-2" data-testid="plan-html-generate-bar">
+		<div className="flex shrink-0 flex-nowrap items-center gap-2" data-testid="plan-html-generate-bar">
 			<span
 				className="hidden shrink-0 items-center gap-1 rounded-md border border-border bg-surface-3 px-1.5 py-0.5 text-[10px] font-medium text-text-secondary lg:inline-flex"
 				title="HTML generation always runs on the Claude agent"

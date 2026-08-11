@@ -23,6 +23,8 @@ export interface PlanRichEditorProps {
 	onChange: (markdown: string) => void;
 	planId: string | null;
 	disabled?: boolean;
+	/** Forwarded to the toolbar — see `PlanRichToolbarProps.showUndoRedo`. */
+	showUndoRedo?: boolean;
 	onInsertImage: (file: File) => void;
 	onPaste?: (event: ClipboardEvent) => void;
 	onDrop?: (event: DragEvent) => void;
@@ -36,6 +38,7 @@ export default function PlanRichEditor({
 	onChange,
 	planId,
 	disabled,
+	showUndoRedo,
 	onInsertImage,
 	onPaste,
 	onDrop,
@@ -176,6 +179,7 @@ export default function PlanRichEditor({
 			<PlanRichToolbar
 				editor={editor}
 				disabled={disabled}
+				showUndoRedo={showUndoRedo}
 				onInsertImage={handleInsertImageFile}
 			/>
 			<div className="kb-markdown kb-prose min-h-0 flex-1 overflow-y-auto px-3 py-2">
