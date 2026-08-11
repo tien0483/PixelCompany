@@ -4,14 +4,18 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ThemeSelect } from "@/components/theme-select";
-import { THEME_GROUPS } from "@/hooks/use-theme";
+import { previewThemeId, readStoredThemeId, THEME_GROUPS, useTheme } from "@/hooks/use-theme";
 
 /*
  * Radix Select depends on pointer-capture APIs jsdom lacks, so it is replaced with a
  * native-ish equivalent — the same approach `runtime-settings-dialog.test.tsx` takes,
  * kept local because a shared mock would have to be hoisted across both files.
  */
-const RadixSelectCtx = createContext<{ value: string; onValueChange: (next: string) => void }>({
+const RadixSelectCtx = createContext<{
+	value: string;
+	onValueChange: (next: string) => void;
+	onOpenChange?: (open: boolean) => void;
+}>({
 	value: "",
 	onValueChange: () => {},
 });
@@ -20,14 +24,20 @@ vi.mock("@radix-ui/react-select", () => ({
 	Root: ({
 		value,
 		onValueChange,
+		onOpenChange,
 		children,
 	}: {
 		value: string;
 		onValueChange: (next: string) => void;
+		onOpenChange?: (open: boolean) => void;
 		children: ReactNode;
 	}) => (
-		<RadixSelectCtx.Provider value={{ value, onValueChange }}>
-			<div data-radix-select-root="">{children}</div>
+		<RadixSelectCtx.Provider value={{ value, onValueChange, onOpenChange }}>
+			<div data-radix-select-root="">
+				{children}
+				{/* Stands in for dismissing the dropdown (Escape / outside click). */}
+				<button type="button" data-testid="close-select" onClick={() => onOpenChange?.(false)} />
+			</div>
 		</RadixSelectCtx.Provider>
 	),
 	Trigger: ({ children, ...props }: { children: ReactNode; "aria-label"?: string }) => (
@@ -48,7 +58,18 @@ vi.mock("@radix-ui/react-select", () => ({
 	Item: ({ value, children, ...rest }: { value: string; children: ReactNode }) => {
 		const ctx = useContext(RadixSelectCtx);
 		return (
-			<button type="button" role="option" aria-label={value} onClick={() => ctx.onValueChange(value)} {...rest}>
+			<button
+				type="button"
+				role="option"
+				aria-label={value}
+				// Real Radix reports the pick and *then* closes, both inside the same click —
+				// so the close handler sees the props from the render before the pick.
+				onClick={() => {
+					ctx.onValueChange(value);
+					ctx.onOpenChange?.(false);
+				}}
+				{...rest}
+			>
 				{children}
 			</button>
 		);
@@ -56,6 +77,14 @@ vi.mock("@radix-ui/react-select", () => ({
 	ItemText: ({ children }: { children: ReactNode }) => <span>{children}</span>,
 	ItemIndicator: ({ children }: { children: ReactNode }) => <span>{children}</span>,
 }));
+
+function closeWithoutPicking(): void {
+	const closer = document.querySelector('[data-testid="close-select"]');
+	if (!(closer instanceof HTMLElement)) {
+		throw new Error("select closer not found");
+	}
+	closer.click();
+}
 
 function option(label: string): HTMLElement {
 	const found = Array.from(document.querySelectorAll('[role="option"]')).find((element) =>
@@ -75,6 +104,10 @@ describe("ThemeSelect", () => {
 		container = document.createElement("div");
 		document.body.appendChild(container);
 		root = createRoot(container);
+		// `use-theme` keeps the active theme in module state, so reset both halves of it —
+		// otherwise a test that commits a theme leaks into the next one's assertions.
+		window.localStorage.clear();
+		previewThemeId("default");
 		document.documentElement.removeAttribute("data-theme");
 	});
 
@@ -122,6 +155,43 @@ describe("ThemeSelect", () => {
 
 		// Committing is the caller's job, so a hover must not persist anything.
 		expect(window.localStorage.getItem("kanban.theme")).toBeNull();
+	});
+
+	/**
+	 * The picked theme has to survive the dropdown closing. Radix fires `onValueChange`
+	 * and then `onOpenChange(false)` in one click, so a close handler that reverts to the
+	 * `value` prop reads the *pre-pick* value and undoes the selection the user just made —
+	 * localStorage keeps the new theme, the live document and the trigger snap back to the
+	 * old one, and the theme only appears after a reload or a second pick.
+	 */
+	it("keeps the picked theme when the dropdown closes in the same click", async () => {
+		function Header(): ReactNode {
+			const { themeId, setThemeId } = useTheme();
+			return <ThemeSelect variant="compact" value={themeId} onValueChange={setThemeId} />;
+		}
+		await render(<Header />);
+
+		await act(async () => {
+			option("Light").click();
+		});
+
+		expect(window.localStorage.getItem("kanban.theme")).toBe("light");
+		expect(document.documentElement.getAttribute("data-theme")).toBe("light");
+		expect(readStoredThemeId()).toBe("light");
+	});
+
+	it("still reverts a hover preview when the dropdown closes without a pick", async () => {
+		await render(<ThemeSelect value="graphite" onValueChange={() => {}} />);
+
+		await act(async () => {
+			option("Midnight").dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+		});
+		expect(document.documentElement.getAttribute("data-theme")).toBe("midnight");
+
+		await act(async () => {
+			closeWithoutPicking();
+		});
+		expect(document.documentElement.getAttribute("data-theme")).toBe("graphite");
 	});
 
 	it("drops the theme name in the compact variant but keeps it in the field variant", async () => {

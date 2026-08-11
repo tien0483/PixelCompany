@@ -1,6 +1,6 @@
 import * as RadixSelect from "@radix-ui/react-select";
 import { Check, ChevronDown } from "lucide-react";
-import type { ReactElement } from "react";
+import { type ReactElement, useEffect, useRef } from "react";
 
 import { cn } from "@/components/ui/cn";
 import { previewThemeId, THEME_GROUPS, THEMES, type ThemeId } from "@/hooks/use-theme";
@@ -37,16 +37,28 @@ function ThemeSwatch({ themeId }: { themeId: ThemeId }): ReactElement {
  */
 export function ThemeSelect({ value, onValueChange, variant = "field" }: ThemeSelectProps): ReactElement {
 	const isCompact = variant === "compact";
+	/**
+	 * What the close handler reverts to. It cannot read `value` directly: Radix fires
+	 * `onValueChange` and then `onOpenChange(false)` inside one click, before React has
+	 * re-rendered with the new prop, so `value` there is still the *pre-pick* theme — the
+	 * revert then undid the pick, leaving the theme persisted but neither applied to the
+	 * document nor shown in the trigger until a reload or a second pick.
+	 */
+	const committedThemeId = useRef(value);
+	useEffect(() => {
+		committedThemeId.current = value;
+	}, [value]);
 	return (
 		<RadixSelect.Root
 			value={value}
 			onValueChange={(next) => {
+				committedThemeId.current = next as ThemeId;
 				onValueChange(next as ThemeId);
 				previewThemeId(next as ThemeId);
 			}}
 			onOpenChange={(selectOpen) => {
 				if (!selectOpen) {
-					previewThemeId(value);
+					previewThemeId(committedThemeId.current);
 				}
 			}}
 		>

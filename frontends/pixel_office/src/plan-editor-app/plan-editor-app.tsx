@@ -1,13 +1,14 @@
-import { type ReactElement, useState } from "react";
+import type { ReactElement } from "react";
 
 import { PlanEditorView } from "@/components/plan-editor/plan-editor-view";
 import { ThemeSelect } from "@/components/theme-select";
+import { Spinner } from "@/components/ui/spinner";
 import { useTheme } from "@/hooks/use-theme";
 import { PlanListScreen } from "@/plan-editor-app/plan-list-screen";
-import type { RuntimeSavedPlan } from "@/runtime/types";
+import { usePlanRoute } from "@/plan-editor-app/use-plan-route";
 
 export function PlanEditorApp(): ReactElement {
-	const [openPlan, setOpenPlan] = useState<RuntimeSavedPlan | null>(null);
+	const { openPlan, isRestoringPlan, openPlanFromList, closePlan } = usePlanRoute();
 	const { themeId, setThemeId } = useTheme();
 
 	// This shell owns the app's height. `#root` is `height: 100%` but a *block* box
@@ -24,11 +25,17 @@ export function PlanEditorApp(): ReactElement {
 				<PlanEditorView
 					plan={openPlan}
 					workspaceId={null}
-					onClose={() => setOpenPlan(null)}
+					onClose={closePlan}
 					headerActions={<ThemeSelect variant="compact" value={themeId} onValueChange={setThemeId} />}
 				/>
+			) : isRestoringPlan ? (
+				// A reload with `#plan=<id>` has to resolve that id before the editor can mount;
+				// showing the list in the meantime would look like the plan failed to reopen.
+				<div className="flex min-h-0 flex-1 items-center justify-center" data-testid="plan-route-restoring">
+					<Spinner size={20} />
+				</div>
 			) : (
-				<PlanListScreen onOpenPlan={setOpenPlan} />
+				<PlanListScreen onOpenPlan={openPlanFromList} />
 			)}
 		</div>
 	);
