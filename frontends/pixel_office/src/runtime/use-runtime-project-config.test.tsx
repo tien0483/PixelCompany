@@ -28,6 +28,8 @@ function createRuntimeConfigResponse(
 	return {
 		selectedAgentId,
 		selectedShortcutLabel: shortcuts[0]?.label ?? null,
+		defaultSubagentSeatProviderId: null,
+		defaultSubagentSeatModelId: null,
 		agentAutonomousModeEnabled: true,
 		effectiveCommand: selectedAgentId,
 		globalConfigPath: "/tmp/global-config.json",

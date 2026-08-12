@@ -27,6 +27,7 @@ import { showAppToast } from "@/components/app-toaster";
 import { DEFAULT_MAX_RUNNING_TASKS } from "@/storage/local-storage-store";
 import { AccountOrganizationSection } from "@/components/shared/account-organization-section";
 import { ClineSetupSection } from "@/components/shared/cline-setup-section";
+import { apiSeatLabel } from "@/manager/task-account-picker";
 import {
 	getRuntimeShortcutIconComponent,
 	getRuntimeShortcutPickerOption,
@@ -56,6 +57,7 @@ import { useLayoutCustomizations } from "@/resize/layout-customizations";
 import { openFileOnHost } from "@/runtime/runtime-config-query";
 import { notifySkillInventoryChanged } from "@/runtime/skill-inventory-events";
 import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
+import { useClineApiSeats } from "@/runtime/use-cline-api-seats";
 import type {
 	RuntimeAgentId,
 	RuntimeClineMcpServerAuthStatus,
@@ -404,6 +406,7 @@ export function RuntimeSettingsDialog({
 	const { config, isLoading, isSaving, save, refresh } = useRuntimeConfig(open, workspaceId, initialConfig);
 	const { resetLayoutCustomizations } = useLayoutCustomizations();
 	const [selectedAgentId, setSelectedAgentId] = useState<RuntimeAgentId>("claude");
+	const [defaultSubagentSeatProviderId, setDefaultSubagentSeatProviderId] = useState<string | null>(null);
 	const [agentAutonomousModeEnabled, setAgentAutonomousModeEnabled] = useState(true);
 	const [readyForReviewNotificationsEnabled, setReadyForReviewNotificationsEnabled] = useState(true);
 	const [initialThemeId, setInitialThemeId] = useState<ThemeId>(readStoredThemeId);
@@ -498,6 +501,8 @@ export function RuntimeSettingsDialog({
 	const firstInstalledAgentId = displayedAgents.find((agent) => agent.installed)?.id;
 	const fallbackAgentId = firstInstalledAgentId ?? displayedAgents[0]?.id ?? "claude";
 	const initialSelectedAgentId = configuredAgentId ?? fallbackAgentId;
+	const { seats: apiSeats } = useClineApiSeats(workspaceId, open);
+	const initialDefaultSubagentSeatProviderId = config?.defaultSubagentSeatProviderId ?? null;
 	const initialAgentAutonomousModeEnabled = config?.agentAutonomousModeEnabled ?? true;
 	const initialReadyForReviewNotificationsEnabled = config?.readyForReviewNotificationsEnabled ?? true;
 	const initialShortcuts = config?.shortcuts ?? [];
@@ -524,6 +529,9 @@ export function RuntimeSettingsDialog({
 			return false;
 		}
 		if (selectedAgentId !== initialSelectedAgentId) {
+			return true;
+		}
+		if (defaultSubagentSeatProviderId !== initialDefaultSubagentSeatProviderId) {
 			return true;
 		}
 		if (agentAutonomousModeEnabled !== initialAgentAutonomousModeEnabled) {
@@ -581,12 +589,14 @@ export function RuntimeSettingsDialog({
 		commitTrailerMode,
 		commitTrailerTemplate,
 		config,
+		defaultSubagentSeatProviderId,
 		draftThemeId,
 		initialAgentAutonomousModeEnabled,
 		initialAgentDisplayName,
 		initialCommitPromptTemplate,
 		initialCommitTrailerMode,
 		initialCommitTrailerTemplate,
+		initialDefaultSubagentSeatProviderId,
 		initialOpenPrPromptTemplate,
 		initialReadyForReviewNotificationsEnabled,
 		initialSeamCommentTagTemplate,
@@ -605,6 +615,7 @@ export function RuntimeSettingsDialog({
 			return;
 		}
 		setSelectedAgentId(configuredAgentId ?? fallbackAgentId);
+		setDefaultSubagentSeatProviderId(config?.defaultSubagentSeatProviderId ?? null);
 		setAgentAutonomousModeEnabled(config?.agentAutonomousModeEnabled ?? true);
 		setReadyForReviewNotificationsEnabled(config?.readyForReviewNotificationsEnabled ?? true);
 		setShortcuts(config?.shortcuts ?? []);
@@ -621,6 +632,7 @@ export function RuntimeSettingsDialog({
 		config?.commitPromptTemplate,
 		config?.commitTrailerMode,
 		config?.commitTrailerTemplate,
+		config?.defaultSubagentSeatProviderId,
 		config?.openPrPromptTemplate,
 		config?.readyForReviewNotificationsEnabled,
 		config?.seamCommentTagTemplate,
@@ -925,6 +937,7 @@ export function RuntimeSettingsDialog({
 		}
 		const saved = await save({
 			selectedAgentId,
+			defaultSubagentSeatProviderId,
 			agentAutonomousModeEnabled,
 			readyForReviewNotificationsEnabled,
 			shortcuts,
@@ -1045,6 +1058,27 @@ export function RuntimeSettingsDialog({
 						<p className="text-text-secondary text-[13px] ml-6 mt-0 mb-0">
 							Allows agents to use tools without stopping for permission. Use at your own risk.
 						</p>
+						{selectedAgentId === "claude" && apiSeats.length > 0 ? (
+							<label className="flex min-w-0 items-center gap-1.5 text-[13px] text-text-primary mt-3">
+								<span className="shrink-0 text-text-secondary">Default subagent seat</span>
+								<NativeSelect
+									size="sm"
+									aria-label="Default API seat this task's subagents run on"
+									disabled={controlsDisabled}
+									value={defaultSubagentSeatProviderId ?? ""}
+									onChange={(event) => {
+										setDefaultSubagentSeatProviderId(event.target.value || null);
+									}}
+								>
+									<option value="">Same seat as the task (no split)</option>
+									{apiSeats.map((seat) => (
+										<option key={seat.providerId} value={seat.providerId}>
+											{apiSeatLabel(seat)}
+										</option>
+									))}
+								</NativeSelect>
+							</label>
+						) : null}
 					</div>
 
 					{/* ---- Cline ---- */}

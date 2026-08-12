@@ -17,6 +17,8 @@ function createRuntimeConfigResponse(
 	const nextConfig: RuntimeConfigResponse = {
 		selectedAgentId,
 		selectedShortcutLabel: null,
+		defaultSubagentSeatProviderId: null,
+		defaultSubagentSeatModelId: null,
 		agentAutonomousModeEnabled: true,
 		effectiveCommand: selectedAgentId === "cline" ? null : selectedAgentId,
 		globalConfigPath: "/tmp/global-config.json",

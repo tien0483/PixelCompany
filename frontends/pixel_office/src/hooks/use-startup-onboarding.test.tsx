@@ -18,6 +18,8 @@ function createRuntimeConfigResponse(selectedAgentId: RuntimeConfigResponse["sel
 	return {
 		selectedAgentId,
 		selectedShortcutLabel: null,
+		defaultSubagentSeatProviderId: null,
+		defaultSubagentSeatModelId: null,
 		agentAutonomousModeEnabled: true,
 		effectiveCommand: selectedAgentId,
 		globalConfigPath: "/tmp/.cline/kanban/config.json",

@@ -298,6 +298,8 @@ describe.sequential("runtime-config auto agent selection", () => {
 					// default-valued key to omit. Cline is launchable now; codex is not.
 					selectedAgentId: "codex",
 					selectedShortcutLabel: null,
+					defaultSubagentSeatProviderId: null,
+					defaultSubagentSeatModelId: null,
 					agentAutonomousModeEnabled: true,
 					readyForReviewNotificationsEnabled: true,
 					shortcuts: [],
@@ -351,6 +353,8 @@ describe.sequential("runtime-config auto agent selection", () => {
 				await saveRuntimeConfig(tempProject, {
 					selectedAgentId: "cline",
 					selectedShortcutLabel: null,
+					defaultSubagentSeatProviderId: null,
+					defaultSubagentSeatModelId: null,
 					agentAutonomousModeEnabled: true,
 					readyForReviewNotificationsEnabled: true,
 					shortcuts: [],
@@ -382,6 +386,8 @@ describe.sequential("runtime-config auto agent selection", () => {
 				await saveRuntimeConfig(tempProject, {
 					selectedAgentId: "cline",
 					selectedShortcutLabel: null,
+					defaultSubagentSeatProviderId: null,
+					defaultSubagentSeatModelId: null,
 					agentAutonomousModeEnabled: true,
 					readyForReviewNotificationsEnabled: true,
 					shortcuts: [{ label: "Ship", command: "npm run ship", icon: "rocket" }],

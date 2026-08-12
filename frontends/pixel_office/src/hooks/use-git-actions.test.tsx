@@ -114,6 +114,8 @@ function createRuntimeConfig(
 	return {
 		selectedAgentId,
 		selectedShortcutLabel: null,
+		defaultSubagentSeatProviderId: null,
+		defaultSubagentSeatModelId: null,
 		agentAutonomousModeEnabled: true,
 		effectiveCommand: null,
 		globalConfigPath: "/tmp/global-config.json",
