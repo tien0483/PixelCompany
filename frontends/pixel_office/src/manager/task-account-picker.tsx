@@ -128,7 +128,7 @@ function agentAccountLabel(agentId: RuntimeAgentId | null): string {
 	return "Claude account for this task";
 }
 
-function apiSeatLabel(seat: RuntimeClineApiSeat): string {
+export function apiSeatLabel(seat: RuntimeClineApiSeat): string {
 	return seat.defaultModelId ? `${seat.name} · ${seat.defaultModelId}` : seat.name;
 }
 

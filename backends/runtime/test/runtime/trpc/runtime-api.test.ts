@@ -212,6 +212,8 @@ function createRuntimeConfigState(): RuntimeConfigState {
 	return {
 		selectedAgentId: "claude",
 		selectedShortcutLabel: null,
+		defaultSubagentSeatProviderId: null,
+		defaultSubagentSeatModelId: null,
 		agentAutonomousModeEnabled: true,
 		readyForReviewNotificationsEnabled: true,
 		shortcuts: [],

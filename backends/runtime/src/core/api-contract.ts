@@ -2379,6 +2379,8 @@ export type RuntimeAgentDefinition = z.infer<typeof runtimeAgentDefinitionSchema
 export const runtimeConfigResponseSchema = z.object({
 	selectedAgentId: runtimeAgentIdSchema,
 	selectedShortcutLabel: z.string().nullable(),
+	defaultSubagentSeatProviderId: z.string().nullable(),
+	defaultSubagentSeatModelId: z.string().nullable(),
 	agentAutonomousModeEnabled: z.boolean(),
 	debugModeEnabled: z.boolean().optional(),
 	effectiveCommand: z.string().nullable(),
@@ -2405,6 +2407,8 @@ export type RuntimeConfigResponse = z.infer<typeof runtimeConfigResponseSchema>;
 export const runtimeConfigSaveRequestSchema = z.object({
 	selectedAgentId: runtimeAgentIdSchema.optional(),
 	selectedShortcutLabel: z.string().nullable().optional(),
+	defaultSubagentSeatProviderId: z.string().nullable().optional(),
+	defaultSubagentSeatModelId: z.string().nullable().optional(),
 	agentAutonomousModeEnabled: z.boolean().optional(),
 	shortcuts: z.array(runtimeProjectShortcutSchema).optional(),
 	readyForReviewNotificationsEnabled: z.boolean().optional(),

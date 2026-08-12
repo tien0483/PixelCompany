@@ -61,6 +61,7 @@ export async function saveRuntimeConfig(
 	nextConfig: {
 		selectedAgentId?: RuntimeAgentId;
 		selectedShortcutLabel?: string | null;
+		defaultSubagentSeatProviderId?: string | null;
 		agentAutonomousModeEnabled?: boolean;
 		shortcuts?: RuntimeProjectShortcut[];
 		readyForReviewNotificationsEnabled?: boolean;

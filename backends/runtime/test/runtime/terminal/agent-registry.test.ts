@@ -22,6 +22,8 @@ function createRuntimeConfigState(overrides: Partial<RuntimeConfigState> = {}): 
 		projectConfigPath: "/tmp/project-config.json",
 		selectedAgentId: "claude",
 		selectedShortcutLabel: null,
+		defaultSubagentSeatProviderId: null,
+		defaultSubagentSeatModelId: null,
 		agentAutonomousModeEnabled: true,
 		readyForReviewNotificationsEnabled: true,
 		shortcuts: [],

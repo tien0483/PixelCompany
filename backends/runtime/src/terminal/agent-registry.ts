@@ -123,6 +123,8 @@ export function buildRuntimeConfigResponse(
 	return {
 		selectedAgentId: runtimeConfig.selectedAgentId,
 		selectedShortcutLabel: runtimeConfig.selectedShortcutLabel,
+		defaultSubagentSeatProviderId: runtimeConfig.defaultSubagentSeatProviderId,
+		defaultSubagentSeatModelId: runtimeConfig.defaultSubagentSeatModelId,
 		agentAutonomousModeEnabled: runtimeConfig.agentAutonomousModeEnabled,
 		debugModeEnabled: isRuntimeDebugModeEnabled(),
 		effectiveCommand,

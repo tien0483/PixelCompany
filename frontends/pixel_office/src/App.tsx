@@ -474,6 +474,7 @@ export default function App(): ReactElement {
 		createTaskBranchOptions,
 		defaultTaskBranchRef,
 		selectedAgentId: createTaskDefaultAgentId,
+		defaultSubagentSeatProviderId: runtimeProjectConfig?.defaultSubagentSeatProviderId ?? null,
 		setSelectedTaskId,
 		queueTaskStartAfterEdit,
 		fetchTaskWorkspaceInfo,

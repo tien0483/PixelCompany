@@ -70,6 +70,8 @@ function createRuntimeConfigResponse(
 	return {
 		selectedAgentId: "cline",
 		selectedShortcutLabel: null,
+		defaultSubagentSeatProviderId: null,
+		defaultSubagentSeatModelId: null,
 		agentAutonomousModeEnabled: true,
 		effectiveCommand: "cline",
 		globalConfigPath: "/tmp/global-config.json",

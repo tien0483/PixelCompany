@@ -23,6 +23,8 @@ interface UseTaskEditorInput {
 	createTaskBranchOptions: Array<{ value: string; label: string }>;
 	defaultTaskBranchRef: string;
 	selectedAgentId: RuntimeAgentId | null;
+	/** Kanban settings default; seeds a new Claude task's subagent seat when no explicit pin exists. */
+	defaultSubagentSeatProviderId?: string | null;
 	setSelectedTaskId: Dispatch<SetStateAction<string | null>>;
 	queueTaskStartAfterEdit?: (taskId: string) => void;
 	fetchTaskWorkspaceInfo?: (
@@ -106,6 +108,7 @@ export function useTaskEditor({
 	createTaskBranchOptions,
 	defaultTaskBranchRef,
 	selectedAgentId,
+	defaultSubagentSeatProviderId,
 	setSelectedTaskId,
 	queueTaskStartAfterEdit,
 	fetchTaskWorkspaceInfo,
@@ -227,10 +230,16 @@ export function useTaskEditor({
 
 		setNewTaskAgentId(undefined);
 		setNewTaskClineSettings(undefined);
-		setNewTaskLaunchSettings(undefined);
+		// A new Claude task without an explicit pin bills its subagents to the
+		// Settings-configured default seat; other agents don't support the split.
+		setNewTaskLaunchSettings(
+			selectedAgentId === "claude" && defaultSubagentSeatProviderId
+				? { subagentSeatProviderId: defaultSubagentSeatProviderId }
+				: undefined,
+		);
 		setNewTaskManagerAccountId(undefined);
 		setIsInlineTaskCreateOpen(true);
-	}, []);
+	}, [defaultSubagentSeatProviderId, selectedAgentId]);
 
 	const handleCancelCreateTask = useCallback(() => {
 		setIsInlineTaskCreateOpen(false);
