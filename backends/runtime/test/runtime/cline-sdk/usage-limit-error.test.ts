@@ -10,6 +10,8 @@ describe("isUsageLimitError", () => {
 			"5-hour limit reached — resets at 5:00 PM",
 			"429 rate limit exceeded, try again later",
 			"Weekly limit reached",
+			"429 Too Many Requests",
+			"Error: too many requests, please slow down",
 		]) {
 			expect(isUsageLimitError(message)).toBe(true);
 		}
@@ -19,6 +21,9 @@ describe("isUsageLimitError", () => {
 		expect(isUsageLimitError(null)).toBe(false);
 		expect(isUsageLimitError("")).toBe(false);
 		expect(isUsageLimitError("connection reset by peer")).toBe(false);
+		// A bare "429" with no request/throughput wording should not false-positive
+		// (e.g. a port number or line number showing up in unrelated error text).
+		expect(isUsageLimitError("listen EADDRINUSE: address already in use :::429")).toBe(false);
 	});
 
 	it("never classifies a credit/balance exhaustion as a (resettable) usage limit", () => {

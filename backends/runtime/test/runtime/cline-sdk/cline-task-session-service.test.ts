@@ -1234,6 +1234,64 @@ describe("InMemoryClineTaskSessionService", () => {
 		expect(service.getSummary("task-1")?.reviewReason).toBeNull();
 	});
 
+	it("pauses a running task by interrupting the turn and stamping pausedAt", async () => {
+		const { service, runtime } = createTrackedService();
+
+		await service.startTaskSession({
+			taskId: "task-1",
+			cwd: "/tmp/worktree",
+			prompt: "Initial prompt",
+		});
+		await waitForTaskSessionId(runtime, "task-1");
+
+		const paused = await service.pauseTaskSession("task-1");
+
+		expect(paused?.state).toBe("idle");
+		expect(paused?.pausedAt).not.toBeNull();
+		expect(paused?.pauseReason).toBe("manual");
+		expect(runtime.abortTaskSessionMock).toHaveBeenCalledWith("task-1");
+	});
+
+	it("is a no-op when pausing a task that isn't running", async () => {
+		const { service } = createTrackedService();
+
+		expect(await service.pauseTaskSession("unknown-task")).toBeNull();
+	});
+
+	it("resumes a paused task by clearing pausedAt and sending a continue turn", async () => {
+		const { service, runtime } = createTrackedService();
+
+		await service.startTaskSession({
+			taskId: "task-1",
+			cwd: "/tmp/worktree",
+			prompt: "Initial prompt",
+		});
+		await waitForTaskSessionId(runtime, "task-1");
+		await service.pauseTaskSession("task-1");
+
+		const resumed = await service.resumeTaskSession("task-1");
+
+		expect(resumed?.pausedAt).toBeNull();
+		expect(resumed?.pauseReason).toBeNull();
+		expect(resumed?.state).toBe("running");
+	});
+
+	it("is a no-op when resuming a task that isn't paused", async () => {
+		const { service, runtime } = createTrackedService();
+
+		await service.startTaskSession({
+			taskId: "task-1",
+			cwd: "/tmp/worktree",
+			prompt: "Initial prompt",
+		});
+		await waitForTaskSessionId(runtime, "task-1");
+
+		const resumed = await service.resumeTaskSession("task-1");
+
+		expect(resumed?.state).toBe("running");
+		expect(resumed?.pausedAt).toBeNull();
+	});
+
 	it("uses agent_event text deltas for streaming and ignores serialized agent chunks", async () => {
 		const { service, runtime } = createTrackedService();
 		await service.startTaskSession({

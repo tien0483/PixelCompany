@@ -5,14 +5,20 @@
 // board reconciliation, and detail-view components alike.
 import type { RuntimeTaskSessionSummary } from "@/runtime/types";
 
-type PausedSessionFields = Pick<RuntimeTaskSessionSummary, "pausedAt" | "pid">;
+type PausedSessionFields = Pick<RuntimeTaskSessionSummary, "pausedAt" | "pid" | "agentId">;
 
 /**
  * A manual/force pause whose PTY process has already exited (or was never
  * relaunched) — the terminal has nothing live to reattach to, only a replay
  * of the last captured scrollback (see `persistent-terminal-manager.ts`).
+ *
+ * Cline sessions have no PTY/`pid` at all — they're SDK-managed, not an OS
+ * process — so a paused Cline task is always resumable in place, never "offline".
  */
 export function isSessionPausedOffline(summary: PausedSessionFields): boolean {
+	if (summary.agentId === "cline") {
+		return false;
+	}
 	return summary.pausedAt != null && summary.pid == null;
 }
 
@@ -21,6 +27,9 @@ export function isSessionPausedOffline(summary: PausedSessionFields): boolean {
  * `isSessionPausedOffline`. Reattaching resumes the same live process.
  */
 export function isSessionPausedLive(summary: PausedSessionFields): boolean {
+	if (summary.agentId === "cline") {
+		return summary.pausedAt != null;
+	}
 	return summary.pausedAt != null && summary.pid != null;
 }
 

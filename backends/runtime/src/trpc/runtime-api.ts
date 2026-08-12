@@ -479,6 +479,11 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 		pauseTaskSession: async (workspaceScope, input) => {
 			try {
 				const body = parseTaskSessionPauseRequest(input);
+				const clineTaskSessionService = await deps.getScopedClineTaskSessionService(workspaceScope);
+				const clineSummary = await clineTaskSessionService.pauseTaskSession(body.taskId);
+				if (clineSummary) {
+					return { ok: true, summary: clineSummary };
+				}
 				const terminalManager = await deps.getScopedTerminalManager(workspaceScope);
 				const summary = terminalManager.pauseTaskSession(body.taskId);
 				if (!summary) {
@@ -493,6 +498,11 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 		resumeTaskSession: async (workspaceScope, input) => {
 			try {
 				const body = parseTaskSessionPauseRequest(input);
+				const clineTaskSessionService = await deps.getScopedClineTaskSessionService(workspaceScope);
+				const clineSummary = await clineTaskSessionService.resumeTaskSession(body.taskId);
+				if (clineSummary) {
+					return { ok: true, summary: clineSummary };
+				}
 				const terminalManager = await deps.getScopedTerminalManager(workspaceScope);
 				const summary = terminalManager.resumeTaskSession(body.taskId);
 				if (!summary) {
