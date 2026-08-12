@@ -12,7 +12,7 @@ export interface DocsProjectSidebarProps {
 	projects: DocProjectMeta[];
 	selectedId: string | null;
 	onSelect: (id: string) => void;
-	onProjectsChanged: () => void;
+	onProjectsChanged: () => Promise<void>;
 	online: boolean;
 }
 
@@ -62,7 +62,11 @@ export function DocsProjectSidebar({
 				tagline: tagline.trim() || undefined,
 			});
 			resetForm();
-			onProjectsChanged();
+			// Await the refresh before selecting: `projects` (and downstream
+			// `DocsView`'s stale-selection guard) only see the new project once
+			// this resolves — selecting first raced the guard into clearing the
+			// selection back to null before the list ever updated.
+			await onProjectsChanged();
 			onSelect(project.id);
 		} catch (err) {
 			showAppToast({
@@ -93,7 +97,7 @@ export function DocsProjectSidebar({
 				throw new Error(message);
 			}
 			resetForm();
-			onProjectsChanged();
+			await onProjectsChanged();
 			const id = data && typeof data === "object" && "id" in data ? String((data as { id: unknown }).id) : null;
 			if (id) onSelect(id);
 		} catch (err) {
@@ -120,7 +124,7 @@ export function DocsProjectSidebar({
 						: `HTTP ${res.status}`;
 				throw new Error(message);
 			}
-			onProjectsChanged();
+			void onProjectsChanged();
 		} catch (err) {
 			showAppToast({
 				intent: "danger",

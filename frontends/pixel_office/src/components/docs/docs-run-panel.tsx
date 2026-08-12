@@ -36,13 +36,20 @@ export function DocsRunPanel({ project, onBuildDone }: DocsRunPanelProps): React
 			const res = await fetch(`/api/doc-skill-proxy/api/projects/${project.id}/build`, {
 				method: "POST",
 			});
+			const data: unknown = await res.json().catch(() => null);
 			if (!res.ok) {
-				const data: unknown = await res.json().catch(() => null);
 				const message =
 					data && typeof data === "object" && "error" in data
 						? String((data as { error: unknown }).error)
 						: `HTTP ${res.status}`;
 				throw new Error(message);
+			}
+			// The sidecar always answers 200 for this endpoint and carries the real
+			// subprocess exit code in the body — `res.ok` alone can't tell a
+			// succeeded build from a failed one.
+			if (data && typeof data === "object" && "code" in data && (data as { code: unknown }).code !== 0) {
+				const stderr = "stderr" in data ? String((data as { stderr: unknown }).stderr) : "";
+				throw new Error(stderr.trim() || `build_site.py exited with code ${(data as { code: unknown }).code}`);
 			}
 			onBuildDone();
 		} catch (err) {
@@ -68,13 +75,17 @@ export function DocsRunPanel({ project, onBuildDone }: DocsRunPanelProps): React
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ paths }),
 			});
+			const data: unknown = await res.json().catch(() => null);
 			if (!res.ok) {
-				const data: unknown = await res.json().catch(() => null);
 				const message =
 					data && typeof data === "object" && "error" in data
 						? String((data as { error: unknown }).error)
 						: `HTTP ${res.status}`;
 				throw new Error(message);
+			}
+			if (data && typeof data === "object" && "code" in data && (data as { code: unknown }).code !== 0) {
+				const stderr = "stderr" in data ? String((data as { stderr: unknown }).stderr) : "";
+				throw new Error(stderr.trim() || `intake exited with code ${(data as { code: unknown }).code}`);
 			}
 			setIntakePaths("");
 		} catch (err) {

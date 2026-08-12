@@ -70,9 +70,7 @@ export function DocsView({ workspaceId }: DocsViewProps): ReactElement {
 						projects={projects}
 						selectedId={selectedProjectId}
 						onSelect={setSelectedProjectId}
-						onProjectsChanged={() => {
-							void refresh();
-						}}
+						onProjectsChanged={refresh}
 						online={online}
 					/>
 				</div>

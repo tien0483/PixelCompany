@@ -1,8 +1,8 @@
 // Client for the docs-pipeline sidecar on 127.0.0.1:8323.
 // Optional companion: every call resolves to null / a typed failure instead
 // of throwing when the port is closed, matching html-client.ts's contract.
+import { resolveDocSkillBaseUrl } from "./doc-skill-endpoint";
 
-const DEFAULT_BASE_URL = "http://127.0.0.1:8323";
 const REQUEST_TIMEOUT_MS = 4000;
 // The sidecar's own build timeout is 120s server-side; give it headroom so a
 // slow-but-succeeding build isn't cut off client-side first.
@@ -103,7 +103,7 @@ function parseProjectSummary(raw: unknown): DocSkillProjectSummary | null {
 }
 
 export function createDocSkillClient(deps: CreateDocSkillClientDependencies): DocSkillClient {
-	const baseUrl = (deps.baseUrl ?? process.env.PIXELOFFICE_DOCSKILL_URL ?? DEFAULT_BASE_URL).replace(/\/$/, "");
+	const baseUrl = resolveDocSkillBaseUrl(deps.baseUrl);
 
 	type RequestOptions = {
 		body?: string | null;

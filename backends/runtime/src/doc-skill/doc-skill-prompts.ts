@@ -81,13 +81,13 @@ Your job is to re-verify existing claims in \`${input.workspaceDir}\` against th
 
 1. Read \`${input.workspaceDir}/verdicts.json\` and the existing doc markdown files in \`${input.workspaceDir}\` to see what claims already exist.
 2. For each claim, check whether it is still true by reading the cited \`file:line\` locations in \`${input.targetRepo}\`.
-3. From \`cwd=${input.workspaceDir}\`, run:
+3. Run (using the full path — do not \`cd\` first, the tool grant is scoped to \`python3\` invocations only):
 
-       python3 round_tool.py open --at <today's date> --trigger "<one line: what prompted this round>"
+       python3 ${input.workspaceDir}/round_tool.py open --at <today's date> --trigger "<one line: what prompted this round>"
 
    Then, for each claim, run:
 
-       python3 round_tool.py check --doc <file> --match "<heading>" --verdict <CONFIRMED|STALE|WRONG|ADDED|SCOPE> --now "<current true statement>" [--target "..."] --by "<its own identifier, e.g. 'automated round'>"
+       python3 ${input.workspaceDir}/round_tool.py check --doc <file> --match "<heading>" --verdict <CONFIRMED|STALE|WRONG|ADDED|SCOPE> --now "<current true statement>" [--target "..."] --by "<its own identifier, e.g. 'automated round'>"
 
 Never edit the markdown docs directly to "fix" a stale claim — corrections happen ONLY through \`round_tool.py check\`, which is append-only. This is a hard invariant from the embedded skill text above; violating it destroys the dated history the harness depends on.
 `;

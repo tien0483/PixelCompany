@@ -13,9 +13,8 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { terminateProcessForTimeout } from "../server/process-termination";
+import { DEFAULT_DOCSKILL_HOST, resolveDocSkillPort } from "./doc-skill-endpoint";
 
-const DEFAULT_DOCSKILL_HOST = "127.0.0.1";
-const DEFAULT_DOCSKILL_PORT = 8323;
 const PORT_PROBE_TIMEOUT_MS = 1_000;
 const STARTUP_TIMEOUT_MS = 10_000; // sidecar has no venv/build step, starts fast
 const PORT_POLL_INTERVAL_MS = 250;
@@ -61,31 +60,6 @@ export function findDocSkillRoot(): string | null {
 		}
 	}
 	return null;
-}
-
-function resolveDocSkillPort(configured: number | undefined): number {
-	if (configured !== undefined) {
-		return configured;
-	}
-	const fromUrl = process.env.PIXELOFFICE_DOCSKILL_URL?.trim();
-	if (fromUrl) {
-		try {
-			const parsed = new URL(fromUrl);
-			if (parsed.port) {
-				return Number(parsed.port);
-			}
-		} catch {
-			// fall through
-		}
-	}
-	const fromPortEnv = process.env.PIXELOFFICE_DOCSKILL_PORT?.trim();
-	if (fromPortEnv) {
-		const parsed = Number(fromPortEnv);
-		if (Number.isFinite(parsed)) {
-			return parsed;
-		}
-	}
-	return DEFAULT_DOCSKILL_PORT;
 }
 
 /**
