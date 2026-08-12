@@ -5,6 +5,7 @@ import { addTaskDependency, addTaskToColumn, moveTaskToColumn } from "@/state/bo
 import {
 	computeBacklogChainGroups,
 	computeChainGroups,
+	findFirstPresentChainDescendantIndex,
 	isTaskInChain,
 	resolveChainRootId,
 } from "@/state/chain-groups";
@@ -130,6 +131,31 @@ describe("resolveChainRootId", () => {
 		linked = chain(linked, c, b);
 		expect(resolveChainRootId(linked.dependencies, c)).toBe(a);
 		expect(resolveChainRootId(linked.dependencies, a)).toBe(a);
+	});
+});
+
+describe("findFirstPresentChainDescendantIndex", () => {
+	it("returns null when the task has no chain followers present in the column", () => {
+		const { board, ids } = backlogBoard(1);
+		const [a] = ids as [string];
+		expect(findFirstPresentChainDescendantIndex(backlogCards(board), board.dependencies, a)).toBeNull();
+	});
+
+	it("finds the index of the nearest present follower, skipping unrelated cards above it", () => {
+		const { board, ids } = backlogBoard(4);
+		const [a, b, c, unrelated] = ids as [string, string, string, string];
+		let linked = chain(board, b, a);
+		linked = chain(linked, c, b);
+		linked = moveTaskToColumn(linked, a, "in_progress").board;
+		linked = moveTaskToColumn(linked, b, "in_progress").board;
+		linked = moveTaskToColumn(linked, c, "in_progress").board;
+		linked = moveTaskToColumn(linked, unrelated, "in_progress", { insertAtTop: true }).board;
+		linked = moveTaskToColumn(linked, a, "review").board;
+
+		const inProgress = inProgressCards(linked);
+		expect(inProgress.map((card) => card.id)).toEqual([unrelated, b, c]);
+		const index = findFirstPresentChainDescendantIndex(inProgress, linked.dependencies, a);
+		expect(index).toBe(inProgress.findIndex((card) => card.id === b));
 	});
 });
 

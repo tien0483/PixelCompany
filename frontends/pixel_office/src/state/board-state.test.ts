@@ -438,6 +438,50 @@ describe("board dependency state", () => {
 		expect(inProgressColumn?.cards.map((card) => card.id)).toEqual([taskA, taskC]);
 	});
 
+	it("reinserts a resumed chain head above its own queued followers, not the column top", () => {
+		const fixture = createBacklogBoard(["Task A", "Task B", "Task C", "Unrelated"]);
+		const taskA = requireTaskId(fixture.taskIdByPrompt["Task A"], "Task A");
+		const taskB = requireTaskId(fixture.taskIdByPrompt["Task B"], "Task B");
+		const taskC = requireTaskId(fixture.taskIdByPrompt["Task C"], "Task C");
+		const unrelated = requireTaskId(fixture.taskIdByPrompt["Unrelated"], "Unrelated");
+		const linkAB = addTaskDependency(fixture.board, taskA, taskB);
+		expect(linkAB.added).toBe(true);
+		const linkBC = addTaskDependency(linkAB.board, taskB, taskC);
+		expect(linkBC.added).toBe(true);
+
+		let board = moveTaskToColumn(linkBC.board, taskA, "in_progress").board;
+		board = moveTaskToColumn(board, taskB, "in_progress").board;
+		board = moveTaskToColumn(board, taskC, "in_progress").board;
+		// An unrelated card sits above the chain's queue in In Progress.
+		board = moveTaskToColumn(board, unrelated, "in_progress", { insertAtTop: true }).board;
+		board = moveTaskToColumn(board, taskA, "review").board;
+		const beforeResume = board.columns.find((column) => column.id === "in_progress");
+		expect(beforeResume?.cards.map((card) => card.id)).toEqual([unrelated, taskB, taskC]);
+
+		const resumed = applyDragResult(
+			board,
+			{
+				draggableId: taskA,
+				type: "CARD",
+				source: { droppableId: "review", index: 0 },
+				destination: { droppableId: "in_progress", index: 0 },
+				mode: "SNAP",
+				reason: "DROP",
+				combine: null,
+			},
+			{
+				programmaticCardMoveInFlight: {
+					taskId: taskA,
+					fromColumnId: "review",
+					toColumnId: "in_progress",
+					insertAtTop: true,
+				},
+			},
+		);
+		const inProgressColumn = resumed.board.columns.find((column) => column.id === "in_progress");
+		expect(inProgressColumn?.cards.map((card) => card.id)).toEqual([unrelated, taskA, taskB, taskC]);
+	});
+
 	it("preserves manual cross-column trash drop positions", () => {
 		const fixture = createBacklogBoard(["Task A", "Task B", "Task C"]);
 		const taskA = requireTaskId(fixture.taskIdByPrompt["Task A"], "Task A");

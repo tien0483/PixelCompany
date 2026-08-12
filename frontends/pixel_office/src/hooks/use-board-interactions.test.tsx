@@ -2,6 +2,8 @@ import { act, type Dispatch, type SetStateAction, useEffect, useState } from "re
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { DropResult } from "@hello-pangea/dnd";
+
 import { useBoardInteractions } from "@/hooks/use-board-interactions";
 import type { UseTaskSessionsResult } from "@/hooks/use-task-sessions";
 import type { RuntimeTaskSessionSummary } from "@/runtime/types";
@@ -92,6 +94,7 @@ interface HookSnapshot {
 	handleStartTask: (taskId: string) => void;
 	handleCardSelect: (taskId: string) => void;
 	handleConfirmClearTrash: () => void;
+	handleDragEnd: (result: DropResult, options?: { selectDroppedTask?: boolean }) => void;
 	setSessions: Dispatch<SetStateAction<Record<string, RuntimeTaskSessionSummary>>>;
 }
 
@@ -165,11 +168,13 @@ function HookHarness({
 			handleStartTask: actions.handleStartTask,
 			handleCardSelect: actions.handleCardSelect,
 			handleConfirmClearTrash: actions.handleConfirmClearTrash,
+			handleDragEnd: actions.handleDragEnd,
 			setSessions,
 		});
 	}, [
 		actions.handleCardSelect,
 		actions.handleConfirmClearTrash,
+		actions.handleDragEnd,
 		actions.handleRestoreTaskFromTrash,
 		actions.handleStartTask,
 		onSnapshot,
@@ -892,6 +897,92 @@ describe("useBoardInteractions", () => {
 			expect(cleanupTaskWorkspace).not.toHaveBeenCalledWith("hello");
 			// The unrelated standalone task has no live chain member, so it cleans up normally.
 			expect(cleanupTaskWorkspace).toHaveBeenCalledWith("standalone");
+		} finally {
+			root.unmount();
+			document.body.removeChild(container);
+		}
+	});
+
+	it("queues chain followers in run order right after the root when dragged into In Progress", async () => {
+		let latestSnapshot: HookSnapshot | null = null;
+
+		useProgrammaticCardMovesMock.mockReturnValue({
+			handleProgrammaticCardMoveReady: () => {},
+			setRequestMoveTaskToTrashHandler: () => {},
+			tryProgrammaticCardMove: () => "unavailable",
+			consumeProgrammaticCardMove: () => ({}),
+			resolvePendingProgrammaticTrashMove: () => {},
+			waitForProgrammaticCardMoveAvailability: async () => {},
+			resetProgrammaticCardMoves: () => {},
+			requestMoveTaskToTrashWithAnimation: async () => {},
+			programmaticCardMoveCycle: 0,
+		});
+
+		useLinkedBacklogTaskActionsMock.mockReturnValue({
+			handleCreateDependency: () => {},
+			handleDeleteDependency: () => {},
+			confirmMoveTaskToTrash: async () => {},
+			requestMoveTaskToTrash: async () => {},
+		});
+
+		// Chain root -> follower1 -> follower2, all still in Backlog.
+		const rootTask = createTask("root", "Chain root", 1);
+		const follower1Task = createTask("follower1", "Chain follower 1", 2);
+		const follower2Task = createTask("follower2", "Chain follower 2", 3);
+
+		let currentBoard: BoardData = {
+			columns: [
+				{ id: "backlog", title: "Backlog", cards: [rootTask, follower1Task, follower2Task] },
+				{ id: "in_progress", title: "In Progress", cards: [] },
+				{ id: "review", title: "Review", cards: [] },
+				{ id: "trash", title: "Done", cards: [] },
+			],
+			dependencies: [
+				{ id: "dep-1", fromTaskId: "follower1", toTaskId: "root", chain: true, createdAt: 1 },
+				{ id: "dep-2", fromTaskId: "follower2", toTaskId: "follower1", chain: true, createdAt: 2 },
+			],
+		};
+		const setBoard = vi.fn<Dispatch<SetStateAction<BoardData>>>((nextBoard) => {
+			currentBoard = typeof nextBoard === "function" ? nextBoard(currentBoard) : nextBoard;
+		});
+
+		const container = document.createElement("div");
+		document.body.appendChild(container);
+		const root = createRoot(container);
+
+		try {
+			await act(async () => {
+				root.render(
+					<HookHarness
+						board={currentBoard}
+						setBoard={setBoard}
+						ensureTaskWorkspace={async () => ({ ok: true as const })}
+						startTaskSession={async () => ({ ok: true as const })}
+						onSnapshot={(snapshot) => {
+							latestSnapshot = snapshot;
+						}}
+					/>,
+				);
+			});
+
+			if (!latestSnapshot) {
+				throw new Error("Expected a hook snapshot.");
+			}
+
+			await act(async () => {
+				latestSnapshot!.handleDragEnd({
+					draggableId: "root",
+					type: "CARD",
+					source: { droppableId: "backlog", index: 0 },
+					destination: { droppableId: "in_progress", index: 0 },
+					mode: "SNAP",
+					reason: "DROP",
+					combine: null,
+				});
+			});
+
+			const inProgressCards = currentBoard.columns.find((column) => column.id === "in_progress")?.cards ?? [];
+			expect(inProgressCards.map((card) => card.id)).toEqual(["root", "follower1", "follower2"]);
 		} finally {
 			root.unmount();
 			document.body.removeChild(container);
