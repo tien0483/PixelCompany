@@ -1,0 +1,810 @@
+{
+  "_comment": [
+    "Round-based corrections overlay. APPEND-ONLY: a new harness run adds a check to an existing",
+    "entry (or a new entry); it never edits or deletes an earlier check, so the old document state is",
+    "always recoverable. The newest check in `checks` is the green current state.",
+    "",
+    "Per entry: `claim` + `claim_written` = the text as originally authored. `target` = the exit",
+    "condition. `checks[]` = one per harness round, each with round / at / verdict / by / provenance /",
+    "now / fix_state.",
+    "",
+    "provenance: harness (a review report) | user (something you found and handed the team) |",
+    "external (a source outside this repo — put the link in `source_url`).",
+    "",
+    "HISTORY IS FOR TEXT ONLY. Diagrams, explainers, plan tables and discussion pages render only the",
+    "newest confirmed state, stamped with its date, so a superseded design cannot be built by mistake.",
+    "",
+    "verdict: CONFIRMED | STALE | WRONG | ADDED | SCOPE     fix_state: CONFIRMED | PROPOSED"
+  ],
+  "rounds": [
+    {
+      "round": 1,
+      "at": "2026-07-30",
+      "trigger": "First harness review of the 2026-07-29 research bundle, against the wgpu-pick-wt worktree (branch wgpu-pick-semantic, pick work staged and uncommitted).",
+      "reports": [
+        "07_review_explorer_identity.md",
+        "07_review_systems_gpu.md",
+        "07_review_web_loader.md",
+        "07_review_qa_build_and_docs.md",
+        "08_review_plan_stack.md",
+        "08_review_plan_perf.md"
+      ]
+    }
+  ],
+  "entries": [
+    {
+      "doc": "01_explorer_wgpu_bim_gap.md",
+      "match": "WARP graph drift",
+      "claim": "graphify-out is stale; re-run /update_warp before trusting the graph.",
+      "claim_written": "2026-07-29",
+      "target": "Either re-run /update_warp in a tree that has graphify-out, or drop the graph as a source and delete the reference from doc 02.",
+      "checks": [
+        {
+          "round": 1,
+          "at": "2026-07-30",
+          "verdict": "STALE",
+          "by": "07_review_explorer_identity.md",
+          "provenance": "harness",
+          "now": "There is no graph here at all — `src/graphify-out/` does not exist anywhere in wgpu-pick-wt (repo-wide find is empty), so this whole table is untestable from this checkout. All six drift rows still hold when checked against source. Note the direct contradiction with doc 02's header, which states the graph was refreshed on 2026-07-29 with 423 nodes / 662 edges.",
+          "fix_state": "CONFIRMED"
+        }
+      ]
+    },
+    {
+      "doc": "01_explorer_wgpu_bim_gap.md",
+      "match": "Capability audit against the plan",
+      "claim": "Row 2: identity is destroyed by design, because `ItemKey` merges items sharing (transform-id, colour).",
+      "claim_written": "2026-07-29",
+      "target": "A first-class element id on the *visible* items, so identity supports addressability (select, filter, hide) and not just read-out.",
+      "checks": [
+        {
+          "round": 1,
+          "at": "2026-07-30",
+          "verdict": "WRONG",
+          "by": "07_review_explorer_identity.md",
+          "provenance": "harness",
+          "now": "Inverted. Identity rides in the `color` field of parallel `PickRenderStage` items, allocated per pickable face by `gl_graphics/render_list.py:107-114`. Every pick colour is unique, so `ItemKey{model_from_local_id, color}` *cannot* merge them — the dedup the audit called destructive is exactly what preserves pick identity. `RenderItem` and the Avro schema are unchanged; no `element_id` was ever added. What is still true: the *visible* items carry no id, so addressability (select-by-id, per-element visibility) remains absent.",
+          "fix_state": "CONFIRMED"
+        }
+      ]
+    },
+    {
+      "doc": "01_explorer_wgpu_bim_gap.md",
+      "match": "Capability audit against the plan",
+      "claim": "Row 6: bundles are immutable and camera-independent, so per-frame frustum culling is structurally impossible without rebuilding them.",
+      "claim_written": "2026-07-29",
+      "target": "Frustum culling implemented immediate-mode after dropping the model-stage bundles (P4).",
+      "checks": [
+        {
+          "round": 1,
+          "at": "2026-07-30",
+          "verdict": "STALE",
+          "by": "03_design_large_model.md",
+          "provenance": "harness",
+          "now": "Retracted by doc 03 §1. `RenderBundle::execute` replays recorded commands one by one into the pass, so on the GL backend a bundle saves wgpu-side validation, not driver calls. Dropping the model-stage bundles and encoding per frame with culling is a straightforward trade, not a blocker. Culling is still ABSENT — only the reason changed.",
+          "fix_state": "CONFIRMED"
+        }
+      ]
+    },
+    {
+      "doc": "01_explorer_wgpu_bim_gap.md",
+      "match": "Capability audit against the plan",
+      "claim": "Row 5 / row 17: instancing is gated on migrating to WebGPU.",
+      "claim_written": "2026-07-29",
+      "target": "Instancing via per-instance vertex attributes, measured against the --split-items curve (P5).",
+      "checks": [
+        {
+          "round": 1,
+          "at": "2026-07-30",
+          "verdict": "STALE",
+          "by": "03_design_large_model.md",
+          "provenance": "harness",
+          "now": "Retracted by doc 03 §2. WebGL2 has instanced arrays in core, and this repo already ships them — `overlay_pass.rs:125` uses `VertexStepMode::Instance`. Only *storage-buffer* instancing and occlusion queries are WebGPU-gated. Zero 3D instancing in the model stages is still CONFIRMED (every `draw_indexed` is `0..1`).",
+          "fix_state": "CONFIRMED"
+        }
+      ]
+    },
+    {
+      "doc": "01_explorer_wgpu_bim_gap.md",
+      "match": "Capability audit against the plan",
+      "claim": "Row 13: avro parse, per-chunk MD5, blob memcpy and `create_buffer_init` all run in one `spawn_local` microtask.",
+      "claim_written": "2026-07-29",
+      "target": "Avro parse + MD5 + merge moved into a JS Web Worker, uploads sliced into budgeted queue.write_buffer calls (P2).",
+      "checks": [
+        {
+          "round": 1,
+          "at": "2026-07-30",
+          "verdict": "STALE",
+          "by": "07_review_web_loader.md",
+          "provenance": "harness",
+          "now": "Only `create_buffer_init` is inside `spawn_local`. The avro parse, per-chunk `md5::compute` and the merge memcpy are synchronous JS→wasm calls made from `loadRenderData.util.ts`. The freeze is real and the diagnosis holds, but 3 of the 4 blocking steps can move into a JS Web Worker with **zero Rust changes**, feeding the merged blob back through the already-exported `push_entire_fallback_file`. That makes P2 far cheaper than doc 03 §3 and doc 05 §4 estimate.",
+          "fix_state": "CONFIRMED"
+        }
+      ]
+    },
+    {
+      "doc": "01_explorer_wgpu_bim_gap.md",
+      "match": "Cross-cutting hazards",
+      "claim": "5 of 8 `RenderStage` variants are accepted and never drawn (Flat, Ghost, Highlight, Selection, Pick); `occlusion_query_set: None` in all 7 passes.",
+      "claim_written": "2026-07-29",
+      "target": "A single exhaustive match over RenderStage so an unconsumed variant is a compile error, not a silent drop.",
+      "checks": [
+        {
+          "round": 1,
+          "at": "2026-07-30",
+          "verdict": "STALE",
+          "by": "07_review_qa_build_and_docs.md",
+          "provenance": "harness",
+          "now": "4 of 8 — `PickRenderStage` is consumed at `pick_stage.rs:158`. Flat, Ghost, Highlight and Selection are still silently dropped, and because dispatch is a per-stage `!=` filter rather than an exhaustive `match`, the compiler cannot catch it. The pass count is now 8, not 7.",
+          "fix_state": "CONFIRMED"
+        }
+      ]
+    },
+    {
+      "doc": "01_explorer_wgpu_bim_gap.md",
+      "match": "Cross-cutting hazards",
+      "claim": "Depth ordering is broken because the shaded pass clears depth mid-frame.",
+      "claim_written": "2026-07-29",
+      "target": "shaded_stage.rs uses LoadOp::Load for depth, and pass order is opaque-before-translucent with a back-to-front sort.",
+      "checks": [
+        {
+          "round": 1,
+          "at": "2026-07-30",
+          "verdict": "ADDED",
+          "by": "07_review_systems_gpu.md",
+          "provenance": "harness",
+          "now": "Worse than described. The frame's legitimate clear is pass 1 (`scalar_field_stage.rs:399`); `shaded_stage.rs:133` then clears depth a **second** time. The fix is `LoadOp::Load` there — reordering the passes alone does not fix it.",
+          "fix_state": "CONFIRMED"
+        }
+      ]
+    },
+    {
+      "doc": "01_explorer_wgpu_bim_gap.md",
+      "match": "genuinely reusable",
+      "claim": "Item 3: the scalar-field shader's discrete `is_enumerating` branch means colouring by a BIM category needs no shader work, only a host-side value↔category encoding.",
+      "claim_written": "2026-07-29",
+      "target": "Reachable categorical colouring: a real is_enumerating path, a LUT that fills all 50 slots, and the colour-bar copy in shaders.rs changed with it (ticket S8).",
+      "checks": [
+        {
+          "round": 1,
+          "at": "2026-07-30",
+          "verdict": "WRONG",
+          "by": "07_review_systems_gpu.md",
+          "provenance": "harness",
+          "now": "The `is_enumerating` branch is **unreachable**: `Globals::new` can never produce `colors_values[0] == colors_values[1]`. Worse, only 14 of the 50 LUT slots are ever filled, so any `number_of_bins > 14` (settable from config) makes bins ≥14 vanish via `mapped.w <= 0 → discard`. The same logic is duplicated in the colour-bar copy at `shaders.rs:262-332` with subtly different bin handling — both must change together. This voids doc 02 §A6 and ticket S8's \"no shader work\" claim.",
+          "fix_state": "CONFIRMED"
+        }
+      ]
+    },
+    {
+      "doc": "01_explorer_wgpu_bim_gap.md",
+      "match": "genuinely reusable",
+      "claim": "Item 7: orphaned `pipelines.rs` is a ready-made design for id-buffer picking — mine it rather than delete it.",
+      "claim_written": "2026-07-29",
+      "target": "Highlight/selection pipelines mined out of pipelines.rs, then the file deleted (defect B6).",
+      "checks": [
+        {
+          "round": 1,
+          "at": "2026-07-30",
+          "verdict": "STALE",
+          "by": "07_review_qa_build_and_docs.md",
+          "provenance": "harness",
+          "now": "The pick half was re-implemented from scratch in `pick_stage.rs` rather than mined. `pipelines.rs` is still orphaned (no `mod pipelines` in `lib.rs`) and provably never compiled — it passes `entry_point` as a bare `&str` where wgpu 27 wants `Option<&str>`. Its dead `layout_pick` also disagrees with the live pick layout, so it is a trap for future bind-group checks. Only the highlight/selection blend pair is still worth salvaging.",
+          "fix_state": "CONFIRMED"
+        }
+      ]
+    },
+    {
+      "doc": "01_explorer_wgpu_bim_gap.md",
+      "match": "Recommended order",
+      "claim": "Step 1: identity first — add a stable `element_id` to `RenderItem` + the Avro schema and stop letting `ItemKey` erase it. Everything in phases 1/2/3/5 depends on this.",
+      "claim_written": "2026-07-29",
+      "target": "Nothing — this prerequisite is void. Steps 2, 4 and 6 proceed without it.",
+      "checks": [
+        {
+          "round": 1,
+          "at": "2026-07-30",
+          "verdict": "WRONG",
+          "by": "07_review_explorer_identity.md",
+          "provenance": "harness",
+          "now": "Not done, and deliberately bypassed — the pick work routed identity through the `color` channel instead. The stated prerequisite is inverted (see the row-2 correction), and steps 2, 4 and 6 do not depend on it. What a first-class id on the *visible* items would still buy: select-by-id, per-element visibility, and query/filter.",
+          "fix_state": "CONFIRMED"
+        }
+      ]
+    },
+    {
+      "doc": "01_explorer_wgpu_bim_gap.md",
+      "match": "Recommended order",
+      "claim": "Step 3: picking + `on_pick` callback, via a `BoundingBox → ray_aabb` CPU broad phase and a `pick_at(x,y)` wasm export.",
+      "claim_written": "2026-07-29",
+      "target": "pick_map.json transported to the browser and set_on_pick registered by the React host, so click-to-data is observable (tickets S1-S3).",
+      "checks": [
+        {
+          "round": 1,
+          "at": "2026-07-30",
+          "verdict": "STALE",
+          "by": "07_review_explorer_identity.md",
+          "provenance": "harness",
+          "now": "Renderer half is done, by GPU id-buffer readback rather than the proposed CPU raycast — `pick_utils.rs` is untouched and `ray_quad`/`ray_segment` still have zero callers. Three gaps remain, all host-side: `pick_at` is **not** a wasm export (picking is only triggerable from an internal left-mouse press); `pick_map.json` is written but never transported (`worker.py:195-199` discards the returned path and `WgpuDataResult` has no field for it); and `set_on_pick` has **zero** JS callers. Until the last two land, click-to-data is not observable in the browser.",
+          "fix_state": "CONFIRMED"
+        }
+      ]
+    },
+    {
+      "doc": "01_explorer_wgpu_bim_gap.md",
+      "match": "Recommended order",
+      "claim": "Step 5: decide WebGL2 vs WebGPU deliberately — a fork in the road, not a flag flip.",
+      "claim_written": "2026-07-29",
+      "target": "pick_at made async before any WebGPU adapter change, so flipping the backend cannot silently break picking (P9 depends on it).",
+      "checks": [
+        {
+          "round": 1,
+          "at": "2026-07-30",
+          "verdict": "ADDED",
+          "by": "07_review_systems_gpu.md",
+          "provenance": "harness",
+          "now": "It is now also a regression risk. `pick_stage.rs:295` blocks on `poll(wait_indefinitely)`, which is a no-op on a real WebGPU device, so flipping the backend makes every click silently report empty space. `pick_at` must become async *before* the backend decision. Separately, picking fires on mouse-*press* with no click-vs-drag test, so every orbit-drag start already pays a full pick pass plus that blocking poll on the browser main thread.",
+          "fix_state": "CONFIRMED"
+        }
+      ]
+    },
+    {
+      "doc": "01_explorer_wgpu_bim_gap.md",
+      "match": "What the crate actually is",
+      "claim": "Server pre-tessellation → Avro + raw blobs → 8 MiB chunks → 6-way fetch → ~3 big GPU buffers → one `draw_indexed` per `RenderItem`, baked once into immutable bundles.",
+      "claim_written": "2026-07-29",
+      "target": "None — this is the verified description of the crate. Re-check after any change to the load path.",
+      "checks": [
+        {
+          "round": 1,
+          "at": "2026-07-30",
+          "verdict": "CONFIRMED",
+          "by": "07_review_explorer_identity.md",
+          "provenance": "harness",
+          "now": "Every link in the chain re-verified against this worktree. Anchors shifted (the pick-map insert moved `worker.py`, and `web_app.rs` grew ~35 lines) — the citation links on this page resolve by symbol, so they point at the right code despite the doc's original line numbers.",
+          "fix_state": "CONFIRMED"
+        }
+      ]
+    },
+    {
+      "doc": "02_design_semantic_layer.md",
+      "match": "The find: identity already exists",
+      "claim": "Identity already exists one layer up: `pick_ref` → `new_pick_color_association` → a `PickRenderStage` twin whose colour *is* the encoded id.",
+      "claim_written": "2026-07-29",
+      "target": "None for the mechanism. The per-face granularity, random ids and 2^23 ceiling need deciding before anything persists a selection.",
+      "checks": [
+        {
+          "round": 1,
+          "at": "2026-07-30",
+          "verdict": "CONFIRMED",
+          "by": "07_review_explorer_identity.md",
+          "provenance": "harness",
+          "now": "Verified end-to-end on both sides, and now implemented on this branch. Four properties the design note omits: ids are **per-face**, not per-element (one body with k pickable faces yields k ids); ids are random per export, hence the `stable_id` indirection; the id space is capped at 2²³ ≈ 8.4M pickable faces by `encode_padic`; and every pick item mints its own 80-byte uniform + bind group, i.e. one GL buffer object per pickable face — the dominant scaling risk of this design.",
+          "fix_state": "CONFIRMED"
+        }
+      ]
+    },
+    {
+      "doc": "02_design_semantic_layer.md",
+      "match": "The find: identity already exists",
+      "claim": "(not stated) which render modes are pickable.",
+      "claim_written": "2026-07-29",
+      "target": "A decision: either give solution/scalar-field mode pick geometry, or document click-to-data as .aks-model-mode only.",
+      "checks": [
+        {
+          "round": 1,
+          "at": "2026-07-30",
+          "verdict": "ADDED",
+          "by": "07_review_explorer_identity.md",
+          "provenance": "harness",
+          "now": "Scalar-field / solution mode is **not pickable at all**: `gl_graphics/render_list.py:146-148` routes `ScalarFieldRenderType` faces away before the `pick_ref` block, so no pick items exist in solution mode and `PickStage::render_bundle` stays `None`. Click-to-data is `.aks` model mode only — a scope limit that appears in none of the plan docs.",
+          "fix_state": "CONFIRMED"
+        }
+      ]
+    },
+    {
+      "doc": "02_design_semantic_layer.md",
+      "match": "BIM plan, re-cut for this renderer",
+      "claim": "Row 5: instancing is BLOCKED on WebGPU — steps 5 and 17 are the same decision, not two.",
+      "claim_written": "2026-07-29",
+      "target": "Treat steps 5 and 17 as independent: instancing on WebGL2 now, WebGPU on its own merits.",
+      "checks": [
+        {
+          "round": 1,
+          "at": "2026-07-30",
+          "verdict": "WRONG",
+          "by": "03_design_large_model.md",
+          "provenance": "harness",
+          "now": "Retracted by doc 03 §2: per-instance vertex attributes work on WebGL2 and already ship in `overlay_pass.rs`. Steps 5 and 17 are independent decisions.",
+          "fix_state": "CONFIRMED"
+        }
+      ]
+    },
+    {
+      "doc": "02_design_semantic_layer.md",
+      "match": "BIM plan, re-cut for this renderer",
+      "claim": "Row 12: downgrade RTC and solve it at import — subtract a global origin in the importer, at zero renderer cost.",
+      "claim_written": "2026-07-29",
+      "target": "RTC solved at import by subtracting a global origin, which needs the Avro Dtype to carry something wider than Float32 or the origin applied before quantisation.",
+      "checks": [
+        {
+          "round": 1,
+          "at": "2026-07-30",
+          "verdict": "STALE",
+          "by": "07_review_web_loader.md",
+          "provenance": "harness",
+          "now": "Right idea, wrong position in the order. `validate_arrays` *requires* Float32 vertices, so a UTM-georeferenced model is quantised to a ~0.5–0.7 m lattice by the **Python exporter**, before the browser ever sees it — geometry thinner than one ulp collapses. Making RTC possible is an Avro `Dtype`/schema change, which sits upstream of the WebGPU decision rather than after it.",
+          "fix_state": "CONFIRMED"
+        }
+      ]
+    },
+    {
+      "doc": "03_design_large_model.md",
+      "match": "Interaction with the semantic layer",
+      "claim": "The pick pass costs nothing per frame (renders only on a click) and `pick_at` must become async before the WebGPU move.",
+      "claim_written": "2026-07-29",
+      "target": "Keep the pick pass click-only, add click-vs-drag discrimination, and fix the map_async leak on the failure path.",
+      "checks": [
+        {
+          "round": 1,
+          "at": "2026-07-30",
+          "verdict": "CONFIRMED",
+          "by": "07_review_explorer_identity.md",
+          "provenance": "harness",
+          "now": "Both confirmed against `pick_stage.rs`. One addition: the pick fires on mouse-*press* before drag detection (`graphics_window.rs:271-279`), so an orbit-drag start pays for a full pick pass and a blocking `poll`. And on the map-failure path `pick_at` returns without resolving the outstanding `map_async`, so one soft failure poisons every later pick.",
+          "fix_state": "CONFIRMED"
+        }
+      ]
+    },
+    {
+      "doc": "04_jira_journey_and_tickets.md",
+      "match": "Tickets to create",
+      "claim": "S8: colour by property (categorical) reuses the existing `is_enumerating` discrete branch — no shader work.",
+      "claim_written": "2026-07-29",
+      "target": "Re-sized ticket S8 with the shader + Globals + colour-bar work included.",
+      "checks": [
+        {
+          "round": 1,
+          "at": "2026-07-30",
+          "verdict": "WRONG",
+          "by": "07_review_systems_gpu.md",
+          "provenance": "harness",
+          "now": "Void. The branch is unreachable and the LUT fills only 14 of 50 slots (see the doc 01 §4 correction). S8 becomes a real shader + `Globals` change, and the duplicated colour-bar logic in `shaders.rs` must change with it. Re-size S8 from S to M.",
+          "fix_state": "PROPOSED"
+        }
+      ]
+    },
+    {
+      "doc": "04_jira_journey_and_tickets.md",
+      "match": "Bugs found by the audit",
+      "claim": "B1–B6.",
+      "claim_written": "2026-07-29",
+      "target": "B7-B12 filed as defects.",
+      "checks": [
+        {
+          "round": 1,
+          "at": "2026-07-30",
+          "verdict": "ADDED",
+          "by": "07_review_qa_build_and_docs.md",
+          "provenance": "harness",
+          "now": "Six more defects worth filing: (B7) `pick_at` leaks an outstanding `map_async` on its failure path, so one soft failure poisons all later picks; (B8) `on_error` is declared and never invoked, a third write-only channel alongside `canvas_id_to_loading_progress` and `on_pick`; (B9) a pickable point-primitive face makes `PickStage` bundling fail, which aborts `GraphicsWindow::new` for the whole scene; (B10) `pick_map.json` includes non-geometry `ActionPick` entries that resolve to no entity; (B11) `has_rendered` is not just vacuous but redundant — the map lookup already gates, so delete the field; (B12) `clippy -D warnings` has never been green: 79 errors, 77 pre-existing.",
+          "fix_state": "CONFIRMED"
+        }
+      ]
+    },
+    {
+      "doc": "05_benchmark_and_limits.md",
+      "match": "What this changes about the earlier plan",
+      "claim": "The semantic/BIM tickets (S1–S9) are not what the manager is asking for; stop at rendering limits.",
+      "claim_written": "2026-07-29",
+      "target": "SUMMARY.md and BIM_VIEWER_PLAN.csv updated to the rendering-limits scope, or explicitly marked as the superseded semantic-first plan.",
+      "checks": [
+        {
+          "round": 1,
+          "at": "2026-07-30",
+          "verdict": "SCOPE",
+          "by": "05_benchmark_and_limits.md",
+          "provenance": "harness",
+          "now": "This scope change was never propagated. `SUMMARY.md` still ends with \"build web-ifc + three.js, then the query/dashboard layer\", `BIM_VIEWER_PLAN.csv` still lists all 17 semantic-first steps, and doc 02 §4 still gives a semantic-first order. Read this section before treating either as current.",
+          "fix_state": "CONFIRMED"
+        }
+      ]
+    },
+    {
+      "doc": "05_benchmark_and_limits.md",
+      "match": "Metrics to capture",
+      "claim": "Plan row 15 (benchmark harness) is ABSENT.",
+      "claim_written": "2026-07-29",
+      "target": "Instrumentation landed: frame timing, draw-call counts, peak wasm memory, load-phase timings (P1).",
+      "checks": [
+        {
+          "round": 1,
+          "at": "2026-07-30",
+          "verdict": "STALE",
+          "by": "07_review_web_loader.md",
+          "provenance": "harness",
+          "now": "Half-built. `wgpu_data_utils/synth_bench.py` exists and its three knobs are verified, so workload *generation* is done. Measurement is still absent: no `performance.now()` anywhere in `src/`, and `canvas_id_to_loading_progress` is still written once and never read.",
+          "fix_state": "CONFIRMED"
+        }
+      ]
+    },
+    {
+      "doc": "06_instancing_and_merging.md",
+      "match": "Caveats on the above",
+      "claim": "Five caveats on the proposed instancing code.",
+      "claim_written": "2026-07-29",
+      "target": "An n_instances threshold plus one pooled instance buffer, so instancing cannot make unique-geometry models worse.",
+      "checks": [
+        {
+          "round": 1,
+          "at": "2026-07-30",
+          "verdict": "ADDED",
+          "by": "leader review",
+          "provenance": "harness",
+          "now": "A sixth, and it decides whether §C is worth doing: C1 allocates one `create_buffer_init` per `GeometryKey` over *all* render items. Content-hash dedup only collapses genuinely repeated meshes, so for FEA models where most geometry is unique this yields one tiny GPU buffer per element — strictly worse than today, plus extra load-time peak memory in the 3×-geometry window. Needs an `n_instances >= threshold` fallback to the non-instanced path and one pooled instance buffer with offsets.",
+          "fix_state": "CONFIRMED"
+        }
+      ]
+    },
+    {
+      "doc": "SUMMARY.md",
+      "match": "Next step",
+      "claim": "Build the foundation: web-ifc + three.js rendering a small IFC, then the query/dashboard layer, then performance.",
+      "claim_written": "2026-07-29",
+      "target": "The entry-point docs point at the current order, or the reader is told at the top which plan is live.",
+      "checks": [
+        {
+          "round": 1,
+          "at": "2026-07-30",
+          "verdict": "SCOPE",
+          "by": "05_benchmark_and_limits.md",
+          "provenance": "harness",
+          "now": "Superseded twice. Doc 02 §4 decided `wgpu_renderer` *is* the renderer (adopting three.js means abandoning it, not extending it), and doc 05 §5 records a manager scope change to rendering limits only. Current order is P1 benchmark harness → P2 streaming upload → P3/P4 draw calls + culling → P5 instancing → P7/P8 LOD + tiling.",
+          "fix_state": "CONFIRMED"
+        }
+      ]
+    },
+    {
+      "doc": "BIM_VIEWER_PLAN.csv",
+      "match": "1",
+      "claim": "Key Tech: web-ifc + three.js.",
+      "claim_written": "2026-07-29",
+      "target": "An IFC→Avro importer emitting `GraphicsArray` + `pick_ref`, reusing the existing RemoteRenderList → chunk → wasm path unchanged. Or restate the row for `.aks`/`.asl` inputs, where the metric is already met.",
+      "checks": [
+        {
+          "round": 1,
+          "at": "2026-07-30",
+          "verdict": "WRONG",
+          "by": "08_review_plan_stack.md",
+          "provenance": "harness",
+          "now": "three.js **replaces** this renderer rather than extending it (`02_design_semantic_layer.md:103`). The browser render loop with orbit/pan/zoom already ships — `web_app.rs:777`, `wgpu_renderer.rs:299-324`, `user_controls.rs`. Keep web-ifc/IfcOpenShell as an *offline parser* only.",
+          "fix_state": "CONFIRMED"
+        }
+      ]
+    },
+    {
+      "doc": "BIM_VIEWER_PLAN.csv",
+      "match": "2",
+      "claim": "ABSENT, needs the web-ifc API.",
+      "claim_written": "2026-07-29",
+      "target": "Fetch `pick_map.json`, register `set_on_pick`, render `key_path` as a tree, show `pick` on click. No Rust, no Python, no dependency.",
+      "checks": [
+        {
+          "round": 1,
+          "at": "2026-07-30",
+          "verdict": "STALE",
+          "by": "08_review_plan_stack.md",
+          "provenance": "harness",
+          "now": "Built end to end on this branch, without web-ifc: ids allocated at `gl_graphics/render_list.py:108-114`, the hierarchy walk at `:116-137`, `pick_map.json` written by `worker.py:242-269`, GPU readback at `pick_stage.rs:217`/`:305`, callback at `web_app.rs:134`. Only the TS side is missing — nothing under `WgpuCanvas/` references `set_on_pick` or `pick_map.json`.",
+          "fix_state": "CONFIRMED"
+        }
+      ]
+    },
+    {
+      "doc": "BIM_VIEWER_PLAN.csv",
+      "match": "3",
+      "claim": "Key Tech: JS data store.",
+      "claim_written": "2026-07-29",
+      "target": "A TS map over `pick_map.json` plus an inbound `set_selection(ids)` export.",
+      "checks": [
+        {
+          "round": 1,
+          "at": "2026-07-30",
+          "verdict": "CONFIRMED",
+          "by": "08_review_plan_stack.md",
+          "provenance": "harness",
+          "now": "Correct as written — host-side by design, over `pick_map.json`. The colouring substrate exists (`scalar_field_stage.rs:54-57`, hot-swap via `web_app.rs:151`), though the categorical branch itself is unreachable today (see doc 01 §4).",
+          "fix_state": "CONFIRMED"
+        }
+      ]
+    },
+    {
+      "doc": "BIM_VIEWER_PLAN.csv",
+      "match": "4",
+      "claim": "Key Tech: charting lib / BI templates.",
+      "claim_written": "2026-07-29",
+      "target": "Nothing in-crate. Needs row 3 first, and a defined quantity source: `pick_map.json` carries components, geoms, ports, BCs and solutions — no quantities.",
+      "checks": [
+        {
+          "round": 1,
+          "at": "2026-07-30",
+          "verdict": "CONFIRMED",
+          "by": "08_review_plan_stack.md",
+          "provenance": "harness",
+          "now": "Correct — genuinely outside the renderer. The crate only mirrors overlay layout (`web_app.rs:73`, `:107`, `:216-226`).",
+          "fix_state": "CONFIRMED"
+        }
+      ]
+    },
+    {
+      "doc": "BIM_VIEWER_PLAN.csv",
+      "match": "5",
+      "claim": "Key Tech: three.js InstancedMesh.",
+      "claim_written": "2026-07-29",
+      "target": "Merge adjacent index ranges sharing pipeline+buffers+ItemKey (no blocker), then instance via instance-step attributes, measured against the --split-items curve.",
+      "checks": [
+        {
+          "round": 1,
+          "at": "2026-07-30",
+          "verdict": "WRONG",
+          "by": "08_review_plan_perf.md",
+          "provenance": "harness",
+          "now": "The capability already ships here: `overlay_pass.rs:125` uses `VertexStepMode::Instance` and draws 6 verts × N rects in one call on WebGL2 (`:296`). Merging is also half done — coalesced per-`BufferType` buffers at `render_list.rs:170-186`. What is absent is 3D instancing in the model stages: every `draw_indexed` is `0..1`. Only the *storage-buffer* variant needs WebGPU; per-instance vertex attributes do not.",
+          "fix_state": "CONFIRMED"
+        }
+      ]
+    },
+    {
+      "doc": "BIM_VIEWER_PLAN.csv",
+      "match": "6",
+      "claim": "Key Tech: three.js built-in.",
+      "claim_written": "2026-07-29",
+      "target": "Retain that map (one field), add plane rejection, encode per frame. The same change gives pick broad-phase for free.",
+      "checks": [
+        {
+          "round": 1,
+          "at": "2026-07-30",
+          "verdict": "WRONG",
+          "by": "08_review_plan_perf.md",
+          "provenance": "harness",
+          "now": "Nothing external needed: `render_list.rs:747-759` already computes a per-element bounding-box map and throws it away, returning only the union. Box maths is in `bounding_box.rs`. Doc 03 §1 also removed the bundle blocker — wgpu replays bundles command-by-command, so they save validation, not driver calls.",
+          "fix_state": "CONFIRMED"
+        }
+      ]
+    },
+    {
+      "doc": "BIM_VIEWER_PLAN.csv",
+      "match": "7",
+      "claim": "Key Tech: GPU occlusion query / custom. Depends on row 6.",
+      "claim_written": "2026-07-29",
+      "target": "The WebGPU adapter (row 17) first, or an id-buffer visibility probe as an interim.",
+      "checks": [
+        {
+          "round": 1,
+          "at": "2026-07-30",
+          "verdict": "STALE",
+          "by": "08_review_plan_stack.md",
+          "provenance": "harness",
+          "now": "Still absent and now gated on row 17: `occlusion_query_set: None` in all **8** passes (7 when the doc was written — `pick_stage.rs:257` added one), and occlusion queries are unsupported on wgpu's GL backend. An interim probe could reuse the pick pass's offscreen id target.",
+          "fix_state": "CONFIRMED"
+        }
+      ]
+    },
+    {
+      "doc": "BIM_VIEWER_PLAN.csv",
+      "match": "8",
+      "claim": "Key Tech: meshoptimizer.",
+      "claim_written": "2026-07-29",
+      "target": "A server-side LOD chain plus a detail tier on `RenderItem` and matching `ArrayDescriptor`s on both sides of the Avro schema. Blocked on row 15.",
+      "checks": [
+        {
+          "round": 1,
+          "at": "2026-07-30",
+          "verdict": "CONFIRMED",
+          "by": "08_review_plan_stack.md",
+          "provenance": "harness",
+          "now": "The one unambiguously needed new dependency — decimation is an offline algorithm, and the FAQ says so itself (Myth 12). It belongs to the **Python exporter** (`worker.py:168-217`), not the browser; it operates directly on the ndarray inside `GraphicsArray` (`graphics_array.py:11`).",
+          "fix_state": "CONFIRMED"
+        }
+      ]
+    },
+    {
+      "doc": "BIM_VIEWER_PLAN.csv",
+      "match": "9",
+      "claim": "Key Tech: custom.",
+      "claim_written": "2026-07-29",
+      "target": "Per-item screen-space error from the retained bbox (row 6) and the `View` size, selecting a tier at bundle-build time. Blocked on rows 6 and 8.",
+      "checks": [
+        {
+          "round": 1,
+          "at": "2026-07-30",
+          "verdict": "CONFIRMED",
+          "by": "08_review_plan_stack.md",
+          "provenance": "harness",
+          "now": "Correct — in-crate, no dependency. Today only screen-size *transform* scaling exists (`sensor_stage.rs:181-233`, `triad_stage.rs:256-320`), which is not LOD selection.",
+          "fix_state": "CONFIRMED"
+        }
+      ]
+    },
+    {
+      "doc": "BIM_VIEWER_PLAN.csv",
+      "match": "10",
+      "claim": "Key Tech: IfcOpenShell / web-ifc server.",
+      "claim_written": "2026-07-29",
+      "target": "Nothing — the metric is met for HUI inputs. IfcOpenShell only re-enters as row 1's importer.",
+      "checks": [
+        {
+          "round": 1,
+          "at": "2026-07-30",
+          "verdict": "WRONG",
+          "by": "08_review_plan_stack.md",
+          "provenance": "harness",
+          "now": "Already shipped, and not with either tool: `helper_functions.py:20-40` plus `worker.py:_generate_render_list_files` pre-tessellate under Xvfb, the Avro schema is at `remote_render_list.py:13-40`, and 8 MiB `.partNNN` + MD5 chunking feeds `ArrayChunk` (`render_list.rs:63-73`). The browser has **never** parsed raw source geometry.",
+          "fix_state": "CONFIRMED"
+        }
+      ]
+    },
+    {
+      "doc": "BIM_VIEWER_PLAN.csv",
+      "match": "11",
+      "claim": "Key Tech: 3D Tiles / custom octree.",
+      "claim_written": "2026-07-29",
+      "target": "Extend the existing `ArrayChunk` manifest into spatial tiles, make `RenderList` incremental, and add eviction — `id_to_buffer` is insert-only. Largest item on the list; blocked on P2 and row 8.",
+      "checks": [
+        {
+          "round": 1,
+          "at": "2026-07-30",
+          "verdict": "WRONG",
+          "by": "08_review_plan_stack.md",
+          "provenance": "harness",
+          "now": "Adopting 3D Tiles means a **second wire format** (tileset.json + b3dm/glTF) alongside Avro/`ArrayDescriptor`, and CesiumJS as a **second runtime** — doc 02 §4:115 already ruled it out. Today chunking is a parallel-download trick, not streaming: `finalize_chunks` (`web_app.rs:739`) errors unless every chunk landed, so nothing renders before the last byte.",
+          "fix_state": "CONFIRMED"
+        }
+      ]
+    },
+    {
+      "doc": "BIM_VIEWER_PLAN.csv",
+      "match": "12",
+      "claim": "Key Tech: relative-to-center transforms. Effort M, depends on row 1.",
+      "claim_written": "2026-07-29",
+      "target": "Subtract a global origin in the importer, before quantisation — or widen the Avro `Dtype`, which cannot express f64 today (`render_list.rs:27-32`).",
+      "checks": [
+        {
+          "round": 1,
+          "at": "2026-07-30",
+          "verdict": "STALE",
+          "by": "08_review_plan_perf.md",
+          "provenance": "harness",
+          "now": "Right idea, wrong position in the order. `validate_arrays` *requires* Float32 vertices (`render_list.rs:617`), so a UTM-georeferenced model is already quantised to a ~0.5–0.7 m lattice by the **Python exporter**, before the browser sees anything. So RTC is an exporter and schema concern upstream of the WebGPU decision, not a renderer change after it.",
+          "fix_state": "CONFIRMED"
+        }
+      ]
+    },
+    {
+      "doc": "BIM_VIEWER_PLAN.csv",
+      "match": "13",
+      "claim": "Key Tech: Web Workers + queue.writeBuffer.",
+      "claim_written": "2026-07-29",
+      "target": "Decode off the main thread and uploads sliced into budgeted `queue.write_buffer` calls. Highest value non-semantic item; can start today.",
+      "checks": [
+        {
+          "round": 1,
+          "at": "2026-07-30",
+          "verdict": "CONFIRMED",
+          "by": "08_review_plan_perf.md",
+          "provenance": "harness",
+          "now": "Correct, and cheaper than the docs estimate: `queue.write_buffer` is already used at 9 sites (never for geometry), and 3 of the 4 blocking steps are synchronous JS→wasm calls from `loadRenderData.util.ts`, so they move into a JS Worker with **zero Rust changes**. The crate cannot see `Worker` today (`Cargo.toml:24-27`), but that is not the blocker.",
+          "fix_state": "CONFIRMED"
+        }
+      ]
+    },
+    {
+      "doc": "BIM_VIEWER_PLAN.csv",
+      "match": "14",
+      "claim": "Key Tech: OPFS / IndexedDB.",
+      "claim_written": "2026-07-29",
+      "target": "Cache chunks in OPFS/IndexedDB, and optionally cache scalar buffers in-crate.",
+      "checks": [
+        {
+          "round": 1,
+          "at": "2026-07-30",
+          "verdict": "CONFIRMED",
+          "by": "08_review_plan_stack.md",
+          "provenance": "harness",
+          "now": "Correct — platform APIs, JS-side in the loader. In-crate, scalar fields are explicitly not cached (`render_list.rs:663-667`), so every field switch re-fetches and re-bundles.",
+          "fix_state": "CONFIRMED"
+        }
+      ]
+    },
+    {
+      "doc": "BIM_VIEWER_PLAN.csv",
+      "match": "15",
+      "claim": "ABSENT. Key Tech: custom counters. Priority Medium.",
+      "claim_written": "2026-07-29",
+      "target": "Draw-call and item counters at bundle build, frame timing, peak wasm memory, load-phase timings. **Do this before rows 5, 8, 11 and 17** — their metrics are unfalsifiable without it.",
+      "checks": [
+        {
+          "round": 1,
+          "at": "2026-07-30",
+          "verdict": "STALE",
+          "by": "08_review_plan_stack.md",
+          "provenance": "harness",
+          "now": "Half built. The workload generator now exists (`wgpu_data_utils/synth_bench.py`, three independent axes, verified). Measurement is still absent: no `performance.now()` anywhere in `src/`, and `canvas_id_to_loading_progress` is still written once and never read. Also note the renderer paints on demand, so an idle harness records zero frames.",
+          "fix_state": "CONFIRMED"
+        }
+      ]
+    },
+    {
+      "doc": "BIM_VIEWER_PLAN.csv",
+      "match": "16",
+      "claim": "Key Tech: local LLM (Ollama). Priority Low, depends on row 3.",
+      "claim_written": "2026-07-29",
+      "target": "Row 3 first, and a query layer whose answers are worth phrasing in English.",
+      "checks": [
+        {
+          "round": 1,
+          "at": "2026-07-30",
+          "verdict": "CONFIRMED",
+          "by": "08_review_plan_stack.md",
+          "provenance": "harness",
+          "now": "Correct and correctly deferred — host-side, zero renderer work, and it costs a second runtime to operate and ship.",
+          "fix_state": "CONFIRMED"
+        }
+      ]
+    },
+    {
+      "doc": "BIM_VIEWER_PLAN.csv",
+      "match": "17",
+      "claim": "Key Tech: WebGPU. Effort S.",
+      "claim_written": "2026-07-29",
+      "target": "Make `pick_at` async first, then try a WebGPU adapter with GL fallback, gating occlusion queries and storage-buffer instancing behind it.",
+      "checks": [
+        {
+          "round": 1,
+          "at": "2026-07-30",
+          "verdict": "WRONG",
+          "by": "08_review_plan_perf.md",
+          "provenance": "harness",
+          "now": "Not new tech: wgpu 27 **is** the WebGPU abstraction and is already the dependency (`Cargo.toml:14`). WebGPU is refused by one hardcoded local — `wgpu_renderer.rs:299` `let use_webgl = true;` → `Backends::GL` + `downlevel_webgl2_defaults()`. The true-WebGPU branches are dead code, not missing code. But the effort rating is wrong: `pick_stage.rs:295` blocks on `poll(wait_indefinitely)`, a no-op on a real WebGPU device, so flipping the backend silently breaks click-to-data. **M with a regression, not S.**",
+          "fix_state": "PROPOSED"
+        }
+      ]
+    },
+    {
+      "doc": "SUMMARY.md",
+      "match": "Recommended open-source stack",
+      "claim": "Recommended stack: web-ifc, xeokit-sdk, three.js + WebGPU, 3D Tiles / CesiumJS, meshoptimizer / Draco / glTF, IfcOpenShell, buildingSMART IFC.",
+      "claim_written": "2026-07-29",
+      "target": "This list rewritten to: meshoptimizer (Python-side, row 8), web-ifc or IfcOpenShell as an offline parser only and only if IFC ingest is real, xeokit as reading. Everything else struck.",
+      "checks": [
+        {
+          "round": 1,
+          "at": "2026-07-30",
+          "verdict": "WRONG",
+          "by": "08_review_plan_stack.md",
+          "provenance": "harness",
+          "now": "This list was written before anyone opened `tools/wgpu_renderer`, and `02_design_semantic_layer.md:101-124` §4 retracted most of it the same day — but this section was never revised, so the retracted stack is still the front-door recommendation. **three.js replaces our renderer** (`02:103`), **3D Tiles/CesiumJS is explicitly ruled out** (`02:115`), **Draco is deferred** (`02:123`), **xeokit is reading only** (`02:122`), **IfcOpenShell's job is already done** (`02:114`), and **glTF is not our wire format** (Avro + raw blobs is). Of the 17 plan rows, 6 (35%) name tech already in the crate or that would replace it; only meshoptimizer is an unambiguously needed new dependency.",
+          "fix_state": "CONFIRMED"
+        }
+      ]
+    },
+    {
+      "doc": "MISCONCEPTIONS_AND_FAQ.md",
+      "match": "Misconceptions",
+      "claim": "Myth 11: the whole stack is open source — web-ifc (parsing), xeokit (large-model rendering), 3D Tiles / Cesium (streaming), meshoptimizer / Draco (compression).",
+      "claim_written": "2026-07-29",
+      "target": "The myth reframed for this codebase: you do not have to build the parser or the decimator, and you already own the renderer and the transport.",
+      "checks": [
+        {
+          "round": 1,
+          "at": "2026-07-30",
+          "verdict": "STALE",
+          "by": "08_review_plan_stack.md",
+          "provenance": "harness",
+          "now": "Right in spirit, wrong in list. The point stands — you should not write an IFC parser or a mesh decimator yourself. But for this project the renderer, the server-side tessellation and the chunked transport are **already ours** (`helper_functions.py:20-40`, `worker.py`, `render_list.rs:63-73`), so xeokit is reference reading and 3D Tiles/Cesium would add a second wire format plus a second runtime.",
+          "fix_state": "CONFIRMED"
+        }
+      ]
+    }
+  ]
+}

@@ -142,6 +142,7 @@ const HTML_PORT = Number(process.env.PIXELOFFICE_HTML_PORT ?? 8322);
  * instance, e.g. one started by a shell that sourced activate-stack.sh.
  */
 const STACK_CONTROL_PORT = Number(process.env.STACK_UI_PORT ?? 8000);
+const DOC_SKILL_PORT = Number(process.env.PIXELOFFICE_DOCSKILL_PORT ?? 8323);
 
 const args = process.argv.slice(2);
 const restart = args.includes("--restart");
@@ -425,10 +426,11 @@ async function main() {
 	await wireAgentStack();
 
 	if (restart) {
-		console.log(`Freeing ports ${RUNTIME_PORT}, ${MANAGER_PORT}, ${HTML_PORT}...`);
+		console.log(`Freeing ports ${RUNTIME_PORT}, ${MANAGER_PORT}, ${HTML_PORT}, ${DOC_SKILL_PORT}...`);
 		freePort(RUNTIME_PORT);
 		freePort(MANAGER_PORT);
 		freePort(HTML_PORT);
+		freePort(DOC_SKILL_PORT);
 		await new Promise((resolve) => setTimeout(resolve, 500));
 	} else if (await portIsListening(RUNTIME_PORT)) {
 		console.error(`Port ${RUNTIME_PORT} is already in use. Run: npm run solo -- --restart`);
@@ -486,6 +488,7 @@ async function main() {
 	console.log(`  App:     http://127.0.0.1:${RUNTIME_PORT}`);
 	console.log(`  Manager:  http://127.0.0.1:${MANAGER_PORT} (headless child of the runtime)`);
 	console.log(`  HTML:     http://127.0.0.1:${HTML_PORT} (template sidecar, headless)`);
+	console.log(`  Docs:     http://127.0.0.1:${DOC_SKILL_PORT} (doc-site sidecar, headless)`);
 	if (proxyEnv) {
 		console.log(`  Agents:   ${proxyEnv.chain}`);
 		console.log("            OAuth is preserved (no ANTHROPIC_API_KEY is exported).");

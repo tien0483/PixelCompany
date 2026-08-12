@@ -406,6 +406,8 @@ async function startServer(): Promise<{
 		{ startHeadroomProcess },
 		{ startCcrProcess, startDevToolsProcess },
 		{ stopAllSeatRouters },
+		{ createDocSkillClient },
+		{ startDocSkillProcess },
 		{ describeRuntimeHomeMigration, migrateRuntimeHome },
 		{ startOmniRouteProcess },
 		{ findAgentDataRoot },
@@ -427,6 +429,8 @@ async function startServer(): Promise<{
 		import("./stack/headroom-process.js"),
 		import("./stack/stack-extra-daemons.js"),
 		import("./stack/ccr-process.js"),
+		import("./doc-skill/doc-skill-client.js"),
+		import("./doc-skill/doc-skill-process.js"),
 		import("./state/runtime-home-migration.js"),
 		import("./omniroute/omniroute-process.js"),
 		import("./state/agent-data-manifest.js"),
@@ -544,6 +548,19 @@ async function startServer(): Promise<{
 	const HeadroomProcess = await startHeadroomProcess(stackDaemonLogging);
 	const CcrProcess = await startCcrProcess(stackDaemonLogging);
 	const DevToolsProcess = await startDevToolsProcess(stackDaemonLogging);
+	const DocSkillProcess = await startDocSkillProcess({
+		warn: (message) => {
+			console.warn(`[kanban] ${message}`);
+		},
+		log: (message) => {
+			console.log(`[kanban] ${message}`);
+		},
+	});
+	const DocSkillClient = createDocSkillClient({
+		warn: (message) => {
+			console.warn(`[kanban] ${message}`);
+		},
+	});
 	runtimeStateHub = createRuntimeStateHub({
 		workspaceRegistry,
 		ManagerMonitor,
@@ -574,6 +591,7 @@ async function startServer(): Promise<{
 		runtimeStateHub: runtimeHub,
 		manager: { client: ManagerClient, monitor: ManagerMonitor },
 		html: { client: HtmlClient },
+		docSkill: { client: DocSkillClient },
 		warn: (message) => {
 			console.warn(`[kanban] ${message}`);
 		},
@@ -646,6 +664,7 @@ async function startServer(): Promise<{
 		// Per-seat subagent routers are always ours — they only exist because a task pinned
 		// a subagent seat — so unlike the daemons above they are unconditionally stopped.
 		await stopAllSeatRouters();
+		await DocSkillProcess.close();
 	};
 
 	const shutdown = async (options?: { skipSessionCleanup?: boolean }) => {

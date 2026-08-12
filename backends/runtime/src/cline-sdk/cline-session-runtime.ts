@@ -26,6 +26,14 @@ export { CLINE_MODEL_CATALOG_DEFAULTS } from "./sdk-provider-boundary";
 
 const DEFAULT_CLINE_MAX_CONSECUTIVE_MISTAKES = 6;
 
+// `sessionHost.list()` defaults to the 200 most-recently-touched sessions across the
+// whole Cline data dir (shared by every task/project). Prefix-matching a taskId against
+// that capped, recency-sorted list silently misses any task whose session fell outside
+// the window — the exact failure mode behind "can't resume an in_progress/review Cline
+// task" once a workspace accumulates more than 200 sessions. Pass an explicit high limit
+// wherever we search by taskId prefix instead of relying on the SDK default.
+const SESSION_HISTORY_LOOKUP_LIMIT = 10_000;
+
 interface ClineSessionHostBoundary {
 	/**
 	 * Set only when the SDK is talking to a hub daemon. `undefined` means the local
@@ -432,7 +440,7 @@ export class InMemoryClineSessionRuntime implements ClineSessionRuntime {
 	async clearTaskSessions(taskId: string): Promise<void> {
 		const sessionHost = await this.ensureSessionHost();
 		const sessionIdPrefix = buildSessionIdPrefix(taskId);
-		const records = await sessionHost.list();
+		const records = await sessionHost.list(SESSION_HISTORY_LOOKUP_LIMIT);
 		const matchingSessionIds = new Set(
 			records.filter((record) => record.sessionId.startsWith(sessionIdPrefix)).map((record) => record.sessionId),
 		);
@@ -557,7 +565,7 @@ export class InMemoryClineSessionRuntime implements ClineSessionRuntime {
 		}
 
 		const sessionIdPrefix = buildSessionIdPrefix(taskId);
-		const records: ClineSdkSessionRecord[] = await sessionHost.list();
+		const records: ClineSdkSessionRecord[] = await sessionHost.list(SESSION_HISTORY_LOOKUP_LIMIT);
 		const matchingRecord = records
 			.filter((record: ClineSdkSessionRecord) => record.sessionId.startsWith(sessionIdPrefix))
 			.sort((left: ClineSdkSessionRecord, right: ClineSdkSessionRecord) => {

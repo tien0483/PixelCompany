@@ -109,6 +109,10 @@ export interface ClineTaskSessionService {
 	stopTaskSession(taskId: string): Promise<RuntimeTaskSessionSummary | null>;
 	abortTaskSession(taskId: string): Promise<RuntimeTaskSessionSummary | null>;
 	cancelTaskTurn(taskId: string): Promise<RuntimeTaskSessionSummary | null>;
+	/** Manual pause: interrupt the active turn but keep the session bound, so it's resumable in place. */
+	pauseTaskSession(taskId: string): Promise<RuntimeTaskSessionSummary | null>;
+	/** Resume a manually-paused session by sending a "continue" turn. */
+	resumeTaskSession(taskId: string): Promise<RuntimeTaskSessionSummary | null>;
 	sendTaskSessionInput(
 		taskId: string,
 		text: string,
@@ -650,6 +654,54 @@ export class InMemoryClineTaskSessionService implements ClineTaskSessionService 
 		});
 		this.emitSummary(summary);
 		return summary;
+	}
+
+	/**
+	 * Manual pause: interrupt the active turn like `cancelTaskTurn`, but also stamp
+	 * `pausedAt`/`pauseReason` so the task reads as paused (not just idle) on the board.
+	 * Unlike the terminal/PTY backend, a Cline session has no OS process to keep alive —
+	 * the SDK session stays bound and resumable purely via its persisted transcript.
+	 */
+	async pauseTaskSession(taskId: string): Promise<RuntimeTaskSessionSummary | null> {
+		const entry = this.messageRepository.getTaskEntry(taskId);
+		if (!entry) {
+			return null;
+		}
+		if (entry.summary.pausedAt != null || entry.summary.state !== "running") {
+			return cloneSummary(entry.summary);
+		}
+		this.pendingTurnCancelTaskIds.add(taskId);
+		await this.sessionRuntime.abortTaskSession(taskId).catch(() => null);
+		clearActiveTurnState(entry);
+		const summary = updateSummary(entry, {
+			state: "idle",
+			reviewReason: null,
+			exitCode: null,
+			pausedAt: now(),
+			pauseReason: "manual",
+		});
+		this.emitSummary(summary);
+		return summary;
+	}
+
+	/** Resume a manually-paused session: clear the pause and send a "continue" turn. */
+	async resumeTaskSession(taskId: string): Promise<RuntimeTaskSessionSummary | null> {
+		let entry = this.messageRepository.getTaskEntry(taskId);
+		if (!entry) {
+			const reboundSummary = await this.rebindPersistedTaskSession(taskId);
+			if (!reboundSummary) {
+				return null;
+			}
+			entry = this.messageRepository.getTaskEntry(taskId);
+			if (!entry) {
+				return reboundSummary;
+			}
+		}
+		if (entry.summary.pausedAt == null) {
+			return cloneSummary(entry.summary);
+		}
+		updateSummary(entry, { pausedAt: null, pauseReason: null });
+		return await this.sendTaskSessionInput(taskId, "continue");
 	}
 
 	async sendTaskSessionInput(
