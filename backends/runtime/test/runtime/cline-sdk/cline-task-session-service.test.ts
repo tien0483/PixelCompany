@@ -1132,6 +1132,39 @@ describe("InMemoryClineTaskSessionService", () => {
 		});
 	});
 
+	it("rebinds a persisted session whose SDK record failed as an error, not attention", async () => {
+		const { service, runtime } = createTrackedService();
+		runtime.readPersistedTaskSessionMock.mockResolvedValue({
+			record: {
+				sessionId: "task-1-persisted",
+				source: "core" as ClinePersistedTaskSessionSnapshot["record"]["source"],
+				status: "failed",
+				startedAt: "2026-03-17T10:00:00.000Z",
+				updatedAt: "2026-03-17T10:05:00.000Z",
+				interactive: true,
+				provider: "fpt-ai",
+				model: "DeepSeek-V4-Flash",
+				cwd: "task-1-persisted-cwd",
+				workspaceRoot: "/tmp/workspace-root",
+				enableTools: true,
+				enableSpawn: false,
+				enableTeams: false,
+				isSubagent: false,
+			},
+			messages: [
+				{
+					role: "user",
+					content: "Recovered prompt",
+				},
+			],
+		});
+
+		const reboundSummary = await service.rebindPersistedTaskSession("task-1");
+
+		expect(reboundSummary?.state).toBe("failed");
+		expect(reboundSummary?.reviewReason).toBe("error");
+	});
+
 	it("resolves workflow prompts for follow-up input before sending to the SDK runtime", async () => {
 		const runtime = createFakeClineSessionRuntime();
 		const runtimeSetup = createFakeRuntimeSetup();
