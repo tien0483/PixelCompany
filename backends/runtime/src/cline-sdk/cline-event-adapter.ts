@@ -763,9 +763,13 @@ export function applyClineSessionEvent(input: ApplyClineSessionEventInput): void
 			return;
 		}
 		clearActiveTurnState(entry);
+		// A `run-failed` just before this `ended` event already tagged reviewReason "error" —
+		// don't stomp it back to "exit", or the usage-resume-scheduler's error/usage_paused
+		// gate (isUsageResumeCandidate) never sees the failure and auto-retry never fires.
+		const alreadyFailed = entry.summary.reviewReason === "error";
 		emitSummary(input, {
 			state: interrupted ? "interrupted" : "awaiting_review",
-			reviewReason: interrupted ? "interrupted" : "exit",
+			reviewReason: interrupted ? "interrupted" : alreadyFailed ? "error" : "exit",
 			lastOutputAt: now(),
 		});
 		return;

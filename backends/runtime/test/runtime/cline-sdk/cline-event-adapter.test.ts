@@ -452,6 +452,45 @@ describe("applyClineSessionEvent", () => {
 		expect(result.summaries.at(-1)?.latestHookActivity?.hookEventName).toBe("turn_canceled");
 	});
 
+	it("preserves an error reviewReason from a prior run-failed when the session then ends", () => {
+		const entry = createEntry("task-1");
+		entry.summary.state = "running";
+		entry.summary.reviewReason = "error";
+
+		const result = applyEvent({
+			entry,
+			event: {
+				type: "ended",
+				payload: {
+					sessionId: "session-1",
+					reason: "run-failed",
+				},
+			},
+		});
+
+		expect(result.entry.summary.state).toBe("awaiting_review");
+		expect(result.entry.summary.reviewReason).toBe("error");
+	});
+
+	it("sets reviewReason to exit when a session ends with no prior error", () => {
+		const entry = createEntry("task-1");
+		entry.summary.state = "running";
+
+		const result = applyEvent({
+			entry,
+			event: {
+				type: "ended",
+				payload: {
+					sessionId: "session-1",
+					reason: "completed",
+				},
+			},
+		});
+
+		expect(result.entry.summary.state).toBe("awaiting_review");
+		expect(result.entry.summary.reviewReason).toBe("exit");
+	});
+
 	it("moves completed done events into awaiting review with the final message attached", () => {
 		const entry = createEntry("task-1");
 		entry.summary.state = "running";
