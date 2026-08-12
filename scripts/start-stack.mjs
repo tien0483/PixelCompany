@@ -118,8 +118,9 @@ const WEB_UI_PORT = 5173;
 const MANAGER_PORT = Number(process.env.MANAGER_PORT ?? process.env.JACKED_PORT ?? 8321);
 const HTML_PORT = Number(process.env.PIXELOFFICE_HTML_PORT ?? 8322);
 const OMNIROUTE_PORT = Number(process.env.OMNIROUTE_PORT ?? 8400);
-/** Freed by --restart: a stale Manager/HTML/OmniRoute sidecar would stop the runtime from starting its own. */
-const RESTART_PORTS = [RUNTIME_PORT, WEB_UI_PORT, MANAGER_PORT, HTML_PORT, OMNIROUTE_PORT];
+const DOC_SKILL_PORT = Number(process.env.PIXELOFFICE_DOCSKILL_PORT ?? 8323);
+/** Freed by --restart: a stale Manager/HTML/OmniRoute/Doc-Skill sidecar would stop the runtime from starting its own. */
+const RESTART_PORTS = [RUNTIME_PORT, WEB_UI_PORT, MANAGER_PORT, HTML_PORT, OMNIROUTE_PORT, DOC_SKILL_PORT];
 /** Must be free to start: an already-running Manager/HTML sidecar is reused, not an error. */
 const REQUIRED_FREE_PORTS = [RUNTIME_PORT, WEB_UI_PORT];
 

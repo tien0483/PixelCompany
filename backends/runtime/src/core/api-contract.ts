@@ -1321,6 +1321,58 @@ export const RuntimeHtmlBriefRequestSchema = z.object({
 });
 export type RuntimeHtmlBriefRequest = z.infer<typeof RuntimeHtmlBriefRequestSchema>;
 
+export const RuntimeDocSkillStatusSchema = z.object({
+	online: z.boolean(),
+	version: z.string().optional(),
+});
+export type RuntimeDocSkillStatus = z.infer<typeof RuntimeDocSkillStatusSchema>;
+
+export const RuntimeDocProjectSchema = z.object({
+	id: z.string(),
+	name: z.string(),
+	targetRepo: z.string(),
+	workspaceDir: z.string(),
+	tagline: z.string(),
+	createdAt: z.string(),
+	hasSite: z.boolean(),
+	docCount: z.number(),
+	lastBuildAt: z.string().nullable(),
+});
+export type RuntimeDocProject = z.infer<typeof RuntimeDocProjectSchema>;
+
+export const RuntimeDocProjectListSchema = z.object({
+	projects: z.array(RuntimeDocProjectSchema),
+});
+export type RuntimeDocProjectList = z.infer<typeof RuntimeDocProjectListSchema>;
+
+export const RuntimeDocProjectCreateRequestSchema = z.object({
+	name: z.string().min(1),
+	targetRepo: z.string().min(1),
+	workspaceDir: z.string().min(1),
+	sources: z.array(z.string()).default([]),
+	tagline: z.string().optional(),
+});
+export type RuntimeDocProjectCreateRequest = z.infer<typeof RuntimeDocProjectCreateRequestSchema>;
+
+export const RuntimeDocAuditRequestSchema = z.object({
+	projectId: z.string().min(1),
+	targetRepo: z.string().min(1),
+	workspaceDir: z.string().min(1),
+	focus: z.string().optional(),
+	model: z.string().optional(),
+	managerAccountId: z.number().int().positive().optional(),
+});
+export type RuntimeDocAuditRequest = z.infer<typeof RuntimeDocAuditRequestSchema>;
+
+export const RuntimeDocRoundRequestSchema = z.object({
+	projectId: z.string().min(1),
+	targetRepo: z.string().min(1),
+	workspaceDir: z.string().min(1),
+	model: z.string().optional(),
+	managerAccountId: z.number().int().positive().optional(),
+});
+export type RuntimeDocRoundRequest = z.infer<typeof RuntimeDocRoundRequestSchema>;
+
 /**
  * Inline prompt bar: one instruction plus the document it applies to. `context`
  * may be empty (drafting into a blank plan is the common first move), so unlike

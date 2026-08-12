@@ -61,6 +61,9 @@ import type {
 	RuntimeDeployStatusResponse,
 	RuntimeDirectoryListRequest,
 	RuntimeDirectoryListResponse,
+	RuntimeDocProject,
+	RuntimeDocProjectCreateRequest,
+	RuntimeDocSkillStatus,
 	RuntimeFeaturebaseTokenResponse,
 	RuntimeGetWorkspaceLocalAssetsRequest,
 	RuntimeGitBlameRequest,
@@ -221,6 +224,9 @@ import type {
 import {
 	type RuntimeClaudeUsage,
 	RuntimeClaudeUsageSchema,
+	RuntimeDocProjectCreateRequestSchema,
+	RuntimeDocProjectSchema,
+	RuntimeDocSkillStatusSchema,
 	type RuntimeHtmlStatus,
 	RuntimeHtmlStatusSchema,
 	type RuntimeHtmlTemplate,
@@ -804,6 +810,11 @@ export interface RuntimeTrpcContext {
 	};
 	claudeUsageApi: {
 		get: () => Promise<RuntimeClaudeUsage>;
+	};
+	docSkillApi: {
+		status: () => Promise<RuntimeDocSkillStatus>;
+		projects: () => Promise<RuntimeDocProject[]>;
+		createProject: (input: RuntimeDocProjectCreateRequest) => Promise<RuntimeDocProject>;
 	};
 }
 
@@ -1742,6 +1753,20 @@ export const runtimeAppRouter = t.router({
 		usage: t.procedure.output(RuntimeClaudeUsageSchema).query(async ({ ctx }) => {
 			return await ctx.claudeUsageApi.get();
 		}),
+	}),
+	docSkill: t.router({
+		status: t.procedure.output(RuntimeDocSkillStatusSchema).query(async ({ ctx }) => {
+			return await ctx.docSkillApi.status();
+		}),
+		projects: t.procedure.output(RuntimeDocProjectSchema.array()).query(async ({ ctx }) => {
+			return await ctx.docSkillApi.projects();
+		}),
+		createProject: t.procedure
+			.input(RuntimeDocProjectCreateRequestSchema)
+			.output(RuntimeDocProjectSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.docSkillApi.createProject(input);
+			}),
 	}),
 });
 
