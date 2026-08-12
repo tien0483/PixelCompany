@@ -79,6 +79,63 @@ export function isUsageLimitError(errorMessage: string | null): boolean {
 	return normalized.includes("429") && (normalized.includes("request") || normalized.includes("throughput"));
 }
 
+/**
+ * Detect a transient failure worth auto-retrying for a 3rd-party (non-Claude) API seat:
+ * rate limits (via {@link isUsageLimitError}), server overload / gateway errors, and network
+ * blips. 3rd-party OpenAI-compatible endpoints format these very differently from Anthropic's
+ * API, so this is intentionally broader than the Claude-specific usage-limit patterns above —
+ * scoped to API-seat tasks only (see usage-pause.ts) and always bounded by a retry-attempt cap,
+ * never trusted alone to retry forever.
+ */
+const TRANSIENT_SERVER_PATTERNS = [
+	"502",
+	"503",
+	"504",
+	"bad gateway",
+	"service unavailable",
+	"gateway timeout",
+	"overloaded",
+	"econnreset",
+	"socket hang up",
+	"fetch failed",
+	"network error",
+	"etimedout",
+] as const;
+
+/** Permanent failures that must never be retried, even if short. */
+const PERMANENT_ERROR_PATTERNS = [
+	"invalid api key",
+	"unauthorized",
+	"forbidden",
+	"not found",
+	"invalid_request_error",
+] as const;
+
+/** Catch-all length for an unrecognized-but-terse error message — see isRetryableApiSeatError. */
+const SHORT_ERROR_MESSAGE_MAX_LENGTH = 80;
+
+export function isRetryableApiSeatError(errorMessage: string | null): boolean {
+	if (!errorMessage) {
+		return false;
+	}
+	if (isCreditLimitError(errorMessage)) {
+		return false;
+	}
+	if (isUsageLimitError(errorMessage)) {
+		return true;
+	}
+	const normalized = errorMessage.toLowerCase();
+	if (TRANSIENT_SERVER_PATTERNS.some((pattern) => normalized.includes(pattern))) {
+		return true;
+	}
+	if (PERMANENT_ERROR_PATTERNS.some((pattern) => normalized.includes(pattern))) {
+		return false;
+	}
+	// Unrecognized but short messages are cheap to give a bounded number of retries — the
+	// caller's attempt cap is what keeps this from spamming a gated 3rd-party endpoint.
+	return errorMessage.trim().length > 0 && errorMessage.trim().length <= SHORT_ERROR_MESSAGE_MAX_LENGTH;
+}
+
 const WINDOWS_INVALID_SESSION_ID_CHARS = /[<>:"/\\|?*]/g;
 
 export interface ClineTaskSessionEntry {

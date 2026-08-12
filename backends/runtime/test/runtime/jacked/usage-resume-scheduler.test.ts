@@ -76,6 +76,22 @@ describe("isUsageResumeCandidate", () => {
 		);
 		expect(isUsageResumeCandidate(summary({ taskId: "d", state: "running", reviewReason: null }))).toBe(false);
 	});
+
+	it("selects an errored API-seat task even without the opt-in checkbox", () => {
+		expect(
+			isUsageResumeCandidate(
+				summary({ taskId: "e", reviewReason: "error", autoResumeOnUsageLimit: false, providerId: "openrouter" }),
+			),
+		).toBe(true);
+	});
+
+	it("does not treat the built-in default seat as an API seat", () => {
+		expect(
+			isUsageResumeCandidate(
+				summary({ taskId: "f", reviewReason: "error", autoResumeOnUsageLimit: false, providerId: "cline" }),
+			),
+		).toBe(false);
+	});
 });
 
 describe("evaluateSession", () => {
@@ -106,6 +122,31 @@ describe("evaluateSession", () => {
 			source: "reset",
 			resumeAt: FUTURE,
 		});
+	});
+
+	it("pauses an API-seat error on a transient (503) message without the opt-in checkbox", () => {
+		const s = summary({
+			taskId: "a",
+			reviewReason: "error",
+			autoResumeOnUsageLimit: false,
+			providerId: "openrouter",
+			warningMessage: "503 Service Unavailable",
+		});
+		expect(evaluateSession(s, snapshot(HEADROOM), NOW)).toEqual({
+			action: "pause",
+			resumeAt: NOW + 2 * 60_000,
+		});
+	});
+
+	it("does not apply the broadened API-seat check to a Claude (non-API-seat) task", () => {
+		const s = summary({
+			taskId: "a",
+			reviewReason: "error",
+			autoResumeOnUsageLimit: false,
+			providerId: "cline",
+			warningMessage: "503 Service Unavailable",
+		});
+		expect(evaluateSession(s, snapshot(HEADROOM), NOW)).toEqual({ action: "none" });
 	});
 });
 
@@ -163,6 +204,31 @@ describe("createUsageResumeScheduler runner", () => {
 		await scheduler.tick();
 		await scheduler.tick();
 		expect(session.resumed).toBe(1);
+	});
+
+	it("stops auto-retrying an API-seat task after 5 consecutive still-failing pauses", async () => {
+		const session = makeSession(
+			summary({
+				taskId: "a",
+				reviewReason: "error",
+				autoResumeOnUsageLimit: false,
+				providerId: "openrouter",
+				warningMessage: "503 Service Unavailable",
+			}),
+		);
+		const scheduler = createUsageResumeScheduler({
+			collectSessions: () => [session],
+			refreshSnapshot: async () => snapshot(HEADROOM),
+			now: () => NOW,
+		});
+		// The fake markUsagePaused doesn't transition reviewReason, so each tick re-detects the
+		// same "error" candidate — modeling a task whose retried call keeps failing.
+		for (let i = 0; i < 5; i += 1) {
+			await scheduler.tick();
+		}
+		expect(session.paused).toHaveLength(5);
+		await scheduler.tick();
+		expect(session.paused).toHaveLength(5);
 	});
 
 	it("escalates the backoff when a due paused task keeps finding the wall (unknown reset)", async () => {
