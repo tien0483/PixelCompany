@@ -744,12 +744,18 @@ export function useBoardInteractions({
 						}
 					}
 					if (followerIds.length > 0 || boardAfterQueue !== applied.board) {
+						// The root already landed wherever the drag dropped it (top or mid-column,
+						// possibly among unrelated cards); chain each follower in run order right
+						// after the previous member instead of unshifting to the column's absolute
+						// top, which would climb above the root itself.
+						let anchorTaskId = moveEvent.taskId;
 						for (const followerId of followerIds) {
 							const moved = moveTaskToColumn(boardAfterQueue, followerId, "in_progress", {
-								insertAtTop: true,
+								insertAfterTaskId: anchorTaskId,
 							});
 							if (moved.moved) {
 								boardAfterQueue = moved.board;
+								anchorTaskId = followerId;
 							}
 						}
 						setBoard(boardAfterQueue);
