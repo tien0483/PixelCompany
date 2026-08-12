@@ -908,8 +908,14 @@ export class InMemoryClineTaskSessionService implements ClineTaskSessionService 
 		const persistedCwd = typeof snapshot.record.cwd === "string" ? snapshot.record.cwd.trim() : "";
 		const persistedWorkspaceRoot =
 			typeof snapshot.record.workspaceRoot === "string" ? snapshot.record.workspaceRoot.trim() : "";
-		const reboundState = existingEntry?.summary.state === "failed" ? "failed" : "awaiting_review";
-		const reboundReviewReason = existingEntry?.summary.state === "failed" ? "error" : "attention";
+		// The in-memory entry is usually gone here (runtime restart, evicted cache) so it can't
+		// tell us the last turn errored — but the SDK's own persisted record can: `status` is set
+		// to "failed" independently of Kanban's summary. Without this, a session that died on a
+		// retryable error (e.g. a 429) rebinds as "attention" forever, which the usage-resume-
+		// scheduler's candidate gate (isUsageResumeCandidate) never treats as an error to retry.
+		const persistedFailed = existingEntry?.summary.state === "failed" || snapshot.record.status === "failed";
+		const reboundState = persistedFailed ? "failed" : "awaiting_review";
+		const reboundReviewReason = persistedFailed ? "error" : "attention";
 		const entry = createTaskEntryFromPersistedSession(taskId, snapshot.messages, {
 			agentId: "cline",
 			state: reboundState,
