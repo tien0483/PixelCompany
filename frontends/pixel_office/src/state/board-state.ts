@@ -3,6 +3,7 @@ import { createShortTaskId } from "@runtime-task-id";
 import * as runtimeTaskState from "@runtime-task-state";
 
 import { createInitialBoardData } from "@/data/board-data";
+import { findFirstPresentChainDescendantIndex } from "@/state/chain-groups";
 import type {
 	RuntimeAgentId,
 	RuntimeClineReasoningEffort,
@@ -583,7 +584,21 @@ export function applyDragResult(
 	}
 
 	const destinationCards = Array.from(destinationColumn.cards);
-	const destinationInsertIndex = options?.programmaticCardMoveInFlight?.insertAtTop ? 0 : destination.index;
+	let destinationInsertIndex = options?.programmaticCardMoveInFlight?.insertAtTop ? 0 : destination.index;
+	if (
+		options?.programmaticCardMoveInFlight?.insertAtTop &&
+		sourceColumn.id === "review" &&
+		destinationColumn.id === "in_progress"
+	) {
+		const chainDescendantIndex = findFirstPresentChainDescendantIndex(
+			destinationColumn.cards,
+			board.dependencies,
+			movedCard.id,
+		);
+		if (chainDescendantIndex !== null) {
+			destinationInsertIndex = chainDescendantIndex;
+		}
+	}
 	destinationCards.splice(
 		destinationInsertIndex,
 		0,
@@ -613,10 +628,11 @@ export function moveTaskToColumn(
 	board: BoardData,
 	taskId: string,
 	targetColumnId: BoardColumnId,
-	options?: { insertAtTop?: boolean },
+	options?: { insertAtTop?: boolean; insertAfterTaskId?: string },
 ): { board: BoardData; moved: boolean } {
+	const sourceColumnId = getTaskColumnId(board, taskId);
 	const moved = runtimeTaskState.moveTaskToColumn(board, taskId, targetColumnId);
-	if (!moved.moved || !options?.insertAtTop) {
+	if (!moved.moved || (!options?.insertAtTop && !options?.insertAfterTaskId)) {
 		return {
 			board: moved.moved ? moved.board : board,
 			moved: moved.moved,
@@ -631,7 +647,7 @@ export function moveTaskToColumn(
 		};
 	}
 	const movedTaskIndex = targetColumn.cards.findIndex((card) => card.id === taskId);
-	if (movedTaskIndex <= 0) {
+	if (!options?.insertAfterTaskId && movedTaskIndex <= 0) {
 		return {
 			board: moved.board,
 			moved: moved.moved,
@@ -645,7 +661,19 @@ export function moveTaskToColumn(
 			moved: moved.moved,
 		};
 	}
-	targetCards.unshift(movedTask);
+	let insertIndex = 0;
+	if (options?.insertAfterTaskId) {
+		// Places the moved task immediately after a specific card (e.g. right below the chain
+		// root it just queued behind) instead of the column's absolute top.
+		const anchorIndex = targetCards.findIndex((card) => card.id === options.insertAfterTaskId);
+		insertIndex = anchorIndex === -1 ? 0 : anchorIndex + 1;
+	} else if (sourceColumnId === "review" && targetColumnId === "in_progress") {
+		const chainDescendantIndex = findFirstPresentChainDescendantIndex(targetCards, moved.board.dependencies, taskId);
+		if (chainDescendantIndex !== null) {
+			insertIndex = chainDescendantIndex;
+		}
+	}
+	targetCards.splice(insertIndex, 0, movedTask);
 	const columns = Array.from(moved.board.columns);
 	columns[targetColumnIndex] = {
 		...targetColumn,

@@ -144,3 +144,46 @@ export function computeChainGroups(cards: BoardCard[], dependencies: BoardDepend
 export function computeBacklogChainGroups(cards: BoardCard[], dependencies: BoardDependency[]): BacklogChainGrouping {
 	return computeChainGroups(cards, dependencies);
 }
+
+/**
+ * Index of the first still-present chain descendant of taskId in `cards`, or null if
+ * taskId has no chain followers currently in this column. Used to reinsert a resumed
+ * chain head immediately above its own queued batch instead of at the column's absolute top.
+ */
+export function findFirstPresentChainDescendantIndex(
+	cards: BoardCard[],
+	dependencies: BoardDependency[],
+	taskId: string,
+): number | null {
+	const childIdsByParentId = new Map<string, string[]>();
+	for (const dependency of dependencies) {
+		if (dependency.chain !== true) {
+			continue;
+		}
+		const children = childIdsByParentId.get(dependency.toTaskId) ?? [];
+		children.push(dependency.fromTaskId);
+		childIdsByParentId.set(dependency.toTaskId, children);
+	}
+
+	const cardIndexById = new Map<string, number>();
+	cards.forEach((card, index) => {
+		cardIndexById.set(card.id, index);
+	});
+
+	let earliestIndex: number | null = null;
+	const visited = new Set<string>();
+	const queue = [...(childIdsByParentId.get(taskId) ?? [])];
+	while (queue.length > 0) {
+		const current = queue.shift() as string;
+		if (visited.has(current)) {
+			continue;
+		}
+		visited.add(current);
+		const cardIndex = cardIndexById.get(current);
+		if (cardIndex !== undefined && (earliestIndex === null || cardIndex < earliestIndex)) {
+			earliestIndex = cardIndex;
+		}
+		queue.push(...(childIdsByParentId.get(current) ?? []));
+	}
+	return earliestIndex;
+}
