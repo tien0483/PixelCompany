@@ -59,6 +59,7 @@ const USAGE_LIMIT_PATTERNS = [
 	"weekly limit",
 	"try again after",
 	"try again later",
+	"too many request",
 ] as const;
 
 export function isUsageLimitError(errorMessage: string | null): boolean {
@@ -70,7 +71,12 @@ export function isUsageLimitError(errorMessage: string | null): boolean {
 		return false;
 	}
 	const normalized = errorMessage.toLowerCase();
-	return USAGE_LIMIT_PATTERNS.some((pattern) => normalized.includes(pattern));
+	if (USAGE_LIMIT_PATTERNS.some((pattern) => normalized.includes(pattern))) {
+		return true;
+	}
+	// A raw "429" status is only trustworthy alongside its usual wording — on its own it
+	// collides with port numbers, line numbers, etc. in unrelated error text.
+	return normalized.includes("429") && (normalized.includes("request") || normalized.includes("throughput"));
 }
 
 const WINDOWS_INVALID_SESSION_ID_CHARS = /[<>:"/\\|?*]/g;
