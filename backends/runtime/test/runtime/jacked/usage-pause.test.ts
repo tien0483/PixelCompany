@@ -63,6 +63,7 @@ describe("classifyUsagePause", () => {
 		expect(
 			classifyUsagePause({
 				autoResumeOnUsageLimit: false,
+				isApiSeatTask: false,
 				managerAccountId: null,
 				snapshot,
 				errorText: "usage limit reached",
@@ -77,6 +78,7 @@ describe("classifyUsagePause", () => {
 			expect(
 				classifyUsagePause({
 					autoResumeOnUsageLimit: true,
+					isApiSeatTask: false,
 					managerAccountId: null,
 					snapshot,
 					errorText: null,
@@ -90,6 +92,7 @@ describe("classifyUsagePause", () => {
 			expect(
 				classifyUsagePause({
 					autoResumeOnUsageLimit: true,
+					isApiSeatTask: false,
 					managerAccountId: null,
 					snapshot,
 					errorText: null,
@@ -103,6 +106,7 @@ describe("classifyUsagePause", () => {
 			expect(
 				classifyUsagePause({
 					autoResumeOnUsageLimit: true,
+					isApiSeatTask: false,
 					managerAccountId: null,
 					snapshot,
 					errorText: null,
@@ -116,6 +120,7 @@ describe("classifyUsagePause", () => {
 			expect(
 				classifyUsagePause({
 					autoResumeOnUsageLimit: true,
+					isApiSeatTask: false,
 					managerAccountId: null,
 					snapshot,
 					errorText: "Claude usage limit reached · resets at 5pm",
@@ -129,6 +134,7 @@ describe("classifyUsagePause", () => {
 			expect(
 				classifyUsagePause({
 					autoResumeOnUsageLimit: true,
+					isApiSeatTask: false,
 					managerAccountId: null,
 					snapshot,
 					errorText: "Insufficient balance — out of credits",
@@ -146,6 +152,7 @@ describe("classifyUsagePause", () => {
 			expect(
 				classifyUsagePause({
 					autoResumeOnUsageLimit: true,
+					isApiSeatTask: false,
 					managerAccountId: 7,
 					snapshot,
 					errorText: null,
@@ -167,6 +174,7 @@ describe("classifyUsagePause", () => {
 			expect(
 				classifyUsagePause({
 					autoResumeOnUsageLimit: true,
+					isApiSeatTask: false,
 					managerAccountId: 7,
 					snapshot,
 					errorText: null,
@@ -181,6 +189,7 @@ describe("classifyUsagePause", () => {
 			expect(
 				classifyUsagePause({
 					autoResumeOnUsageLimit: true,
+					isApiSeatTask: false,
 					managerAccountId: 7,
 					snapshot,
 					errorText: null,
@@ -195,6 +204,7 @@ describe("classifyUsagePause", () => {
 			expect(
 				classifyUsagePause({
 					autoResumeOnUsageLimit: true,
+					isApiSeatTask: false,
 					managerAccountId: 7,
 					snapshot,
 					errorText: null,
@@ -208,12 +218,71 @@ describe("classifyUsagePause", () => {
 			expect(
 				classifyUsagePause({
 					autoResumeOnUsageLimit: true,
+					isApiSeatTask: false,
 					managerAccountId: 7,
 					snapshot,
 					errorText: "rate limit exceeded, try again later",
 					now: NOW,
 				}),
 			).toEqual({ resumeAt: NOW + UNKNOWN_WAKE_BACKOFF_MS, source: "backoff" });
+		});
+	});
+
+	describe("API-seat task (unpinned, 3rd-party seat)", () => {
+		it("retries without the opt-in checkbox when the error reads as a rate limit", () => {
+			const snapshot = makeSnapshot([], { pauseUntil: null, worstWindowPct: 20, allExhausted: false });
+			expect(
+				classifyUsagePause({
+					autoResumeOnUsageLimit: false,
+					isApiSeatTask: true,
+					managerAccountId: null,
+					snapshot,
+					errorText: "429 Too Many Requests",
+					now: NOW,
+				}),
+			).toEqual({ resumeAt: NOW + UNKNOWN_WAKE_BACKOFF_MS, source: "backoff" });
+		});
+
+		it("retries on a 5xx / overloaded error", () => {
+			const snapshot = makeSnapshot([], { pauseUntil: null, worstWindowPct: 20, allExhausted: false });
+			expect(
+				classifyUsagePause({
+					autoResumeOnUsageLimit: false,
+					isApiSeatTask: true,
+					managerAccountId: null,
+					snapshot,
+					errorText: "503 Service Unavailable",
+					now: NOW,
+				}),
+			).toEqual({ resumeAt: NOW + UNKNOWN_WAKE_BACKOFF_MS, source: "backoff" });
+		});
+
+		it("does not retry a credit/balance error", () => {
+			const snapshot = makeSnapshot([], { pauseUntil: null, worstWindowPct: 20, allExhausted: false });
+			expect(
+				classifyUsagePause({
+					autoResumeOnUsageLimit: false,
+					isApiSeatTask: true,
+					managerAccountId: null,
+					snapshot,
+					errorText: "Insufficient balance — out of credits",
+					now: NOW,
+				}),
+			).toBeNull();
+		});
+
+		it("does not apply the broadened check to a non-API-seat (Claude) task", () => {
+			const snapshot = makeSnapshot([], { pauseUntil: null, worstWindowPct: 20, allExhausted: false });
+			expect(
+				classifyUsagePause({
+					autoResumeOnUsageLimit: false,
+					isApiSeatTask: false,
+					managerAccountId: null,
+					snapshot,
+					errorText: "503 Service Unavailable",
+					now: NOW,
+				}),
+			).toBeNull();
 		});
 	});
 });

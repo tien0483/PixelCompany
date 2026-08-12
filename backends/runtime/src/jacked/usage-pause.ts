@@ -10,7 +10,7 @@
 // Source of truth for "walled" is jacked's usage snapshot; the error string is only a
 // secondary signal for terminal agents that print a limit notice without a structured code.
 
-import { isUsageLimitError } from "../cline-sdk/cline-session-state";
+import { isRetryableApiSeatError, isUsageLimitError } from "../cline-sdk/cline-session-state";
 import type { RuntimeManagerAccount, RuntimeManagerSnapshot } from "../core/api-contract";
 
 /** A window at/above this percent is treated as walled. Mirrors jacked usage_pacing's default. */
@@ -28,6 +28,12 @@ export const UNKNOWN_WAKE_BACKOFF_MS = 2 * 60_000;
 export interface ClassifyUsagePauseInput {
 	/** The card/session opt-in. When false, a usage-limit exit parks normally in Review. */
 	autoResumeOnUsageLimit: boolean;
+	/**
+	 * True for a task pinned to a 3rd-party (non-Claude) API-key seat. These get the broader
+	 * {@link isRetryableApiSeatError} check even without the opt-in checkbox — see
+	 * usage-resume-scheduler.ts for how this is derived from the session summary.
+	 */
+	isApiSeatTask: boolean;
 	/** The account this task is pinned to (jacked id), or null when it follows auto-swap. */
 	managerAccountId: number | null;
 	/** Last-known jacked snapshot (from the monitor). Null when jacked is unreachable. */
@@ -98,11 +104,14 @@ function pinnedAccountResumeAt(account: RuntimeManagerAccount, now: number): num
  * decision with the resume time — a concrete reset when known, else a bounded backoff.
  */
 export function classifyUsagePause(input: ClassifyUsagePauseInput): UsagePauseDecision | null {
-	if (!input.autoResumeOnUsageLimit) {
+	if (!input.autoResumeOnUsageLimit && !input.isApiSeatTask) {
 		return null;
 	}
 	const { snapshot, managerAccountId, now } = input;
 	const errorSaysUsage = isUsageLimitError(input.errorText);
+	// API seats get the broader transient check even without the opt-in checkbox; Claude
+	// accounts (managerAccountId set) never take this branch — see the pinned-account check below.
+	const errorIsRetryable = errorSaysUsage || (input.isApiSeatTask && isRetryableApiSeatError(input.errorText));
 
 	// Pinned task: its own account's window governs, regardless of fleet headroom elsewhere.
 	if (managerAccountId !== null) {
@@ -131,5 +140,5 @@ export function classifyUsagePause(input: ClassifyUsagePauseInput): UsagePauseDe
 			: { resumeAt: now + UNKNOWN_WAKE_BACKOFF_MS, source: "backoff" };
 	}
 	// Fleet has headroom (or no data). An error string alone can still pause a cold-snapshot race.
-	return errorSaysUsage ? { resumeAt: now + UNKNOWN_WAKE_BACKOFF_MS, source: "backoff" } : null;
+	return errorIsRetryable ? { resumeAt: now + UNKNOWN_WAKE_BACKOFF_MS, source: "backoff" } : null;
 }

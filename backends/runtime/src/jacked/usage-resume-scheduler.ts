@@ -19,6 +19,31 @@ const RESCHEDULE_BASE_MS = 60_000;
 const RESCHEDULE_CAP_MS = 30 * 60_000;
 const DEFAULT_POLL_INTERVAL_MS = 15_000;
 
+/**
+ * Mirrors cline-sdk/sdk-provider-boundary.ts's SDK_DEFAULT_PROVIDER_ID. Duplicated (rather than
+ * imported) so this generic terminal+cline scheduler doesn't pull in the full Cline SDK boundary
+ * module just for one string constant.
+ */
+const DEFAULT_CLINE_PROVIDER_ID = "cline";
+
+/**
+ * A task pinned to an explicit 3rd-party API-key seat (added via the API-seat dialog) rather
+ * than a Manager Claude account or the built-in default provider. These get auto-retry on
+ * transient errors even without the "Auto-resume on usage limit" opt-in — see classifyUsagePause.
+ */
+function isApiSeatSession(summary: RuntimeTaskSessionSummary): boolean {
+	return (
+		(summary.managerAccountId ?? null) === null &&
+		summary.providerId !== null &&
+		summary.providerId !== undefined &&
+		summary.providerId !== DEFAULT_CLINE_PROVIDER_ID
+	);
+}
+
+/** Auto-retries stop after this many consecutive still-failing wakes, so a permanently broken
+ * or revoked 3rd-party key surfaces to the user instead of hammering a gated endpoint forever. */
+const MAX_API_SEAT_AUTO_RETRIES = 5;
+
 export type UsageResumeAction =
 	| { action: "none" }
 	| { action: "pause"; resumeAt: number }
@@ -33,7 +58,10 @@ export function isUsageResumeCandidate(summary: RuntimeTaskSessionSummary): bool
 	if (summary.reviewReason === "usage_paused") {
 		return true;
 	}
-	return summary.reviewReason === "error" && summary.autoResumeOnUsageLimit === true;
+	if (summary.reviewReason !== "error") {
+		return false;
+	}
+	return summary.autoResumeOnUsageLimit === true || isApiSeatSession(summary);
 }
 
 /**
@@ -46,11 +74,13 @@ export function evaluateSession(
 	now: number,
 ): UsageResumeAction {
 	const managerAccountId = summary.managerAccountId ?? null;
+	const isApiSeatTask = isApiSeatSession(summary);
 
 	// A freshly errored, opted-in task: pause it only if the exit is usage-caused.
 	if (summary.reviewReason === "error") {
 		const decision = classifyUsagePause({
 			autoResumeOnUsageLimit: summary.autoResumeOnUsageLimit === true,
+			isApiSeatTask,
 			managerAccountId,
 			snapshot,
 			errorText: summary.warningMessage ?? summary.latestHookActivity?.finalMessage ?? null,
@@ -67,6 +97,7 @@ export function evaluateSession(
 		// Wake: re-verify against jacked with no error text (the error is stale by now).
 		const decision = classifyUsagePause({
 			autoResumeOnUsageLimit: true,
+			isApiSeatTask,
 			managerAccountId,
 			snapshot,
 			errorText: null,
@@ -112,6 +143,9 @@ export function createUsageResumeScheduler(deps: UsageResumeSchedulerDeps): Usag
 	const pollIntervalMs = deps.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
 	// Per-task consecutive still-walled wakes, for escalating reschedule backoff.
 	const rescheduleAttempts = new Map<string, number>();
+	// Per-task consecutive auto-retries for API-seat sessions, capped at MAX_API_SEAT_AUTO_RETRIES
+	// so a permanently broken/gated 3rd-party key stops retrying and surfaces to the user.
+	const apiSeatRetryAttempts = new Map<string, number>();
 	// Tasks with a resume in flight, so a slow relaunch is not kicked off twice.
 	const resuming = new Set<string>();
 	let timer: NodeJS.Timeout | null = null;
@@ -140,6 +174,17 @@ export function createUsageResumeScheduler(deps: UsageResumeSchedulerDeps): Usag
 			const now = deps.now();
 			for (const session of candidates) {
 				const action = evaluateSession(session.summary, snapshot, now);
+				const isApiSeat = isApiSeatSession(session.summary);
+				if (isApiSeat && (action.action === "pause" || action.action === "reschedule")) {
+					const attempts = (apiSeatRetryAttempts.get(session.taskId) ?? 0) + 1;
+					if (attempts > MAX_API_SEAT_AUTO_RETRIES) {
+						deps.log?.(
+							`usage-resume: ${session.taskId} exceeded ${MAX_API_SEAT_AUTO_RETRIES} API-seat auto-retries, leaving for manual review`,
+						);
+						continue;
+					}
+					apiSeatRetryAttempts.set(session.taskId, attempts);
+				}
 				switch (action.action) {
 					case "pause": {
 						rescheduleAttempts.delete(session.taskId);
@@ -164,6 +209,7 @@ export function createUsageResumeScheduler(deps: UsageResumeSchedulerDeps): Usag
 							break;
 						}
 						rescheduleAttempts.delete(session.taskId);
+						apiSeatRetryAttempts.delete(session.taskId);
 						resuming.add(session.taskId);
 						void Promise.resolve(session.resume())
 							.catch((error: unknown) => {
