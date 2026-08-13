@@ -12,7 +12,7 @@ import type {
 	RuntimeTaskTurnCheckpoint,
 } from "../core/api-contract";
 import { withStackBinOnPath } from "../stack/stack-paths";
-import { buildStackEnv } from "../stack/stack-process";
+import { buildStackEnv } from "../stack/stack-daemon";
 import { detectAgentAuthFailure } from "./agent-auth-failure";
 import {
 	type AgentAdapterLaunchInput,
