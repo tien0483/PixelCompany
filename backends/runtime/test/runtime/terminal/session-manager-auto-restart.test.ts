@@ -445,4 +445,37 @@ describe("TerminalSessionManager auto-restart", () => {
 		expect(session.write).toHaveBeenCalledWith(deferredStartupInput);
 		expect(session.write).toHaveBeenCalledTimes(1);
 	});
+
+	it("records the subagent seat the session launched on, so the UI can spot a drifted card", async () => {
+		ptySessionSpawnMock.mockImplementation((request: MockSpawnRequest) => createMockPtySession(111, request));
+
+		const manager = new TerminalSessionManager();
+		await manager.startTaskSession({
+			taskId: "task-1",
+			agentId: "claude",
+			binary: "claude",
+			args: [],
+			cwd: "/tmp/task-1",
+			prompt: "Fix the bug",
+			taskLaunchSettings: { subagentSeatProviderId: "openrouter", subagentSeatModelId: "gpt-5" },
+		});
+
+		expect(manager.getSummary("task-1")?.subagentSeatProviderId).toBe("openrouter");
+	});
+
+	it("records a null subagent seat when the card pins none", async () => {
+		ptySessionSpawnMock.mockImplementation((request: MockSpawnRequest) => createMockPtySession(111, request));
+
+		const manager = new TerminalSessionManager();
+		await manager.startTaskSession({
+			taskId: "task-1",
+			agentId: "claude",
+			binary: "claude",
+			args: [],
+			cwd: "/tmp/task-1",
+			prompt: "Fix the bug",
+		});
+
+		expect(manager.getSummary("task-1")?.subagentSeatProviderId).toBeNull();
+	});
 });

@@ -457,6 +457,12 @@ export default function App(): ReactElement {
 		setEditTaskClineSettings,
 		editTaskLaunchSettings,
 		setEditTaskLaunchSettings,
+		editTaskManagerAccountId,
+		setEditTaskManagerAccountId,
+		editTaskAutoRunDelayMinutes,
+		setEditTaskAutoRunDelayMinutes,
+		editTaskAutoResumeOnUsageLimit,
+		setEditTaskAutoResumeOnUsageLimit,
 		handleOpenCreateTask,
 		handleCancelCreateTask,
 		handleOpenEditTask,
@@ -1164,6 +1170,12 @@ export default function App(): ReactElement {
 			}
 			managerAccounts={managedManagerAccounts}
 			managerActiveAccountId={manager?.activeAccountId ?? null}
+			managerAccountId={editTaskManagerAccountId}
+			onManagerAccountIdChange={setEditTaskManagerAccountId}
+			autoRunDelayMinutes={editTaskAutoRunDelayMinutes}
+			onAutoRunDelayMinutesChange={setEditTaskAutoRunDelayMinutes}
+			autoResumeOnUsageLimit={editTaskAutoResumeOnUsageLimit}
+			onAutoResumeOnUsageLimitChange={setEditTaskAutoResumeOnUsageLimit}
 			mode="edit"
 			idPrefix={`inline-edit-task-${editingTaskId}`}
 		/>

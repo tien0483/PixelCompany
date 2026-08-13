@@ -107,6 +107,8 @@ export interface TaskAccountPickerProps {
 	subagentSeatProviderId?: string | null;
 	/** Omit to hide the subagent row entirely (callers that do not own launch settings). */
 	onSubagentSeatChange?: (selection: TaskSubagentSeatSelection) => void;
+	/** True while a live session runs on a different subagent seat than the card now pins. */
+	subagentSeatAppliesOnRestart?: boolean;
 }
 
 function accountLabel(account: RuntimeManagerAccount): string {
@@ -189,6 +191,7 @@ export function TaskAccountPicker({
 	onChange,
 	subagentSeatProviderId,
 	onSubagentSeatChange,
+	subagentSeatAppliesOnRestart = false,
 }: TaskAccountPickerProps): ReactElement {
 	const fallbackAccount = autoFallbackAccount(accounts, activeAccountId, agentId);
 	const autoLabel = fallbackAccount
@@ -253,32 +256,39 @@ export function TaskAccountPicker({
 				</NativeSelect>
 			</label>
 			{showSubagentRow ? (
-				<label className="flex min-w-0 items-center gap-1.5 text-[11px] text-text-secondary">
-					<span className="shrink-0">Subagents</span>
-					<NativeSelect
-						size="sm"
-						data-testid="task-subagent-seat-picker"
-						aria-label="API seat this task's subagents run on"
-						disabled={disabled}
-						value={pinnedSubagentSeat ? pinnedSubagentSeat.providerId : ""}
-						onChange={(event) => {
-							const providerId = event.target.value;
-							if (!providerId) {
-								onSubagentSeatChange(null);
-								return;
-							}
-							const seat = apiSeats.find((candidate) => candidate.providerId === providerId);
-							onSubagentSeatChange({ providerId, modelId: seat?.defaultModelId ?? null });
-						}}
-					>
-						<option value="">Inherit (this task's seat)</option>
-						{apiSeats.map((seat) => (
-							<option key={seat.providerId} value={seat.providerId}>
-								{apiSeatLabel(seat)}
-							</option>
-						))}
-					</NativeSelect>
-				</label>
+				<>
+					<label className="flex min-w-0 items-center gap-1.5 text-[11px] text-text-secondary">
+						<span className="shrink-0">Subagents</span>
+						<NativeSelect
+							size="sm"
+							data-testid="task-subagent-seat-picker"
+							aria-label="API seat this task's subagents run on"
+							disabled={disabled}
+							value={pinnedSubagentSeat ? pinnedSubagentSeat.providerId : ""}
+							onChange={(event) => {
+								const providerId = event.target.value;
+								if (!providerId) {
+									onSubagentSeatChange(null);
+									return;
+								}
+								const seat = apiSeats.find((candidate) => candidate.providerId === providerId);
+								onSubagentSeatChange({ providerId, modelId: seat?.defaultModelId ?? null });
+							}}
+						>
+							<option value="">Inherit (this task's seat)</option>
+							{apiSeats.map((seat) => (
+								<option key={seat.providerId} value={seat.providerId}>
+									{apiSeatLabel(seat)}
+								</option>
+							))}
+						</NativeSelect>
+					</label>
+					{subagentSeatAppliesOnRestart ? (
+						<p className="text-[10px] text-text-tertiary" data-testid="task-subagent-seat-restart-hint">
+							The running session launched on a different subagent seat. Applies on restart.
+						</p>
+					) : null}
+				</>
 			) : null}
 		</div>
 	);

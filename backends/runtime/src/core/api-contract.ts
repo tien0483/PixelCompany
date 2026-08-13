@@ -556,6 +556,12 @@ export const runtimeTaskSessionSummarySchema = z.object({
 	warningMessage: z.string().nullable().optional(),
 	/** Claude account this session was pinned to via CLAUDE_CONFIG_DIR, if any. */
 	managerAccountId: z.number().int().positive().nullable().optional(),
+	/**
+	 * API seat this session's subagents were launched on (`CLAUDE_CODE_SUBAGENT_MODEL`).
+	 * The env is fixed at spawn, so the UI diffs this against the card's current pin to
+	 * offer a restart when the two drifted apart.
+	 */
+	subagentSeatProviderId: z.string().min(1).nullable().optional(),
 	/** Carried from the card: when true, a usage-limit exit parks as "usage_paused" and auto-resumes. */
 	autoResumeOnUsageLimit: z.boolean().optional(),
 	/**

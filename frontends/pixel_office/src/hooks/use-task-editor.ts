@@ -9,7 +9,13 @@ import type {
 	RuntimeTaskLaunchSettings,
 	RuntimeTaskWorkspaceInfoResponse,
 } from "@/runtime/types";
-import { addTaskToColumnWithResult, findCardSelection, updateTask, updateTaskTitle } from "@/state/board-state";
+import {
+	addTaskToColumnWithResult,
+	findCardSelection,
+	setTaskManagerAccount,
+	updateTask,
+	updateTaskTitle,
+} from "@/state/board-state";
 import { isTaskInChain } from "@/state/chain-groups";
 import { toTelemetrySelectedAgentId, trackTaskCreated } from "@/telemetry/events";
 import type { BoardCard, BoardData, TaskAutoReviewMode, TaskImage } from "@/types";
@@ -89,6 +95,14 @@ export interface UseTaskEditorResult {
 	setEditTaskClineSettings: Dispatch<SetStateAction<RuntimeTaskClineSettings | undefined>>;
 	editTaskLaunchSettings: RuntimeTaskLaunchSettings | undefined;
 	setEditTaskLaunchSettings: Dispatch<SetStateAction<RuntimeTaskLaunchSettings | undefined>>;
+	/** Explicit Manager seat pin for the edited task; undefined means Auto. */
+	editTaskManagerAccountId: number | undefined;
+	setEditTaskManagerAccountId: Dispatch<SetStateAction<number | undefined>>;
+	/** Minutes until the edited backlog card auto-starts; 0 = off. Seeded from its remaining countdown. */
+	editTaskAutoRunDelayMinutes: number;
+	setEditTaskAutoRunDelayMinutes: Dispatch<SetStateAction<number>>;
+	editTaskAutoResumeOnUsageLimit: boolean;
+	setEditTaskAutoResumeOnUsageLimit: Dispatch<SetStateAction<boolean>>;
 	handleOpenCreateTask: () => void;
 	handleCancelCreateTask: () => void;
 	handleOpenEditTask: (task: BoardCard, options?: OpenEditTaskOptions) => void;
@@ -99,6 +113,17 @@ export interface UseTaskEditorResult {
 	handleCreateTask: (options?: CreateTaskOptions) => string | null;
 	handleCreateTasks: (prompts: string[], options?: CreateTaskOptions) => string[];
 	resetTaskEditorState: () => void;
+}
+
+/**
+ * Turns a card's absolute `autoRunAt` back into the "auto-run after N min" the editor
+ * shows. A countdown that already elapsed reads as 0 (off) rather than a negative delay.
+ */
+function autoRunDelayMinutesFrom(autoRunAt: number | null | undefined): number {
+	if (autoRunAt == null) {
+		return 0;
+	}
+	return Math.max(0, Math.ceil((autoRunAt - Date.now()) / 60_000));
 }
 
 export function useTaskEditor({
@@ -145,6 +170,9 @@ export function useTaskEditor({
 	const [editTaskLaunchSettings, setEditTaskLaunchSettings] = useState<RuntimeTaskLaunchSettings | undefined>(
 		undefined,
 	);
+	const [editTaskManagerAccountId, setEditTaskManagerAccountId] = useState<number | undefined>(undefined);
+	const [editTaskAutoRunDelayMinutes, setEditTaskAutoRunDelayMinutes] = useState(0);
+	const [editTaskAutoResumeOnUsageLimit, setEditTaskAutoResumeOnUsageLimit] = useState(false);
 
 	const lastCreatedTaskBranchRef = useMemo(() => {
 		if (!currentProjectId) {
@@ -278,6 +306,9 @@ export function useTaskEditor({
 			setEditTaskAgentId(task.agentId);
 			setEditTaskClineSettings(task.clineSettings);
 			setEditTaskLaunchSettings(task.taskLaunchSettings);
+			setEditTaskManagerAccountId(task.managerAccountId);
+			setEditTaskAutoRunDelayMinutes(autoRunDelayMinutesFrom(task.autoRunAt));
+			setEditTaskAutoResumeOnUsageLimit(task.autoResumeOnUsageLimit === true);
 
 			if (fetchTaskWorkspaceInfo) {
 				void fetchTaskWorkspaceInfo(task).then((info) => {
@@ -305,6 +336,9 @@ export function useTaskEditor({
 		setEditTaskImages([]);
 		setEditTaskBranchRef("");
 		setIsEditTaskBaseRefLocked(false);
+		setEditTaskManagerAccountId(undefined);
+		setEditTaskAutoRunDelayMinutes(0);
+		setEditTaskAutoResumeOnUsageLimit(false);
 	}, []);
 
 	const handleSaveEditedTask = useCallback((): string | null => {
@@ -338,9 +372,24 @@ export function useTaskEditor({
 				agentId: editTaskAgentId,
 				clineSettings: editTaskClineSettings,
 				taskLaunchSettings: editTaskLaunchSettings,
+				autoRunAt: editTaskAutoRunDelayMinutes > 0 ? Date.now() + editTaskAutoRunDelayMinutes * 60_000 : null,
+				autoResumeOnUsageLimit: editTaskAutoResumeOnUsageLimit,
 				baseRef,
 			});
-			return updated.updated ? updated.board : currentBoard;
+			if (!updated.updated) {
+				return currentBoard;
+			}
+			// After updateTask, never before: it drops a cross-provider seat pin when the
+			// task switches agent family, and that clearing must win over the editor's
+			// stale value — so only re-apply a pin the updated card still allows.
+			const clearedCrossProviderPin =
+				currentCard?.managerAccountId !== undefined &&
+				findCardSelection(updated.board, savedTaskId)?.card.managerAccountId === undefined;
+			return setTaskManagerAccount(
+				updated.board,
+				savedTaskId,
+				clearedCrossProviderPin ? null : (editTaskManagerAccountId ?? null),
+			).board;
 		});
 		setEditingTaskId(null);
 
@@ -354,14 +403,20 @@ export function useTaskEditor({
 		setEditTaskAgentId(undefined);
 		setEditTaskClineSettings(undefined);
 		setEditTaskLaunchSettings(undefined);
+		setEditTaskManagerAccountId(undefined);
+		setEditTaskAutoRunDelayMinutes(0);
+		setEditTaskAutoResumeOnUsageLimit(false);
 		return savedTaskId;
 	}, [
 		editTaskAgentId,
+		editTaskAutoResumeOnUsageLimit,
 		editTaskAutoReviewEnabled,
 		editTaskAutoReviewMode,
+		editTaskAutoRunDelayMinutes,
 		editTaskBranchRef,
 		editTaskClineSettings,
 		editTaskLaunchSettings,
+		editTaskManagerAccountId,
 		editTaskPrompt,
 		editTaskImages,
 		editTaskPlanFilePath,
@@ -622,6 +677,12 @@ export function useTaskEditor({
 		setEditTaskClineSettings,
 		editTaskLaunchSettings,
 		setEditTaskLaunchSettings,
+		editTaskManagerAccountId,
+		setEditTaskManagerAccountId,
+		editTaskAutoRunDelayMinutes,
+		setEditTaskAutoRunDelayMinutes,
+		editTaskAutoResumeOnUsageLimit,
+		setEditTaskAutoResumeOnUsageLimit,
 		handleOpenCreateTask,
 		handleCancelCreateTask,
 		handleOpenEditTask,

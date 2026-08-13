@@ -15,6 +15,7 @@ import {
 	normalizeBoardData,
 	reorderChainMembers,
 	trashTaskAndGetReadyLinkedTaskIds,
+	updateTask,
 	updateTaskTitle,
 } from "@/state/board-state";
 import type { ProgrammaticCardMoveInFlight } from "@/state/drag-rules";
@@ -738,6 +739,56 @@ describe("board dependency state", () => {
 			modelId: "openai/gpt-5.4",
 			reasoningEffort: "low",
 		});
+	});
+
+	it("preserves the auto-run countdown and usage-limit opt-in when updating the title", () => {
+		let board = createInitialBoardData();
+		const autoRunAt = Date.now() + 15 * 60_000;
+		board = addTaskToColumn(board, "backlog", {
+			prompt: "Scheduled task",
+			baseRef: "main",
+			autoRunAt,
+		});
+		const task = board.columns.find((column) => column.id === "backlog")?.cards[0];
+		if (!task) {
+			throw new Error("Expected backlog task to exist");
+		}
+		board = updateTask(board, task.id, {
+			prompt: task.prompt,
+			baseRef: task.baseRef,
+			autoResumeOnUsageLimit: true,
+		}).board;
+
+		const updated = updateTaskTitle(board, task.id, "Updated title");
+		expect(updated.updated).toBe(true);
+		const updatedTask = updated.board.columns.find((column) => column.id === "backlog")?.cards[0];
+		expect(updatedTask?.title).toBe("Updated title");
+		expect(updatedTask?.autoRunAt).toBe(autoRunAt);
+		expect(updatedTask?.autoResumeOnUsageLimit).toBe(true);
+	});
+
+	it("clears the auto-run countdown and usage-limit opt-in when the draft turns them off", () => {
+		let board = createInitialBoardData();
+		board = addTaskToColumn(board, "backlog", {
+			prompt: "Scheduled task",
+			baseRef: "main",
+			autoRunAt: Date.now() + 15 * 60_000,
+		});
+		const task = board.columns.find((column) => column.id === "backlog")?.cards[0];
+		if (!task) {
+			throw new Error("Expected backlog task to exist");
+		}
+
+		const updated = updateTask(board, task.id, {
+			prompt: task.prompt,
+			baseRef: task.baseRef,
+			autoRunAt: null,
+			autoResumeOnUsageLimit: false,
+		});
+		expect(updated.updated).toBe(true);
+		const updatedTask = updated.board.columns.find((column) => column.id === "backlog")?.cards[0];
+		expect(updatedTask?.autoRunAt).toBeUndefined();
+		expect(updatedTask?.autoResumeOnUsageLimit).toBeUndefined();
 	});
 
 	it("preserves model fields when disabling auto-review", () => {

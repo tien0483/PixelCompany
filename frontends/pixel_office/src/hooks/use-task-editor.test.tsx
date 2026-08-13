@@ -3,7 +3,11 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useTaskEditor } from "@/hooks/use-task-editor";
-import type { RuntimeAgentId, RuntimeTaskClineSettings } from "@/runtime/types";
+import type {
+	RuntimeAgentId,
+	RuntimeTaskClineSettings,
+	RuntimeTaskLaunchSettings,
+} from "@/runtime/types";
 import { addTaskDependency } from "@/state/board-state";
 import type { BoardCard, BoardData, TaskAutoReviewMode, TaskImage } from "@/types";
 
@@ -62,6 +66,14 @@ interface HookSnapshot {
 	setNewTaskAgentId: (value: RuntimeAgentId | undefined) => void;
 	setNewTaskClineSettings: (value: RuntimeTaskClineSettings | undefined) => void;
 	setNewTaskManagerAccountId: (value: number | undefined) => void;
+	editTaskManagerAccountId: number | undefined;
+	setEditTaskManagerAccountId: (value: number | undefined) => void;
+	editTaskLaunchSettings: RuntimeTaskLaunchSettings | undefined;
+	setEditTaskLaunchSettings: (value: RuntimeTaskLaunchSettings | undefined) => void;
+	editTaskAutoRunDelayMinutes: number;
+	setEditTaskAutoRunDelayMinutes: (value: number) => void;
+	editTaskAutoResumeOnUsageLimit: boolean;
+	setEditTaskAutoResumeOnUsageLimit: (value: boolean) => void;
 }
 
 function requireSnapshot(snapshot: HookSnapshot | null): HookSnapshot {
@@ -126,6 +138,14 @@ function HookHarness({
 			setNewTaskAgentId: editor.setNewTaskAgentId,
 			setNewTaskClineSettings: editor.setNewTaskClineSettings,
 			setNewTaskManagerAccountId: editor.setNewTaskManagerAccountId,
+			editTaskManagerAccountId: editor.editTaskManagerAccountId,
+			setEditTaskManagerAccountId: editor.setEditTaskManagerAccountId,
+			editTaskLaunchSettings: editor.editTaskLaunchSettings,
+			setEditTaskLaunchSettings: editor.setEditTaskLaunchSettings,
+			editTaskAutoRunDelayMinutes: editor.editTaskAutoRunDelayMinutes,
+			setEditTaskAutoRunDelayMinutes: editor.setEditTaskAutoRunDelayMinutes,
+			editTaskAutoResumeOnUsageLimit: editor.editTaskAutoResumeOnUsageLimit,
+			setEditTaskAutoResumeOnUsageLimit: editor.setEditTaskAutoResumeOnUsageLimit,
 		});
 	}, [
 		board,
@@ -152,6 +172,10 @@ function HookHarness({
 		editor.setEditTaskPrompt,
 		editor.setNewTaskImages,
 		editor.setNewTaskPrompt,
+		editor.editTaskManagerAccountId,
+		editor.editTaskLaunchSettings,
+		editor.editTaskAutoRunDelayMinutes,
+		editor.editTaskAutoResumeOnUsageLimit,
 		onSnapshot,
 	]);
 
@@ -667,5 +691,142 @@ describe("useTaskEditor", () => {
 		const createdCard = requireSnapshot(latestSnapshot).board.columns[0]?.cards[0];
 		expect(createdCard?.managerAccountId).toBe(7);
 		expect(requireSnapshot(latestSnapshot).newTaskManagerAccountId).toBeUndefined();
+	});
+
+	it("seeds the edit form from the card's seat, subagent seat and schedule", async () => {
+		let latestSnapshot: HookSnapshot | null = null;
+		const initialBoard = createBoard([
+			createTask("task-1", "Pinned task", 1, {
+				managerAccountId: 4,
+				taskLaunchSettings: { subagentSeatProviderId: "openrouter" },
+				autoRunAt: Date.now() + 25 * 60_000,
+				autoResumeOnUsageLimit: true,
+			}),
+		]);
+
+		await act(async () => {
+			root.render(
+				<HookHarness
+					initialBoard={initialBoard}
+					onSnapshot={(snapshot) => {
+						latestSnapshot = snapshot;
+					}}
+				/>,
+			);
+		});
+
+		const task = requireSnapshot(latestSnapshot).board.columns[0]?.cards[0];
+		if (!task) {
+			throw new Error("Expected a backlog task.");
+		}
+
+		await act(async () => {
+			requireSnapshot(latestSnapshot).handleOpenEditTask(task);
+		});
+
+		const snapshot = requireSnapshot(latestSnapshot);
+		expect(snapshot.editTaskManagerAccountId).toBe(4);
+		expect(snapshot.editTaskLaunchSettings).toEqual({ subagentSeatProviderId: "openrouter" });
+		expect(snapshot.editTaskAutoRunDelayMinutes).toBe(25);
+		expect(snapshot.editTaskAutoResumeOnUsageLimit).toBe(true);
+	});
+
+	it("saves a changed subagent seat, account pin and schedule back onto the card", async () => {
+		let latestSnapshot: HookSnapshot | null = null;
+		const initialBoard = createBoard([
+			createTask("task-1", "Pinned task", 1, {
+				managerAccountId: 4,
+				taskLaunchSettings: { subagentSeatProviderId: "openrouter" },
+			}),
+		]);
+
+		await act(async () => {
+			root.render(
+				<HookHarness
+					initialBoard={initialBoard}
+					onSnapshot={(snapshot) => {
+						latestSnapshot = snapshot;
+					}}
+				/>,
+			);
+		});
+
+		const task = requireSnapshot(latestSnapshot).board.columns[0]?.cards[0];
+		if (!task) {
+			throw new Error("Expected a backlog task.");
+		}
+
+		await act(async () => {
+			requireSnapshot(latestSnapshot).handleOpenEditTask(task);
+		});
+
+		await act(async () => {
+			requireSnapshot(latestSnapshot).setEditTaskManagerAccountId(9);
+			requireSnapshot(latestSnapshot).setEditTaskLaunchSettings({
+				subagentSeatProviderId: "groq",
+				subagentSeatModelId: "llama-4",
+			});
+			requireSnapshot(latestSnapshot).setEditTaskAutoRunDelayMinutes(10);
+			requireSnapshot(latestSnapshot).setEditTaskAutoResumeOnUsageLimit(true);
+		});
+
+		await act(async () => {
+			requireSnapshot(latestSnapshot).handleSaveEditedTask();
+		});
+
+		const saved = requireSnapshot(latestSnapshot).board.columns[0]?.cards[0];
+		expect(saved?.managerAccountId).toBe(9);
+		expect(saved?.taskLaunchSettings).toEqual({
+			subagentSeatProviderId: "groq",
+			subagentSeatModelId: "llama-4",
+		});
+		expect(saved?.autoResumeOnUsageLimit).toBe(true);
+		expect(saved?.autoRunAt).toBeGreaterThan(Date.now());
+	});
+
+	it("clears the seat pin and schedule when the edit form leaves them empty", async () => {
+		let latestSnapshot: HookSnapshot | null = null;
+		const initialBoard = createBoard([
+			createTask("task-1", "Pinned task", 1, {
+				managerAccountId: 4,
+				autoRunAt: Date.now() + 20 * 60_000,
+				autoResumeOnUsageLimit: true,
+			}),
+		]);
+
+		await act(async () => {
+			root.render(
+				<HookHarness
+					initialBoard={initialBoard}
+					onSnapshot={(snapshot) => {
+						latestSnapshot = snapshot;
+					}}
+				/>,
+			);
+		});
+
+		const task = requireSnapshot(latestSnapshot).board.columns[0]?.cards[0];
+		if (!task) {
+			throw new Error("Expected a backlog task.");
+		}
+
+		await act(async () => {
+			requireSnapshot(latestSnapshot).handleOpenEditTask(task);
+		});
+
+		await act(async () => {
+			requireSnapshot(latestSnapshot).setEditTaskManagerAccountId(undefined);
+			requireSnapshot(latestSnapshot).setEditTaskAutoRunDelayMinutes(0);
+			requireSnapshot(latestSnapshot).setEditTaskAutoResumeOnUsageLimit(false);
+		});
+
+		await act(async () => {
+			requireSnapshot(latestSnapshot).handleSaveEditedTask();
+		});
+
+		const saved = requireSnapshot(latestSnapshot).board.columns[0]?.cards[0];
+		expect(saved?.managerAccountId).toBeUndefined();
+		expect(saved?.autoRunAt).toBeUndefined();
+		expect(saved?.autoResumeOnUsageLimit).toBeUndefined();
 	});
 });

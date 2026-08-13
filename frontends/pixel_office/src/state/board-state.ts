@@ -39,6 +39,8 @@ export interface TaskDraft {
 	taskLaunchSettings?: RuntimeTaskLaunchSettings;
 	/** Epoch ms for a scheduled backlog auto-run (countdown set at create time). */
 	autoRunAt?: number | null;
+	/** Park-and-resume opt-in for a usage-limit exit. Undefined leaves the card's value alone. */
+	autoResumeOnUsageLimit?: boolean;
 	baseRef: string;
 }
 
@@ -745,6 +747,22 @@ export function updateTask(board: BoardData, taskId: string, draft: TaskDraft): 
 					nextCard.planFilePath = draft.planFilePath.trim();
 				} else {
 					delete nextCard.planFilePath;
+				}
+			}
+			// Same "undefined leaves it alone" contract as planFilePath above, so callers
+			// that rebuild a partial draft (updateTaskTitle) can't silently drop these.
+			if (draft.autoRunAt !== undefined) {
+				if (typeof draft.autoRunAt === "number" && draft.autoRunAt > 0) {
+					nextCard.autoRunAt = draft.autoRunAt;
+				} else {
+					delete nextCard.autoRunAt;
+				}
+			}
+			if (draft.autoResumeOnUsageLimit !== undefined) {
+				if (draft.autoResumeOnUsageLimit) {
+					nextCard.autoResumeOnUsageLimit = true;
+				} else {
+					delete nextCard.autoResumeOnUsageLimit;
 				}
 			}
 			if (clearCrossProviderPin) {

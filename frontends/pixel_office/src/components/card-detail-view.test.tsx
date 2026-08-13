@@ -1274,6 +1274,123 @@ describe("CardDetailView", () => {
 		expect(onRestartTaskSession).toHaveBeenCalledWith("task-1");
 	});
 
+	it("opens Task configuration for a card that has not run yet", async () => {
+		await act(async () => {
+			root.render(
+				<CardDetailView
+					selection={createSelection()}
+					currentProjectId="workspace-1"
+					// App never passes null here: an unstarted card gets a placeholder idle
+					// summary, which is what used to leave the section collapsed.
+					sessionSummary={createSessionSummary({
+						state: "idle",
+						startedAt: null,
+					})}
+					taskSessions={{}}
+					onSessionSummary={() => {}}
+					onCardSelect={() => {}}
+					onTaskDragEnd={() => {}}
+					onMoveToTrash={() => {}}
+					bottomTerminalOpen={false}
+					bottomTerminalTaskId={null}
+					bottomTerminalSummary={null}
+					onBottomTerminalClose={() => {}}
+				/>,
+			);
+		});
+
+		expect(
+			container
+				.querySelector('[data-testid="task-config-toggle"]')
+				?.getAttribute("aria-expanded"),
+		).toBe("true");
+	});
+
+	it("offers a restart when the card's subagent seat drifted from the running session", async () => {
+		const onRestartTaskSession = vi.fn();
+		const selection = createSelection();
+		selection.card.taskLaunchSettings = {
+			subagentSeatProviderId: "openrouter",
+		};
+
+		await act(async () => {
+			root.render(
+				<CardDetailView
+					selection={selection}
+					currentProjectId="workspace-1"
+					sessionSummary={createSessionSummary({
+						state: "running",
+						subagentSeatProviderId: null,
+					})}
+					taskSessions={{}}
+					onSessionSummary={() => {}}
+					onCardSelect={() => {}}
+					onTaskDragEnd={() => {}}
+					onMoveToTrash={() => {}}
+					bottomTerminalOpen={false}
+					bottomTerminalTaskId={null}
+					bottomTerminalSummary={null}
+					onBottomTerminalClose={() => {}}
+					managerAccounts={[createManagerAccount(1)]}
+					onTaskManagerAccountChanged={() => {}}
+					onTaskLaunchSettingsChanged={() => {}}
+					onRestartTaskSession={onRestartTaskSession}
+					restartTaskLoadingById={{}}
+				/>,
+			);
+		});
+
+		const restartButton = container.querySelector(
+			'[data-testid="restart-task-with-account"]',
+		);
+		expect(restartButton?.textContent).toBe(
+			"Restart to apply the subagent seat",
+		);
+
+		await act(async () => {
+			(restartButton as HTMLButtonElement).click();
+		});
+		expect(onRestartTaskSession).toHaveBeenCalledWith("task-1");
+	});
+
+	it("stays quiet when the running session already matches the card's subagent seat", async () => {
+		const selection = createSelection();
+		selection.card.taskLaunchSettings = {
+			subagentSeatProviderId: "openrouter",
+		};
+
+		await act(async () => {
+			root.render(
+				<CardDetailView
+					selection={selection}
+					currentProjectId="workspace-1"
+					sessionSummary={createSessionSummary({
+						state: "running",
+						subagentSeatProviderId: "openrouter",
+					})}
+					taskSessions={{}}
+					onSessionSummary={() => {}}
+					onCardSelect={() => {}}
+					onTaskDragEnd={() => {}}
+					onMoveToTrash={() => {}}
+					bottomTerminalOpen={false}
+					bottomTerminalTaskId={null}
+					bottomTerminalSummary={null}
+					onBottomTerminalClose={() => {}}
+					managerAccounts={[createManagerAccount(1)]}
+					onTaskManagerAccountChanged={() => {}}
+					onTaskLaunchSettingsChanged={() => {}}
+					onRestartTaskSession={() => {}}
+					restartTaskLoadingById={{}}
+				/>,
+			);
+		});
+
+		expect(
+			container.querySelector('[data-testid="restart-task-with-account"]'),
+		).toBeNull();
+	});
+
 	function renderDetail() {
 		return act(async () => {
 			root.render(
