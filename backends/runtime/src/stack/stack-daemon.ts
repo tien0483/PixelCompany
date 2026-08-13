@@ -32,6 +32,17 @@ export interface StackDaemonSpec {
 	port: number;
 	binary: string;
 	args: string[];
+	/**
+	 * What this daemon's *upstream* was fixed to at launch, recorded in
+	 * `logs/<name>.chain` for `server.py` to read back.
+	 *
+	 * Args are frozen when the process starts, but `stack-flags.json` can change
+	 * underneath it. Headroom is the case that bit: started while `ENABLE_CCR` was on
+	 * it holds `--anthropic-api-url http://127.0.0.1:3456` forever, so turning CCR off
+	 * left `resolve_route` still sending every request through a CCR the user had
+	 * disabled — the flag appeared to work while nothing about the actual path changed.
+	 */
+	chainState?: string;
 	/** Layered on top of `buildStackEnv()`; CCR needs `HOME` scoped to `ccr-home/`. */
 	env?: Record<string, string>;
 	startupTimeoutMs?: number;
@@ -133,6 +144,35 @@ function removeDaemonPidFile(spec: StackDaemonSpec): void {
 }
 
 /**
+ * Publishes `spec.chainState` so the switchboard can compare the daemon's real
+ * upstream against the current flags instead of assuming they still agree.
+ * Written next to the pidfile and removed with it, so a marker without a live
+ * daemon cannot outlive the process it describes.
+ */
+function writeDaemonChainFile(spec: StackDaemonSpec): void {
+	if (spec.chainState === undefined) {
+		return;
+	}
+	try {
+		mkdirSync(join(spec.stackRoot, "logs"), { recursive: true });
+		writeFileSync(join(spec.stackRoot, "logs", `${spec.name}.chain`), `${spec.chainState}\n`, "utf8");
+	} catch {
+		// Unknown chain state degrades to the old assume-flags-match behaviour.
+	}
+}
+
+function removeDaemonChainFile(spec: StackDaemonSpec): void {
+	if (spec.chainState === undefined) {
+		return;
+	}
+	try {
+		rmSync(join(spec.stackRoot, "logs", `${spec.name}.chain`), { force: true });
+	} catch {
+		// Best effort, same as the pidfile.
+	}
+}
+
+/**
  * Starts one stack daemon unless its port is already served, and keeps it alive
  * with a backoff restart. Never throws: a daemon that cannot start degrades to a
  * warning, because `server.py` routes around dead hops and the board must keep
@@ -181,6 +221,7 @@ export async function superviseStackDaemon(
 
 		if (spawned.pid !== undefined) {
 			writeDaemonPidFile(spec, spawned.pid);
+			writeDaemonChainFile(spec);
 		}
 
 		const startedAt = Date.now();
@@ -213,6 +254,7 @@ export async function superviseStackDaemon(
 					`${spec.label} died ${String(consecutiveFailures)} times in a row (${reason}) — not restarting it again. See ${logPath}.`,
 				);
 				removeDaemonPidFile(spec);
+				removeDaemonChainFile(spec);
 				return;
 			}
 			const delay = nextRestartDelayMs(consecutiveFailures);
@@ -267,6 +309,7 @@ export async function superviseStackDaemon(
 			const running = child;
 			child = null;
 			removeDaemonPidFile(spec);
+			removeDaemonChainFile(spec);
 			const pid = running?.pid;
 			if (running === null || pid === undefined) {
 				return;

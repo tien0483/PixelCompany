@@ -94,6 +94,7 @@ export async function startHeadroomProcess(deps: StartHeadroomProcessDependencie
 		return createNoopProcess(false);
 	}
 
+	const chainToCcr = isStackFlagEnabled(flags, "ENABLE_CCR");
 	return superviseStackDaemon(
 		{
 			name: "headroom",
@@ -102,7 +103,10 @@ export async function startHeadroomProcess(deps: StartHeadroomProcessDependencie
 			host,
 			port,
 			binary,
-			args: buildHeadroomArgs({ host, port, chainToCcr: isStackFlagEnabled(flags, "ENABLE_CCR") }),
+			args: buildHeadroomArgs({ host, port, chainToCcr }),
+			// Published so `server.py` can tell a headroom that really reaches CCR from one
+			// that does not, rather than inferring it from a flag this process cannot re-read.
+			chainState: chainToCcr ? "ccr" : "direct",
 			readinessHint: " — the switchboard will route around it.",
 		},
 		deps,

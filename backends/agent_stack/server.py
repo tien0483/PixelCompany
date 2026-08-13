@@ -33,6 +33,10 @@ from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 
 SANDBOX_DIR = os.path.dirname(os.path.abspath(__file__))
 FLAGS_FILE = os.path.join(SANDBOX_DIR, "stack-flags.json")
+# Written by whoever launched headroom (activate-stack.sh or the runtime's
+# stack-daemon.ts) to record the upstream it was actually started with. See
+# read_headroom_chain.
+HEADROOM_CHAIN_FILE = os.path.join(SANDBOX_DIR, "logs", "headroom.chain")
 
 FLAG_KEYS = (
     "ENABLE_UA",
@@ -183,7 +187,29 @@ def save_flags(flags: dict) -> None:
         raise
 
 
-def resolve_route(flags: dict, live: dict | None = None) -> tuple[str, list[str]]:
+def read_headroom_chain() -> str | None:
+    """Headroom's real upstream: "ccr", "direct", or None when it is unknown.
+
+    Headroom's `--anthropic-api-url` is fixed when the process starts, but
+    `stack-flags.json` keeps changing under it, so the flag alone does not describe
+    where a *running* headroom actually forwards to. Turning ENABLE_CCR off used to
+    look like it took CCR out of the path while a headroom started earlier kept
+    posting every request to it — the flag appeared to work and nothing changed.
+
+    None means no launcher recorded it (an older or hand-started headroom); callers
+    fall back to trusting the flags, which is the behaviour that predates this file.
+    """
+    try:
+        with open(HEADROOM_CHAIN_FILE) as f:
+            value = f.read().strip()
+    except OSError:
+        return None
+    return value if value in ("ccr", "direct") else None
+
+
+def resolve_route(
+    flags: dict, live: dict | None = None, headroom_chain: str | None = None
+) -> tuple[str, list[str]]:
     """Return (upstream base URL, human-readable chain).
 
     Headroom fronts CCR when both are on. Headroom alone still gets used — it
@@ -196,25 +222,42 @@ def resolve_route(flags: dict, live: dict | None = None) -> tuple[str, list[str]
     than as the daemon crash it is. Skipped hops stay visible at the front of
     the chain so /health and x-stack-chain report the demotion instead of
     quietly claiming the flagged route.
+
+    `headroom_chain` is where a *running* headroom really forwards (see
+    read_headroom_chain). A headroom still chained to a now-disabled CCR is skipped
+    rather than used: honouring ENABLE_CCR=false matters more than keeping
+    compression, and routing through the disabled hop anyway is what made turning
+    the flag off appear to do nothing.
     """
     headroom = bool(flags.get("ENABLE_HEADROOM"))
     ccr = bool(flags.get("ENABLE_CCR"))
     skipped = []
+    if headroom and not ccr and headroom_chain == "ccr":
+        skipped.append("headroom:8787 (still chained to disabled ccr, skipped — restart it)")
+        headroom = False
+    # Chained "direct" while CCR is on: headroom cannot reach CCR, so the request
+    # never crosses it. Say so rather than printing a ccr hop that is not real.
+    ccr_reachable_via_headroom = headroom_chain != "direct"
     if live is not None:
         if ccr and not live.get("ccr", True):
             skipped.append("ccr:3456 DOWN (skipped)")
             ccr = False
             # activate-stack.sh starts headroom with --anthropic-api-url pointed
             # at CCR whenever CCR is flagged on, so a dead CCR poisons headroom
-            # too — forwarding there would just 502 one hop further along.
-            if headroom:
+            # too — forwarding there would just 502 one hop further along. A
+            # headroom known to be chained "direct" is unaffected and stays in.
+            if headroom and ccr_reachable_via_headroom:
                 skipped.append("headroom:8787 (chained to dead ccr, skipped)")
                 headroom = False
         if headroom and not live.get("headroom", True):
             skipped.append("headroom:8787 DOWN (skipped)")
             headroom = False
-    if headroom and ccr:
+    if headroom and ccr and ccr_reachable_via_headroom:
         return HEADROOM_URL, skipped + ["headroom:8787", "ccr:3456", "upstream"]
+    if headroom and ccr:
+        # CCR is on but this headroom was started without the chain flag, so
+        # requests reach Anthropic without ever crossing it.
+        return HEADROOM_URL, skipped + ["headroom:8787", "ccr:3456 (not chained)", "upstream"]
     if headroom:
         return HEADROOM_URL, skipped + ["headroom:8787", "upstream"]
     if ccr:
@@ -256,7 +299,7 @@ def daemon_liveness() -> dict:
 @app.get("/ui", response_class=HTMLResponse)
 def ui() -> str:
     flags = get_flags()
-    _, chain = resolve_route(flags, daemon_liveness())
+    _, chain = resolve_route(flags, daemon_liveness(), read_headroom_chain())
     rows = []
     for k in FLAG_KEYS:
         label, hint = FLAG_LABELS[k]
@@ -302,7 +345,7 @@ async def save_ui(request: Request):
 def state_payload() -> dict:
     flags = get_flags()
     live = daemon_liveness()
-    target, chain = resolve_route(flags, live)
+    target, chain = resolve_route(flags, live, read_headroom_chain())
     return {
         "sandboxDir": SANDBOX_DIR,
         "flags": flags,
@@ -421,6 +464,15 @@ async def read_subagent_route(request: Request, path: str) -> tuple[bytes | None
         return body, None
 
     payload["model"] = match.group(2)
+    # The vendored CCR's Anthropic input validator only accepts `system` as an array of
+    # content blocks and rejects a plain string with "Request format not supported" —
+    # confirmed by direct reproduction against a seat router, even though a bare string is
+    # valid, documented Anthropic API shape (and what Claude Code's subagent/Task-tool
+    # dispatches actually send). Anthropic itself and the direct/headroom paths handle
+    # either form, so this normalization only needs to happen for seat-routed traffic.
+    system = payload.get("system")
+    if isinstance(system, str):
+        payload["system"] = [{"type": "text", "text": system}]
     return body, SubagentRoute(port, json.dumps(payload).encode("utf-8"))
 
 
@@ -432,7 +484,7 @@ async def dynamic_proxy(request: Request, path: str):
     # Probed off the event loop: port_open blocks for up to 0.25s per closed
     # port, which would stall every other in-flight stream on a cache miss.
     live = await asyncio.to_thread(daemon_liveness)
-    base, chain = resolve_route(flags, live)
+    base, chain = resolve_route(flags, live, read_headroom_chain())
 
     body, seat_route = await read_subagent_route(request, path)
     if seat_route is not None:

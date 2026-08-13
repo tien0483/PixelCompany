@@ -227,6 +227,49 @@ s.bind(('127.0.0.1', ${String(port)})); s.listen(1); time.sleep(60)"`,
 		expect(() => readFileSync(join(stackRoot, "logs", "headroom.pid"), "utf8")).toThrow();
 	});
 
+	// server.py reads this to decide whether a *running* headroom really reaches CCR.
+	// Without it, turning ENABLE_CCR off left every request still crossing a headroom
+	// that had been started with --anthropic-api-url pointed at CCR, so the flag looked
+	// like it worked while the path never changed.
+	it("records the chain it was actually started with, and clears it on close", async () => {
+		const stackRoot = await makeStackRoot({ ENABLE_HEADROOM: true, ENABLE_CCR: true });
+		const { port, server } = await listenOn();
+		await new Promise((resolvePromise) => {
+			server.close(() => resolvePromise(undefined));
+		});
+		writeFakeHeadroom(
+			stackRoot,
+			`exec python3 -c "import socket,time
+s=socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+s.bind(('127.0.0.1', ${String(port)})); s.listen(1); time.sleep(60)"`,
+		);
+		const process_ = await startHeadroomProcess({ stackRoot, port, warn: () => {} });
+		expect(await process_.ready).toBe(true);
+		expect(readFileSync(join(stackRoot, "logs", "headroom.chain"), "utf8").trim()).toBe("ccr");
+
+		await process_.close();
+		// A marker outliving its daemon would make server.py route around a hop that is gone.
+		expect(() => readFileSync(join(stackRoot, "logs", "headroom.chain"), "utf8")).toThrow();
+	});
+
+	it("records a direct chain when CCR is off", async () => {
+		const stackRoot = await makeStackRoot({ ENABLE_HEADROOM: true, ENABLE_CCR: false });
+		const { port, server } = await listenOn();
+		await new Promise((resolvePromise) => {
+			server.close(() => resolvePromise(undefined));
+		});
+		writeFakeHeadroom(
+			stackRoot,
+			`exec python3 -c "import socket,time
+s=socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+s.bind(('127.0.0.1', ${String(port)})); s.listen(1); time.sleep(60)"`,
+		);
+		const process_ = await startHeadroomProcess({ stackRoot, port, warn: () => {} });
+		expect(await process_.ready).toBe(true);
+		expect(readFileSync(join(stackRoot, "logs", "headroom.chain"), "utf8").trim()).toBe("direct");
+		await process_.close();
+	});
+
 	it("schedules a restart when the proxy dies, and cancels it on close", async () => {
 		const stackRoot = await makeStackRoot({ ENABLE_HEADROOM: true });
 		mkdirSync(join(stackRoot, "logs"), { recursive: true });
