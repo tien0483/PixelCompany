@@ -1,5 +1,5 @@
-// The supervision core shared by every agent-stack daemon the runtime owns
-// besides the switchboard: headroom, CCR, DevTools.
+// The supervision core shared by every agent-stack daemon the runtime owns:
+// the switchboard, headroom, CCR, DevTools.
 //
 // `activate-stack.sh` supervises these through pidfiles in a shell that has to
 // stay sourced; the runtime needs the same daemons without that shell, and needs
@@ -12,7 +12,40 @@ import { join } from "node:path";
 
 import { terminateProcessForTimeout } from "../server/process-termination";
 import { probePort, waitForPort } from "./stack-ports";
-import { buildStackEnv, createNoopProcess, type StackProcess } from "./stack-process";
+
+export interface StackProcess {
+	/** Null when the daemon was already listening or could not be started. */
+	pid: number | null;
+	/** True when this runtime spawned the service (and therefore owns shutdown). */
+	spawned: boolean;
+	/** Resolves true once the port answers; never rejects. Callers need not await it. */
+	ready: Promise<boolean>;
+	close: () => Promise<void>;
+}
+
+export function createNoopProcess(isAlreadyUp: boolean): StackProcess {
+	return {
+		pid: null,
+		spawned: false,
+		ready: Promise.resolve(isAlreadyUp),
+		close: async () => {},
+	};
+}
+
+/**
+ * Every stack daemon inherits the runtime's environment, which — when Kanban was
+ * launched from a shell that sourced `activate-stack.sh` — contains
+ * `ANTHROPIC_BASE_URL` pointing at the switchboard and the sandbox's dummy API
+ * key. Neither is read by `server.py` (it resolves its upstream from `STACK_*`
+ * vars), and forwarding a dummy credential to a proxy is exactly the confusion the
+ * sandbox's real-key handling exists to avoid, so both are dropped rather than
+ * passed through. For headroom the inherited base URL is worse than useless: it
+ * would dial the very proxy that fronts it.
+ */
+export function buildStackEnv(): NodeJS.ProcessEnv {
+	const { ANTHROPIC_BASE_URL: _baseUrl, ANTHROPIC_API_KEY: _apiKey, ...rest } = process.env;
+	return rest;
+}
 
 /** Last entry is the cap: a daemon that keeps dying should not be retried every second forever. */
 const RESTART_BACKOFF_MS = [1_000, 2_000, 4_000, 8_000, 30_000];
@@ -21,6 +54,14 @@ const MAX_CONSECUTIVE_FAILURES = 5;
 /** Uptime past which a crash counts as a fresh incident rather than part of a failing streak. */
 const HEALTHY_UPTIME_MS = 60_000;
 const DEFAULT_STARTUP_TIMEOUT_MS = 20_000;
+/** How often a daemon we did not spawn is re-probed. Cheap: one loopback connect. */
+const ADOPTED_POLL_INTERVAL_MS = 5_000;
+/**
+ * Consecutive failed probes before we take a port over. One is not enough: a
+ * daemon with a full accept queue, or one being restarted by its own owner,
+ * refuses a connection without being gone.
+ */
+const ADOPTED_FAILURES_BEFORE_TAKEOVER = 2;
 
 export interface StackDaemonSpec {
 	/** Also the `logs/<name>.log` / `logs/<name>.pid` basename the activator uses. */
@@ -46,6 +87,8 @@ export interface StackDaemonSpec {
 	/** Layered on top of `buildStackEnv()`; CCR needs `HOME` scoped to `ccr-home/`. */
 	env?: Record<string, string>;
 	startupTimeoutMs?: number;
+	/** How often an adopted (not-spawned-by-us) port is re-probed. Tests shorten it. */
+	adoptedPollIntervalMs?: number;
 	/** Appended to the "did not open its port" warning, e.g. a config hint. */
 	readinessHint?: string;
 }
@@ -174,7 +217,9 @@ function removeDaemonChainFile(spec: StackDaemonSpec): void {
 
 /**
  * Starts one stack daemon unless its port is already served, and keeps it alive
- * with a backoff restart. Never throws: a daemon that cannot start degrades to a
+ * with a backoff restart. A port that is already served is adopted rather than
+ * ignored: we do not double-bind it, but we keep probing it and take over if its
+ * original owner goes away. Never throws: a daemon that cannot start degrades to a
  * warning, because `server.py` routes around dead hops and the board must keep
  * running either way.
  */
@@ -185,16 +230,14 @@ export async function superviseStackDaemon(
 	const log = deps.log ?? (() => {});
 	const logPath = join(spec.stackRoot, "logs", `${spec.name}.log`);
 
-	if (await probePort(spec.host, spec.port)) {
-		log(`${spec.label} already listening on ${spec.host}:${String(spec.port)} — using the running service.`);
-		return createNoopProcess(true);
-	}
-
 	let child: ChildProcess | null = null;
 	let shuttingDown = false;
 	let gaveUp = false;
+	/** True once we have spawned a child of our own, so `close()` knows whose pidfile it may remove. */
+	let owned = false;
 	let consecutiveFailures = 0;
 	let restartTimer: NodeJS.Timeout | null = null;
+	let watchTimer: NodeJS.Timeout | null = null;
 
 	const launch = (): ChildProcess | null => {
 		const logFd = openDaemonLogFd(spec, deps.warn);
@@ -219,6 +262,7 @@ export async function superviseStackDaemon(
 			return null;
 		}
 
+		owned = true;
 		if (spawned.pid !== undefined) {
 			writeDaemonPidFile(spec, spawned.pid);
 			writeDaemonChainFile(spec);
@@ -275,6 +319,91 @@ export async function superviseStackDaemon(
 		return spawned;
 	};
 
+	const close = async (): Promise<void> => {
+		shuttingDown = true;
+		if (restartTimer !== null) {
+			clearTimeout(restartTimer);
+			restartTimer = null;
+		}
+		if (watchTimer !== null) {
+			clearTimeout(watchTimer);
+			watchTimer = null;
+		}
+		const running = child;
+		child = null;
+		if (owned) {
+			// Only ours to clear. An adopted daemon's pidfile belongs to whoever
+			// started it — an activated shell, or a previous runtime.
+			removeDaemonPidFile(spec);
+			removeDaemonChainFile(spec);
+		}
+		const pid = running?.pid;
+		if (running === null || pid === undefined) {
+			return;
+		}
+		if (process.platform === "win32") {
+			terminateProcessForTimeout(running);
+		} else {
+			try {
+				// Detached, so the whole group goes: `ccr start` and headroom's
+				// worker both fork children that would otherwise keep the port
+				// bound after the parent dies.
+				process.kill(-pid, "SIGTERM");
+			} catch {
+				running.kill("SIGTERM");
+			}
+		}
+		await new Promise((resolvePromise) => setTimeout(resolvePromise, 250));
+	};
+
+	/**
+	 * Keeps watching a port we did not open. Without this, a boot-time probe decided
+	 * ownership for the whole session: a daemon started by a sourced
+	 * `activate-stack.sh` that died an hour later was never restarted and never
+	 * reported, and — for the switchboard — every agent turn then failed with
+	 * ECONNREFUSED against `ANTHROPIC_BASE_URL`.
+	 */
+	const watchAdoptedDaemon = (): void => {
+		const intervalMs = spec.adoptedPollIntervalMs ?? ADOPTED_POLL_INTERVAL_MS;
+		let missedProbes = 0;
+		const scheduleProbe = (): void => {
+			watchTimer = setTimeout(() => {
+				watchTimer = null;
+				void (async () => {
+					if (shuttingDown) {
+						return;
+					}
+					if (await probePort(spec.host, spec.port)) {
+						missedProbes = 0;
+						scheduleProbe();
+						return;
+					}
+					missedProbes += 1;
+					if (missedProbes < ADOPTED_FAILURES_BEFORE_TAKEOVER) {
+						scheduleProbe();
+						return;
+					}
+					// `close()` may have run while the probe was in flight.
+					if (shuttingDown) {
+						return;
+					}
+					deps.warn(
+						`${spec.label} disappeared from ${spec.host}:${String(spec.port)} — taking it over and supervising it from here.`,
+					);
+					child = launch();
+				})();
+			}, intervalMs);
+			watchTimer.unref();
+		};
+		scheduleProbe();
+	};
+
+	if (await probePort(spec.host, spec.port)) {
+		log(`${spec.label} already listening on ${spec.host}:${String(spec.port)} — using the running service.`);
+		watchAdoptedDaemon();
+		return { pid: null, spawned: false, ready: Promise.resolve(true), close };
+	}
+
 	log(`Starting ${spec.label}: ${spec.binary} ${spec.args.join(" ")}`);
 	child = launch();
 	if (child === null) {
@@ -296,37 +425,5 @@ export async function superviseStackDaemon(
 		return false;
 	});
 
-	return {
-		pid: child.pid ?? null,
-		spawned: true,
-		ready,
-		close: async () => {
-			shuttingDown = true;
-			if (restartTimer !== null) {
-				clearTimeout(restartTimer);
-				restartTimer = null;
-			}
-			const running = child;
-			child = null;
-			removeDaemonPidFile(spec);
-			removeDaemonChainFile(spec);
-			const pid = running?.pid;
-			if (running === null || pid === undefined) {
-				return;
-			}
-			if (process.platform === "win32") {
-				terminateProcessForTimeout(running);
-			} else {
-				try {
-					// Detached, so the whole group goes: `ccr start` and headroom's
-					// worker both fork children that would otherwise keep the port
-					// bound after the parent dies.
-					process.kill(-pid, "SIGTERM");
-				} catch {
-					running.kill("SIGTERM");
-				}
-			}
-			await new Promise((resolvePromise) => setTimeout(resolvePromise, 250));
-		},
-	};
+	return { pid: child.pid ?? null, spawned: true, ready, close };
 }

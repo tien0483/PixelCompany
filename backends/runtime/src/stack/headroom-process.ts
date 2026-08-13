@@ -14,14 +14,15 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import {
+	createNoopProcess,
 	isStackFlagEnabled,
 	readStackFlags,
 	resolveStackDaemonPort,
 	type StackDaemonDependencies,
+	type StackProcess,
 	superviseStackDaemon,
 } from "./stack-daemon";
 import { findStackRoot } from "./stack-paths";
-import { createNoopProcess, type StackProcess } from "./stack-process";
 
 const DEFAULT_HEADROOM_HOST = "127.0.0.1";
 const DEFAULT_HEADROOM_PORT = 8787;
