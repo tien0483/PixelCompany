@@ -205,10 +205,18 @@ if [ -n "$(stack_flag ENABLE_HEADROOM)" ]; then
 	# two would run side by side instead of chained. --anthropic-api-url is what
 	# actually makes headroom -> ccr -> provider a chain.
 	headroom_args=(proxy --host 127.0.0.1 --port "$STACK_HEADROOM_PORT" --mode cache)
+	headroom_chain=direct
 	if [ -n "$(stack_flag ENABLE_CCR)" ]; then
 		headroom_args+=(--anthropic-api-url "http://127.0.0.1:$STACK_CCR_PORT")
+		headroom_chain=ccr
 	fi
 	stack_start_daemon headroom headroom headroom "${headroom_args[@]}"
+	# These args are frozen for the life of the process, but stack-flags.json is not:
+	# turning ENABLE_CCR off later cannot un-chain a headroom already pointed at CCR.
+	# server.py reads this to route around a headroom whose upstream no longer matches
+	# the flags, instead of silently sending everything through a disabled CCR.
+	mkdir -p "$STACK_SANDBOX/logs"
+	printf '%s\n' "$headroom_chain" >"$STACK_SANDBOX/logs/headroom.chain"
 fi
 
 if [ -n "$(stack_flag ENABLE_DEVTOOLS)" ]; then

@@ -14,14 +14,15 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import {
+	createNoopProcess,
 	isStackFlagEnabled,
 	readStackFlags,
 	resolveStackDaemonPort,
 	type StackDaemonDependencies,
+	type StackProcess,
 	superviseStackDaemon,
 } from "./stack-daemon";
 import { findStackRoot } from "./stack-paths";
-import { createNoopProcess, type StackProcess } from "./stack-process";
 
 const DEFAULT_HEADROOM_HOST = "127.0.0.1";
 const DEFAULT_HEADROOM_PORT = 8787;
@@ -94,6 +95,7 @@ export async function startHeadroomProcess(deps: StartHeadroomProcessDependencie
 		return createNoopProcess(false);
 	}
 
+	const chainToCcr = isStackFlagEnabled(flags, "ENABLE_CCR");
 	return superviseStackDaemon(
 		{
 			name: "headroom",
@@ -102,7 +104,10 @@ export async function startHeadroomProcess(deps: StartHeadroomProcessDependencie
 			host,
 			port,
 			binary,
-			args: buildHeadroomArgs({ host, port, chainToCcr: isStackFlagEnabled(flags, "ENABLE_CCR") }),
+			args: buildHeadroomArgs({ host, port, chainToCcr }),
+			// Published so `server.py` can tell a headroom that really reaches CCR from one
+			// that does not, rather than inferring it from a flag this process cannot re-read.
+			chainState: chainToCcr ? "ccr" : "direct",
 			readinessHint: " — the switchboard will route around it.",
 		},
 		deps,

@@ -19,7 +19,9 @@ for name in switchboard ccr headroom devtools; do
 	pid="$(cat "$pidfile" 2>/dev/null || true)"
 	if [ -z "$pid" ] || ! kill -0 "$pid" 2>/dev/null; then
 		echo "$name not running (stale pidfile cleared)"
-		rm -f "$pidfile"
+		# Cleared with the pidfile: a chain marker outliving its daemon would tell
+		# server.py to route around a hop that is not even running.
+		rm -f "$pidfile" "$STACK_LOG_DIR/$name.chain"
 		continue
 	fi
 	# Kill the process group as well: `ccr start` and uvicorn both fork children
@@ -32,5 +34,5 @@ for name in switchboard ccr headroom devtools; do
 	else
 		echo "stopped $name (pid $pid)"
 	fi
-	rm -f "$pidfile"
+	rm -f "$pidfile" "$STACK_LOG_DIR/$name.chain"
 done
