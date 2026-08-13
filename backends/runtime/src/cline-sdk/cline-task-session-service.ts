@@ -359,11 +359,53 @@ export class InMemoryClineTaskSessionService implements ClineTaskSessionService 
 			};
 		}
 
-		if (isHomeAgentSessionId(input.taskId) && !this.sessionRuntime.canRestartTaskSession(input.taskId)) {
-			throw new Error(`No previous Cline session config is available for task ${input.taskId}.`);
+		const persistedSnapshot = await this.sessionRuntime.readPersistedTaskSession(input.taskId);
+
+		if (!this.sessionRuntime.canRestartTaskSession(input.taskId)) {
+			// A runtime restart (or cache eviction) wipes the in-memory last-start-request cache
+			// that restartTaskSession() depends on, even though the task's own summary still has
+			// everything needed to rebuild that config (cwd/provider/model survive on the
+			// message-repository entry, restored by rebindPersistedTaskSession()). Reconstruct the
+			// low-level start request from there instead of hard-failing every resume post-restart.
+			const entry = this.messageRepository.getTaskEntry(input.taskId);
+			const cwd = entry?.summary.workspacePath?.trim() || null;
+			if (!cwd) {
+				throw new Error(`No previous Cline session config is available for task ${input.taskId}.`);
+			}
+			const providerId = entry?.summary.providerId?.trim().toLowerCase() || SDK_DEFAULT_PROVIDER_ID;
+			const seatProviderId = this.seatProviderIdByTaskId.get(input.taskId) ?? providerId;
+			const modelId = entry?.summary.modelId?.trim() || SDK_DEFAULT_MODEL_ID;
+			const resolvedMode: RuntimeTaskSessionMode = input.mode ?? entry?.summary.mode ?? "act";
+			const runtimeSetup = await this.ensureRuntimeSetup(cwd);
+			let systemPrompt = await resolveClineSdkSystemPrompt({
+				cwd,
+				providerId,
+				seatProviderId,
+				rules: runtimeSetup.loadRules(),
+			});
+			const appendedSystemPrompt = resolveHomeAgentAppendSystemPrompt(input.taskId);
+			if (appendedSystemPrompt) {
+				systemPrompt = `${systemPrompt}\n\n${appendedSystemPrompt}`;
+			}
+			const startResult = await this.sessionRuntime.startTaskSession({
+				taskId: input.taskId,
+				cwd,
+				prompt: input.prompt,
+				initialMessages: persistedSnapshot?.messages,
+				images: input.images,
+				providerId,
+				modelId,
+				mode: resolvedMode,
+				systemPrompt,
+				userInstructionService: runtimeSetup.userInstructionService,
+				requestToolApproval: runtimeSetup.requestToolApproval,
+			});
+			return {
+				result: startResult.result,
+				warnings: startResult.warnings,
+			};
 		}
 
-		const persistedSnapshot = await this.sessionRuntime.readPersistedTaskSession(input.taskId);
 		const restartedSession = await this.sessionRuntime.restartTaskSession({
 			taskId: input.taskId,
 			prompt: input.prompt,
@@ -729,10 +771,14 @@ export class InMemoryClineTaskSessionService implements ClineTaskSessionService 
 		if (normalized.length === 0 && !hasImages) {
 			return null;
 		}
-		if (!this.sessionRuntime.getTaskSessionId(taskId)) {
-			if (isHomeAgentSessionId(taskId) && !this.sessionRuntime.canRestartTaskSession(taskId)) {
-				return null;
-			}
+		if (
+			!this.sessionRuntime.getTaskSessionId(taskId) &&
+			!this.sessionRuntime.canRestartTaskSession(taskId) &&
+			!entry.summary.workspacePath?.trim()
+		) {
+			// Nothing to reconstruct a start request from (no live session, no cached config,
+			// no known cwd) — this only happens for a task that has genuinely never started.
+			return null;
 		}
 		{
 			const message = createMessage(taskId, "user", normalized, images);
@@ -840,10 +886,12 @@ export class InMemoryClineTaskSessionService implements ClineTaskSessionService 
 		clearActiveTurnState(entry);
 
 		const effectiveMode: RuntimeTaskSessionMode = entry.summary.mode ?? "act";
-		if (!this.sessionRuntime.getTaskSessionId(taskId)) {
-			if (isHomeAgentSessionId(taskId) && !this.sessionRuntime.canRestartTaskSession(taskId)) {
-				return null;
-			}
+		if (
+			!this.sessionRuntime.getTaskSessionId(taskId) &&
+			!this.sessionRuntime.canRestartTaskSession(taskId) &&
+			!entry.summary.workspacePath?.trim()
+		) {
+			return null;
 		}
 		try {
 			const { warnings } = await this.dispatchResolvedTaskInput({

@@ -13,6 +13,7 @@ import { createSessionId } from "../../../src/cline-sdk/cline-session-state";
 import type { ClineTaskSessionService } from "../../../src/cline-sdk/cline-task-session-service";
 import { createInMemoryClineTaskSessionService } from "../../../src/cline-sdk/cline-task-session-service";
 import { createClineWatcherRegistry } from "../../../src/cline-sdk/cline-watcher-registry";
+import { SDK_DEFAULT_MODEL_ID, SDK_DEFAULT_PROVIDER_ID } from "../../../src/cline-sdk/sdk-provider-boundary";
 import type {
 	RuntimeTaskImage,
 	RuntimeTaskSessionMode,
@@ -1847,7 +1848,7 @@ describe("InMemoryClineTaskSessionService", () => {
 		expect(runtime.sendTaskSessionInputMock).not.toHaveBeenCalled();
 	});
 
-	it("returns null for restored home sessions without cached start config so the caller can start fresh", async () => {
+	it("rebuilds a fresh start request for restored home sessions without cached start config", async () => {
 		const { service, runtime } = createTrackedService();
 		const taskId = "__home_agent__:workspace-1:cline";
 		runtime.readPersistedTaskSessionMock.mockResolvedValue({
@@ -1883,14 +1884,35 @@ describe("InMemoryClineTaskSessionService", () => {
 		expect(reboundSummary?.taskId).toBe(taskId);
 		expect(runtime.startTaskSessionMock).not.toHaveBeenCalled();
 
+		// No in-memory lastStartRequest cache (e.g. after a runtime restart), but the rebound
+		// entry still knows its cwd — so the send should recover by rebuilding a start request
+		// from that, instead of dropping the message on the floor.
 		const sendSummary = await service.sendTaskSessionInput(taskId, "Continue");
-		expect(sendSummary).toBeNull();
-		expect(runtime.startTaskSessionMock).not.toHaveBeenCalled();
-		expect(service.listMessages(taskId).map((message) => message.content)).not.toContain("Continue");
+		expect(sendSummary?.state).toBe("running");
+		expect(service.listMessages(taskId).map((message) => message.content)).toContain("Continue");
+		await vi.waitFor(() => {
+			expect(runtime.startTaskSessionMock).toHaveBeenCalledWith(
+				expect.objectContaining({
+					taskId,
+					cwd: "/tmp/worktree",
+					prompt: "resolved:Continue",
+					providerId: SDK_DEFAULT_PROVIDER_ID,
+					modelId: SDK_DEFAULT_MODEL_ID,
+					initialMessages: [
+						{ role: "user", content: "Initial prompt" },
+						{ role: "assistant", content: "Initial reply" },
+					],
+				}),
+			);
+		});
 
+		await waitForTaskSessionId(runtime, taskId);
 		const reloadSummary = await service.reloadTaskSession(taskId);
-		expect(reloadSummary).toBeNull();
-		expect(runtime.startTaskSessionMock).not.toHaveBeenCalled();
+		expect(reloadSummary?.state).toBe("idle");
+		expect(runtime.stopTaskSessionMock).toHaveBeenCalledWith(taskId);
+		// The send above repopulated the runtime's own start-config cache, so the reload goes
+		// through the normal restart path rather than reconstructing again.
+		expect(runtime.startTaskSessionMock).toHaveBeenCalledTimes(2);
 	});
 
 	it("does not duplicate assistant output when stream and send result both include final text", async () => {
