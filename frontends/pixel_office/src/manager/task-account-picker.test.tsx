@@ -75,6 +75,7 @@ function renderPicker(
 		onChange?: (selection: TaskSeatSelection) => void;
 		subagentSeatProviderId?: string | null;
 		onSubagentSeatChange?: (selection: TaskSubagentSeatSelection) => void;
+		subagentSeatAppliesOnRestart?: boolean;
 	},
 ): HTMLElement {
 	const container = document.createElement("div");
@@ -94,6 +95,7 @@ function renderPicker(
 					agentId={props.agentId}
 					onChange={props.onChange ?? (() => {})}
 					subagentSeatProviderId={props.subagentSeatProviderId ?? null}
+					subagentSeatAppliesOnRestart={props.subagentSeatAppliesOnRestart ?? false}
 					{...(props.onSubagentSeatChange ? { onSubagentSeatChange: props.onSubagentSeatChange } : {})}
 				/>,
 			),
@@ -561,6 +563,29 @@ describe("subagent seat row", () => {
 		});
 		const select = container.querySelector<HTMLSelectElement>('[data-testid="task-subagent-seat-picker"]');
 		expect(select?.value).toBe("");
+	});
+
+	it("warns that the pin only lands on restart while a session runs on another seat", () => {
+		const container = renderPicker({
+			accounts: [],
+			agentId: "claude",
+			apiSeats: seats,
+			subagentSeatProviderId: "openrouter",
+			onSubagentSeatChange: () => {},
+			subagentSeatAppliesOnRestart: true,
+		});
+		expect(container.querySelector('[data-testid="task-subagent-seat-restart-hint"]')).not.toBeNull();
+	});
+
+	it("stays quiet when the running session already matches the pin", () => {
+		const container = renderPicker({
+			accounts: [],
+			agentId: "claude",
+			apiSeats: seats,
+			subagentSeatProviderId: "openrouter",
+			onSubagentSeatChange: () => {},
+		});
+		expect(container.querySelector('[data-testid="task-subagent-seat-restart-hint"]')).toBeNull();
 	});
 });
 

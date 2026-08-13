@@ -105,6 +105,10 @@ export function TaskInlineCreateCard({
 	managerActiveAccountId = null,
 	managerAccountId,
 	onManagerAccountIdChange,
+	autoRunDelayMinutes = 0,
+	onAutoRunDelayMinutesChange,
+	autoResumeOnUsageLimit = false,
+	onAutoResumeOnUsageLimitChange,
 }: {
 	title?: string;
 	onTitleChange?: (value: string) => void;
@@ -152,10 +156,16 @@ export function TaskInlineCreateCard({
 	managerActiveAccountId?: number | null;
 	managerAccountId?: number | undefined;
 	onManagerAccountIdChange?: (value: number | undefined) => void;
+	/** Minutes until the backlog card auto-starts; 0 = off. Omit the callback to hide the field. */
+	autoRunDelayMinutes?: number;
+	onAutoRunDelayMinutesChange?: (value: number) => void;
+	autoResumeOnUsageLimit?: boolean;
+	onAutoResumeOnUsageLimitChange?: (value: boolean) => void;
 }): ReactElement {
 	const promptId = `${idPrefix}-prompt-input`;
 	const planModeId = `${idPrefix}-plan-mode-toggle`;
 	const autoCommitOptInId = `${idPrefix}-auto-commit-opt-in`;
+	const autoResumeOnUsageLimitId = `${idPrefix}-auto-resume-usage-limit`;
 	const branchSelectId = `${idPrefix}-branch-select`;
 	const actionLabel = mode === "edit" ? "Save" : "Create";
 	const [measureRef, cardRect] = useMeasure<HTMLDivElement>();
@@ -362,6 +372,47 @@ export function TaskInlineCreateCard({
 						/>
 					)}
 				</div>
+
+				{onAutoRunDelayMinutesChange ? (
+					<label className="flex items-center gap-2 text-[12px] text-text-primary select-none">
+						Auto-run after
+						<input
+							type="number"
+							min={0}
+							step={1}
+							value={autoRunDelayMinutes}
+							disabled={!enabled}
+							onChange={(event) => {
+								const parsed = Number(event.currentTarget.value);
+								onAutoRunDelayMinutesChange(Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 0);
+							}}
+							className="w-16 rounded-sm border border-border-bright bg-surface-3 px-2 py-1 text-[12px] text-text-primary"
+						/>
+						min <span className="text-text-tertiary">(0 = off)</span>
+					</label>
+				) : null}
+
+				{onAutoResumeOnUsageLimitChange ? (
+					<label
+						htmlFor={autoResumeOnUsageLimitId}
+						className="flex items-center gap-2 text-[12px] text-text-primary cursor-pointer select-none"
+						title="If this task hits the Claude usage limit, park it and auto-continue once the window resets."
+					>
+						<RadixCheckbox.Root
+							id={autoResumeOnUsageLimitId}
+							aria-label="Auto-resume on usage limit"
+							checked={autoResumeOnUsageLimit}
+							disabled={!enabled}
+							onCheckedChange={(checked) => onAutoResumeOnUsageLimitChange(checked === true)}
+							className="flex h-3.5 w-3.5 cursor-pointer items-center justify-center rounded-sm border border-border-bright bg-surface-3 data-[state=checked]:bg-accent data-[state=checked]:border-accent disabled:cursor-default disabled:opacity-40"
+						>
+							<RadixCheckbox.Indicator>
+								<Check size={10} className="text-white" />
+							</RadixCheckbox.Indicator>
+						</RadixCheckbox.Root>
+						<span>Auto-resume on usage limit</span>
+					</label>
+				) : null}
 
 				{canShowAutoCommitOptIn ? (
 					<label

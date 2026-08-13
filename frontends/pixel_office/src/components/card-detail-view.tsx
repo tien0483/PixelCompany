@@ -654,9 +654,22 @@ export function CardDetailView({
 	const planTextForSave = sessionSummary?.latestHookActivity?.planText ?? null;
 	const planAlreadySaved =
 		typeof planTextForSave === "string" && savedPlanTextKey === planTextForSave;
-	const [isTaskConfigExpanded, setIsTaskConfigExpanded] = useState(
-		() => !sessionSummary,
-	);
+	// A card that has not run yet opens with its configuration in view. Testing for a
+	// missing summary is not enough: callers pass a placeholder idle summary rather than
+	// null, which used to leave the section collapsed for every card.
+	const isTaskUnstarted =
+		!sessionSummary ||
+		(sessionSummary.state === "idle" && sessionSummary.startedAt === null);
+	const [isTaskConfigExpanded, setIsTaskConfigExpanded] =
+		useState(isTaskUnstarted);
+	const selectedCardId = selection.card.id;
+	const isTaskUnstartedRef = useRef(isTaskUnstarted);
+	isTaskUnstartedRef.current = isTaskUnstarted;
+	useEffect(() => {
+		// The panel stays mounted across selections, so re-apply the default per card —
+		// but only on that switch, or starting the task would fold it back up mid-edit.
+		setIsTaskConfigExpanded(isTaskUnstartedRef.current);
+	}, [selectedCardId]);
 	useEffect(() => {
 		if (planReadyForSave && planTextForSave && !wasPlanReadyRef.current) {
 			setDiffPanelView("plan");
@@ -783,18 +796,34 @@ export function CardDetailView({
 			) ?? null,
 		[managerAccounts, selection.card.managerAccountId],
 	);
+	// Seat env is fixed at spawn, so a card edited mid-run only takes effect on restart.
+	const isSessionLive =
+		sessionSummary?.state === "running" ||
+		sessionSummary?.state === "awaiting_review";
 	// Only offer a restart when the card has an explicit pin that differs from the running session.
 	const canRestartWithPinnedAccount =
 		typeof sessionSummary?.managerAccountId === "number" &&
 		typeof selection.card.managerAccountId === "number" &&
 		sessionSummary.managerAccountId !== selection.card.managerAccountId &&
-		(sessionSummary.state === "running" ||
-			sessionSummary.state === "awaiting_review");
+		isSessionLive;
+	const hasSubagentSeatDrift =
+		isSessionLive &&
+		(sessionSummary?.subagentSeatProviderId ?? null) !==
+			(selection.card.taskLaunchSettings?.subagentSeatProviderId ?? null);
+	const canRestartForConfigDrift =
+		canRestartWithPinnedAccount || hasSubagentSeatDrift;
+	const restartForConfigDriftLabel = canRestartWithPinnedAccount
+		? `Restart with ${
+				pinnedManagerAccount?.displayName ??
+				pinnedManagerAccount?.email ??
+				`account ${selection.card.managerAccountId}`
+			}`
+		: "Restart to apply the subagent seat";
 	useEffect(() => {
-		if (canRestartWithPinnedAccount) {
+		if (canRestartForConfigDrift) {
 			setIsTaskConfigExpanded(true);
 		}
-	}, [canRestartWithPinnedAccount]);
+	}, [canRestartForConfigDrift]);
 	// Clear a pin the task can no longer use so Auto can resolve a seat instead:
 	// a cross-provider leftover (Claude seat on a Cursor task after an agent
 	// switch) or a seat that has since been disabled in Manager.
@@ -1267,6 +1296,7 @@ export function CardDetailView({
 												selection.card.taskLaunchSettings?.subagentSeatProviderId ??
 												null
 											}
+											subagentSeatAppliesOnRestart={hasSubagentSeatDrift}
 											{...(onTaskLaunchSettingsChanged
 												? {
 														onSubagentSeatChange: (subagentSelection) => {
@@ -1281,7 +1311,7 @@ export function CardDetailView({
 													}
 												: {})}
 										/>
-										{canRestartWithPinnedAccount ? (
+										{canRestartForConfigDrift ? (
 											<button
 												type="button"
 												data-testid="restart-task-with-account"
@@ -1295,11 +1325,7 @@ export function CardDetailView({
 											>
 												{restartTaskLoadingById?.[selection.card.id]
 													? "Restarting…"
-													: `Restart with ${
-															pinnedManagerAccount?.displayName ??
-															pinnedManagerAccount?.email ??
-															`account ${selection.card.managerAccountId}`
-														}`}
+													: restartForConfigDriftLabel}
 											</button>
 										) : null}
 									</div>
