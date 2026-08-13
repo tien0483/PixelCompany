@@ -109,7 +109,16 @@ STRIP_RESPONSE_HEADERS = {
     "keep-alive",
 }
 
-DEFAULT_FLAGS = {k: True for k in FLAG_KEYS}
+# ENABLE_CCR defaults off, unlike every other flag: CCR writes its own shipped router
+# config on first start when none exists (`routing.defaultProvider: codewhisperer-primary`),
+# which has no working credentials in this sandbox. Any request that reaches this router
+# unmatched by a real rule — which is every request until a user hand-edits
+# ccr-home/.claude-code-router/config-router.json (see readinessHint in
+# stack-extra-daemons.ts) — gets misrouted into that dead default and fails outright. A
+# session whose ANTHROPIC_BASE_URL points at this switchboard (proxy-env, or a pinned
+# subagent seat) sends its own main-agent turns here unconditionally, not just subagent
+# ones, so an unconfigured default-on CCR silently breaks the parent session too.
+DEFAULT_FLAGS = {k: (k != "ENABLE_CCR") for k in FLAG_KEYS}
 
 # No global timeout on read: model responses stream for minutes.
 UPSTREAM_TIMEOUT = httpx.Timeout(connect=15.0, read=None, write=60.0, pool=15.0)

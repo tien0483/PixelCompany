@@ -12,6 +12,7 @@ import type {
 	RuntimeTaskTurnCheckpoint,
 } from "../core/api-contract";
 import { withStackBinOnPath } from "../stack/stack-paths";
+import { buildStackEnv } from "../stack/stack-process";
 import { detectAgentAuthFailure } from "./agent-auth-failure";
 import {
 	type AgentAdapterLaunchInput,
@@ -272,10 +273,19 @@ function formatShellSpawnFailure(binary: string, error: unknown): string {
 function buildTerminalEnvironment(
 	...sources: Array<Record<string, string | undefined> | undefined>
 ): Record<string, string | undefined> {
+	// buildStackEnv() instead of raw process.env: a runtime launched from a shell that
+	// sourced activate-stack.sh inherits ANTHROPIC_BASE_URL (+ the sandbox's dummy
+	// ANTHROPIC_API_KEY), and spreading process.env here would leak both into every task
+	// agent's environment — silently routing ordinary turns through the switchboard/CCR
+	// chain under a credential CCR can't authenticate, which fails as a "wrong format" 400
+	// (CCR rejects the request before it ever gets to check the key). `sources` is spread
+	// after, so an adapter that explicitly wants the switchboard (a pinned subagent seat)
+	// still gets it — see agent-session-adapters.ts.
+	//
 	// withStackBinOnPath last: a caller-supplied PATH in `sources` should still
 	// get the stack's binaries, and it is a no-op when no stack is installed.
 	return withStackBinOnPath({
-		...process.env,
+		...buildStackEnv(),
 		...Object.assign({}, ...sources),
 		COLORTERM: "truecolor",
 		TERM: "xterm-256color",

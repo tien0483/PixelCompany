@@ -139,11 +139,28 @@ export interface ClineTaskSessionService {
 	dispose(): Promise<void>;
 }
 
+export interface ClineTaskLaunchConfig {
+	providerId: string;
+	seatProviderId?: string | null;
+	modelId: string | null;
+	apiKey?: string | null;
+	baseUrl?: string | null;
+	reasoningEffort?: RuntimeClineReasoningEffort | null;
+	taskLaunchSettings?: RuntimeTaskLaunchSettings;
+}
+
 export interface CreateInMemoryClineTaskSessionServiceOptions {
 	createSessionRuntime?: (options: CreateInMemoryClineSessionRuntimeOptions) => ClineSessionRuntime;
 	createMessageRepository?: () => ClineMessageRepository;
 	createRuntimeSetup?: (workspacePath: string) => Promise<ClineRuntimeSetup>;
 	watcherRegistry?: ClineWatcherRegistry;
+	/**
+	 * Re-derives a task's provider/model/credentials from durable state (provider settings on
+	 * disk, the task's board card) when a runtime restart evicted `lastStartRequestByTaskId`.
+	 * Without this, `restartTaskSession` throws "No previous Cline session config" for any task
+	 * resumed after a restart, even though the SDK's own persisted session is intact.
+	 */
+	resolveTaskLaunchConfig?: (taskId: string) => Promise<ClineTaskLaunchConfig | null>;
 }
 
 function toErrorMessage(error: unknown): string {
@@ -207,10 +224,12 @@ export class InMemoryClineTaskSessionService implements ClineTaskSessionService 
 	private readonly messageRepository: ClineMessageRepository;
 	private readonly watcherRegistry: ClineWatcherRegistry;
 	private readonly runtimeSetupLeaseByWorkspacePath = new Map<string, Promise<ClineRuntimeSetupLease>>();
+	private readonly resolveTaskLaunchConfig?: (taskId: string) => Promise<ClineTaskLaunchConfig | null>;
 
 	constructor(options: CreateInMemoryClineTaskSessionServiceOptions = {}) {
 		const createSessionRuntime = options.createSessionRuntime ?? createInMemoryClineSessionRuntime;
 		const createMessageRepository = options.createMessageRepository ?? createInMemoryClineMessageRepository;
+		this.resolveTaskLaunchConfig = options.resolveTaskLaunchConfig;
 		this.watcherRegistry =
 			options.watcherRegistry ??
 			createClineWatcherRegistry({
@@ -337,6 +356,52 @@ export class InMemoryClineTaskSessionService implements ClineTaskSessionService 
 		this.emitSummary(errorSummary);
 	}
 
+	/**
+	 * Rebuilds the config `restartTaskSession` needs (provider/model/credentials/system prompt)
+	 * from durable state and seeds the runtime's restart cache with it. A runtime restart evicts
+	 * that cache for every task, but never the durable settings/board card it was built from —
+	 * so this makes restart work again without ever persisting secrets to the cache itself.
+	 */
+	private async primeRestartConfigFromLaunchConfig(taskId: string): Promise<void> {
+		if (!this.resolveTaskLaunchConfig) {
+			return;
+		}
+		const entry = this.messageRepository.getTaskEntry(taskId);
+		const cwd = entry?.summary.workspacePath;
+		if (!cwd) {
+			return;
+		}
+		const launchConfig = await this.resolveTaskLaunchConfig(taskId).catch(() => null);
+		if (!launchConfig) {
+			return;
+		}
+		const providerId = launchConfig.providerId.trim().toLowerCase() || SDK_DEFAULT_PROVIDER_ID;
+		const seatProviderId = launchConfig.seatProviderId?.trim().toLowerCase() || providerId;
+		const runtimeSetup = await this.ensureRuntimeSetup(cwd);
+		const systemPrompt = await resolveClineSdkSystemPrompt({
+			cwd,
+			providerId,
+			seatProviderId,
+			rules: runtimeSetup.loadRules(),
+		});
+		this.providerIdByTaskId.set(taskId, providerId);
+		this.seatProviderIdByTaskId.set(taskId, seatProviderId);
+		this.sessionRuntime.primeRestartConfig(taskId, {
+			taskId,
+			cwd,
+			providerId,
+			modelId: launchConfig.modelId?.trim() || SDK_DEFAULT_MODEL_ID,
+			mode: entry?.summary.mode ?? "act",
+			apiKey: launchConfig.apiKey,
+			baseUrl: launchConfig.baseUrl,
+			reasoningEffort: launchConfig.reasoningEffort,
+			systemPrompt,
+			taskLaunchSettings: launchConfig.taskLaunchSettings,
+			userInstructionService: runtimeSetup.userInstructionService,
+			requestToolApproval: runtimeSetup.requestToolApproval,
+		});
+	}
+
 	private async dispatchResolvedTaskInput(input: {
 		taskId: string;
 		prompt: string;
@@ -357,6 +422,10 @@ export class InMemoryClineTaskSessionService implements ClineTaskSessionService 
 					input.delivery,
 				),
 			};
+		}
+
+		if (!this.sessionRuntime.canRestartTaskSession(input.taskId)) {
+			await this.primeRestartConfigFromLaunchConfig(input.taskId);
 		}
 
 		if (isHomeAgentSessionId(input.taskId) && !this.sessionRuntime.canRestartTaskSession(input.taskId)) {

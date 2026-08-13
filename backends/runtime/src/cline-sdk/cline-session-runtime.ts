@@ -145,6 +145,10 @@ export interface ClineSessionRuntime {
 	getTaskProviderId(taskId: string): string | null;
 	getTaskModelId(taskId: string): string | null;
 	canRestartTaskSession(taskId: string): boolean;
+	primeRestartConfig(
+		taskId: string,
+		request: Omit<StartClineSessionRuntimeRequest, "prompt" | "images" | "initialMessages">,
+	): void;
 	readPersistedTaskSession(taskId: string): Promise<ClinePersistedTaskSessionSnapshot | null>;
 	dispose(): Promise<void>;
 }
@@ -472,6 +476,19 @@ export class InMemoryClineSessionRuntime implements ClineSessionRuntime {
 
 	canRestartTaskSession(taskId: string): boolean {
 		return this.lastStartRequestByTaskId.has(taskId);
+	}
+
+	/**
+	 * Seeds the restart cache without starting anything, for a task whose entry was evicted
+	 * by a runtime restart. `restartTaskSession` can only replay a config it already has, so a
+	 * cold cache otherwise throws "No previous Cline session config" even though the SDK's own
+	 * persisted session is intact — see `ClineTaskSessionService`'s `resolveTaskLaunchConfig`.
+	 */
+	primeRestartConfig(
+		taskId: string,
+		request: Omit<StartClineSessionRuntimeRequest, "prompt" | "images" | "initialMessages">,
+	): void {
+		this.lastStartRequestByTaskId.set(taskId, request);
 	}
 
 	async readPersistedTaskSession(taskId: string): Promise<ClinePersistedTaskSessionSnapshot | null> {

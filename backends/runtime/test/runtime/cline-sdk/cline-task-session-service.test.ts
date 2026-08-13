@@ -247,6 +247,12 @@ function createFakeClineSessionRuntime(): FakeClineSessionRuntimeController {
 			canRestartTaskSession(taskId: string): boolean {
 				return lastStartRequestByTaskId.has(taskId);
 			},
+			primeRestartConfig(
+				taskId: string,
+				request: Omit<StartClineSessionRuntimeRequest, "prompt" | "images" | "initialMessages">,
+			): void {
+				lastStartRequestByTaskId.set(taskId, request);
+			},
 			async readPersistedTaskSession(taskId: string): Promise<ClinePersistedTaskSessionSnapshot | null> {
 				return await readPersistedTaskSessionMock(taskId);
 			},
@@ -1130,6 +1136,68 @@ describe("InMemoryClineTaskSessionService", () => {
 				"Continue",
 			]);
 		});
+	});
+
+	it("resolves fresh launch config to actually restart a non-home session after a cold cache, instead of failing the send", async () => {
+		const runtime = createFakeClineSessionRuntime();
+		const runtimeSetup = createFakeRuntimeSetup();
+		const createRuntimeSetupMock = vi.fn(async (_workspacePath: string) => runtimeSetup.setup);
+		const resolveTaskLaunchConfig = vi.fn(async (_taskId: string) => ({
+			providerId: "anthropic",
+			modelId: "claude-sonnet-4-6",
+			apiKey: "sk-test-key",
+			baseUrl: null,
+		}));
+		const service = createInMemoryClineTaskSessionService({
+			createSessionRuntime: (options) => runtime.createRuntime(options),
+			createRuntimeSetup: createRuntimeSetupMock,
+			resolveTaskLaunchConfig,
+		});
+		services.push(service);
+
+		runtime.readPersistedTaskSessionMock.mockResolvedValue({
+			record: {
+				sessionId: "task-1-persisted",
+				source: "core" as ClinePersistedTaskSessionSnapshot["record"]["source"],
+				status: "completed",
+				startedAt: "2026-03-17T10:00:00.000Z",
+				updatedAt: "2026-03-17T10:05:00.000Z",
+				interactive: true,
+				provider: "anthropic",
+				model: "claude-sonnet-4-6",
+				cwd: "/tmp/worktree",
+				workspaceRoot: "/tmp/worktree",
+				enableTools: true,
+				enableSpawn: false,
+				enableTeams: false,
+				isSubagent: false,
+			},
+			messages: [
+				{
+					role: "user",
+					content: "Recovered prompt",
+				},
+			],
+		});
+
+		await service.rebindPersistedTaskSession("task-1");
+		await service.sendTaskSessionInput("task-1", "Continue");
+
+		await vi.waitFor(() => {
+			expect(runtime.startTaskSessionMock).toHaveBeenCalled();
+		});
+		expect(resolveTaskLaunchConfig).toHaveBeenCalledWith("task-1");
+		expect(runtime.startTaskSessionMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				taskId: "task-1",
+				providerId: "anthropic",
+				modelId: "claude-sonnet-4-6",
+				apiKey: "sk-test-key",
+			}),
+		);
+		const systemMessages = service.listMessages("task-1").filter((message) => message.role === "system");
+		expect(systemMessages).toEqual([]);
+		expect(service.getSummary("task-1")?.reviewReason).not.toBe("error");
 	});
 
 	it("rebinds a persisted session whose SDK record failed as an error, not attention", async () => {

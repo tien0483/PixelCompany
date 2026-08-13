@@ -5,6 +5,7 @@ import { join } from "node:path";
 
 import { createHTTPHandler } from "@trpc/server/adapters/standalone";
 import { handleClineMcpOauthCallback } from "../cline-sdk/cline-mcp-runtime-service";
+import { createClineProviderService } from "../cline-sdk/cline-provider-service";
 import {
 	type ClineTaskSessionService,
 	createInMemoryClineTaskSessionService,
@@ -219,6 +220,7 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 		await deps.ensureTerminalManagerForWorkspace(scope.workspaceId, scope.workspacePath);
 	const clineTaskSessionServiceByWorkspaceId = new Map<string, ClineTaskSessionService>();
 	const clineWatcherRegistry = createClineWatcherRegistry();
+	const clineProviderServiceForRestart = createClineProviderService();
 	const getScopedClineTaskSessionService = async (
 		scope: RuntimeTrpcWorkspaceScope,
 	): Promise<ClineTaskSessionService> => {
@@ -226,6 +228,25 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 		if (!service) {
 			service = createInMemoryClineTaskSessionService({
 				watcherRegistry: clineWatcherRegistry,
+				resolveTaskLaunchConfig: async (taskId) => {
+					const launchConfig = await clineProviderServiceForRestart.resolveLaunchConfig().catch(() => null);
+					if (!launchConfig) {
+						return null;
+					}
+					const workspaceState = await loadWorkspaceState(scope.workspacePath).catch(() => null);
+					const card =
+						workspaceState?.board.columns.flatMap((column) => column.cards).find((c) => c.id === taskId) ??
+						null;
+					return {
+						providerId: launchConfig.providerId,
+						seatProviderId: launchConfig.seatProviderId,
+						modelId: launchConfig.modelId,
+						apiKey: launchConfig.apiKey,
+						baseUrl: launchConfig.baseUrl,
+						reasoningEffort: launchConfig.reasoningEffort,
+						taskLaunchSettings: card?.taskLaunchSettings,
+					};
+				},
 			});
 			clineTaskSessionServiceByWorkspaceId.set(scope.workspaceId, service);
 			deps.runtimeStateHub.trackClineTaskSessionService(scope.workspaceId, scope.workspacePath, service);
