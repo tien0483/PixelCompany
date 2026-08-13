@@ -20,6 +20,7 @@ location is still holding the port.
 import asyncio
 import json
 import os
+import random
 import re
 import socket
 import tempfile
@@ -80,6 +81,31 @@ SEAT_PORT_MIN = int(os.environ.get("STACK_CCR_SEAT_BASE_PORT", "3460"))
 SEAT_PORT_MAX = SEAT_PORT_MIN + 39
 # Only this endpoint carries a model, and only it is worth buffering.
 MODEL_ROUTED_PATHS = ("messages",)
+
+# --- seat guardrails ---------------------------------------------------------
+# A seat is one third-party API key with its own rate limit and its own (often much
+# smaller than Anthropic's) context window, and every subagent of every task sharing that
+# seat hits it at once. These limits apply *only* to seat-routed turns: an ordinary turn
+# still streams straight through, unbuffered and unthrottled, so the parent session's own
+# OAuth traffic never queues behind its subagents.
+SEAT_MAX_CONCURRENCY = int(os.environ.get("STACK_SEAT_MAX_CONCURRENCY", "2"))
+# How long a turn may wait for a slot before giving up. Long, because waiting is the
+# point: the alternative is the upstream 429 this queue exists to avoid.
+SEAT_QUEUE_TIMEOUT_S = float(os.environ.get("STACK_SEAT_QUEUE_TIMEOUT_S", "120"))
+SEAT_MAX_RETRIES = int(os.environ.get("STACK_SEAT_MAX_RETRIES", "3"))
+SEAT_RETRY_BASE_S = float(os.environ.get("STACK_SEAT_RETRY_BASE_S", "2"))
+SEAT_RETRY_MAX_S = float(os.environ.get("STACK_SEAT_RETRY_MAX_S", "30"))
+# Under a 200k-window seat by default: the estimate below is approximate, and the seat
+# also spends tokens on the response.
+SEAT_CONTEXT_TOKENS = int(os.environ.get("STACK_SEAT_CONTEXT_TOKENS", "180000"))
+SEAT_RETRY_STATUSES = frozenset({429, 503, 529})
+# Deliberately crude: exact tokenization would need the provider's tokenizer, and the
+# cap only has to catch prompts that are obviously past the window.
+SEAT_CHARS_PER_TOKEN = 4
+
+# One semaphore per seat port, created on first use. Bound to the running event loop, so
+# it must never be built at import time.
+SEAT_SEMAPHORES: dict[int, asyncio.Semaphore] = {}
 
 # Hop-by-hop and length headers must not be forwarded verbatim: httpx recomputes
 # them, and a stale content-length truncates streamed bodies.
@@ -378,11 +404,89 @@ def has_caller_credential(request: Request) -> bool:
 class SubagentRoute:
     """A subagent turn resolved to the seat router that should serve it."""
 
-    __slots__ = ("port", "body")
+    __slots__ = ("port", "body", "tokens")
 
-    def __init__(self, port: int, body: bytes):
+    def __init__(self, port: int, body: bytes, tokens: int):
         self.port = port
         self.body = body
+        self.tokens = tokens
+
+
+def estimate_prompt_tokens(payload: dict) -> int:
+    """
+    Rough token count of everything the seat has to read, from the already-parsed body.
+
+    Only the prompt-bearing fields are walked: `max_tokens` and friends are numbers the
+    provider reads, not context it stores.
+    """
+    total = 0
+    stack = [payload.get(key) for key in ("system", "messages", "tools")]
+    while stack:
+        node = stack.pop()
+        if isinstance(node, str):
+            total += len(node)
+        elif isinstance(node, dict):
+            stack.extend(node.values())
+        elif isinstance(node, list):
+            stack.extend(node)
+    return total // SEAT_CHARS_PER_TOKEN
+
+
+def seat_semaphore(port: int) -> asyncio.Semaphore:
+    semaphore = SEAT_SEMAPHORES.get(port)
+    if semaphore is None:
+        semaphore = asyncio.Semaphore(max(1, SEAT_MAX_CONCURRENCY))
+        SEAT_SEMAPHORES[port] = semaphore
+    return semaphore
+
+
+class SeatSlot:
+    """A held seat slot, released exactly once however the turn ends."""
+
+    __slots__ = ("semaphore", "waited_s", "retries", "_held")
+
+    def __init__(self, semaphore: asyncio.Semaphore, waited_s: float):
+        self.semaphore = semaphore
+        self.waited_s = waited_s
+        self.retries = 0
+        self._held = True
+
+    def release(self) -> None:
+        if self._held:
+            self._held = False
+            self.semaphore.release()
+
+    def header(self) -> str:
+        return f"waited={self.waited_s:.2f}s retries={self.retries}"
+
+
+async def acquire_seat_slot(port: int) -> SeatSlot | None:
+    """Waits for a slot on this seat. None means the queue timed out."""
+    semaphore = seat_semaphore(port)
+    started = time.monotonic()
+    try:
+        await asyncio.wait_for(semaphore.acquire(), timeout=SEAT_QUEUE_TIMEOUT_S)
+    except (asyncio.TimeoutError, TimeoutError):
+        return None
+    return SeatSlot(semaphore, time.monotonic() - started)
+
+
+def seat_retry_delay(attempt: int, response: httpx.Response) -> float:
+    """
+    Seconds to wait before retrying a throttled seat turn.
+
+    A `Retry-After` from the provider wins — it knows when the window reopens — but is
+    still capped, since a multi-minute hint would strand the caller with the slot held.
+    """
+    header = response.headers.get("retry-after", "").strip()
+    if header:
+        try:
+            return min(max(float(header), 0.0), SEAT_RETRY_MAX_S)
+        except ValueError:
+            pass
+    backoff = SEAT_RETRY_BASE_S * (2**attempt)
+    # Jitter so the subagents released together by one slot do not re-collide.
+    return min(backoff, SEAT_RETRY_MAX_S) * (0.5 + random.random() / 2)
 
 
 async def read_subagent_route(request: Request, path: str) -> tuple[bytes | None, SubagentRoute | None]:
@@ -420,8 +524,9 @@ async def read_subagent_route(request: Request, path: str) -> tuple[bytes | None
         # than proxying to whatever else happens to be listening on that port.
         return body, None
 
+    tokens = estimate_prompt_tokens(payload)
     payload["model"] = match.group(2)
-    return body, SubagentRoute(port, json.dumps(payload).encode("utf-8"))
+    return body, SubagentRoute(port, json.dumps(payload).encode("utf-8"), tokens)
 
 
 @app.api_route(
@@ -435,6 +540,7 @@ async def dynamic_proxy(request: Request, path: str):
     base, chain = resolve_route(flags, live)
 
     body, seat_route = await read_subagent_route(request, path)
+    slot: SeatSlot | None = None
     if seat_route is not None:
         # A subagent turn: bypass the flag-driven chain entirely and hand it to the router
         # holding that seat's key. The caller's own credential is not forwarded — the seat
@@ -443,6 +549,44 @@ async def dynamic_proxy(request: Request, path: str):
         base = f"http://127.0.0.1:{seat_route.port}"
         chain = ["switchboard", f"ccr-seat:{seat_route.port}"]
         body = seat_route.body
+
+        if SEAT_CONTEXT_TOKENS > 0 and seat_route.tokens > SEAT_CONTEXT_TOKENS:
+            # Refused here rather than upstream: the seat would spend its rate limit to
+            # answer with a context error, and the caller would read that as throttling.
+            return JSONResponse(
+                {
+                    "error": {
+                        "type": "stack_seat_context_overflow",
+                        "message": (
+                            f"subagent prompt is ~{seat_route.tokens} tokens, over the "
+                            f"{SEAT_CONTEXT_TOKENS} limit for seat {seat_route.port}"
+                        ),
+                        "chain": chain,
+                        "hint": "split the work across more subagent turns, or raise "
+                        "STACK_SEAT_CONTEXT_TOKENS if the seat's window is larger",
+                    }
+                },
+                status_code=413,
+            )
+
+        slot = await acquire_seat_slot(seat_route.port)
+        if slot is None:
+            return JSONResponse(
+                {
+                    "error": {
+                        "type": "stack_seat_busy",
+                        "message": (
+                            f"seat {seat_route.port} stayed at its "
+                            f"{SEAT_MAX_CONCURRENCY}-turn limit for "
+                            f"{SEAT_QUEUE_TIMEOUT_S:g}s"
+                        ),
+                        "chain": chain,
+                        "hint": "spawn fewer subagents at once, or raise "
+                        "STACK_SEAT_MAX_CONCURRENCY",
+                    }
+                },
+                status_code=429,
+            )
 
     direct = base == ANTHROPIC_URL
 
@@ -462,30 +606,59 @@ async def dynamic_proxy(request: Request, path: str):
 
     url = f"{base}/v1/{path}"
     client = _client()
-    req = client.build_request(
-        request.method,
-        url,
-        headers=headers,
-        params=request.query_params,
-        content=body if body is not None else request.stream(),
-    )
+
+    def build_request() -> httpx.Request:
+        return client.build_request(
+            request.method,
+            url,
+            headers=headers,
+            params=request.query_params,
+            content=body if body is not None else request.stream(),
+        )
 
     try:
-        upstream = await client.send(req, stream=True)
-    except httpx.HTTPError as exc:
-        # The client is process-wide now — only the response gets closed here.
-        return JSONResponse(
-            {
-                "error": {
-                    "type": "stack_proxy_error",
-                    "message": f"upstream {url} unreachable: {exc}",
-                    "chain": chain,
-                    "hint": "check /health for daemon liveness, or clear the flag for the "
-                    "dead hop in /ui",
-                }
-            },
-            status_code=502,
-        )
+        while True:
+            try:
+                upstream = await client.send(build_request(), stream=True)
+            except httpx.HTTPError as exc:
+                # The client is process-wide now — only the response gets closed here.
+                return JSONResponse(
+                    {
+                        "error": {
+                            "type": "stack_proxy_error",
+                            "message": f"upstream {url} unreachable: {exc}",
+                            "chain": chain,
+                            "hint": "check /health for daemon liveness, or clear the flag "
+                            "for the dead hop in /ui",
+                        }
+                    },
+                    status_code=502,
+                )
+            # Retries are safe only for seat turns: their body was buffered to read the
+            # model, while every other request streams its content once and cannot be
+            # replayed.
+            if (
+                slot is None
+                or slot.retries >= SEAT_MAX_RETRIES
+                or upstream.status_code not in SEAT_RETRY_STATUSES
+            ):
+                break
+            delay = seat_retry_delay(slot.retries, upstream)
+            await upstream.aclose()
+            slot.retries += 1
+            await asyncio.sleep(delay)
+    except BaseException:
+        if slot is not None:
+            slot.release()
+        raise
+
+    response_headers = {
+        k: v
+        for k, v in upstream.headers.items()
+        if k.lower() not in STRIP_RESPONSE_HEADERS
+    }
+    if slot is not None:
+        response_headers["x-stack-seat-guard"] = slot.header()
 
     async def body():
         try:
@@ -493,15 +666,15 @@ async def dynamic_proxy(request: Request, path: str):
                 yield chunk
         finally:
             await upstream.aclose()
+            # Held until the last byte: a slot freed at header time would let the next
+            # subagent start while this one is still generating.
+            if slot is not None:
+                slot.release()
 
     return StreamingResponse(
         body(),
         status_code=upstream.status_code,
-        headers={
-            k: v
-            for k, v in upstream.headers.items()
-            if k.lower() not in STRIP_RESPONSE_HEADERS
-        },
+        headers=response_headers,
         media_type=upstream.headers.get("content-type"),
     )
 
