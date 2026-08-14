@@ -35,6 +35,13 @@ export enum LocalStorageKey {
 	/** Which of the plan editor's panes are on screen: "editor", "split" or "preview". */
 	PlanEditorPaneViewMode = "kanban.plan-editor-pane-view-mode",
 	AddProjectLastBrowseFolder = "kanban.add-project-last-browse-folder",
+	/**
+	 * Seats "Max donate" toggle: whether every eligible seat was pushed to a 100%
+	 * donate cap, plus each seat's cap from before, so it can be put back.
+	 * Deliberately not a layout key — resetting the layout must not strand a
+	 * boosted fleet with no way to restore it.
+	 */
+	ManagerDonateBoost = "kanban.manager-donate-boost.v1",
 }
 
 /** Default concurrent-running cap used by the backlog auto-run scheduler. */

@@ -7,6 +7,7 @@ import {
 	Pause,
 	Play,
 	Plus,
+	Power,
 	RefreshCw,
 	Trash2,
 	X,
@@ -25,6 +26,13 @@ import type {
 	UpdateClineProviderInput,
 } from "@/hooks/use-runtime-settings-cline-controller";
 import { ManagerAccountActions } from "@/manager/manager-account-actions";
+import {
+	clearDonateBoost,
+	planDonateBoost,
+	planDonateRestore,
+	readDonateBoost,
+	writeDonateBoost,
+} from "@/manager/manager-donate-boost";
 import {
 	formatPercent,
 	formatResetHint,
@@ -579,7 +587,14 @@ export function ManagerAccountsView({
 	manager,
 }: ManagerAccountsViewProps): ReactElement {
 	const [busyId, setBusyId] = useState<
-		number | "all" | "swap" | "oauth" | "import-cursor" | "import-claude" | null
+		| number
+		| "all"
+		| "swap"
+		| "oauth"
+		| "import-cursor"
+		| "import-claude"
+		| "donate-boost"
+		| null
 	>(null);
 	const [error, setError] = useState<string | null>(null);
 	const [actionStatus, setActionStatus] = useState<string | null>(null);
@@ -605,6 +620,8 @@ export function ManagerAccountsView({
 	const [inviteDonatePercent, setInviteDonatePercent] = useState(
 		DEFAULT_INVITE_DONATE_PERCENT,
 	);
+	/** Fleet-wide "Max donate" toggle plus each seat's cap from before it. */
+	const [donateBoost, setDonateBoost] = useState(readDonateBoost);
 	const oauthGenerationRef = useRef(0);
 	const oauthFlowKindRef = useRef<OauthFlowKind>("account");
 	/** True when remote flow is Add Account (apply donate % from the Vercel form). */
@@ -693,7 +710,14 @@ export function ManagerAccountsView({
 	};
 
 	const run = async (
-		id: number | "all" | "swap" | "oauth" | "import-cursor" | "import-claude",
+		id:
+			| number
+			| "all"
+			| "swap"
+			| "oauth"
+			| "import-cursor"
+			| "import-claude"
+			| "donate-boost",
 		action: () => Promise<{ ok: boolean; error?: string }>,
 		successMessage?: string,
 	) => {
@@ -757,6 +781,81 @@ export function ManagerAccountsView({
 		} catch (err) {
 			return { ok: false, message: describeThrown(err) };
 		}
+	};
+
+	/**
+	 * Fleet-wide donate-cap switch. On: push every eligible seat to 100% and
+	 * remember where it was. Off: put each remembered seat back.
+	 *
+	 * Fans the existing per-seat `updateAccount` mutation out over the fleet —
+	 * there is no bulk endpoint. Locked seats (and seats whose own slider is
+	 * disabled) are skipped rather than failed; the count lands in the status
+	 * line. Partial success still flips the toggle so the seats that did move can
+	 * be restored later.
+	 */
+	const handleToggleDonateBoost = async (): Promise<{
+		ok: boolean;
+		error?: string;
+	}> => {
+		const fleet = managedAccounts(manager?.accounts ?? []);
+		const restoring = donateBoost.active;
+		const boostPlan = restoring ? null : planDonateBoost(fleet);
+		const restorePlan = restoring ? planDonateRestore(fleet, donateBoost) : null;
+		const { patches, skipped } = boostPlan ?? restorePlan ?? { patches: [], skipped: 0 };
+		if (boostPlan && Object.keys(boostPlan.prior).length === 0) {
+			return {
+				ok: false,
+				error: "No seat can take a donate cap — every seat is locked, off, or needs CC auth.",
+			};
+		}
+
+		const client = getRuntimeTrpcClient(null);
+		const results = await Promise.allSettled(
+			patches.map((patch) =>
+				client.manager.updateAccount.mutate({
+					accountId: patch.accountId,
+					donateLimitPercent: patch.percent,
+				}),
+			),
+		);
+		const failed = results.filter(
+			(result) => result.status === "rejected" || !result.value.ok,
+		).length;
+		const changed = patches.length - failed;
+
+		if (boostPlan) {
+			const record = { v: 1 as const, active: true, prior: boostPlan.prior };
+			writeDonateBoost(record);
+			setDonateBoost(record);
+		} else {
+			clearDonateBoost();
+			setDonateBoost(readDonateBoost());
+		}
+
+		if (failed > 0 && changed === 0) {
+			return {
+				ok: false,
+				error: `Donate cap unchanged — all ${failed} ${failed === 1 ? "seat" : "seats"} failed.`,
+			};
+		}
+		const notes: string[] = [];
+		if (skipped > 0) {
+			notes.push(
+				restoring
+					? `${skipped} skipped: gone or changed since`
+					: `${skipped} skipped: locked, off, or needs CC auth`,
+			);
+		}
+		if (failed > 0) {
+			notes.push(`${failed} failed`);
+		}
+		const suffix = notes.length > 0 ? ` (${notes.join(", ")})` : "";
+		setActionStatus(
+			restoring
+				? `Donate caps restored on ${changed} ${changed === 1 ? "seat" : "seats"}.${suffix}`
+				: `Donate cap maxed on ${changed} ${changed === 1 ? "seat" : "seats"}.${suffix}`,
+		);
+		return { ok: true };
 	};
 
 	const handlePingApiSeat = async (seat: RuntimeClineApiSeat) => {
@@ -1524,6 +1623,30 @@ export function ManagerAccountsView({
 							Pause swap
 						</Button>
 					)}
+					<Button
+						variant="ghost"
+						size="sm"
+						disabled={!online || busyId !== null}
+						icon={<Power size={12} />}
+						data-testid="manager-donate-boost-toggle"
+						data-boost-active={donateBoost.active ? "true" : "false"}
+						aria-label={
+							donateBoost.active
+								? "Restore each seat's previous donate cap"
+								: "Raise every eligible seat's donate cap to 100%"
+						}
+						title={
+							donateBoost.active
+								? "Put each seat's donate cap back where it was before the boost. Seats you moved by hand since are left alone."
+								: "Raise every eligible seat's donate cap to 100% so nothing is blocked for Auto pick or pinned tasks. Locked, deactivated and CC-auth-pending seats are skipped."
+						}
+						className="h-7 px-2 text-[10px]"
+						onClick={() => {
+							void run("donate-boost", handleToggleDonateBoost);
+						}}
+					>
+						{donateBoost.active ? "Restore caps" : "Max donate"}
+					</Button>
 				</div>
 				<p className="text-[10px] text-text-tertiary">
 					Auto-swap {manager?.autoSwapEnabled ? "on" : "off"}
