@@ -6,6 +6,7 @@ import type {
 	RuntimeProjectTaskCounts,
 	RuntimeWorkspaceStateResponse,
 } from "../core/api-contract";
+import { mapWithConcurrency } from "../core/async-pool";
 import { createSessionSummaryPersister, type SessionSummaryPersister } from "../state/session-summary-persister";
 import {
 	listWorkspaceIndexEntries,
@@ -188,6 +189,9 @@ function applyLiveSessionStateToProjectTaskCounts(
 	}
 	return next;
 }
+
+/** Boards read concurrently when assembling the project list. */
+const PROJECT_SUMMARY_CONCURRENCY = 6;
 
 function toProjectSummary(project: {
 	workspaceId: string;
@@ -405,15 +409,31 @@ export async function createWorkspaceRegistry(deps: CreateWorkspaceRegistryDepen
 				projects.some((project) => project.workspaceId === preferredCurrentProjectId) &&
 				preferredCurrentProjectId) ||
 			fallbackProjectId;
-		const projectSummaries = await Promise.all(
-			projects.map(async (project) => {
+		// Every project used to get a full board read here, all at once, on every
+		// connect — so selecting one project paid for all of them. Only the project
+		// being opened needs fresh counts; the rest serve their cached counts and
+		// refresh in the background, which the next broadcast picks up.
+		const projectSummaries = await mapWithConcurrency(
+			projects,
+			PROJECT_SUMMARY_CONCURRENCY,
+			async (project): Promise<RuntimeProjectSummary> => {
+				const cachedCounts = projectTaskCountsByWorkspaceId.get(project.workspaceId);
+				const isCurrentProject = project.workspaceId === resolvedCurrentProjectId;
+				if (!isCurrentProject && cachedCounts) {
+					void summarizeProjectTaskCounts(project.workspaceId, project.repoPath);
+					return toProjectSummary({
+						workspaceId: project.workspaceId,
+						repoPath: project.repoPath,
+						taskCounts: cachedCounts,
+					});
+				}
 				const taskCounts = await summarizeProjectTaskCounts(project.workspaceId, project.repoPath);
 				return toProjectSummary({
 					workspaceId: project.workspaceId,
 					repoPath: project.repoPath,
 					taskCounts,
 				});
-			}),
+			},
 		);
 		return {
 			currentProjectId: resolvedCurrentProjectId,

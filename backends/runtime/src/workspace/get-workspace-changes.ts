@@ -6,14 +6,28 @@ import type {
 	RuntimeWorkspaceFileChange,
 	RuntimeWorkspaceFileStatus,
 } from "../core/api-contract";
-import { getGitStdout } from "./git-utils";
+import { mapWithConcurrency } from "../core/async-pool";
+import {
+	GIT_READ_TIMEOUT_MS,
+	PATH_FINGERPRINT_CONCURRENCY,
+	WORKSPACE_CHANGES_CONCURRENCY,
+	WORKSPACE_CHANGES_MAX_FILE_BYTES,
+	WORKSPACE_CHANGES_MAX_FILES,
+} from "./git-limits";
+import { getGitStdout, runGit } from "./git-utils";
 
-const WORKSPACE_CHANGES_CACHE_MAX_ENTRIES = 128;
+/**
+ * Each retained entry holds the full old and new text of every changed file, so
+ * the cache is bounded by bytes as well as by entry count.
+ */
+const WORKSPACE_CHANGES_CACHE_MAX_ENTRIES = 32;
+const WORKSPACE_CHANGES_CACHE_MAX_BYTES = 64 * 1024 * 1024;
 
 interface WorkspaceChangesCacheEntry {
 	stateKey: string;
 	response: RuntimeWorkspaceChangesResponse;
 	lastAccessedAt: number;
+	bytes: number;
 }
 
 const workspaceChangesCacheByRepoRoot = new Map<string, WorkspaceChangesCacheEntry>();
@@ -106,8 +120,10 @@ async function buildFileFingerprints(repoRoot: string, paths: string[]): Promise
 		return [];
 	}
 	const uniqueSortedPaths = Array.from(new Set(paths)).sort((left, right) => left.localeCompare(right));
-	const entries = await Promise.all(
-		uniqueSortedPaths.map(async (path) => {
+	const entries = await mapWithConcurrency(
+		uniqueSortedPaths,
+		PATH_FINGERPRINT_CONCURRENCY,
+		async (path): Promise<FileFingerprint> => {
 			const absolutePath = join(repoRoot, path);
 			try {
 				const fileStat = await stat(absolutePath);
@@ -125,7 +141,7 @@ async function buildFileFingerprints(repoRoot: string, paths: string[]): Promise
 					ctimeMs: null,
 				} satisfies FileFingerprint;
 			}
-		}),
+		},
 	);
 	return entries;
 }
@@ -149,44 +165,80 @@ function buildWorkspaceChangesStateKey(input: {
 	].join("\n--\n");
 }
 
-function pruneWorkspaceChangesCache(): void {
-	if (workspaceChangesCacheByRepoRoot.size <= WORKSPACE_CHANGES_CACHE_MAX_ENTRIES) {
-		return;
+function measureResponseBytes(response: RuntimeWorkspaceChangesResponse): number {
+	let bytes = 0;
+	for (const file of response.files) {
+		bytes += (file.oldText?.length ?? 0) + (file.newText?.length ?? 0);
 	}
+	return bytes;
+}
+
+function pruneWorkspaceChangesCache(): void {
 	const entries = Array.from(workspaceChangesCacheByRepoRoot.entries()).sort(
 		(left, right) => left[1].lastAccessedAt - right[1].lastAccessedAt,
 	);
-	const removeCount = entries.length - WORKSPACE_CHANGES_CACHE_MAX_ENTRIES;
-	for (let index = 0; index < removeCount; index += 1) {
+	let totalBytes = entries.reduce((sum, entry) => sum + entry[1].bytes, 0);
+	let index = 0;
+	while (
+		index < entries.length &&
+		(workspaceChangesCacheByRepoRoot.size > WORKSPACE_CHANGES_CACHE_MAX_ENTRIES ||
+			totalBytes > WORKSPACE_CHANGES_CACHE_MAX_BYTES)
+	) {
 		const candidate = entries[index];
+		index += 1;
 		if (!candidate) {
 			break;
 		}
-		workspaceChangesCacheByRepoRoot.delete(candidate[0]);
+		if (workspaceChangesCacheByRepoRoot.delete(candidate[0])) {
+			totalBytes -= candidate[1].bytes;
+		}
 	}
 }
 
-async function readHeadFile(repoRoot: string, path: string): Promise<string | null> {
-	try {
-		return await getGitStdout(["show", `HEAD:${path}`], repoRoot);
-	} catch {
-		return null;
-	}
+/**
+ * A file's text plus whether it was skipped for being too large. `text: null`
+ * alone is ambiguous — it also means "file does not exist on this side of the
+ * diff" — and treating an omitted file as absent renders it as fully added or
+ * fully deleted, so the two cases have to stay distinguishable.
+ */
+interface FileTextRead {
+	text: string | null;
+	omitted: boolean;
 }
 
-async function readFileAtRef(repoRoot: string, ref: string, path: string): Promise<string | null> {
-	try {
-		return await getGitStdout(["show", `${ref}:${path}`], repoRoot);
-	} catch {
-		return null;
+const MISSING_FILE_TEXT: FileTextRead = { text: null, omitted: false };
+
+async function readFileAtRevision(repoRoot: string, revision: string, path: string): Promise<FileTextRead> {
+	const result = await runGit(repoRoot, ["show", `${revision}:${path}`], {
+		maxBuffer: WORKSPACE_CHANGES_MAX_FILE_BYTES,
+		timeoutMs: GIT_READ_TIMEOUT_MS,
+	});
+	if (result.ok) {
+		return { text: result.stdout, omitted: false };
 	}
+	return { text: null, omitted: result.outputTruncated || result.timedOut };
 }
 
-async function readWorkingTreeFile(repoRoot: string, path: string): Promise<string | null> {
+async function readHeadFile(repoRoot: string, path: string): Promise<FileTextRead> {
+	return await readFileAtRevision(repoRoot, "HEAD", path);
+}
+
+async function readFileAtRef(repoRoot: string, ref: string, path: string): Promise<FileTextRead> {
+	return await readFileAtRevision(repoRoot, ref, path);
+}
+
+async function readWorkingTreeFile(repoRoot: string, path: string): Promise<FileTextRead> {
+	const absolutePath = join(repoRoot, path);
 	try {
-		return await readFile(join(repoRoot, path), "utf8");
+		// The size check is a `stat`, not a read, so an oversized file never lands
+		// in the heap on its way to being rejected.
+		const fileStat = await stat(absolutePath);
+		if (fileStat.size > WORKSPACE_CHANGES_MAX_FILE_BYTES) {
+			return { text: null, omitted: true };
+		}
+		return { text: await readFile(absolutePath, "utf8"), omitted: false };
 	} catch {
-		return null;
+		return MISSING_FILE_TEXT;
 	}
 }
 
@@ -280,25 +332,55 @@ async function readDiffStatFromRef(repoRoot: string, fromRef: string, path: stri
 	}
 }
 
-async function buildFileChange(repoRoot: string, entry: NameStatusEntry): Promise<RuntimeWorkspaceFileChange> {
-	const basePath = entry.previousPath ?? entry.path;
-	const oldText =
-		entry.status === "added" || entry.status === "untracked" ? null : await readHeadFile(repoRoot, basePath);
-	const newText = entry.status === "deleted" ? null : await readWorkingTreeFile(repoRoot, entry.path);
+/**
+ * Assembles one file's change record from its two sides. The three call sites
+ * differ only in where each side comes from, so the size-omission handling and
+ * the stats fallback live here once.
+ *
+ * `additions`/`deletions` stay exact for omitted files: they come from
+ * `--numstat`, which never reads the file's text.
+ */
+async function buildFileChangeRecord(input: {
+	entry: NameStatusEntry;
+	oldTextRead: FileTextRead;
+	newTextRead: FileTextRead;
+	readStats: () => Promise<DiffStat | null>;
+}): Promise<RuntimeWorkspaceFileChange> {
+	const { entry, oldTextRead, newTextRead } = input;
 	const stats =
-		entry.status === "untracked"
-			? { additions: toLineCount(newText ?? ""), deletions: 0 }
-			: ((await readDiffStat(repoRoot, entry.path)) ?? fallbackStats(oldText, newText));
+		entry.status === "untracked" && !newTextRead.omitted
+			? { additions: toLineCount(newTextRead.text ?? ""), deletions: 0 }
+			: ((await input.readStats()) ?? fallbackStats(oldTextRead.text, newTextRead.text));
 
-	return {
+	const change: RuntimeWorkspaceFileChange = {
 		path: entry.path,
 		previousPath: entry.previousPath,
 		status: entry.status,
 		additions: stats.additions,
 		deletions: stats.deletions,
-		oldText,
-		newText,
+		oldText: oldTextRead.text,
+		newText: newTextRead.text,
 	};
+	if (oldTextRead.omitted || newTextRead.omitted) {
+		change.contentOmitted = true;
+	}
+	return change;
+}
+
+async function buildFileChange(repoRoot: string, entry: NameStatusEntry): Promise<RuntimeWorkspaceFileChange> {
+	const basePath = entry.previousPath ?? entry.path;
+	const oldTextRead =
+		entry.status === "added" || entry.status === "untracked"
+			? MISSING_FILE_TEXT
+			: await readHeadFile(repoRoot, basePath);
+	const newTextRead = entry.status === "deleted" ? MISSING_FILE_TEXT : await readWorkingTreeFile(repoRoot, entry.path);
+
+	return await buildFileChangeRecord({
+		entry,
+		oldTextRead,
+		newTextRead,
+		readStats: () => readDiffStat(repoRoot, entry.path),
+	});
 }
 
 async function buildFileChangeBetweenRefs(
@@ -308,20 +390,16 @@ async function buildFileChangeBetweenRefs(
 	toRef: string,
 ): Promise<RuntimeWorkspaceFileChange> {
 	const basePath = entry.previousPath ?? entry.path;
-	const oldText = entry.status === "added" ? null : await readFileAtRef(repoRoot, fromRef, basePath);
-	const newText = entry.status === "deleted" ? null : await readFileAtRef(repoRoot, toRef, entry.path);
-	const stats =
-		(await readDiffStatBetweenRefs(repoRoot, fromRef, toRef, entry.path)) ?? fallbackStats(oldText, newText);
+	const oldTextRead = entry.status === "added" ? MISSING_FILE_TEXT : await readFileAtRef(repoRoot, fromRef, basePath);
+	const newTextRead =
+		entry.status === "deleted" ? MISSING_FILE_TEXT : await readFileAtRef(repoRoot, toRef, entry.path);
 
-	return {
-		path: entry.path,
-		previousPath: entry.previousPath,
-		status: entry.status,
-		additions: stats.additions,
-		deletions: stats.deletions,
-		oldText,
-		newText,
-	};
+	return await buildFileChangeRecord({
+		entry,
+		oldTextRead,
+		newTextRead,
+		readStats: () => readDiffStatBetweenRefs(repoRoot, fromRef, toRef, entry.path),
+	});
 }
 
 async function buildFileChangeFromRef(
@@ -330,24 +408,34 @@ async function buildFileChangeFromRef(
 	fromRef: string,
 ): Promise<RuntimeWorkspaceFileChange> {
 	const basePath = entry.previousPath ?? entry.path;
-	const oldText =
+	const oldTextRead =
 		entry.status === "added" || entry.status === "untracked"
-			? null
+			? MISSING_FILE_TEXT
 			: await readFileAtRef(repoRoot, fromRef, basePath);
-	const newText = entry.status === "deleted" ? null : await readWorkingTreeFile(repoRoot, entry.path);
-	const stats =
-		entry.status === "untracked"
-			? { additions: toLineCount(newText ?? ""), deletions: 0 }
-			: ((await readDiffStatFromRef(repoRoot, fromRef, entry.path)) ?? fallbackStats(oldText, newText));
+	const newTextRead = entry.status === "deleted" ? MISSING_FILE_TEXT : await readWorkingTreeFile(repoRoot, entry.path);
 
+	return await buildFileChangeRecord({
+		entry,
+		oldTextRead,
+		newTextRead,
+		readStats: () => readDiffStatFromRef(repoRoot, fromRef, entry.path),
+	});
+}
+
+/** Caps the file list, reporting the real total so the UI can say what it is hiding. */
+function capChangeEntries(entries: NameStatusEntry[]): {
+	entries: NameStatusEntry[];
+	truncated: boolean;
+	totalFileCount: number;
+} {
+	if (entries.length <= WORKSPACE_CHANGES_MAX_FILES) {
+		return { entries, truncated: false, totalFileCount: entries.length };
+	}
+	const sorted = [...entries].sort((left, right) => left.path.localeCompare(right.path));
 	return {
-		path: entry.path,
-		previousPath: entry.previousPath,
-		status: entry.status,
-		additions: stats.additions,
-		deletions: stats.deletions,
-		oldText,
-		newText,
+		entries: sorted.slice(0, WORKSPACE_CHANGES_MAX_FILES),
+		truncated: true,
+		totalFileCount: entries.length,
 	};
 }
 
@@ -390,7 +478,11 @@ export async function getWorkspaceChanges(cwd: string): Promise<RuntimeWorkspace
 				status: "untracked" as const,
 			})),
 	];
-	const fingerprintPaths = allChanges.flatMap((entry) => [entry.path, entry.previousPath].filter(Boolean) as string[]);
+	// Capped before the fingerprint pass so the `stat()` fan-out is bounded too.
+	const capped = capChangeEntries(allChanges);
+	const fingerprintPaths = capped.entries.flatMap(
+		(entry) => [entry.path, entry.previousPath].filter(Boolean) as string[],
+	);
 	const fingerprints = await buildFileFingerprints(repoRoot, fingerprintPaths);
 	const stateKey = buildWorkspaceChangesStateKey({
 		repoRoot,
@@ -405,17 +497,21 @@ export async function getWorkspaceChanges(cwd: string): Promise<RuntimeWorkspace
 		return existing.response;
 	}
 
-	const files = await Promise.all(allChanges.map((entry) => buildFileChange(repoRoot, entry)));
+	const files = await mapWithConcurrency(capped.entries, WORKSPACE_CHANGES_CONCURRENCY, (entry) =>
+		buildFileChange(repoRoot, entry),
+	);
 	files.sort((left, right) => left.path.localeCompare(right.path));
 	const response: RuntimeWorkspaceChangesResponse = {
 		repoRoot,
 		generatedAt: Date.now(),
 		files,
+		...(capped.truncated ? { truncated: true, totalFileCount: capped.totalFileCount } : {}),
 	};
 	workspaceChangesCacheByRepoRoot.set(repoRoot, {
 		stateKey,
 		response,
 		lastAccessedAt: Date.now(),
+		bytes: measureResponseBytes(response),
 	});
 	pruneWorkspaceChangesCache();
 	return response;
@@ -442,8 +538,9 @@ export async function getWorkspaceChangesBetweenRefs(
 		};
 	}
 
-	const files = await Promise.all(
-		trackedChanges.map((entry) => buildFileChangeBetweenRefs(repoRoot, entry, input.fromRef, input.toRef)),
+	const capped = capChangeEntries(trackedChanges);
+	const files = await mapWithConcurrency(capped.entries, WORKSPACE_CHANGES_CONCURRENCY, (entry) =>
+		buildFileChangeBetweenRefs(repoRoot, entry, input.fromRef, input.toRef),
 	);
 	files.sort((left, right) => left.path.localeCompare(right.path));
 
@@ -451,6 +548,7 @@ export async function getWorkspaceChangesBetweenRefs(
 		repoRoot,
 		generatedAt: Date.now(),
 		files,
+		...(capped.truncated ? { truncated: true, totalFileCount: capped.totalFileCount } : {}),
 	};
 }
 
@@ -488,11 +586,15 @@ export async function getWorkspaceChangesFromRef(input: ChangesFromRefInput): Pr
 		};
 	}
 
-	const files = await Promise.all(allChanges.map((entry) => buildFileChangeFromRef(repoRoot, entry, input.fromRef)));
+	const capped = capChangeEntries(allChanges);
+	const files = await mapWithConcurrency(capped.entries, WORKSPACE_CHANGES_CONCURRENCY, (entry) =>
+		buildFileChangeFromRef(repoRoot, entry, input.fromRef),
+	);
 	files.sort((left, right) => left.path.localeCompare(right.path));
 	return {
 		repoRoot,
 		generatedAt: Date.now(),
 		files,
+		...(capped.truncated ? { truncated: true, totalFileCount: capped.totalFileCount } : {}),
 	};
 }

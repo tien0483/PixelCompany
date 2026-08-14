@@ -264,6 +264,7 @@ function getRefBadgeColor(ref: RuntimeGitRef, isSelected: boolean): string {
 export function GitCommitListPanel({
 	commits,
 	totalCount,
+	totalCountIsExact = true,
 	selectedCommitHash,
 	isLoading,
 	isLoadingMore,
@@ -278,6 +279,8 @@ export function GitCommitListPanel({
 }: {
 	commits: RuntimeGitCommit[];
 	totalCount: number;
+	/** False when the runtime stopped counting early; the label then reads `N+`. */
+	totalCountIsExact?: boolean;
 	selectedCommitHash: string | null;
 	isLoading: boolean;
 	isLoadingMore: boolean;
@@ -391,7 +394,7 @@ export function GitCommitListPanel({
 				{totalCount > 0 ? (
 					<span style={{ fontWeight: 400, marginLeft: 6, textTransform: "none", letterSpacing: 0 }}>
 						({commits.length}
-						{totalCount > commits.length ? ` of ${totalCount}` : ""})
+						{totalCount > commits.length ? ` of ${totalCount}${totalCountIsExact ? "" : "+"}` : ""})
 					</span>
 				) : null}
 			</div>

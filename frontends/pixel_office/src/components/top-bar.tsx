@@ -60,6 +60,7 @@ import type {
 	OpenTargetOption,
 	OpenTargetPlatform,
 } from "@/utils/open-targets";
+import { formatBytes } from "@/utils/format-bytes";
 import { formatPathForDisplay } from "@/utils/path-display";
 import { isMacPlatform } from "@/utils/platform";
 
@@ -67,6 +68,13 @@ type SettingsSection = "shortcuts";
 type CreateShortcutResult = { ok: boolean; message?: string };
 
 const MOBILE_TOUCH_TARGET = "min-w-[44px] min-h-[44px]";
+
+/**
+ * Only badge the cleanup button once there is enough to reclaim to be worth an
+ * interruption. A worktree checkout is hundreds of MB, so 1 GB is roughly "a
+ * couple of abandoned tasks have piled up" rather than normal cache churn.
+ */
+const CLEANUP_BADGE_THRESHOLD_BYTES = 1024 * 1024 * 1024;
 
 function getWorkspacePathSegments(path: string): string[] {
 	return path
@@ -473,6 +481,7 @@ export function TopBar({
 	onOpenDebugDialog,
 	onOpenStack,
 	onOpenCleanup,
+	cleanupReclaimableBytes,
 	shortcuts,
 	selectedShortcutLabel,
 	onSelectShortcutLabel,
@@ -524,6 +533,8 @@ export function TopBar({
 	onOpenDebugDialog?: () => void;
 	onOpenStack?: () => void;
 	onOpenCleanup?: () => void;
+	/** Estimated bytes the Cleanup dialog could free; badges the button past a threshold. */
+	cleanupReclaimableBytes?: number;
 	shortcuts?: RuntimeProjectShortcut[];
 	selectedShortcutLabel?: string | null;
 	onSelectShortcutLabel?: (shortcutLabel: string) => void;
@@ -556,6 +567,7 @@ export function TopBar({
 	const handleAddShortcut = () => {
 		onOpenSettings?.("shortcuts");
 	};
+	const hasReclaimableSpace = (cleanupReclaimableBytes ?? 0) >= CLEANUP_BADGE_THRESHOLD_BYTES;
 	const shortcutItems = shortcuts ?? [];
 	const selectedShortcutIndex =
 		selectedShortcutLabel === null || selectedShortcutLabel === undefined
@@ -912,16 +924,27 @@ export function TopBar({
 							{onOpenCleanup ? (
 								<Tooltip
 									side="bottom"
-									content="Clean up Claude cache and runtime worktrees"
+									content={
+										hasReclaimableSpace
+											? `Cleanup — about ${formatBytes(cleanupReclaimableBytes ?? 0)} reclaimable`
+											: "Clean up Claude cache and runtime worktrees"
+									}
 								>
-									<Button
-										variant="ghost"
-										size="sm"
-										icon={<Trash2 size={16} />}
-										onClick={onOpenCleanup}
-										aria-label="Cleanup"
-										className="ml-2"
-									/>
+									<span className="relative ml-2 inline-flex">
+										<Button
+											variant="ghost"
+											size="sm"
+											icon={<Trash2 size={16} />}
+											onClick={onOpenCleanup}
+											aria-label="Cleanup"
+										/>
+										{hasReclaimableSpace ? (
+											<span
+												data-testid="cleanup-reclaimable-badge"
+												className="pointer-events-none absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full bg-status-orange"
+											/>
+										) : null}
+									</span>
 								</Tooltip>
 							) : null}
 							{onToggleTerminal ? (
@@ -1007,14 +1030,19 @@ export function TopBar({
 								/>
 							) : null}
 							{onOpenCleanup ? (
-								<Button
-									variant="ghost"
-									size="sm"
-									icon={<Trash2 size={16} />}
-									onClick={onOpenCleanup}
-									aria-label="Cleanup"
-									className={MOBILE_TOUCH_TARGET}
-								/>
+								<span className="relative inline-flex">
+									<Button
+										variant="ghost"
+										size="sm"
+										icon={<Trash2 size={16} />}
+										onClick={onOpenCleanup}
+										aria-label="Cleanup"
+										className={MOBILE_TOUCH_TARGET}
+									/>
+									{hasReclaimableSpace ? (
+										<span className="pointer-events-none absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full bg-status-orange" />
+									) : null}
+								</span>
 							) : null}
 							{!hideProjectDependentActions &&
 							onRunShortcut &&

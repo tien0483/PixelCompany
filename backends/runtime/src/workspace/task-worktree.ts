@@ -181,7 +181,7 @@ function getWorktreesRootPath(taskId: string): string {
 	return currentPath;
 }
 
-function getWorktreesBaseRootPath(): string {
+export function getWorktreesBaseRootPath(): string {
 	return getTaskWorktreesHomePath();
 }
 
@@ -189,7 +189,7 @@ function getTrashedTaskPatchesRootPath(): string {
 	return join(getRuntimeHomePath(), KANBAN_TRASHED_TASK_PATCHES_DIR_NAME);
 }
 
-function getTaskWorktreePath(repoPath: string, taskId: string): string {
+export function getTaskWorktreePath(repoPath: string, taskId: string): string {
 	const workspaceLabel = getWorkspaceFolderLabelForWorktreePath(repoPath);
 	return join(getWorktreesRootPath(taskId), workspaceLabel);
 }
@@ -479,7 +479,7 @@ async function removeTaskWorktreeInternal(repoPath: string, worktreePath: string
 	return existed;
 }
 
-async function pruneEmptyParents(rootPath: string, fromPath: string): Promise<void> {
+export async function pruneEmptyParents(rootPath: string, fromPath: string): Promise<void> {
 	let current = fromPath;
 	while (current.startsWith(rootPath) && current !== rootPath) {
 		try {

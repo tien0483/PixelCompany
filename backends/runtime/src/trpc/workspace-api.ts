@@ -651,6 +651,8 @@ export function createWorkspaceApi(deps: CreateWorkspaceApiDependencies): Runtim
 					workspaceId: workspaceScope.workspaceId,
 					board,
 					dryRun: input?.dryRun,
+					categories: input?.categories,
+					taskIds: input?.taskIds,
 				});
 				if (!input?.dryRun && response.cleanedTaskIds.length > 0) {
 					void deps.broadcastRuntimeWorkspaceStateUpdated(
@@ -876,7 +878,7 @@ export function createWorkspaceApi(deps: CreateWorkspaceApiDependencies): Runtim
 		loadWorkspaceChanges: async (workspaceScope) => {
 			return await getWorkspaceChanges(workspaceScope.workspacePath);
 		},
-		loadGitLog: async (workspaceScope, input) => {
+		loadGitLog: async (workspaceScope, input, signal) => {
 			const taskScope = normalizeOptionalTaskWorkspaceScopeInput(input.taskScope ?? null);
 			let logCwd = workspaceScope.workspacePath;
 			if (taskScope) {
@@ -893,9 +895,10 @@ export function createWorkspaceApi(deps: CreateWorkspaceApiDependencies): Runtim
 				refs: input.refs ?? null,
 				maxCount: input.maxCount,
 				skip: input.skip,
+				signal,
 			});
 		},
-		loadGitRefs: async (workspaceScope, input) => {
+		loadGitRefs: async (workspaceScope, input, signal) => {
 			const taskScope = normalizeOptionalTaskWorkspaceScopeInput(input ?? null);
 			let refsCwd = workspaceScope.workspacePath;
 			if (taskScope) {
@@ -906,9 +909,9 @@ export function createWorkspaceApi(deps: CreateWorkspaceApiDependencies): Runtim
 					ensure: false,
 				});
 			}
-			return await getGitRefs(refsCwd);
+			return await getGitRefs(refsCwd, { signal });
 		},
-		loadCommitDiff: async (workspaceScope, input) => {
+		loadCommitDiff: async (workspaceScope, input, signal) => {
 			const taskScope = normalizeOptionalTaskWorkspaceScopeInput(input.taskScope ?? null);
 			let diffCwd = workspaceScope.workspacePath;
 			if (taskScope) {
@@ -922,6 +925,7 @@ export function createWorkspaceApi(deps: CreateWorkspaceApiDependencies): Runtim
 			return await getCommitDiff({
 				cwd: diffCwd,
 				commitHash: input.commitHash,
+				signal,
 			});
 		},
 	};

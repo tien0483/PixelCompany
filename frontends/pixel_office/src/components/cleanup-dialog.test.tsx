@@ -248,4 +248,124 @@ describe("CleanupDialog", () => {
 		expect(mockNotifyError).toHaveBeenCalledWith(expect.stringContaining("worktree cleanup boom"));
 		expect(mockShowAppToast).not.toHaveBeenCalledWith(expect.objectContaining({ message: "Cleanup complete" }));
 	});
+
+	describe("worktree categories", () => {
+		const RECLAIMABLE = [
+			{
+				taskId: "aaa11",
+				branch: "kanban/task-aaa11",
+				repoLabel: "akselos-dev",
+				worktreePath: "/w/aaa11/akselos-dev",
+				category: "unused" as const,
+				sizeBytes: 3 * 1024 * 1024 * 1024,
+				reason: "Clean and still on its base commit.",
+			},
+			{
+				taskId: "bbb22",
+				branch: "kanban/task-bbb22",
+				repoLabel: "akselos-dev",
+				worktreePath: "/w/bbb22/akselos-dev",
+				category: "orphaned" as const,
+				sizeBytes: 1024 * 1024,
+				reason: "No card on any board owns this worktree.",
+			},
+		];
+
+		beforeEach(() => {
+			mockCleanMergedWorktrees.mockReset().mockResolvedValue({
+				ok: true,
+				cleanedTaskIds: [],
+				skipped: [],
+				reclaimable: RECLAIMABLE,
+				reclaimableBytes: RECLAIMABLE.reduce((sum, entry) => sum + entry.sizeBytes, 0),
+			});
+		});
+
+		async function openDialog() {
+			await act(async () => {
+				root.render(
+					<TooltipProvider>
+						<CleanupDialog open={true} onOpenChange={() => {}} workspaceId={null} />
+					</TooltipProvider>,
+				);
+			});
+			await flush();
+		}
+
+		it("scans every category on open so nothing is hidden behind the merged-only default", async () => {
+			await openDialog();
+
+			expect(mockCleanMergedWorktrees).toHaveBeenCalledWith(
+				expect.objectContaining({
+					dryRun: true,
+					categories: expect.arrayContaining(["merged", "unused", "orphaned", "missing", "unregistered"]),
+				}),
+			);
+		});
+
+		it("shows a GB-scale total for the selected worktrees rather than a bare count", async () => {
+			await openDialog();
+
+			const worktreesCheckbox = document.body.querySelector('[data-testid="cleanup-worktrees-checkbox"]') as HTMLElement;
+			await act(async () => {
+				worktreesCheckbox.click();
+			});
+			await flush();
+
+			expect(document.body.querySelector('[data-testid="cleanup-total-estimate"]')?.textContent).toContain("3.0 GB");
+		});
+
+		it("sends only the categories still selected after a category is unchecked", async () => {
+			await openDialog();
+
+			const worktreesCheckbox = document.body.querySelector('[data-testid="cleanup-worktrees-checkbox"]') as HTMLElement;
+			await act(async () => {
+				worktreesCheckbox.click();
+			});
+			await flush();
+
+			// Deselecting the 3 GB "unused" category must leave the orphaned one
+			// selected, and must narrow the request rather than silently sending
+			// everything.
+			const unusedCategory = document.body.querySelector(
+				'[data-testid="cleanup-worktree-category-unused"]',
+			) as HTMLElement;
+			await act(async () => {
+				unusedCategory.click();
+			});
+			await flush();
+
+			mockCleanMergedWorktrees.mockClear();
+			const confirmButton = document.body.querySelector('[data-testid="cleanup-confirm-button"]') as HTMLButtonElement;
+			await act(async () => {
+				confirmButton.click();
+			});
+			await flush();
+
+			expect(mockCleanMergedWorktrees).toHaveBeenCalledWith(
+				expect.objectContaining({ dryRun: false, categories: ["orphaned"], taskIds: ["bbb22"] }),
+			);
+		});
+
+		it("cleans legacy leftovers without touching the age-gated Claude tier", async () => {
+			mockCleanClaudeCache.mockResolvedValue({ ok: true, cleaned: [], skipped: [] });
+			await openDialog();
+
+			const legacyCheckbox = document.body.querySelector('[data-testid="cleanup-legacy-checkbox"]') as HTMLElement;
+			await act(async () => {
+				legacyCheckbox.click();
+			});
+			await flush();
+
+			const confirmButton = document.body.querySelector('[data-testid="cleanup-confirm-button"]') as HTMLButtonElement;
+			await act(async () => {
+				confirmButton.click();
+			});
+			await flush();
+
+			expect(mockCleanClaudeCache).toHaveBeenCalledWith(
+				expect.objectContaining({ includeLegacy: true, includeSafe: false, includeTranscripts: false }),
+			);
+		});
+	});
 });

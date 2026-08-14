@@ -51,6 +51,12 @@ interface FileDiffGroup {
 	entries: Array<{
 		id: string;
 		isBinary: boolean;
+		/**
+		 * The runtime skipped this file's text for exceeding the size limit. Its
+		 * `oldText`/`newText` are placeholders, so diffing them would render the
+		 * file as fully deleted or fully added.
+		 */
+		contentOmitted: boolean;
 		oldText: string | null;
 		newText: string;
 	}>;
@@ -757,6 +763,7 @@ export function DiffViewerPanel({
 			id: `workspace-${file.path}-${index}`,
 			path: file.path,
 			isBinary: isBinaryFilePath(file.path),
+			contentOmitted: file.contentOmitted === true,
 			oldText: file.oldText,
 			newText: file.newText ?? "",
 			additions: file.additions,
@@ -787,6 +794,7 @@ export function DiffViewerPanel({
 			group.entries.push({
 				id: entry.id,
 				isBinary: entry.isBinary,
+				contentOmitted: entry.contentOmitted,
 				oldText: entry.oldText,
 				newText: entry.newText,
 			});
@@ -1201,7 +1209,12 @@ export function DiffViewerPanel({
 										>
 											{group.entries.map((entry) => (
 												<div key={entry.id} className="kb-diff-entry">
-													{entry.isBinary ? null : viewMode === "split" ? (
+													{entry.isBinary ? null : entry.contentOmitted ? (
+														<div className="px-3 py-3 text-xs text-text-tertiary">
+															Diff not loaded — this file exceeds the inline
+															diff size limit.
+														</div>
+													) : viewMode === "split" ? (
 														<SplitDiff
 															path={group.path}
 															oldText={entry.oldText}

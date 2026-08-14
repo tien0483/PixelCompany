@@ -65,6 +65,10 @@ function createGitHistoryResult(): UseGitActionsResult["gitHistory"] {
 		hasWorkingCopy: false,
 		commits: [],
 		totalCommitCount: 0,
+		totalCommitCountIsExact: true,
+		refsTruncated: false,
+		diffTruncated: false,
+		diffTotalFileCount: null,
 		selectedCommitHash: null,
 		selectedCommit: null,
 		isLogLoading: false,
@@ -154,7 +158,8 @@ function createRuntimeConfig(
 		seamCommentTagTemplateDefault: "seam",
 		commitTrailerMode: "omit",
 		commitTrailerTemplate: "Co-Authored-By: Claude <noreply@anthropic.com>",
-		commitTrailerTemplateDefault: "Co-Authored-By: Claude <noreply@anthropic.com>",
+		commitTrailerTemplateDefault:
+			"Co-Authored-By: Claude <noreply@anthropic.com>",
 	};
 }
 

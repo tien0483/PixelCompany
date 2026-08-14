@@ -411,6 +411,7 @@ async function startServer(): Promise<{
 		{ describeRuntimeHomeMigration, migrateRuntimeHome },
 		{ startOmniRouteProcess },
 		{ findAgentDataRoot },
+		{ reconcileAllBranchRegistries },
 	] = await Promise.all([
 		import("./projects/project-path.js"),
 		import("./server/directory-picker.js"),
@@ -434,6 +435,7 @@ async function startServer(): Promise<{
 		import("./state/runtime-home-migration.js"),
 		import("./omniroute/omniroute-process.js"),
 		import("./state/agent-data-manifest.js"),
+		import("./workspace/git-worktree-cleanup.js"),
 	]);
 
 	// Must run before the workspace registry, which is the first reader of the
@@ -442,6 +444,15 @@ async function startServer(): Promise<{
 	const migrationMessage = describeRuntimeHomeMigration(migration);
 	if (migrationMessage) {
 		console.log(`[kanban] ${migrationMessage}`);
+	}
+
+	// Drop branch-registry entries whose worktree vanished behind the runtime's
+	// back. Runs after the home migration (so it sees the migrated registries) and
+	// before the workspace registry reads them.
+	for (const { workspaceId, droppedTaskIds } of await reconcileAllBranchRegistries()) {
+		console.log(
+			`[kanban] Dropped ${droppedTaskIds.length} stale worktree registration(s) in ${workspaceId}: ${droppedTaskIds.join(", ")}`,
+		);
 	}
 
 	// Managers can exist before ManagerClient does (workspace registry boots first), so

@@ -231,10 +231,13 @@ export function GitHistoryView({
 			<GitCommitListPanel
 				commits={gitHistory.commits}
 				totalCount={gitHistory.totalCommitCount}
+				totalCountIsExact={gitHistory.totalCommitCountIsExact}
 				selectedCommitHash={gitHistory.viewMode === "commit" ? gitHistory.selectedCommitHash : null}
 				isLoading={gitHistory.isLogLoading}
 				isLoadingMore={gitHistory.isLoadingMoreCommits}
-				canLoadMore={gitHistory.commits.length < gitHistory.totalCommitCount}
+				// A capped total is a floor, not the end of the history — paging has to
+				// stay available or the list stops at the probe limit.
+				canLoadMore={gitHistory.commits.length < gitHistory.totalCommitCount || !gitHistory.totalCommitCountIsExact}
 				errorMessage={gitHistory.logErrorMessage}
 				refs={gitHistory.refs}
 				panelWidth={displayCommitsPanelWidth}
@@ -253,6 +256,7 @@ export function GitHistoryView({
 				diffSource={gitHistory.diffSource}
 				isLoading={gitHistory.isDiffLoading}
 				errorMessage={gitHistory.diffErrorMessage}
+				truncatedFileTotal={gitHistory.diffTruncated ? gitHistory.diffTotalFileCount : null}
 				selectedPath={gitHistory.selectedDiffPath}
 				onSelectPath={gitHistory.selectDiffPath}
 				headerContent={

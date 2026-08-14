@@ -191,6 +191,8 @@ describe.sequential("git history runtime", () => {
 				]),
 			);
 
+			expect(refsResponse.truncated).toBeUndefined();
+
 			const summary = await getGitSyncSummary(localPath);
 			expect(summary.aheadCount).toBe(1);
 			expect(summary.behindCount).toBe(1);
@@ -212,6 +214,87 @@ describe.sequential("git history runtime", () => {
 					}),
 				]),
 			);
+			expect(logResponse.relationsComplete).toBe(true);
+		} finally {
+			cleanup();
+		}
+	});
+
+	it("clamps an oversized page request and reports the count as exact on a small repo", async () => {
+		const { path: repoPath, cleanup } = createTempDir("kanban-git-history-clamp-");
+		try {
+			initRepository(repoPath);
+			for (let index = 0; index < 5; index += 1) {
+				writeFileSync(join(repoPath, `file-${String(index)}.txt`), `line ${String(index)}\n`, "utf8");
+				commitAll(repoPath, `commit ${String(index)}`);
+			}
+
+			const response = await getGitLog({ cwd: repoPath, maxCount: 10_000_000, skip: 0 });
+
+			expect(response.ok).toBe(true);
+			// The page is clamped to GIT_LOG_MAX_COUNT_LIMIT, which is far above the
+			// five commits this repo has, so every commit still comes back.
+			expect(response.commits).toHaveLength(5);
+			expect(response.totalCount).toBe(5);
+			expect(response.totalCountIsExact).toBe(true);
+		} finally {
+			cleanup();
+		}
+	});
+
+	it("caps the file list of a very wide commit and reports the real total", { timeout: 60_000 }, async () => {
+		const { path: repoPath, cleanup } = createTempDir("kanban-git-history-wide-");
+		try {
+			initRepository(repoPath);
+			writeFileSync(join(repoPath, "seed.txt"), "seed\n", "utf8");
+			commitAll(repoPath, "seed");
+
+			const fileCount = 320;
+			for (let index = 0; index < fileCount; index += 1) {
+				writeFileSync(join(repoPath, `wide-${String(index).padStart(4, "0")}.txt`), "content\n", "utf8");
+			}
+			const wideCommit = commitAll(repoPath, "wide commit");
+
+			const response = await getCommitDiff({ cwd: repoPath, commitHash: wideCommit });
+
+			expect(response.ok).toBe(true);
+			expect(response.files).toHaveLength(300);
+			expect(response.truncated).toBe(true);
+			expect(response.totalFileCount).toBe(fileCount);
+			// The files that survived the cap still carry their patches.
+			expect(response.files[0]?.patch).toContain("+content");
+		} finally {
+			cleanup();
+		}
+	});
+
+	it("omits the patch of a file whose diff is larger than the inline limit", { timeout: 60_000 }, async () => {
+		const { path: repoPath, cleanup } = createTempDir("kanban-git-history-huge-file-");
+		try {
+			initRepository(repoPath);
+			writeFileSync(join(repoPath, "seed.txt"), "seed\n", "utf8");
+			commitAll(repoPath, "seed");
+
+			// Over COMMIT_DIFF_PATCH_LINE_LIMIT (2000) changed lines.
+			const hugeLines = Array.from({ length: 5_000 }, (_unused, index) => `line ${String(index)}`).join("\n");
+			writeFileSync(join(repoPath, "huge.txt"), `${hugeLines}\n`, "utf8");
+			writeFileSync(join(repoPath, "small.txt"), "small\n", "utf8");
+			const commitHash = commitAll(repoPath, "huge and small");
+
+			const response = await getCommitDiff({ cwd: repoPath, commitHash });
+
+			expect(response.ok).toBe(true);
+			expect(response.truncated).toBe(true);
+
+			const huge = response.files.find((file) => file.path === "huge.txt");
+			expect(huge?.patchOmitted).toBe(true);
+			expect(huge?.patch).toBe("");
+			// Stats come from --numstat, so they stay exact for an omitted patch.
+			expect(huge?.additions).toBe(5_000);
+
+			const small = response.files.find((file) => file.path === "small.txt");
+			expect(small?.patchOmitted).toBeUndefined();
+			expect(small?.patch).toContain("+small");
 		} finally {
 			cleanup();
 		}

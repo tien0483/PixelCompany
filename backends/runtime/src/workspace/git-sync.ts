@@ -22,7 +22,14 @@ import type {
 	RuntimeGitSyncResponse,
 	RuntimeGitSyncSummary,
 } from "../core/api-contract";
+import { mapWithConcurrency } from "../core/async-pool";
 import { appendBranchRegistryStatusLog, getActiveBranchEntry } from "./branch-registry";
+import {
+	PATH_FINGERPRINT_CONCURRENCY,
+	UNTRACKED_ADDITION_MAX_FILE_BYTES,
+	UNTRACKED_ADDITION_SCAN_MAX_FILES,
+	UNTRACKED_FINGERPRINT_MAX_PATHS,
+} from "./git-limits";
 import { getGitStdout, runGit } from "./git-utils";
 
 interface GitPathFingerprint {
@@ -91,9 +98,17 @@ function buildFingerprintToken(fingerprints: GitPathFingerprint[]): string {
 }
 
 async function buildPathFingerprints(repoRoot: string, paths: string[]): Promise<GitPathFingerprint[]> {
-	const uniqueSortedPaths = Array.from(new Set(paths)).sort((left, right) => left.localeCompare(right));
-	return await Promise.all(
-		uniqueSortedPaths.map(async (path) => {
+	const uniqueSortedPaths = Array.from(new Set(paths))
+		.sort((left, right) => left.localeCompare(right))
+		// This `stat()` fan-out — not the `git status` call — is what makes a poll
+		// tick expensive on a repo with thousands of untracked paths. The token it
+		// feeds only has to change when the working tree does, and the raw status
+		// output (also part of the token) already covers paths beyond this cap.
+		.slice(0, UNTRACKED_FINGERPRINT_MAX_PATHS);
+	return await mapWithConcurrency(
+		uniqueSortedPaths,
+		PATH_FINGERPRINT_CONCURRENCY,
+		async (path): Promise<GitPathFingerprint> => {
 			try {
 				const fileStat = await stat(join(repoRoot, path));
 				return {
@@ -110,7 +125,7 @@ async function buildPathFingerprints(repoRoot: string, paths: string[]): Promise
 					ctimeMs: null,
 				} satisfies GitPathFingerprint;
 			}
-		}),
+		},
 	);
 }
 
@@ -222,17 +237,26 @@ async function resolveRepoRoot(cwd: string): Promise<string> {
 	return result.stdout;
 }
 
+/**
+ * Reads untracked files to count their lines for the `+N` badge. Every byte of
+ * every untracked file used to land in memory at once, every poll tick; the
+ * caps below make it a bounded estimate instead, which is all a badge needs.
+ */
 async function countUntrackedAdditions(repoRoot: string, untrackedPaths: string[]): Promise<number> {
-	const counts = await Promise.all(
-		untrackedPaths.map(async (relativePath) => {
-			try {
-				const contents = await readFile(join(repoRoot, relativePath), "utf8");
-				return countLines(contents);
-			} catch {
+	const scannedPaths = untrackedPaths.slice(0, UNTRACKED_ADDITION_SCAN_MAX_FILES);
+	const counts = await mapWithConcurrency(scannedPaths, PATH_FINGERPRINT_CONCURRENCY / 2, async (relativePath) => {
+		const absolutePath = join(repoRoot, relativePath);
+		try {
+			const fileStat = await stat(absolutePath);
+			if (fileStat.size > UNTRACKED_ADDITION_MAX_FILE_BYTES) {
 				return 0;
 			}
-		}),
-	);
+			const contents = await readFile(absolutePath, "utf8");
+			return countLines(contents);
+		} catch {
+			return 0;
+		}
+	});
 	return counts.reduce((total, value) => total + value, 0);
 }
 

@@ -256,7 +256,8 @@ export default function App(): ReactElement {
 		isCleanupDialogOpen,
 		handleOpenCleanupDialog,
 		handleCleanupDialogOpenChange,
-	} = useCleanupTools();
+		reclaimableBytes: cleanupReclaimableBytes,
+	} = useCleanupTools(currentProjectId);
 	const {
 		isStackDialogOpen,
 		handleOpenStackDialog,
@@ -1315,6 +1316,7 @@ export default function App(): ReactElement {
 						}
 						onOpenStack={handleOpenStackDialog}
 						onOpenCleanup={hasNoProjects ? undefined : handleOpenCleanupDialog}
+						cleanupReclaimableBytes={cleanupReclaimableBytes}
 						shortcuts={shortcuts}
 						selectedShortcutLabel={selectedShortcutLabel}
 						onSelectShortcutLabel={handleSelectShortcutLabel}

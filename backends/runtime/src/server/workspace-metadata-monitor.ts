@@ -4,11 +4,34 @@ import type {
 	RuntimeTaskWorkspaceMetadata,
 	RuntimeWorkspaceMetadata,
 } from "../core/api-contract";
+import { mapWithConcurrency } from "../core/async-pool";
 import { resolveChainWorktreeOwnerTaskId } from "../core/task-board-mutations";
 import { getCommitsAheadOfBaseRef, getGitSyncSummary, probeGitWorkspaceState } from "../workspace/git-sync";
 import { getTaskWorkspacePathInfo } from "../workspace/task-worktree";
 
+/** Floor of the adaptive poll: what a small repo keeps polling at. */
 const WORKSPACE_METADATA_POLL_INTERVAL_MS = 1_000;
+
+/**
+ * Ceiling of the adaptive poll. A refresh on a 100k-commit repo with a large
+ * working tree takes seconds, so a fixed 1 s interval re-entered before the
+ * previous tick finished and the workspace spent all its time probing git.
+ */
+const WORKSPACE_METADATA_MAX_POLL_INTERVAL_MS = 15_000;
+
+/** Next tick is scheduled this many times the last refresh's own duration. */
+const WORKSPACE_METADATA_POLL_DUTY_CYCLE = 3;
+
+/** Cards probed at once. A board with 40 active cards used to spawn 120+ git processes per tick. */
+const WORKSPACE_METADATA_TASK_CONCURRENCY = 4;
+
+/**
+ * How long a connecting client waits for the first refresh before it is handed
+ * the (possibly empty) cached snapshot instead. The connection handshake used to
+ * await the whole refresh, so selecting a large project left the board on a
+ * spinner until every git probe had finished.
+ */
+const WORKSPACE_METADATA_INITIAL_WAIT_MS = 750;
 
 interface TrackedTaskWorkspace {
 	taskId: string;
@@ -35,6 +58,8 @@ interface WorkspaceMetadataEntry {
 	trackedTasks: TrackedTaskWorkspace[];
 	subscriberCount: number;
 	pollTimer: NodeJS.Timeout | null;
+	/** True while a poll chain owns this entry, so a second connect cannot start a second chain. */
+	pollActive: boolean;
 	refreshPromise: Promise<RuntimeWorkspaceMetadata> | null;
 	homeGit: CachedHomeGitMetadata;
 	taskMetadataByTaskId: Map<string, CachedTaskWorkspaceMetadata>;
@@ -55,6 +80,8 @@ export interface WorkspaceMetadataMonitor {
 		workspacePath: string;
 		board: RuntimeBoardData;
 	}) => Promise<RuntimeWorkspaceMetadata>;
+	/** Cached metadata without triggering a refresh. Empty for an unknown workspace. */
+	readSnapshot: (workspaceId: string) => RuntimeWorkspaceMetadata;
 	disconnectWorkspace: (workspaceId: string) => void;
 	disposeWorkspace: (workspaceId: string) => void;
 	close: () => void;
@@ -115,7 +142,7 @@ function areTaskMetadataEqual(a: RuntimeTaskWorkspaceMetadata, b: RuntimeTaskWor
 	);
 }
 
-function areWorkspaceMetadataEqual(a: RuntimeWorkspaceMetadata, b: RuntimeWorkspaceMetadata): boolean {
+export function areWorkspaceMetadataEqual(a: RuntimeWorkspaceMetadata, b: RuntimeWorkspaceMetadata): boolean {
 	if (!areGitSummariesEqual(a.homeGitSummary, b.homeGitSummary)) {
 		return false;
 	}
@@ -149,6 +176,7 @@ function createWorkspaceEntry(workspacePath: string): WorkspaceMetadataEntry {
 		trackedTasks: [],
 		subscriberCount: 0,
 		pollTimer: null,
+		pollActive: false,
 		refreshPromise: null,
 		homeGit: {
 			summary: null,
@@ -289,11 +317,13 @@ export function createWorkspaceMetadataMonitor(
 	const workspaces = new Map<string, WorkspaceMetadataEntry>();
 
 	const stopWorkspaceTimer = (entry: WorkspaceMetadataEntry) => {
-		if (!entry.pollTimer) {
-			return;
+		if (entry.pollTimer) {
+			clearTimeout(entry.pollTimer);
+			entry.pollTimer = null;
 		}
-		clearInterval(entry.pollTimer);
-		entry.pollTimer = null;
+		// Also clears the flag when the chain is between ticks (refresh in flight,
+		// no timer armed), which is where a plain pollTimer check would leak it.
+		entry.pollActive = false;
 	};
 
 	const refreshWorkspace = async (workspaceId: string): Promise<RuntimeWorkspaceMetadata> => {
@@ -309,17 +339,14 @@ export function createWorkspaceMetadataMonitor(
 			const previousSnapshot = buildWorkspaceMetadataSnapshot(entry);
 			entry.homeGit = await loadHomeGitMetadata(entry);
 
-			const nextTaskEntries = await Promise.all(
-				entry.trackedTasks.map(async (task) => {
+			const nextTaskEntries = await mapWithConcurrency(
+				entry.trackedTasks,
+				WORKSPACE_METADATA_TASK_CONCURRENCY,
+				async (task): Promise<[string, CachedTaskWorkspaceMetadata] | null> => {
 					const current = entry.taskMetadataByTaskId.get(task.taskId) ?? null;
-					const next = await loadTaskWorkspaceMetadata(
-						workspaceId,
-						entry.workspacePath,
-						task,
-						current,
-					);
+					const next = await loadTaskWorkspaceMetadata(workspaceId, entry.workspacePath, task, current);
 					return next ? [task.taskId, next] : null;
-				}),
+				},
 			);
 
 			entry.taskMetadataByTaskId = new Map(
@@ -355,15 +382,70 @@ export function createWorkspaceMetadataMonitor(
 		return existing;
 	};
 
+	/**
+	 * Self-rescheduling instead of `setInterval`: the next tick is only armed once
+	 * the current refresh has settled, at three times its own duration and clamped
+	 * to [1s, 15s]. A repo that refreshes in 30 ms therefore keeps the original 1 s
+	 * cadence, while a repo that takes 4 s backs off to 12 s instead of queueing
+	 * ticks behind itself.
+	 */
 	const ensureWorkspaceTimer = (workspaceId: string, entry: WorkspaceMetadataEntry) => {
-		if (entry.pollTimer) {
+		if (entry.pollActive) {
 			return;
 		}
-		const timer = setInterval(() => {
-			void refreshWorkspace(workspaceId);
-		}, WORKSPACE_METADATA_POLL_INTERVAL_MS);
-		timer.unref();
-		entry.pollTimer = timer;
+		entry.pollActive = true;
+
+		const scheduleNext = (delayMs: number) => {
+			const current = workspaces.get(workspaceId);
+			if (!current || current.subscriberCount === 0 || !current.pollActive) {
+				return;
+			}
+			const timer = setTimeout(() => {
+				current.pollTimer = null;
+				const startedAt = Date.now();
+				void refreshWorkspace(workspaceId).finally(() => {
+					const elapsedMs = Date.now() - startedAt;
+					scheduleNext(
+						Math.min(
+							Math.max(elapsedMs * WORKSPACE_METADATA_POLL_DUTY_CYCLE, WORKSPACE_METADATA_POLL_INTERVAL_MS),
+							WORKSPACE_METADATA_MAX_POLL_INTERVAL_MS,
+						),
+					);
+				});
+			}, delayMs);
+			timer.unref();
+			current.pollTimer = timer;
+		};
+
+		scheduleNext(WORKSPACE_METADATA_POLL_INTERVAL_MS);
+	};
+
+	/**
+	 * Waits for a refresh, but never longer than `WORKSPACE_METADATA_INITIAL_WAIT_MS`.
+	 * On a slow repo the caller gets the cached snapshot and the real one follows over
+	 * `onMetadataUpdated`, which is what keeps the board from blocking on git.
+	 */
+	const refreshWithDeadline = async (workspaceId: string): Promise<RuntimeWorkspaceMetadata> => {
+		const entry = workspaces.get(workspaceId);
+		if (!entry) {
+			return createEmptyWorkspaceMetadata();
+		}
+		const refresh = refreshWorkspace(workspaceId);
+		let deadlineTimer: NodeJS.Timeout | undefined;
+		const deadline = new Promise<null>((resolvePromise) => {
+			deadlineTimer = setTimeout(() => {
+				resolvePromise(null);
+			}, WORKSPACE_METADATA_INITIAL_WAIT_MS);
+			deadlineTimer.unref();
+		});
+		try {
+			const settled = await Promise.race([refresh, deadline]);
+			return settled ?? buildWorkspaceMetadataSnapshot(entry);
+		} finally {
+			if (deadlineTimer) {
+				clearTimeout(deadlineTimer);
+			}
+		}
 	};
 
 	return {
@@ -371,14 +453,18 @@ export function createWorkspaceMetadataMonitor(
 			const entry = updateWorkspaceEntry({ workspaceId, workspacePath, board });
 			entry.subscriberCount += 1;
 			ensureWorkspaceTimer(workspaceId, entry);
-			return await refreshWorkspace(workspaceId);
+			return await refreshWithDeadline(workspaceId);
+		},
+		readSnapshot: (workspaceId) => {
+			const entry = workspaces.get(workspaceId);
+			return entry ? buildWorkspaceMetadataSnapshot(entry) : createEmptyWorkspaceMetadata();
 		},
 		updateWorkspaceState: async ({ workspaceId, workspacePath, board }) => {
 			const entry = updateWorkspaceEntry({ workspaceId, workspacePath, board });
 			if (entry.subscriberCount === 0) {
 				return buildWorkspaceMetadataSnapshot(entry);
 			}
-			return await refreshWorkspace(workspaceId);
+			return await refreshWithDeadline(workspaceId);
 		},
 		disconnectWorkspace: (workspaceId) => {
 			const entry = workspaces.get(workspaceId);

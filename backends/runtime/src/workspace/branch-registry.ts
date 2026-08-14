@@ -1,10 +1,19 @@
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import { z } from "zod";
 
 import { lockedFileSystem } from "../fs/locked-file-system";
 import { getWorkspaceBranchRegistryPath } from "../state/workspace-state";
 
 const BRANCH_REGISTRY_VERSION = 1;
+
+/**
+ * The status log is append-only and never had a bound, so a long-lived workspace
+ * accumulated hundreds of entries for a handful of tasks (544 for 8 tasks was the
+ * state that prompted this cap). It is diagnostic only — nothing reads past the
+ * recent tail — so keeping a window rather than the full history is lossless in
+ * practice and keeps the file small enough to stay cheap to read on every mutation.
+ */
+const BRANCH_REGISTRY_STATUS_LOG_LIMIT = 200;
 
 export type BranchRegistryEntryStatus = "active" | "merging" | "done";
 
@@ -102,7 +111,20 @@ async function readBranchRegistryFile(registryPath: string): Promise<BranchRegis
 }
 
 async function writeBranchRegistryFile(registryPath: string, file: BranchRegistryFile): Promise<void> {
+	// Cap here rather than at each push site so every writer inherits the bound,
+	// including ones added later.
+	if (file.statusLog.length > BRANCH_REGISTRY_STATUS_LOG_LIMIT) {
+		file.statusLog = file.statusLog.slice(-BRANCH_REGISTRY_STATUS_LOG_LIMIT);
+	}
 	await lockedFileSystem.writeJsonFileAtomic(registryPath, file, { lock: null });
+}
+
+async function directoryExists(path: string): Promise<boolean> {
+	try {
+		return (await stat(path)).isDirectory();
+	} catch {
+		return false;
+	}
 }
 
 export async function registerActiveBranch(
@@ -207,6 +229,49 @@ export async function listActiveBranchEntries(workspaceId: string): Promise<Bran
 	const registryPath = getWorkspaceBranchRegistryPath(workspaceId);
 	const file = await readBranchRegistryFile(registryPath);
 	return Object.values(file.entries);
+}
+
+/**
+ * Drops entries whose worktree directory no longer exists on disk.
+ *
+ * Worktrees disappear behind the registry's back in ways nothing reports back to
+ * it: `git worktree remove` run by hand, a runtime kill between `worktree add`
+ * and `registerActiveBranch`, or a manual `rm -rf`. Those entries stay at
+ * `status: "active"` forever and make every cleanup path over-report what is
+ * still live. Recording the drop in the status log keeps the removal traceable.
+ *
+ * Returns the task ids that were dropped so callers can prune the (now empty)
+ * `~/.agent/worktrees/<taskId>` parent directories, which this module does not own.
+ */
+export async function reconcileBranchRegistry(workspaceId: string): Promise<{ droppedTaskIds: string[] }> {
+	const registryPath = getWorkspaceBranchRegistryPath(workspaceId);
+	return await lockedFileSystem.withLock({ path: registryPath }, async () => {
+		const file = await readBranchRegistryFile(registryPath);
+		const entries = Object.values(file.entries);
+		// Probe every path before taking the write decision so a slow stat can't
+		// interleave with a concurrent register (the lock covers us, but keeping
+		// the mutation a single synchronous pass makes that obvious).
+		const existence = await Promise.all(
+			entries.map(async (entry) => ({ entry, exists: await directoryExists(entry.worktreePath) })),
+		);
+		const dropped = existence.filter(({ exists }) => !exists).map(({ entry }) => entry);
+		if (dropped.length === 0) {
+			return { droppedTaskIds: [] };
+		}
+
+		const now = new Date().toISOString();
+		for (const entry of dropped) {
+			delete file.entries[entry.taskId];
+			file.statusLog.push({
+				at: now,
+				taskId: entry.taskId,
+				op: "reconcile-drop",
+				detail: `Worktree missing at ${entry.worktreePath}`,
+			});
+		}
+		await writeBranchRegistryFile(registryPath, file);
+		return { droppedTaskIds: dropped.map((entry) => entry.taskId) };
+	});
 }
 
 export async function appendBranchRegistryStatusLog(

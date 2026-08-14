@@ -20,6 +20,13 @@ export const runtimeWorkspaceFileChangeSchema = z.object({
 	deletions: z.number(),
 	oldText: z.string().nullable(),
 	newText: z.string().nullable(),
+	/**
+	 * The file's text was skipped because it exceeds the read limit, so a null
+	 * `oldText`/`newText` here means "not loaded", not "empty". Consumers must
+	 * render a notice instead of diffing, otherwise the file reads as fully
+	 * added or fully deleted.
+	 */
+	contentOmitted: z.boolean().optional(),
 });
 export type RuntimeWorkspaceFileChange = z.infer<typeof runtimeWorkspaceFileChangeSchema>;
 
@@ -37,6 +44,9 @@ export const runtimeWorkspaceChangesResponseSchema = z.object({
 	repoRoot: z.string(),
 	generatedAt: z.number(),
 	files: z.array(runtimeWorkspaceFileChangeSchema),
+	/** True when `files` was capped; `totalFileCount` carries the real total. */
+	truncated: z.boolean().optional(),
+	totalFileCount: z.number().int().nonnegative().optional(),
 });
 export type RuntimeWorkspaceChangesResponse = z.infer<typeof runtimeWorkspaceChangesResponseSchema>;
 
@@ -2814,11 +2824,20 @@ export const runtimeGitRefSchema = z.object({
 });
 export type RuntimeGitRef = z.infer<typeof runtimeGitRefSchema>;
 
+/**
+ * Upper bounds on a single `git log` page. Without them a client could ask for
+ * `maxCount: 10_000_000` and the runtime would happily walk a 100k-commit repo
+ * into memory. Declared here rather than in `workspace/git-limits.ts` because
+ * the schemas below (and therefore the frontend's types) need them.
+ */
+export const GIT_LOG_MAX_COUNT_LIMIT = 500;
+export const GIT_LOG_MAX_SKIP = 100_000;
+
 export const runtimeGitLogRequestSchema = z.object({
 	ref: z.string().nullable().optional(),
 	refs: z.array(z.string()).optional(),
-	maxCount: z.number().int().positive().optional(),
-	skip: z.number().int().nonnegative().optional(),
+	maxCount: z.number().int().positive().max(GIT_LOG_MAX_COUNT_LIMIT).optional(),
+	skip: z.number().int().nonnegative().max(GIT_LOG_MAX_SKIP).optional(),
 	taskScope: runtimeTaskWorkspaceInfoRequestSchema.nullable().optional(),
 });
 export type RuntimeGitLogRequest = z.infer<typeof runtimeGitLogRequestSchema>;
@@ -2827,6 +2846,16 @@ export const runtimeGitLogResponseSchema = z.object({
 	ok: z.boolean(),
 	commits: z.array(runtimeGitCommitSchema),
 	totalCount: z.number(),
+	/**
+	 * False when `totalCount` hit the counting probe's cap, i.e. the repo has at
+	 * least that many commits. The UI renders `N+` and keeps paging enabled.
+	 */
+	totalCountIsExact: z.boolean().optional(),
+	/**
+	 * False when the selected/upstream divergence walk was capped, so commits
+	 * past the cap carry no `relation` (they fall back to "shared" tinting).
+	 */
+	relationsComplete: z.boolean().optional(),
 	error: z.string().optional(),
 });
 export type RuntimeGitLogResponse = z.infer<typeof runtimeGitLogResponseSchema>;
@@ -2838,6 +2867,10 @@ export const runtimeGitCommitDiffFileSchema = z.object({
 	additions: z.number(),
 	deletions: z.number(),
 	patch: z.string(),
+	/** `patch` holds only the first slice of this file's diff. */
+	patchTruncated: z.boolean().optional(),
+	/** `patch` is empty because the file was too large, not because it has no diff. */
+	patchOmitted: z.boolean().optional(),
 });
 export type RuntimeGitCommitDiffFile = z.infer<typeof runtimeGitCommitDiffFileSchema>;
 
@@ -2851,6 +2884,9 @@ export const runtimeGitCommitDiffResponseSchema = z.object({
 	ok: z.boolean(),
 	commitHash: z.string(),
 	files: z.array(runtimeGitCommitDiffFileSchema),
+	/** True when `files` was capped or some patches were dropped from the payload. */
+	truncated: z.boolean().optional(),
+	totalFileCount: z.number().int().nonnegative().optional(),
 	error: z.string().optional(),
 });
 export type RuntimeGitCommitDiffResponse = z.infer<typeof runtimeGitCommitDiffResponseSchema>;
@@ -2858,6 +2894,8 @@ export type RuntimeGitCommitDiffResponse = z.infer<typeof runtimeGitCommitDiffRe
 export const runtimeGitRefsResponseSchema = z.object({
 	ok: z.boolean(),
 	refs: z.array(runtimeGitRefSchema),
+	/** True when the ref list was capped to the most recently updated refs. */
+	truncated: z.boolean().optional(),
 	error: z.string().optional(),
 });
 export type RuntimeGitRefsResponse = z.infer<typeof runtimeGitRefsResponseSchema>;
@@ -2949,8 +2987,32 @@ export const runtimeGitWorktreeInventoryResponseSchema = z.object({
 });
 export type RuntimeGitWorktreeInventoryResponse = z.infer<typeof runtimeGitWorktreeInventoryResponseSchema>;
 
+/**
+ * Why a worktree is reclaimable, ordered by how confidently it can be removed.
+ *
+ * - `missing`: a registry entry whose directory is already gone. Nothing to
+ *   delete but the bookkeeping.
+ * - `merged`: every commit on the task branch is an ancestor of its base ref.
+ * - `unused`: clean tree still sitting exactly on its base commit — the task
+ *   reserved a worktree and never wrote anything. Invisible to `merged`, because
+ *   a worktree that never committed is detached and has no branch to test.
+ * - `orphaned`: no card on any board owns it. Cards can create worktrees in more
+ *   than one repo, so ownership has to be resolved across every workspace.
+ * - `unregistered`: a directory under the worktrees root that matches no registry
+ *   entry anywhere. Reported, never swept implicitly.
+ */
+export const runtimeWorktreeReclaimCategorySchema = z.enum(["missing", "merged", "unused", "orphaned", "unregistered"]);
+export type RuntimeWorktreeReclaimCategory = z.infer<typeof runtimeWorktreeReclaimCategorySchema>;
+
 export const runtimeCleanMergedWorktreesRequestSchema = z.object({
 	dryRun: z.boolean().optional(),
+	/**
+	 * Categories to act on. Omitted means `["merged"]`, preserving the behaviour
+	 * every existing caller was written against.
+	 */
+	categories: z.array(runtimeWorktreeReclaimCategorySchema).optional(),
+	/** When set, only these task ids are eligible, letting the UI deselect individual worktrees. */
+	taskIds: z.array(z.string()).optional(),
 });
 export type RuntimeCleanMergedWorktreesRequest = z.infer<typeof runtimeCleanMergedWorktreesRequestSchema>;
 
@@ -2958,13 +3020,32 @@ export const runtimeCleanMergedWorktreesSkippedEntrySchema = z.object({
 	taskId: z.string(),
 	branch: z.string(),
 	reason: z.string(),
+	/** Absent for entries skipped before their size could be measured. */
+	sizeBytes: z.number().optional(),
+	repoLabel: z.string().optional(),
 });
 export type RuntimeCleanMergedWorktreesSkippedEntry = z.infer<typeof runtimeCleanMergedWorktreesSkippedEntrySchema>;
+
+export const runtimeWorktreeReclaimEntrySchema = z.object({
+	taskId: z.string(),
+	branch: z.string(),
+	/** Repo folder name, since one task id can own a worktree in several repos. */
+	repoLabel: z.string(),
+	worktreePath: z.string(),
+	category: runtimeWorktreeReclaimCategorySchema,
+	sizeBytes: z.number(),
+	reason: z.string(),
+});
+export type RuntimeWorktreeReclaimEntry = z.infer<typeof runtimeWorktreeReclaimEntrySchema>;
 
 export const runtimeCleanMergedWorktreesResponseSchema = z.object({
 	ok: z.boolean(),
 	cleanedTaskIds: z.array(z.string()),
 	skipped: z.array(runtimeCleanMergedWorktreesSkippedEntrySchema),
+	/** Every reclaimable worktree found by the scan, whatever `categories` asked to delete. */
+	reclaimable: z.array(runtimeWorktreeReclaimEntrySchema).optional(),
+	/** Total bytes of `reclaimable`; on a non-dry run, of what was actually removed. */
+	reclaimableBytes: z.number().optional(),
 	error: z.string().optional(),
 });
 export type RuntimeCleanMergedWorktreesResponse = z.infer<typeof runtimeCleanMergedWorktreesResponseSchema>;
@@ -2975,6 +3056,14 @@ export const runtimeClaudeCacheStatusResponseSchema = z.object({
 	safeSizeBytes: z.number(),
 	transcriptItemCount: z.number(),
 	transcriptSizeBytes: z.number(),
+	/**
+	 * Whole-directory leftovers: the pre-rename `~/.cline` runtime home and
+	 * `~/.cache/claude-cli-nodejs` entries for worktrees that no longer exist.
+	 * Unlike the other tiers these are not age-gated — they are dead by identity,
+	 * not by staleness.
+	 */
+	legacyItemCount: z.number().optional(),
+	legacySizeBytes: z.number().optional(),
 	error: z.string().optional(),
 });
 export type RuntimeClaudeCacheStatusResponse = z.infer<typeof runtimeClaudeCacheStatusResponseSchema>;
@@ -2983,13 +3072,19 @@ export const runtimeClaudeCacheCleanRequestSchema = z.object({
 	days: z.number().optional(),
 	includeTranscripts: z.boolean(),
 	dryRun: z.boolean(),
+	includeLegacy: z.boolean().optional(),
+	/**
+	 * The age-gated `~/.claude` tier. Defaults to true so existing callers keep
+	 * their behaviour; the UI sets it false when only legacy leftovers are picked.
+	 */
+	includeSafe: z.boolean().optional(),
 });
 export type RuntimeClaudeCacheCleanRequest = z.infer<typeof runtimeClaudeCacheCleanRequestSchema>;
 
 export const runtimeClaudeCacheCleanedItemSchema = z.object({
 	path: z.string(),
 	sizeBytes: z.number(),
-	tier: z.enum(["safe", "transcript"]),
+	tier: z.enum(["safe", "transcript", "legacy"]),
 });
 export type RuntimeClaudeCacheCleanedItem = z.infer<typeof runtimeClaudeCacheCleanedItemSchema>;
 

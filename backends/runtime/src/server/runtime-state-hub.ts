@@ -24,7 +24,7 @@ import type {
 } from "../core/api-contract";
 import type { ManagerMonitor } from "../manager/manager-monitor";
 import type { TerminalSessionManager } from "../terminal/session-manager";
-import { createWorkspaceMetadataMonitor } from "./workspace-metadata-monitor";
+import { areWorkspaceMetadataEqual, createWorkspaceMetadataMonitor } from "./workspace-metadata-monitor";
 import type { ResolvedWorkspaceStreamTarget, WorkspaceRegistry } from "./workspace-registry";
 
 const TASK_SESSION_STREAM_BATCH_MS = 150;
@@ -485,6 +485,19 @@ export function createRuntimeStateHub(deps: CreateRuntimeStateHubDependencies): 
 					workspaceClients.add(client);
 					runtimeStateClientsByWorkspaceId.set(monitorWorkspaceId, workspaceClients);
 					runtimeStateWorkspaceIdByClient.set(client, monitorWorkspaceId);
+					// connectWorkspace() no longer blocks on the first git refresh, so on a
+					// large repo the snapshot above carries empty metadata. Any refresh that
+					// landed before this registration was broadcast to zero clients, so hand
+					// this client the current cache once — after the snapshot, preserving the
+					// snapshot-then-updates ordering the comment above protects.
+					const latestWorkspaceMetadata = workspaceMetadataMonitor.readSnapshot(monitorWorkspaceId);
+					if (!workspaceMetadata || !areWorkspaceMetadataEqual(workspaceMetadata, latestWorkspaceMetadata)) {
+						sendRuntimeStateMessage(client, {
+							type: "workspace_metadata_updated",
+							workspaceId: monitorWorkspaceId,
+							workspaceMetadata: latestWorkspaceMetadata,
+						} satisfies RuntimeStateStreamWorkspaceMetadataMessage);
+					}
 					const clineSummaries = Array.from(
 						clinePreviousSummaryByWorkspaceId.get(monitorWorkspaceId)?.values() ?? [],
 					);

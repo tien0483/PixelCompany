@@ -16,6 +16,12 @@ export type GitHistoryViewMode = "working-copy" | "commit";
 
 const INITIAL_COMMIT_PAGE_SIZE = 150;
 const COMMIT_PAGE_SIZE = 150;
+/**
+ * Floor between poll-driven silent refreshes. `stateVersion` bumps on every git
+ * summary change, which during an active agent run is roughly once a second —
+ * and each bump costs a `git log`, a ref listing and a working-copy read.
+ */
+const AUTO_REFRESH_MIN_INTERVAL_MS = 5_000;
 const EMPTY_REFS: RuntimeGitRef[] = [];
 const EMPTY_LOG_REFS: string[] = [];
 
@@ -46,6 +52,14 @@ export interface UseGitHistoryDataResult {
 	hasWorkingCopy: boolean;
 	commits: RuntimeGitCommit[];
 	totalCommitCount: number;
+	/** False when the runtime capped its commit count probe, i.e. there are more. */
+	totalCommitCountIsExact: boolean;
+	/** The ref list was capped to the most recently updated refs. */
+	refsTruncated: boolean;
+	/** The displayed diff is missing files or patches. */
+	diffTruncated: boolean;
+	/** Real number of changed files when `diffTruncated` is set. */
+	diffTotalFileCount: number | null;
 	selectedCommitHash: string | null;
 	selectedCommit: RuntimeGitCommit | null;
 	isLogLoading: boolean;
@@ -76,6 +90,7 @@ export function useGitHistoryData({
 	const [selectedDiffPath, setSelectedDiffPath] = useState<string | null>(null);
 	const [commits, setCommits] = useState<RuntimeGitCommit[]>([]);
 	const [totalCommitCount, setTotalCommitCount] = useState(0);
+	const [totalCommitCountIsExact, setTotalCommitCountIsExact] = useState(true);
 	const [isLogLoading, setIsLogLoading] = useState(false);
 	const [isLoadingMoreCommits, setIsLoadingMoreCommits] = useState(false);
 	const [logErrorMessage, setLogErrorMessage] = useState<string | null>(null);
@@ -98,17 +113,20 @@ export function useGitHistoryData({
 		return name === "aborterror" || message.includes("aborted") || message.includes("aborterror");
 	}, []);
 
-	const refsQueryFn = useCallback(async () => {
-		if (!workspaceId) {
-			throw new Error("Missing workspace.");
-		}
-		const trpc = getRuntimeTrpcClient(workspaceId);
-		const payload = await trpc.workspace.getGitRefs.query(taskScope ?? null);
-		if (!payload.ok) {
-			throw new Error(payload.error ?? "Could not load git refs.");
-		}
-		return payload;
-	}, [taskScope, workspaceId]);
+	const refsQueryFn = useCallback(
+		async (signal: AbortSignal) => {
+			if (!workspaceId) {
+				throw new Error("Missing workspace.");
+			}
+			const trpc = getRuntimeTrpcClient(workspaceId);
+			const payload = await trpc.workspace.getGitRefs.query(taskScope ?? null, { signal });
+			if (!payload.ok) {
+				throw new Error(payload.error ?? "Could not load git refs.");
+			}
+			return payload;
+		},
+		[taskScope, workspaceId],
+	);
 
 	const refsQuery = useTrpcQuery<RuntimeGitRefsResponse>({
 		enabled: enabled && workspaceId !== null,
@@ -151,26 +169,35 @@ export function useGitHistoryData({
 		return headRef ?? null;
 	}, [headRef, refs, selectedRefName]);
 
+	// Memoized on primitives, not on `activeRef`/`refs` objects: a refs refetch
+	// returns fresh objects even when nothing changed, and a new `logRefs` identity
+	// re-runs the effect that clears the commit list and reloads page one — which
+	// during an agent run happened on every poll tick.
+	const activeRefType = activeRef?.type ?? null;
+	const activeRefName = activeRef?.name ?? null;
+	const activeRefHash = activeRef?.hash ?? null;
+	const activeRefUpstreamName = activeRef?.upstreamName ?? null;
+	const hasUpstreamRef = activeRefUpstreamName !== null && refs.some((ref) => ref.name === activeRefUpstreamName);
+
 	const logRefs = useMemo(() => {
-		if (!activeRef) {
+		if (activeRefType === null) {
 			return EMPTY_LOG_REFS;
 		}
-		if (activeRef.type === "detached") {
-			return [activeRef.hash];
+		if (activeRefType === "detached") {
+			return activeRefHash ? [activeRefHash] : EMPTY_LOG_REFS;
 		}
-		if (activeRef.type === "branch") {
-			const resolvedRefs = [activeRef.name];
-			if (activeRef.upstreamName && refs.some((ref) => ref.name === activeRef.upstreamName)) {
-				resolvedRefs.push(activeRef.upstreamName);
-			}
-			return resolvedRefs;
+		if (!activeRefName) {
+			return EMPTY_LOG_REFS;
 		}
-		return [activeRef.name];
-	}, [activeRef, refs]);
+		if (activeRefType === "branch" && activeRefUpstreamName && hasUpstreamRef) {
+			return [activeRefName, activeRefUpstreamName];
+		}
+		return [activeRefName];
+	}, [activeRefHash, activeRefName, activeRefType, activeRefUpstreamName, hasUpstreamRef]);
 	const logKey = `${scopeKey}:${logRefs.length > 0 ? logRefs.join("|") : "__no_ref__"}`;
 
 	const loadCommits = useCallback(
-		async (options: { skip: number; maxCount: number; append: boolean; silent?: boolean }) => {
+		async (options: { skip: number; maxCount: number; append: boolean; silent?: boolean; merge?: boolean }) => {
 			if (!enabled || !workspaceId || logRefs.length === 0) {
 				abortInFlightLogRequest();
 				setCommits([]);
@@ -228,14 +255,29 @@ export function useGitHistoryData({
 
 				setLogErrorMessage(null);
 				setTotalCommitCount(payload.totalCount);
+				setTotalCommitCountIsExact(payload.totalCountIsExact ?? true);
 				setResolvedLogKey(logKey);
 				setCommits((current) => {
-					if (!options.append) {
+					if (options.append) {
+						const existingHashes = new Set(current.map((commit) => commit.hash));
+						const nextCommits = payload.commits.filter((commit) => !existingHashes.has(commit.hash));
+						return [...current, ...nextCommits];
+					}
+					if (!options.merge || current.length <= payload.commits.length) {
 						return payload.commits;
 					}
-					const existingHashes = new Set(current.map((commit) => commit.hash));
-					const nextCommits = payload.commits.filter((commit) => !existingHashes.has(commit.hash));
-					return [...current, ...nextCommits];
+					// A merge refresh re-reads only the first page and splices it onto the
+					// already-loaded tail, so a user who paged to 3000 commits does not
+					// re-fetch all 3000 on every poll tick. No overlap means the history
+					// was rewritten, and the fresh page replaces everything.
+					const lastIncoming = payload.commits[payload.commits.length - 1];
+					const overlapIndex = lastIncoming
+						? current.findIndex((commit) => commit.hash === lastIncoming.hash)
+						: -1;
+					if (overlapIndex === -1) {
+						return payload.commits;
+					}
+					return [...payload.commits, ...current.slice(overlapIndex + 1)];
 				});
 			} catch (error) {
 				if (abortController.signal.aborted || logAbortControllerRef.current !== abortController) {
@@ -322,12 +364,13 @@ export function useGitHistoryData({
 			}
 			void loadCommits({
 				skip: 0,
-				maxCount: Math.max(commits.length, INITIAL_COMMIT_PAGE_SIZE),
+				maxCount: INITIAL_COMMIT_PAGE_SIZE,
 				append: false,
 				silent: options?.silent ?? false,
+				merge: true,
 			});
 		},
-		[commits.length, enabled, loadCommits, logRefs, workspaceId],
+		[enabled, loadCommits, logRefs, workspaceId],
 	);
 
 	const resolvedLogErrorMessage = refsErrorMessage ?? logErrorMessage;
@@ -346,16 +389,22 @@ export function useGitHistoryData({
 		setSelectedDiffPath(null);
 	}, [activeRef, commits, selectedCommitHash, viewMode]);
 
-	const diffQueryFn = useCallback(async () => {
-		if (!workspaceId || !selectedCommitHash) {
-			throw new Error("Missing scope.");
-		}
-		const trpc = getRuntimeTrpcClient(workspaceId);
-		return await trpc.workspace.getCommitDiff.query({
-			commitHash: selectedCommitHash,
-			taskScope: taskScope ?? null,
-		});
-	}, [selectedCommitHash, taskScope, workspaceId]);
+	const diffQueryFn = useCallback(
+		async (signal: AbortSignal) => {
+			if (!workspaceId || !selectedCommitHash) {
+				throw new Error("Missing scope.");
+			}
+			const trpc = getRuntimeTrpcClient(workspaceId);
+			return await trpc.workspace.getCommitDiff.query(
+				{
+					commitHash: selectedCommitHash,
+					taskScope: taskScope ?? null,
+				},
+				{ signal },
+			);
+		},
+		[selectedCommitHash, taskScope, workspaceId],
+	);
 
 	const diffQuery = useTrpcQuery<RuntimeGitCommitDiffResponse>({
 		enabled:
@@ -369,16 +418,19 @@ export function useGitHistoryData({
 
 	const summaryWorkingCopyFileCount = gitSummary?.changedFiles ?? null;
 
-	const workingCopyQueryFn = useCallback(async () => {
-		if (!workspaceId) {
-			throw new Error("Missing workspace.");
-		}
-		const trpc = getRuntimeTrpcClient(workspaceId);
-		if (taskScope) {
-			return await trpc.workspace.getChanges.query(taskScope);
-		}
-		return await trpc.workspace.getWorkspaceChanges.query();
-	}, [taskScope, workspaceId]);
+	const workingCopyQueryFn = useCallback(
+		async (signal: AbortSignal) => {
+			if (!workspaceId) {
+				throw new Error("Missing workspace.");
+			}
+			const trpc = getRuntimeTrpcClient(workspaceId);
+			if (taskScope) {
+				return await trpc.workspace.getChanges.query(taskScope, { signal });
+			}
+			return await trpc.workspace.getWorkspaceChanges.query(undefined, { signal });
+		},
+		[taskScope, workspaceId],
+	);
 	const shouldLoadWorkingCopyChanges =
 		!isScopeTransitioning &&
 		enabled &&
@@ -443,6 +495,17 @@ export function useGitHistoryData({
 		isLogLoading ||
 		(enabled && workspaceId !== null && logRefs.length > 0 && resolvedLogKey !== logKey);
 	const previousStateVersionRef = useRef(stateVersion);
+	const lastAutoRefreshAtRef = useRef(0);
+	const pendingAutoRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+	useEffect(() => {
+		return () => {
+			if (pendingAutoRefreshTimerRef.current !== null) {
+				clearTimeout(pendingAutoRefreshTimerRef.current);
+				pendingAutoRefreshTimerRef.current = null;
+			}
+		};
+	}, []);
 
 	useEffect(() => {
 		if (previousStateVersionRef.current === stateVersion) {
@@ -452,11 +515,30 @@ export function useGitHistoryData({
 		if (!enabled || !workspaceId || isScopeTransitioning) {
 			return;
 		}
-		void refsQuery.refetch();
-		refreshCommits({ silent: true });
-		if (shouldLoadWorkingCopyChanges || workingCopyQuery.data) {
-			void workingCopyQuery.refetch();
+
+		const runAutoRefresh = () => {
+			lastAutoRefreshAtRef.current = Date.now();
+			void refsQuery.refetch();
+			refreshCommits({ silent: true });
+			if (shouldLoadWorkingCopyChanges || workingCopyQuery.data) {
+				void workingCopyQuery.refetch();
+			}
+		};
+
+		// Trailing-edge throttle: bumps arriving inside the window coalesce into one
+		// refresh at the end of it, so the last state change is never dropped.
+		const elapsedMs = Date.now() - lastAutoRefreshAtRef.current;
+		if (elapsedMs >= AUTO_REFRESH_MIN_INTERVAL_MS) {
+			runAutoRefresh();
+			return;
 		}
+		if (pendingAutoRefreshTimerRef.current !== null) {
+			return;
+		}
+		pendingAutoRefreshTimerRef.current = setTimeout(() => {
+			pendingAutoRefreshTimerRef.current = null;
+			runAutoRefresh();
+		}, AUTO_REFRESH_MIN_INTERVAL_MS - elapsedMs);
 	}, [
 		enabled,
 		refsQuery.refetch,
@@ -571,6 +653,17 @@ export function useGitHistoryData({
 		],
 	);
 
+	const activeDiffTruncation =
+		viewMode === "commit"
+			? {
+					truncated: diffQuery.data?.truncated ?? false,
+					totalFileCount: diffQuery.data?.totalFileCount ?? null,
+				}
+			: {
+					truncated: workingCopyQuery.data?.truncated ?? false,
+					totalFileCount: workingCopyQuery.data?.totalFileCount ?? null,
+				};
+
 	const visibleCommits = isScopeTransitioning ? [] : commits;
 	const visibleSelectedCommitHash = isScopeTransitioning ? null : selectedCommitHash;
 	const visibleSelectedCommit = isScopeTransitioning ? null : selectedCommit;
@@ -592,6 +685,10 @@ export function useGitHistoryData({
 		hasWorkingCopy: visibleHasWorkingCopy,
 		commits: visibleCommits,
 		totalCommitCount: isScopeTransitioning ? 0 : totalCommitCount,
+		totalCommitCountIsExact: isScopeTransitioning ? true : totalCommitCountIsExact,
+		refsTruncated: !isScopeTransitioning && (refsQuery.data?.truncated ?? false),
+		diffTruncated: !isScopeTransitioning && activeDiffTruncation.truncated,
+		diffTotalFileCount: isScopeTransitioning ? null : activeDiffTruncation.totalFileCount,
 		selectedCommitHash: visibleSelectedCommitHash,
 		selectedCommit: visibleSelectedCommit,
 		isLogLoading: isLogLoadingVisible,

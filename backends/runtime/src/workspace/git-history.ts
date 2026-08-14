@@ -7,7 +7,21 @@ import type {
 	RuntimeGitRef,
 	RuntimeGitRefsResponse,
 } from "../core/api-contract";
-import { runGit } from "./git-utils";
+import {
+	COMMIT_DIFF_GIT_MAX_BUFFER_BYTES,
+	COMMIT_DIFF_MAX_FILE_PATCH_BYTES,
+	COMMIT_DIFF_MAX_FILES,
+	COMMIT_DIFF_MAX_TOTAL_PATCH_BYTES,
+	COMMIT_DIFF_PATCH_LINE_LIMIT,
+	GIT_LOG_DEFAULT_MAX_COUNT,
+	GIT_LOG_MAX_COUNT_LIMIT,
+	GIT_LOG_MAX_SKIP,
+	GIT_LOG_RELATION_MAX_COMMITS,
+	GIT_LOG_TOTAL_COUNT_PROBE_LIMIT,
+	GIT_READ_TIMEOUT_MS,
+	GIT_REFS_MAX_COUNT,
+} from "./git-limits";
+import { type RunGitOptions, runGit } from "./git-utils";
 
 const LOG_FIELD_SEPARATOR = "\x1f";
 const LOG_RECORD_SEPARATOR = "\x1e";
@@ -36,16 +50,34 @@ function parseCommitRecord(record: string): RuntimeGitCommit | null {
 	};
 }
 
+function clamp(value: number, min: number, max: number): number {
+	return Math.min(Math.max(value, min), max);
+}
+
+/** Shared read options: every git call on a UI read path is time-boxed and cancellable. */
+function gitReadOptions(signal: AbortSignal | undefined, overrides: RunGitOptions = {}): RunGitOptions {
+	return {
+		timeoutMs: GIT_READ_TIMEOUT_MS,
+		...(signal ? { signal } : {}),
+		...overrides,
+	};
+}
+
 export async function getGitLog(options: {
 	cwd: string;
 	ref?: string | null;
 	refs?: string[] | null;
 	maxCount?: number;
 	skip?: number;
+	signal?: AbortSignal;
 }): Promise<RuntimeGitLogResponse> {
-	const { cwd, ref, refs, maxCount = 200, skip = 0 } = options;
+	const { cwd, ref, refs, signal } = options;
+	// Clamped here as well as in the request schema so direct callers cannot ask
+	// the runtime to walk a 100k-commit history in one page.
+	const maxCount = clamp(options.maxCount ?? GIT_LOG_DEFAULT_MAX_COUNT, 1, GIT_LOG_MAX_COUNT_LIMIT);
+	const skip = clamp(options.skip ?? 0, 0, GIT_LOG_MAX_SKIP);
 
-	const repoRootResult = await runGit(cwd, ["rev-parse", "--show-toplevel"]);
+	const repoRootResult = await runGit(cwd, ["rev-parse", "--show-toplevel"], gitReadOptions(signal));
 	if (!repoRootResult.ok || !repoRootResult.stdout) {
 		return { ok: false, commits: [], totalCount: 0, error: "No git repository detected." };
 	}
@@ -65,7 +97,27 @@ export async function getGitLog(options: {
 		logArgs.push(...requestedRefs);
 	}
 
-	const logResult = await runGit(repoRoot, logArgs);
+	// `--max-count` stops the count walk early, so `totalCount` becomes a floor on
+	// a big repo instead of a full-history traversal. The probe never sits below
+	// the page the caller asked for, or paging would stop before the page did.
+	const countProbeLimit = Math.max(GIT_LOG_TOTAL_COUNT_PROBE_LIMIT, skip + maxCount + 1);
+
+	// None of these three depends on another; they were serialized by accident.
+	const [logResult, relations, countResult] = await Promise.all([
+		runGit(repoRoot, logArgs, gitReadOptions(signal)),
+		buildCommitRelationMap(repoRoot, requestedRefs, signal),
+		runGit(
+			repoRoot,
+			[
+				"rev-list",
+				"--count",
+				`--max-count=${countProbeLimit}`,
+				...(requestedRefs.length > 0 ? requestedRefs : ["HEAD"]),
+			],
+			gitReadOptions(signal),
+		),
+	]);
+
 	if (!logResult.ok) {
 		return { ok: false, commits: [], totalCount: 0, error: logResult.error ?? "Failed to read git log." };
 	}
@@ -79,8 +131,7 @@ export async function getGitLog(options: {
 		}
 	}
 
-	const relationMap = await buildCommitRelationMap(repoRoot, requestedRefs);
-	if (relationMap) {
+	if (relations) {
 		for (let index = 0; index < commits.length; index += 1) {
 			const commit = commits[index];
 			if (!commit) {
@@ -88,19 +139,20 @@ export async function getGitLog(options: {
 			}
 			commits[index] = {
 				...commit,
-				relation: relationMap.get(commit.hash) ?? "shared",
+				relation: relations.relationMap.get(commit.hash) ?? "shared",
 			};
 		}
 	}
 
-	const countResult = await runGit(repoRoot, [
-		"rev-list",
-		"--count",
-		...(requestedRefs.length > 0 ? requestedRefs : ["HEAD"]),
-	]);
 	const totalCount = countResult.ok ? Number.parseInt(countResult.stdout, 10) || commits.length : commits.length;
 
-	return { ok: true, commits, totalCount };
+	return {
+		ok: true,
+		commits,
+		totalCount,
+		totalCountIsExact: totalCount < countProbeLimit,
+		relationsComplete: relations ? relations.complete : true,
+	};
 }
 
 function parseTrackCounts(trackDescriptor: string | null): { ahead?: number; behind?: number } {
@@ -117,22 +169,79 @@ function parseTrackCounts(trackDescriptor: string | null): { ahead?: number; beh
 	};
 }
 
-export async function getGitRefs(cwd: string): Promise<RuntimeGitRefsResponse> {
-	const repoRootResult = await runGit(cwd, ["rev-parse", "--show-toplevel"]);
+const REF_FORMAT = "%(refname)\x1f%(refname:short)\x1f%(objectname)\x1f%(upstream:short)\x1f%(upstream:track)";
+
+interface BranchEntry {
+	fullName: string;
+	name: string;
+	type: "branch" | "remote";
+	hash: string;
+	upstream: string | null;
+	ahead?: number;
+	behind?: number;
+}
+
+function parseRefLines(stdout: string): BranchEntry[] {
+	const branches: BranchEntry[] = [];
+	if (!stdout) {
+		return branches;
+	}
+	for (const line of stdout.split("\n")) {
+		const trimmed = line.trim();
+		if (!trimmed) {
+			continue;
+		}
+		const parts = trimmed.split("\x1f");
+		const fullName = parts[0];
+		const name = parts[1];
+		const hash = parts[2];
+		const upstream = parts[3] || null;
+		const trackDescriptor = parts[4] || null;
+		if (!fullName || !name || !hash) {
+			continue;
+		}
+		if (fullName.endsWith("/HEAD")) {
+			continue;
+		}
+		const type = fullName.startsWith("refs/remotes/") ? "remote" : "branch";
+		branches.push({
+			fullName,
+			name,
+			type,
+			hash,
+			upstream,
+			...parseTrackCounts(type === "branch" ? trackDescriptor : null),
+		});
+	}
+	return branches;
+}
+
+export async function getGitRefs(cwd: string, options: { signal?: AbortSignal } = {}): Promise<RuntimeGitRefsResponse> {
+	const { signal } = options;
+	const repoRootResult = await runGit(cwd, ["rev-parse", "--show-toplevel"], gitReadOptions(signal));
 	if (!repoRootResult.ok || !repoRootResult.stdout) {
 		return { ok: false, refs: [], error: "No git repository detected." };
 	}
 	const repoRoot = repoRootResult.stdout;
 
 	const [headResult, branchResult, headRefResult] = await Promise.all([
-		runGit(repoRoot, ["rev-parse", "HEAD"]),
-		runGit(repoRoot, [
-			"for-each-ref",
-			"--format=%(refname)\x1f%(refname:short)\x1f%(objectname)\x1f%(upstream:short)\x1f%(upstream:track)",
-			"refs/heads/",
-			"refs/remotes/",
-		]),
-		runGit(repoRoot, ["symbolic-ref", "--quiet", "--short", "HEAD"]),
+		runGit(repoRoot, ["rev-parse", "HEAD"], gitReadOptions(signal)),
+		// Capped and ordered by recency: a CI-heavy remote carries thousands of
+		// `refs/remotes/*`, and the whole set used to be parsed and shipped on every
+		// branch change and every poll-driven refresh.
+		runGit(
+			repoRoot,
+			[
+				"for-each-ref",
+				`--format=${REF_FORMAT}`,
+				"--sort=-committerdate",
+				`--count=${GIT_REFS_MAX_COUNT}`,
+				"refs/heads/",
+				"refs/remotes/",
+			],
+			gitReadOptions(signal),
+		),
+		runGit(repoRoot, ["symbolic-ref", "--quiet", "--short", "HEAD"], gitReadOptions(signal)),
 	]);
 
 	const headCommit = headResult.ok ? headResult.stdout : null;
@@ -156,44 +265,34 @@ export async function getGitRefs(cwd: string): Promise<RuntimeGitRefsResponse> {
 		});
 	}
 
-	interface BranchEntry {
-		fullName: string;
-		name: string;
-		type: "branch" | "remote";
-		hash: string;
-		upstream: string | null;
-		ahead?: number;
-		behind?: number;
-	}
+	const branches = parseRefLines(branchResult.ok ? branchResult.stdout : "");
+	const truncated = branches.length >= GIT_REFS_MAX_COUNT;
 
-	const branches: BranchEntry[] = [];
-	if (branchResult.ok && branchResult.stdout) {
-		for (const line of branchResult.stdout.split("\n")) {
-			const trimmed = line.trim();
-			if (!trimmed) {
-				continue;
+	// `--count` sorts by recency, so a stale checked-out branch (or its upstream)
+	// can fall outside the window. Without them `activeRef` resolves to null on the
+	// client and the whole history panel renders empty, so they are re-queried by
+	// name and put back.
+	if (truncated && currentBranch) {
+		const restoreRef = async (fullRefName: string): Promise<void> => {
+			const result = await runGit(
+				repoRoot,
+				["for-each-ref", `--format=${REF_FORMAT}`, fullRefName],
+				gitReadOptions(signal),
+			);
+			if (result.ok && result.stdout) {
+				branches.unshift(...parseRefLines(result.stdout));
 			}
-			const parts = trimmed.split("\x1f");
-			const fullName = parts[0];
-			const name = parts[1];
-			const hash = parts[2];
-			const upstream = parts[3] || null;
-			const trackDescriptor = parts[4] || null;
-			if (!fullName || !name || !hash) {
-				continue;
-			}
-			if (fullName.endsWith("/HEAD")) {
-				continue;
-			}
-			const type = fullName.startsWith("refs/remotes/") ? "remote" : "branch";
-			branches.push({
-				fullName,
-				name,
-				type,
-				hash,
-				upstream,
-				...parseTrackCounts(type === "branch" ? trackDescriptor : null),
-			});
+		};
+
+		if (!branches.some((entry) => entry.type === "branch" && entry.name === currentBranch)) {
+			await restoreRef(`refs/heads/${currentBranch}`);
+		}
+		// Resolved only after the branch above is back, since its own entry carries
+		// the upstream name.
+		const upstreamName =
+			branches.find((entry) => entry.type === "branch" && entry.name === currentBranch)?.upstream ?? null;
+		if (upstreamName && !branches.some((entry) => entry.name === upstreamName)) {
+			await restoreRef(`refs/remotes/${upstreamName}`);
 		}
 	}
 
@@ -213,7 +312,7 @@ export async function getGitRefs(cwd: string): Promise<RuntimeGitRefsResponse> {
 		});
 	}
 
-	return { ok: true, refs };
+	return truncated ? { ok: true, refs, truncated: true } : { ok: true, refs };
 }
 
 function normalizeRequestedRefs(refs: string[] | null | undefined, fallbackRef?: string | null): string[] {
@@ -221,7 +320,24 @@ function normalizeRequestedRefs(refs: string[] | null | undefined, fallbackRef?:
 	return Array.from(new Set(candidates.map((candidate) => candidate.trim()).filter(Boolean)));
 }
 
-async function buildCommitRelationMap(repoRoot: string, refs: string[]): Promise<Map<string, CommitRelation> | null> {
+interface CommitRelations {
+	relationMap: Map<string, CommitRelation>;
+	/** False when either divergence walk hit `GIT_LOG_RELATION_MAX_COMMITS`. */
+	complete: boolean;
+}
+
+/**
+ * Tints each row as belonging to the selected ref, its upstream, or both.
+ *
+ * The walks are capped: a branch that diverged thousands of commits ago used to
+ * materialise its entire asymmetric difference here just to decorate the 150
+ * rows actually on screen. Commits past the cap fall back to "shared" tinting.
+ */
+async function buildCommitRelationMap(
+	repoRoot: string,
+	refs: string[],
+	signal: AbortSignal | undefined,
+): Promise<CommitRelations | null> {
 	if (refs.length !== 2) {
 		return null;
 	}
@@ -231,9 +347,10 @@ async function buildCommitRelationMap(repoRoot: string, refs: string[]): Promise
 		return null;
 	}
 
+	const maxCountArg = `--max-count=${GIT_LOG_RELATION_MAX_COMMITS}`;
 	const [selectedOnlyResult, upstreamOnlyResult] = await Promise.all([
-		runGit(repoRoot, ["rev-list", selectedRef, "--not", upstreamRef]),
-		runGit(repoRoot, ["rev-list", upstreamRef, "--not", selectedRef]),
+		runGit(repoRoot, ["rev-list", maxCountArg, selectedRef, "--not", upstreamRef], gitReadOptions(signal)),
+		runGit(repoRoot, ["rev-list", maxCountArg, upstreamRef, "--not", selectedRef], gitReadOptions(signal)),
 	]);
 
 	if (!selectedOnlyResult.ok || !upstreamOnlyResult.ok) {
@@ -241,19 +358,27 @@ async function buildCommitRelationMap(repoRoot: string, refs: string[]): Promise
 	}
 
 	const relationMap = new Map<string, CommitRelation>();
+	let selectedCount = 0;
 	for (const hash of selectedOnlyResult.stdout.split("\n")) {
 		const trimmedHash = hash.trim();
 		if (trimmedHash) {
 			relationMap.set(trimmedHash, "selected");
+			selectedCount += 1;
 		}
 	}
+	let upstreamCount = 0;
 	for (const hash of upstreamOnlyResult.stdout.split("\n")) {
 		const trimmedHash = hash.trim();
 		if (trimmedHash) {
 			relationMap.set(trimmedHash, "upstream");
+			upstreamCount += 1;
 		}
 	}
-	return relationMap;
+
+	return {
+		relationMap,
+		complete: selectedCount < GIT_LOG_RELATION_MAX_COMMITS && upstreamCount < GIT_LOG_RELATION_MAX_COMMITS,
+	};
 }
 
 export interface CommitDiffFile {
@@ -486,21 +611,30 @@ export async function getBlame(options: { cwd: string; path: string }): Promise<
 export async function getCommitDiff(options: {
 	cwd: string;
 	commitHash: string;
+	signal?: AbortSignal;
 }): Promise<RuntimeGitCommitDiffResponse> {
-	const { cwd, commitHash } = options;
+	const { cwd, commitHash, signal } = options;
 
-	const repoRootResult = await runGit(cwd, ["rev-parse", "--show-toplevel"]);
+	const repoRootResult = await runGit(cwd, ["rev-parse", "--show-toplevel"], gitReadOptions(signal));
 	if (!repoRootResult.ok || !repoRootResult.stdout) {
 		return { ok: false, commitHash, files: [], error: "No git repository detected." };
 	}
 	const repoRoot = repoRootResult.stdout;
 
-	const [nameStatusResult, numstatResult, diffResult] = await Promise.all([
-		runGit(repoRoot, ["diff-tree", "--root", "--no-commit-id", "-r", "-M", "--name-status", "-z", commitHash]),
-		runGit(repoRoot, ["diff-tree", "--root", "--no-commit-id", "-r", "-M", "--numstat", "-z", commitHash]),
-		runGit(repoRoot, ["show", "--format=", "--find-renames", "--patch", "--diff-algorithm=histogram", commitHash], {
-			trimStdout: false,
-		}),
+	// Metadata first. Both of these are O(changed files) and cheap even for a
+	// vendor drop; the patch text is what has to be rationed, so `git show` only
+	// runs once we know which files are worth asking for.
+	const [nameStatusResult, numstatResult] = await Promise.all([
+		runGit(
+			repoRoot,
+			["diff-tree", "--root", "--no-commit-id", "-r", "-M", "--name-status", "-z", commitHash],
+			gitReadOptions(signal),
+		),
+		runGit(
+			repoRoot,
+			["diff-tree", "--root", "--no-commit-id", "-r", "-M", "--numstat", "-z", commitHash],
+			gitReadOptions(signal),
+		),
 	]);
 
 	const filesByKey = new Map<string, RuntimeGitCommitDiffResponse["files"][number]>();
@@ -538,30 +672,90 @@ export async function getCommitDiff(options: {
 		});
 	}
 
-	const patchEntries = diffResult.ok ? parseCommitPatchEntries(diffResult.stdout) : [];
-	for (const entry of patchEntries) {
-		const key = getEntryKey(entry.path, entry.previousPath);
-		const existing = filesByKey.get(key);
-		if (existing) {
-			existing.patch = entry.patch;
-			continue;
-		}
-		filesByKey.set(key, {
-			path: entry.path,
-			previousPath: entry.previousPath,
-			status: entry.previousPath ? "renamed" : "modified",
-			additions: 0,
-			deletions: 0,
-			patch: entry.patch,
-		});
-	}
-
-	const files: RuntimeGitCommitDiffResponse["files"] = [];
+	const allFiles: RuntimeGitCommitDiffResponse["files"] = [];
 	for (const file of filesByKey.values()) {
-		files.push(file);
+		allFiles.push(file);
+	}
+	allFiles.sort((a, b) => a.path.localeCompare(b.path));
+
+	const totalFileCount = allFiles.length;
+	const files = allFiles.slice(0, COMMIT_DIFF_MAX_FILES);
+	let truncated = files.length < totalFileCount;
+
+	// Files whose diff is larger than the UI will ever render inline ship without
+	// a patch rather than dragging megabytes of text through the response.
+	const patchTargets = files.filter((file) => file.additions + file.deletions <= COMMIT_DIFF_PATCH_LINE_LIMIT);
+	const patchTargetSet = new Set(patchTargets);
+	for (const file of files) {
+		if (!patchTargetSet.has(file)) {
+			file.patchOmitted = true;
+			truncated = true;
+		}
 	}
 
-	files.sort((a, b) => a.path.localeCompare(b.path));
+	if (patchTargets.length > 0) {
+		const pathspec: string[] = [];
+		for (const file of patchTargets) {
+			pathspec.push(file.path);
+			if (file.previousPath) {
+				pathspec.push(file.previousPath);
+			}
+		}
 
-	return { ok: true, commitHash, files };
+		const diffResult = await runGit(
+			repoRoot,
+			[
+				"show",
+				"--format=",
+				"--find-renames",
+				"--patch",
+				"--diff-algorithm=histogram",
+				commitHash,
+				"--",
+				...pathspec,
+			],
+			gitReadOptions(signal, { trimStdout: false, maxBuffer: COMMIT_DIFF_GIT_MAX_BUFFER_BYTES }),
+		);
+
+		if (diffResult.ok) {
+			const patchByKey = new Map<string, string>();
+			for (const entry of parseCommitPatchEntries(diffResult.stdout)) {
+				patchByKey.set(getEntryKey(entry.path, entry.previousPath), entry.patch);
+			}
+
+			let remainingPatchBytes = COMMIT_DIFF_MAX_TOTAL_PATCH_BYTES;
+			for (const file of patchTargets) {
+				const patch = patchByKey.get(getEntryKey(file.path, file.previousPath));
+				if (patch === undefined) {
+					continue;
+				}
+				if (remainingPatchBytes <= 0) {
+					file.patchOmitted = true;
+					truncated = true;
+					continue;
+				}
+				const limit = Math.min(COMMIT_DIFF_MAX_FILE_PATCH_BYTES, remainingPatchBytes);
+				if (patch.length > limit) {
+					file.patch = patch.slice(0, limit);
+					file.patchTruncated = true;
+					truncated = true;
+				} else {
+					file.patch = patch;
+				}
+				remainingPatchBytes -= file.patch.length;
+			}
+		} else {
+			// A patch too big even for the raised buffer, or one that timed out, is
+			// not a failed request: the file list is still useful, so the panel gets
+			// metadata plus an explicit truncation flag instead of a hard error.
+			for (const file of patchTargets) {
+				file.patchOmitted = true;
+			}
+			truncated = true;
+		}
+	}
+
+	return truncated
+		? { ok: true, commitHash, files, truncated: true, totalFileCount }
+		: { ok: true, commitHash, files };
 }

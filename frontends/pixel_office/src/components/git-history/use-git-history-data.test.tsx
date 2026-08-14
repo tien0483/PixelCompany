@@ -2,7 +2,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { useGitHistoryData } from "@/components/git-history/use-git-history-data";
+import { useGitHistoryData, type UseGitHistoryDataResult } from "@/components/git-history/use-git-history-data";
 import type {
 	RuntimeGitCommitDiffResponse,
 	RuntimeGitLogResponse,
@@ -171,6 +171,28 @@ function HookHarness({
 	});
 
 	return null;
+}
+
+/** Exposes the whole hook result so tests can drive paging and read truncation flags. */
+function ResultHarness({
+	stateVersion,
+	onRender,
+}: {
+	stateVersion: number;
+	onRender: (result: UseGitHistoryDataResult) => void;
+}): null {
+	const gitHistory = useGitHistoryData({
+		workspaceId: "project-1",
+		taskScope: null,
+		gitSummary: createGitSummary("main"),
+		stateVersion,
+	});
+	onRender(gitHistory);
+	return null;
+}
+
+function readCommitHashes(result: UseGitHistoryDataResult | null): string[] {
+	return (result?.commits ?? []).map((commit) => commit.hash);
 }
 
 describe("useGitHistoryData", () => {
@@ -409,5 +431,88 @@ describe("useGitHistoryData", () => {
 			commits: ["remotehash1", "homehash1", "basehash1"],
 			selectedCommitHash: "homehash1",
 		});
+	});
+
+	it("re-reads only the first page on a poll refresh and keeps the pages already loaded", async () => {
+		const pageOne = ["c0", "c1", "c2"];
+		const pageTwo = ["c3", "c4", "c5"];
+		getGitLogQueryMock.mockImplementation(async ({ skip }: { skip?: number }) => {
+			const hashes = (skip ?? 0) > 0 ? pageTwo : pageOne;
+			return {
+				...createLogResponse(hashes.map((hash) => ({ hash, message: `Commit ${hash}` }))),
+				totalCount: pageOne.length + pageTwo.length,
+			};
+		});
+
+		let latest: UseGitHistoryDataResult | null = null;
+		const renderHarness = (stateVersion: number) => (
+			<ResultHarness
+				stateVersion={stateVersion}
+				onRender={(result) => {
+					latest = result;
+				}}
+			/>
+		);
+
+		await act(async () => {
+			root.render(renderHarness(1));
+			await flushPromises();
+		});
+		expect(readCommitHashes(latest)).toEqual(pageOne);
+
+		await act(async () => {
+			latest?.loadMoreCommits();
+			await flushPromises();
+		});
+		expect(readCommitHashes(latest)).toEqual([...pageOne, ...pageTwo]);
+
+		getGitLogQueryMock.mockClear();
+		await act(async () => {
+			root.render(renderHarness(2));
+			await flushPromises();
+		});
+
+		// One request for the first page only — not a re-fetch of everything loaded.
+		expect(getGitLogQueryMock).toHaveBeenCalledTimes(1);
+		expect(getGitLogQueryMock).toHaveBeenCalledWith(
+			expect.objectContaining({ skip: 0, maxCount: 150 }),
+			expect.anything(),
+		);
+		expect(readCommitHashes(latest)).toEqual([...pageOne, ...pageTwo]);
+	});
+
+	it("coalesces state version bumps that arrive inside the auto-refresh window", async () => {
+		let latest: UseGitHistoryDataResult | null = null;
+		const renderHarness = (stateVersion: number) => (
+			<ResultHarness
+				stateVersion={stateVersion}
+				onRender={(result) => {
+					latest = result;
+				}}
+			/>
+		);
+
+		await act(async () => {
+			root.render(renderHarness(1));
+			await flushPromises();
+		});
+		getGitLogQueryMock.mockClear();
+
+		// First bump refreshes immediately and opens the throttle window.
+		await act(async () => {
+			root.render(renderHarness(2));
+			await flushPromises();
+		});
+		expect(getGitLogQueryMock).toHaveBeenCalledTimes(1);
+
+		// Bumps inside the window are deferred rather than issued.
+		await act(async () => {
+			root.render(renderHarness(3));
+			await flushPromises();
+			root.render(renderHarness(4));
+			await flushPromises();
+		});
+		expect(getGitLogQueryMock).toHaveBeenCalledTimes(1);
+		expect(latest).not.toBeNull();
 	});
 });

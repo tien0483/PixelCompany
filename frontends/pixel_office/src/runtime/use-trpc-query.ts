@@ -2,8 +2,18 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 interface UseTrpcQueryOptions<TData> {
 	enabled: boolean;
-	queryFn: () => Promise<TData>;
+	/**
+	 * Receives the request's AbortSignal. Forward it to the tRPC call for reads
+	 * that are expensive server-side (git log, commit diffs): without it, clicking
+	 * quickly between refs leaves the runtime running every superseded `git` child
+	 * to completion.
+	 */
+	queryFn: (signal: AbortSignal) => Promise<TData>;
 	retainDataOnError?: boolean;
+}
+
+function isAbortError(value: unknown): boolean {
+	return value instanceof Error && value.name === "AbortError";
 }
 
 export interface UseTrpcQueryResult<TData> {
@@ -35,11 +45,14 @@ export function useTrpcQuery<TData>(options: UseTrpcQueryOptions<TData>): UseTrp
 	const [error, setError] = useState<Error | null>(null);
 	const requestIdRef = useRef(0);
 	const isMountedRef = useRef(true);
+	const abortControllerRef = useRef<AbortController | null>(null);
 
 	useEffect(() => {
 		isMountedRef.current = true;
 		return () => {
 			isMountedRef.current = false;
+			abortControllerRef.current?.abort();
+			abortControllerRef.current = null;
 		};
 	}, []);
 
@@ -50,13 +63,18 @@ export function useTrpcQuery<TData>(options: UseTrpcQueryOptions<TData>): UseTrp
 			setError(null);
 			return null;
 		}
+		// Superseded requests were already ignored on arrival; aborting also stops
+		// the work still happening on the runtime for them.
+		abortControllerRef.current?.abort();
+		const abortController = new AbortController();
+		abortControllerRef.current = abortController;
 		const requestId = requestIdRef.current + 1;
 		requestIdRef.current = requestId;
 		setIsLoading(true);
 		setIsError(false);
 		setError(null);
 		try {
-			const nextData = await queryFn();
+			const nextData = await queryFn(abortController.signal);
 			if (!isMountedRef.current || requestIdRef.current !== requestId) {
 				return null;
 			}
@@ -64,7 +82,7 @@ export function useTrpcQuery<TData>(options: UseTrpcQueryOptions<TData>): UseTrp
 			setIsLoading(false);
 			return nextData;
 		} catch (queryError) {
-			if (!isMountedRef.current || requestIdRef.current !== requestId) {
+			if (!isMountedRef.current || requestIdRef.current !== requestId || isAbortError(queryError)) {
 				return null;
 			}
 			if (!retainDataOnError) {
@@ -80,6 +98,8 @@ export function useTrpcQuery<TData>(options: UseTrpcQueryOptions<TData>): UseTrp
 	useEffect(() => {
 		if (!enabled) {
 			requestIdRef.current += 1;
+			abortControllerRef.current?.abort();
+			abortControllerRef.current = null;
 			setIsLoading(false);
 			return;
 		}

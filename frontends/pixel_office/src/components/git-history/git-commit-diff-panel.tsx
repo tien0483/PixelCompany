@@ -25,22 +25,53 @@ function getSectionTopWithinScrollContainer(container: HTMLElement, section: HTM
 	return container.scrollTop + sectionRect.top - (containerRect.top + container.clientTop);
 }
 
+/**
+ * Why a file has no diff to show, or null when it simply has none.
+ *
+ * The runtime skips the text of oversized files, and a null `oldText`/`newText`
+ * would otherwise render as a full add or a full delete — a *wrong* diff rather
+ * than a missing one.
+ */
+function getFileOmissionNotice(source: GitCommitDiffSource, path: string): string | null {
+	const file = source.files.find((f) => f.path === path);
+	if (!file) {
+		return null;
+	}
+	if (source.type === "commit") {
+		const commitFile = file as RuntimeGitCommitDiffFile;
+		if (commitFile.patchOmitted) {
+			return "Diff not loaded — this file exceeds the inline diff size limit.";
+		}
+		if (commitFile.patchTruncated) {
+			return "Diff truncated — showing the first part of this file's changes.";
+		}
+		return null;
+	}
+	return (file as RuntimeWorkspaceFileChange).contentOmitted
+		? "Diff not loaded — this file exceeds the inline diff size limit."
+		: null;
+}
+
 function getFileRows(source: GitCommitDiffSource, path: string): UnifiedDiffRow[] {
 	if (isBinaryFilePath(path)) {
 		return [];
-	}
-	if (source.type === "commit") {
-		const file = source.files.find((f) => f.path === path);
-		if (!file) {
-			return [];
-		}
-		return parsePatchToRows(file.patch);
 	}
 	const file = source.files.find((f) => f.path === path);
 	if (!file) {
 		return [];
 	}
-	return buildUnifiedDiffRows(file.oldText, file.newText ?? "");
+	if (source.type === "commit") {
+		const commitFile = file as RuntimeGitCommitDiffFile;
+		if (commitFile.patchOmitted) {
+			return [];
+		}
+		return parsePatchToRows(commitFile.patch);
+	}
+	const workspaceFile = file as RuntimeWorkspaceFileChange;
+	if (workspaceFile.contentOmitted) {
+		return [];
+	}
+	return buildUnifiedDiffRows(workspaceFile.oldText, workspaceFile.newText ?? "");
 }
 
 function getFileStats(source: GitCommitDiffSource, path: string): { additions: number; deletions: number } {
@@ -78,6 +109,7 @@ export function GitCommitDiffPanel({
 	diffSource,
 	isLoading,
 	errorMessage,
+	truncatedFileTotal = null,
 	selectedPath,
 	onSelectPath,
 	headerContent,
@@ -85,6 +117,8 @@ export function GitCommitDiffPanel({
 	diffSource: GitCommitDiffSource | null;
 	isLoading: boolean;
 	errorMessage?: string | null;
+	/** Real changed-file count when the runtime capped the list; null when it did not. */
+	truncatedFileTotal?: number | null;
 	selectedPath: string | null;
 	onSelectPath: (path: string | null) => void;
 	headerContent?: React.ReactNode;
@@ -330,6 +364,18 @@ export function GitCommitDiffPanel({
 				}}
 			>
 				{headerContent ? headerContent : null}
+				{truncatedFileTotal !== null && truncatedFileTotal > filePaths.length ? (
+					<div
+						style={{
+							padding: "8px 12px",
+							borderBottom: "1px solid var(--color-border)",
+							fontSize: 12,
+							color: "var(--color-text-tertiary)",
+						}}
+					>
+						Showing the first {filePaths.length} of {truncatedFileTotal} changed files.
+					</div>
+				) : null}
 				<div
 					ref={scrollContainerRef}
 					onScroll={handleDiffScroll}
@@ -348,6 +394,7 @@ export function GitCommitDiffPanel({
 						const rows = diffSource && isExpanded ? getFileRows(diffSource, path) : [];
 						const commitFile = getCommitFile(diffSource, path);
 						const isBinaryFile = isBinaryFilePath(path);
+						const omissionNotice = diffSource && isExpanded ? getFileOmissionNotice(diffSource, path) : null;
 
 						return (
 							<section
@@ -422,9 +469,20 @@ export function GitCommitDiffPanel({
 													Renamed from <code className="font-mono">{commitFile.previousPath}</code>
 												</div>
 											) : null}
+											{!isBinaryFile && omissionNotice ? (
+												<div
+													style={{
+														padding: "8px 12px 0",
+														fontSize: 12,
+														color: "var(--color-text-tertiary)",
+													}}
+												>
+													{omissionNotice}
+												</div>
+											) : null}
 											{!isBinaryFile && rows.length > 0 ? (
 												<ReadOnlyUnifiedDiff rows={rows} path={path} />
-											) : !isBinaryFile ? (
+											) : !isBinaryFile && !omissionNotice ? (
 												<div
 													style={{
 														padding: "12px",

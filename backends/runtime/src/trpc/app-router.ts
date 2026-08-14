@@ -702,14 +702,22 @@ export interface RuntimeTrpcContext {
 			input: RuntimeWorkspaceStateSaveRequest,
 		) => Promise<RuntimeWorkspaceStateResponse>;
 		loadWorkspaceChanges: (scope: RuntimeTrpcWorkspaceScope) => Promise<RuntimeWorkspaceChangesResponse>;
-		loadGitLog: (scope: RuntimeTrpcWorkspaceScope, input: RuntimeGitLogRequest) => Promise<RuntimeGitLogResponse>;
+		// `signal` is the request's own AbortSignal: a client that navigates away mid-read
+		// should not leave a `git show --patch` running to completion on a huge commit.
+		loadGitLog: (
+			scope: RuntimeTrpcWorkspaceScope,
+			input: RuntimeGitLogRequest,
+			signal?: AbortSignal,
+		) => Promise<RuntimeGitLogResponse>;
 		loadGitRefs: (
 			scope: RuntimeTrpcWorkspaceScope,
 			input: RuntimeTaskWorkspaceInfoRequest | null,
+			signal?: AbortSignal,
 		) => Promise<RuntimeGitRefsResponse>;
 		loadCommitDiff: (
 			scope: RuntimeTrpcWorkspaceScope,
 			input: RuntimeGitCommitDiffRequest,
+			signal?: AbortSignal,
 		) => Promise<RuntimeGitCommitDiffResponse>;
 	};
 	projectsApi: {
@@ -1307,20 +1315,20 @@ export const runtimeAppRouter = t.router({
 		getGitLog: workspaceProcedure
 			.input(runtimeGitLogRequestSchema)
 			.output(runtimeGitLogResponseSchema)
-			.query(async ({ ctx, input }) => {
-				return await ctx.workspaceApi.loadGitLog(ctx.workspaceScope, input);
+			.query(async ({ ctx, input, signal }) => {
+				return await ctx.workspaceApi.loadGitLog(ctx.workspaceScope, input, signal);
 			}),
 		getGitRefs: workspaceProcedure
 			.input(optionalTaskWorkspaceInfoRequestSchema)
 			.output(runtimeGitRefsResponseSchema)
-			.query(async ({ ctx, input }) => {
-				return await ctx.workspaceApi.loadGitRefs(ctx.workspaceScope, input ?? null);
+			.query(async ({ ctx, input, signal }) => {
+				return await ctx.workspaceApi.loadGitRefs(ctx.workspaceScope, input ?? null, signal);
 			}),
 		getCommitDiff: workspaceProcedure
 			.input(runtimeGitCommitDiffRequestSchema)
 			.output(runtimeGitCommitDiffResponseSchema)
-			.query(async ({ ctx, input }) => {
-				return await ctx.workspaceApi.loadCommitDiff(ctx.workspaceScope, input);
+			.query(async ({ ctx, input, signal }) => {
+				return await ctx.workspaceApi.loadCommitDiff(ctx.workspaceScope, input, signal);
 			}),
 	}),
 	projects: t.router({
