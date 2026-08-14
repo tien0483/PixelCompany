@@ -160,6 +160,40 @@ describe("TerminalSessionManager.getRestoreSnapshot", () => {
 		expect(store.load).toHaveBeenCalledTimes(1);
 	});
 
+	it("falls back to the disk snapshot when the live mirror was disposed mid-serialize", async () => {
+		const record: TerminalSnapshotRecord = {
+			version: 1,
+			taskId: "task-1",
+			capturedAt: 1_700_000_000_000,
+			cols: 80,
+			rows: 24,
+			snapshot: "replayed output from before the restart",
+			truncated: false,
+		};
+		const store = createFakeSnapshotStore({ "task-1": record });
+		const manager = new TerminalSessionManager({ snapshotStore: store });
+		manager.hydrateFromRecord({ "task-1": createSummary() });
+		// A mirror disposed while `getSnapshot` awaited its write queue reports null rather
+		// than serializing a dead terminal, so the entry still points at it but it can no
+		// longer answer.
+		const entries = (manager as unknown as { entries: Map<string, { terminalStateMirror: unknown }> }).entries;
+		const entry = entries.get("task-1");
+		if (!entry) {
+			throw new Error("Expected a hydrated entry.");
+		}
+		entry.terminalStateMirror = { getSnapshot: vi.fn(async () => null) };
+
+		const restored = await manager.getRestoreSnapshot("task-1");
+
+		expect(restored).toEqual({
+			snapshot: record.snapshot,
+			cols: record.cols,
+			rows: record.rows,
+			stale: true,
+			capturedAt: record.capturedAt,
+		});
+	});
+
 	it("returns null when no snapshot store was configured and there is no live mirror", async () => {
 		const manager = new TerminalSessionManager();
 		manager.hydrateFromRecord({ "task-1": createSummary() });

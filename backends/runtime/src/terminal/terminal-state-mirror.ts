@@ -25,6 +25,7 @@ export class TerminalStateMirror {
 	private readonly terminal: InstanceType<typeof Terminal>;
 	private readonly serializeAddon = new SerializeAddon();
 	private operationQueue: Promise<void> = Promise.resolve();
+	private disposed = false;
 
 	constructor(cols: number, rows: number, options: TerminalStateMirrorOptions = {}) {
 		this.terminal = new Terminal({
@@ -40,10 +41,19 @@ export class TerminalStateMirror {
 	}
 
 	applyOutput(chunk: Buffer): void {
+		if (this.disposed) {
+			return;
+		}
 		const chunkCopy = new Uint8Array(chunk);
 		this.enqueueOperation(
 			() =>
 				new Promise<void>((resolve) => {
+					// The queue drains asynchronously, so an operation enqueued before a
+					// dispose still runs after it — re-check here, not just at enqueue time.
+					if (this.disposed) {
+						resolve();
+						return;
+					}
 					this.terminal.write(chunkCopy, () => {
 						resolve();
 					});
@@ -52,16 +62,29 @@ export class TerminalStateMirror {
 	}
 
 	resize(cols: number, rows: number): void {
-		if (cols === this.terminal.cols && rows === this.terminal.rows) {
+		if (this.disposed || (cols === this.terminal.cols && rows === this.terminal.rows)) {
 			return;
 		}
 		this.enqueueOperation(() => {
+			if (this.disposed) {
+				return;
+			}
 			this.terminal.resize(cols, rows);
 		});
 	}
 
-	async getSnapshot(options: TerminalSnapshotOptions = {}): Promise<TerminalRestoreSnapshot> {
+	/**
+	 * Resolves `null` once the mirror is disposed. The post-await check is the load-bearing
+	 * one: this method yields on the write queue before serializing, and callers dispose the
+	 * mirror on restart, so a dispose landing inside that window would otherwise resume into
+	 * `SerializeAddon.serialize()` against a dead terminal — xterm's `get buffer()` then
+	 * registers a disposable on an already-disposed store, logging a leak warning.
+	 */
+	async getSnapshot(options: TerminalSnapshotOptions = {}): Promise<TerminalRestoreSnapshot | null> {
 		await this.operationQueue;
+		if (this.disposed) {
+			return null;
+		}
 		const serializeOptions =
 			options.maxScrollbackLines === undefined ? undefined : { scrollback: options.maxScrollbackLines };
 		return {
@@ -77,6 +100,10 @@ export class TerminalStateMirror {
 	}
 
 	dispose(): void {
+		if (this.disposed) {
+			return;
+		}
+		this.disposed = true;
 		this.terminal.dispose();
 	}
 

@@ -502,8 +502,10 @@ export class TerminalSessionManager implements TerminalSessionService {
 		if (!entry) {
 			return null;
 		}
-		if (entry.terminalStateMirror) {
-			const live = await entry.terminalStateMirror.getSnapshot();
+		// A mirror disposed while `getSnapshot` awaited its write queue answers `null` rather
+		// than serializing a dead terminal; fall through to the disk snapshot in that case.
+		const live = entry.terminalStateMirror ? await entry.terminalStateMirror.getSnapshot() : null;
+		if (live) {
 			return {
 				snapshot: live.snapshot,
 				cols: live.cols,
@@ -1436,10 +1438,21 @@ export class TerminalSessionManager implements TerminalSessionService {
 			return;
 		}
 		try {
+			// Serializing yields, and a restart can dispose this mirror (and re-point the
+			// entry at a fresh one) inside every await below. A disposed mirror answers
+			// `null`; a re-pointed entry means this record belongs to a session that no
+			// longer exists, and writing it would clobber the new session's snapshot.
 			let snapshot = await mirror.getSnapshot({ maxScrollbackLines: SNAPSHOT_SCROLLBACK_LINES });
+			if (!snapshot || entry.terminalStateMirror !== mirror) {
+				return;
+			}
 			let truncated = false;
 			if (Buffer.byteLength(snapshot.snapshot, "utf8") > MAX_SNAPSHOT_BYTES) {
-				snapshot = await mirror.getSnapshot({ maxScrollbackLines: SNAPSHOT_RETRY_SCROLLBACK_LINES });
+				const retried = await mirror.getSnapshot({ maxScrollbackLines: SNAPSHOT_RETRY_SCROLLBACK_LINES });
+				if (!retried || entry.terminalStateMirror !== mirror) {
+					return;
+				}
+				snapshot = retried;
 				if (Buffer.byteLength(snapshot.snapshot, "utf8") > MAX_SNAPSHOT_BYTES) {
 					truncated = true;
 				}
