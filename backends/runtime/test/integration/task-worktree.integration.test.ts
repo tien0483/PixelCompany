@@ -539,4 +539,87 @@ describe.sequential("task-worktree integration", () => {
 			}
 		});
 	});
+
+	it("records a concrete branch for a floating base ref and keeps it when the worktree is recreated in place", async () => {
+		await withTemporaryHome(async () => {
+			const { path: sandboxRoot, cleanup } = createTempDir("kanban-task-worktree-floating-base-");
+			try {
+				const repoPath = join(sandboxRoot, "repo");
+				mkdirSync(repoPath, { recursive: true });
+
+				runGit(repoPath, ["init"]);
+				runGit(repoPath, ["config", "user.name", "Kanban Test"]);
+				runGit(repoPath, ["config", "user.email", "kanban-test@example.com"]);
+				writeFileSync(join(repoPath, "README.md"), "hello\n", "utf8");
+				runGit(repoPath, ["add", "README.md"]);
+				runGit(repoPath, ["commit", "-m", "init"]);
+				const baseBranch = runGit(repoPath, ["symbolic-ref", "--short", "HEAD"]);
+				runGit(repoPath, ["branch", "release"]);
+
+				const taskId = `task-floating-base-${Date.now()}`;
+				const ensured = await ensureTaskWorktreeIfDoesntExist({
+					cwd: repoPath,
+					taskId,
+					baseRef: "HEAD",
+				});
+				expect(ensured.ok).toBe(true);
+				// "HEAD" would follow the home repo's next checkout; the recorded ref names
+				// the branch it pointed at instead.
+				expect(ensured.baseRef).toBe(baseBranch);
+
+				const context = await loadWorkspaceContext(repoPath);
+				const info = await getTaskWorkspaceInfo({
+					cwd: repoPath,
+					workspaceId: context.workspaceId,
+					taskId,
+					baseRef: "HEAD",
+				});
+				expect(info.baseRef).toBe(baseBranch);
+				expect(info.baseRefLocked).toBe(true);
+				expect(info.baseCommit).toBe(runGit(repoPath, ["rev-parse", `${baseBranch}^{commit}`]));
+
+				// The home repo moves on, the card is edited, and the runtime re-ensures the
+				// worktree: none of that may re-point the recorded base ref.
+				runGit(repoPath, ["checkout", "release"]);
+				const reEnsured = await ensureTaskWorktreeIfDoesntExist({
+					cwd: repoPath,
+					taskId,
+					baseRef: "release",
+				});
+				expect(reEnsured.ok).toBe(true);
+				expect(reEnsured.baseRef).toBe(baseBranch);
+			} finally {
+				cleanup();
+			}
+		});
+	});
+
+	it("refuses a floating base ref when the repository has a detached HEAD", async () => {
+		await withTemporaryHome(async () => {
+			const { path: sandboxRoot, cleanup } = createTempDir("kanban-task-worktree-detached-base-");
+			try {
+				const repoPath = join(sandboxRoot, "repo");
+				mkdirSync(repoPath, { recursive: true });
+
+				runGit(repoPath, ["init"]);
+				runGit(repoPath, ["config", "user.name", "Kanban Test"]);
+				runGit(repoPath, ["config", "user.email", "kanban-test@example.com"]);
+				writeFileSync(join(repoPath, "README.md"), "hello\n", "utf8");
+				runGit(repoPath, ["add", "README.md"]);
+				runGit(repoPath, ["commit", "-m", "init"]);
+				runGit(repoPath, ["checkout", "--detach", "HEAD"]);
+
+				const ensured = await ensureTaskWorktreeIfDoesntExist({
+					cwd: repoPath,
+					taskId: `task-detached-base-${Date.now()}`,
+					baseRef: "HEAD",
+				});
+
+				expect(ensured.ok).toBe(false);
+				expect(ensured.error).toContain("Pick a base branch");
+			} finally {
+				cleanup();
+			}
+		});
+	});
 });

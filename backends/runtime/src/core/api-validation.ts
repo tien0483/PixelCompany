@@ -207,9 +207,11 @@ export function parseGitMergeBranchRequest(value: unknown): RuntimeGitMergeBranc
 	if (!baseRef) {
 		throw new Error("Base ref cannot be empty.");
 	}
+	const worktreeTaskId = parsed.worktreeTaskId?.trim();
 	return {
 		taskId,
 		baseRef,
+		...(worktreeTaskId ? { worktreeTaskId } : {}),
 	};
 }
 

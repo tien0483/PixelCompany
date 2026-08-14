@@ -23,6 +23,7 @@ const workspaceMutateMocks = vi.hoisted(() => ({
 	revertGitHunk: vi.fn(),
 	commitWorkspaceChanges: vi.fn(),
 	createPullRequest: vi.fn(),
+	mergeTaskBranch: vi.fn(),
 }));
 
 vi.mock("@/components/app-toaster", () => ({
@@ -42,12 +43,14 @@ vi.mock("@/runtime/trpc-client", () => ({
 				mutate: workspaceMutateMocks.commitWorkspaceChanges,
 			},
 			createPullRequest: { mutate: workspaceMutateMocks.createPullRequest },
+			mergeTaskBranch: { mutate: workspaceMutateMocks.mergeTaskBranch },
 		},
 	}),
 }));
 
 interface HookSnapshot {
 	handleAgentCommitTask: UseGitActionsResult["handleAgentCommitTask"];
+	handleMergeTaskBranch: UseGitActionsResult["handleMergeTaskBranch"];
 	revertTaskFile: UseGitActionsResult["revertTaskFile"];
 	revertTaskHunk: UseGitActionsResult["revertTaskHunk"];
 	commitHomeChanges: UseGitActionsResult["commitHomeChanges"];
@@ -179,6 +182,8 @@ function HookHarness({
 	onSnapshot,
 	sendTaskSessionInput,
 	sendTaskChatMessage,
+	board,
+	fetchTaskWorkspaceInfo,
 }: {
 	onSnapshot: (snapshot: HookSnapshot) => void;
 	sendTaskSessionInput: Parameters<
@@ -187,15 +192,20 @@ function HookHarness({
 	sendTaskChatMessage: Parameters<
 		typeof useGitActions
 	>[0]["sendTaskChatMessage"];
+	board?: BoardData;
+	fetchTaskWorkspaceInfo?: Parameters<
+		typeof useGitActions
+	>[0]["fetchTaskWorkspaceInfo"];
 }): null {
 	const gitActions = useGitActions({
 		currentProjectId: "project-1",
-		board: createBoard(),
+		board: board ?? createBoard(),
 		selectedCard: null,
 		runtimeProjectConfig: createRuntimeConfig("cline"),
 		sendTaskSessionInput,
 		sendTaskChatMessage,
-		fetchTaskWorkspaceInfo: async () => createWorkspaceInfo(),
+		fetchTaskWorkspaceInfo:
+			fetchTaskWorkspaceInfo ?? (async () => createWorkspaceInfo()),
 		isGitHistoryOpen: false,
 		refreshWorkspaceState: async () => {},
 	});
@@ -203,6 +213,7 @@ function HookHarness({
 	useEffect(() => {
 		onSnapshot({
 			handleAgentCommitTask: gitActions.handleAgentCommitTask,
+			handleMergeTaskBranch: gitActions.handleMergeTaskBranch,
 			revertTaskFile: gitActions.revertTaskFile,
 			revertTaskHunk: gitActions.revertTaskHunk,
 			commitHomeChanges: gitActions.commitHomeChanges,
@@ -210,6 +221,7 @@ function HookHarness({
 		});
 	}, [
 		gitActions.handleAgentCommitTask,
+		gitActions.handleMergeTaskBranch,
 		gitActions.revertTaskFile,
 		gitActions.revertTaskHunk,
 		gitActions.commitHomeChanges,
@@ -301,13 +313,20 @@ describe("useGitActions", () => {
 		expect(showAppToastMock).not.toHaveBeenCalled();
 	});
 
-	async function mountHook(): Promise<HookSnapshot> {
+	async function mountHook(options?: {
+		board?: BoardData;
+		fetchTaskWorkspaceInfo?: Parameters<
+			typeof useGitActions
+		>[0]["fetchTaskWorkspaceInfo"];
+	}): Promise<HookSnapshot> {
 		let snapshot: HookSnapshot | null = null;
 		await act(async () => {
 			root.render(
 				<HookHarness
 					sendTaskSessionInput={vi.fn(async () => ({ ok: true }))}
 					sendTaskChatMessage={vi.fn(async () => ({ ok: true }))}
+					board={options?.board}
+					fetchTaskWorkspaceInfo={options?.fetchTaskWorkspaceInfo}
 					onSnapshot={(next) => {
 						snapshot = next;
 					}}
@@ -366,6 +385,97 @@ describe("useGitActions", () => {
 			path: "src/a.ts",
 			hunkIndex: 3,
 			taskInfo: { taskId: "task-1", baseRef: "main" },
+		});
+	});
+
+	it("merges a task with the base ref the runtime reports, keyed on its own task id", async () => {
+		workspaceMutateMocks.mergeTaskBranch.mockResolvedValue({
+			ok: true,
+			branch: "task-1",
+			baseRef: "release",
+			summary: { changedFiles: 0 },
+		});
+		const fetchTaskWorkspaceInfo = vi.fn(async () => ({
+			...createWorkspaceInfo(),
+			baseRef: "release",
+			baseRefLocked: true,
+		}));
+		const snapshot = await mountHook({ fetchTaskWorkspaceInfo });
+
+		await act(async () => {
+			snapshot.handleMergeTaskBranch("task-1");
+			await Promise.resolve();
+		});
+
+		expect(fetchTaskWorkspaceInfo).toHaveBeenCalledWith(
+			expect.objectContaining({ id: "task-1" }),
+			{ worktreeTaskId: "task-1" },
+		);
+		expect(workspaceMutateMocks.mergeTaskBranch).toHaveBeenCalledWith({
+			taskId: "task-1",
+			baseRef: "release",
+			worktreeTaskId: "task-1",
+		});
+	});
+
+	it("merges a chain follower through its chain root's worktree", async () => {
+		workspaceMutateMocks.mergeTaskBranch.mockResolvedValue({
+			ok: true,
+			branch: "kanban/task-root",
+			baseRef: "release",
+			summary: { changedFiles: 0 },
+		});
+		const board = createBoard();
+		const followerCard = {
+			...createBoard().columns[0]!.cards[0]!,
+			id: "task-follower",
+			title: "Follow up",
+			prompt: "Follow up",
+		};
+		const chainBoard: BoardData = {
+			columns: [
+				{
+					...board.columns[0]!,
+					cards: [
+						{ ...board.columns[0]!.cards[0]!, id: "task-root" },
+						followerCard,
+					],
+				},
+			],
+			dependencies: [
+				{
+					id: "dep-1",
+					fromTaskId: "task-follower",
+					toTaskId: "task-root",
+					chain: true,
+					createdAt: 1,
+				},
+			],
+		};
+		const fetchTaskWorkspaceInfo = vi.fn(async () => ({
+			...createWorkspaceInfo(),
+			taskId: "task-follower",
+			baseRef: "release",
+			baseRefLocked: true,
+		}));
+		const snapshot = await mountHook({
+			board: chainBoard,
+			fetchTaskWorkspaceInfo,
+		});
+
+		await act(async () => {
+			snapshot.handleMergeTaskBranch("task-follower");
+			await Promise.resolve();
+		});
+
+		expect(fetchTaskWorkspaceInfo).toHaveBeenCalledWith(
+			expect.objectContaining({ id: "task-follower" }),
+			{ worktreeTaskId: "task-root" },
+		);
+		expect(workspaceMutateMocks.mergeTaskBranch).toHaveBeenCalledWith({
+			taskId: "task-follower",
+			baseRef: "release",
+			worktreeTaskId: "task-root",
 		});
 	});
 

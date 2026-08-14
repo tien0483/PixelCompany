@@ -15,7 +15,14 @@ import {
 	loadWorkspaceContext,
 } from "../state/workspace-state";
 import { deregisterActiveBranch, getActiveBranchEntry, recordTaskWorktreeBaseRef, registerActiveBranch } from "./branch-registry";
-import { getGitCommandErrorMessage, getGitStdout, readGitHeadInfo, runGit } from "./git-utils";
+import {
+	getGitCommandErrorMessage,
+	getGitStdout,
+	hasLocalGitBranch,
+	readGitHeadInfo,
+	resolveConcreteBaseBranch,
+	runGit,
+} from "./git-utils";
 import { getWorkspaceFolderLabelForWorktreePath, normalizeTaskIdForWorktreePath } from "./task-worktree-path";
 import { listTurbopackNodeModulesSymlinkSkipPaths } from "./task-worktree-turbopack";
 
@@ -131,6 +138,7 @@ function deriveTaskBranchName(taskId: string): string {
 }
 
 async function resolveExistingWorktreeBaseRef(options: {
+	repoPath: string;
 	workspaceId: string;
 	taskId: string;
 	worktreePath: string;
@@ -142,15 +150,20 @@ async function resolveExistingWorktreeBaseRef(options: {
 		if (entry?.baseRef) {
 			return entry.baseRef;
 		}
-		if (fallback) {
-			await recordTaskWorktreeBaseRef(options.workspaceId, {
-				taskId: options.taskId,
-				branch: entry?.branch || deriveTaskBranchName(options.taskId),
-				worktreePath: entry?.worktreePath || options.worktreePath,
-				baseRef: fallback,
-			});
+		// Adopt-on-ensure for worktrees created before the registry recorded a base
+		// ref. Normalize first so a legacy task never adopts a floating `HEAD`, which
+		// would make its base whatever the home repo happens to be on.
+		const adopted = await resolveConcreteBaseBranch(options.repoPath, fallback);
+		if (!adopted.ok) {
+			return fallback;
 		}
-		return fallback;
+		await recordTaskWorktreeBaseRef(options.workspaceId, {
+			taskId: options.taskId,
+			branch: entry?.branch || deriveTaskBranchName(options.taskId),
+			worktreePath: entry?.worktreePath || options.worktreePath,
+			baseRef: adopted.branch,
+		});
+		return adopted.branch;
 	} catch {
 		return fallback;
 	}
@@ -512,6 +525,7 @@ export async function ensureTaskWorktreeIfDoesntExist(options: {
 		if (existingResult.ok && existingResult.stdout) {
 			await syncIgnoredPathsIntoWorktree(context.repoPath, worktreePath);
 			const baseRef = await resolveExistingWorktreeBaseRef({
+				repoPath: context.repoPath,
 				workspaceId: context.workspaceId,
 				taskId,
 				worktreePath,
@@ -530,6 +544,7 @@ export async function ensureTaskWorktreeIfDoesntExist(options: {
 			if (lockedExistingCommit) {
 				await syncIgnoredPathsIntoWorktree(context.repoPath, worktreePath);
 				const baseRef = await resolveExistingWorktreeBaseRef({
+					repoPath: context.repoPath,
 					workspaceId: context.workspaceId,
 					taskId,
 					worktreePath,
@@ -543,16 +558,20 @@ export async function ensureTaskWorktreeIfDoesntExist(options: {
 				};
 			}
 
-			const requestedBaseRef = options.baseRef.trim();
-			if (!requestedBaseRef) {
+			// The recorded base ref outlives this worktree, so it has to be a fixed
+			// branch: a floating `HEAD` would silently re-point at whatever the home
+			// repo checks out next, which is what made merges land on the wrong branch.
+			const resolvedBaseRef = await resolveConcreteBaseBranch(context.repoPath, options.baseRef);
+			if (!resolvedBaseRef.ok) {
 				return {
 					ok: false,
 					path: null,
-					baseRef: requestedBaseRef,
+					baseRef: options.baseRef.trim(),
 					baseCommit: null,
-					error: "Task base branch is required for worktree creation.",
+					error: resolvedBaseRef.error,
 				};
 			}
+			const requestedBaseRef = resolvedBaseRef.branch;
 
 			const baseRefResult = await runGit(context.repoPath, [
 				"rev-parse",
@@ -610,6 +629,7 @@ export async function ensureTaskWorktreeIfDoesntExist(options: {
 				branch: deriveTaskBranchName(taskId),
 				worktreePath,
 				baseRef: requestedBaseRef,
+				baseCommit: requestedBaseCommit,
 			});
 
 			if (storedPatch && baseCommit === storedPatch.commit) {
@@ -728,7 +748,9 @@ export async function getTaskWorkspacePathInfo(options: {
 	workspaceId: string;
 	taskId: string;
 	baseRef: string;
-}): Promise<Pick<RuntimeTaskWorkspaceInfoResponse, "taskId" | "path" | "exists" | "baseRef">> {
+}): Promise<
+	Pick<RuntimeTaskWorkspaceInfoResponse, "taskId" | "path" | "exists" | "baseRef" | "baseRefLocked" | "baseCommit">
+> {
 	const taskId = normalizeTaskIdForWorktreePath(options.taskId);
 	const normalizedBaseRef = options.baseRef.trim();
 	const repoPath = options.cwd.trim();
@@ -749,11 +771,18 @@ export async function getTaskWorkspacePathInfo(options: {
 	const worktreePath = getTaskWorktreePath(repoPath, taskId);
 	const exists = await pathExists(worktreePath);
 	let baseRef = normalizedBaseRef;
+	let baseRefLocked = false;
+	let baseCommit: string | undefined;
 	if (exists) {
 		try {
 			const entry = await getActiveBranchEntry(workspaceId, taskId);
 			if (entry?.baseRef) {
 				baseRef = entry.baseRef;
+				baseCommit = entry.baseCommit;
+				// An entry written by an older runtime can hold a floating `HEAD` (or a
+				// branch that has since been deleted). Reporting that as locked would
+				// keep the card's picker disabled on a base ref nothing can merge into.
+				baseRefLocked = await hasLocalGitBranch(repoPath, entry.baseRef);
 			}
 		} catch {
 			// Registry read must never be fatal on the metadata poll path.
@@ -764,6 +793,8 @@ export async function getTaskWorkspacePathInfo(options: {
 		path: worktreePath,
 		exists,
 		baseRef,
+		baseRefLocked,
+		...(baseCommit ? { baseCommit } : {}),
 	};
 }
 
@@ -776,10 +807,8 @@ export async function getTaskWorkspaceInfo(options: {
 	const workspacePathInfo = await getTaskWorkspacePathInfo(options);
 	if (!workspacePathInfo.exists) {
 		return {
-			taskId: workspacePathInfo.taskId,
-			path: workspacePathInfo.path,
+			...workspacePathInfo,
 			exists: false,
-			baseRef: workspacePathInfo.baseRef,
 			branch: null,
 			isDetached: false,
 			headCommit: null,
@@ -788,10 +817,8 @@ export async function getTaskWorkspaceInfo(options: {
 
 	const headInfo = await readGitHeadInfo(workspacePathInfo.path);
 	return {
-		taskId: workspacePathInfo.taskId,
-		path: workspacePathInfo.path,
+		...workspacePathInfo,
 		exists: true,
-		baseRef: workspacePathInfo.baseRef,
 		branch: headInfo.branch,
 		isDetached: headInfo.isDetached,
 		headCommit: headInfo.headCommit,

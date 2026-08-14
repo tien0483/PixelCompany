@@ -318,7 +318,10 @@ export function useTaskEditor({
 					if (info.baseRef.trim()) {
 						setEditTaskBranchRef(info.baseRef);
 					}
-					setIsEditTaskBaseRefLocked(info.exists === true);
+					// A worktree can exist while its recorded base ref is unusable (a floating
+					// `HEAD` written by an older runtime), and locking the picker on such a ref
+					// leaves the task with a base nothing can merge into.
+					setIsEditTaskBaseRefLocked(info.exists === true && info.baseRefLocked !== false);
 				});
 			}
 		},
@@ -349,11 +352,11 @@ export function useTaskEditor({
 		if (!prompt) {
 			return null;
 		}
-		if (!(editTaskBranchRef || resolvedDefaultTaskBranchRef)) {
-			return null;
-		}
-
-		const baseRef = editTaskBranchRef || resolvedDefaultTaskBranchRef;
+		// No fallback to the default branch here: the field is seeded asynchronously from
+		// the server (and is locked once a worktree exists), so defaulting would re-target
+		// a started task at whatever the home repo currently has checked out. An empty
+		// value means "keep what the card already has" — `updateTask` preserves it.
+		const baseRef = editTaskBranchRef.trim();
 		const savedTaskId = editingTaskId;
 
 		setBoard((currentBoard) => {
@@ -422,7 +425,6 @@ export function useTaskEditor({
 		editTaskPlanFilePath,
 		editTaskStartInPlanMode,
 		editingTaskId,
-		resolvedDefaultTaskBranchRef,
 		setBoard,
 	]);
 

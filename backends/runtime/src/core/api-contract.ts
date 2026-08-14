@@ -370,6 +370,10 @@ export type RuntimeGitCreateBranchResponse = z.infer<typeof runtimeGitCreateBran
 export const runtimeGitMergeBranchRequestSchema = z.object({
 	taskId: z.string(),
 	baseRef: z.string(),
+	// Chain followers share their chain root's worktree, so the registry entry that
+	// holds the locked base ref lives under the root's id (same contract as
+	// `runtimeTaskWorkspaceInfoRequestSchema`).
+	worktreeTaskId: z.string().optional(),
 });
 export type RuntimeGitMergeBranchRequest = z.infer<typeof runtimeGitMergeBranchRequestSchema>;
 
@@ -1974,6 +1978,12 @@ export const runtimeTaskWorkspaceInfoResponseSchema = z.object({
 	path: z.string(),
 	exists: z.boolean(),
 	baseRef: z.string(),
+	// True when `baseRef` came from the branch registry and still resolves to a local
+	// branch, i.e. the value the worktree was really created from. False for a task
+	// with no worktree yet, or one whose recorded ref is unusable (a floating `HEAD`
+	// written by an older runtime) — the UI unlocks its base-ref picker in that case.
+	baseRefLocked: z.boolean().optional(),
+	baseCommit: z.string().optional(),
 	branch: z.string().nullable(),
 	isDetached: z.boolean(),
 	headCommit: z.string().nullable(),

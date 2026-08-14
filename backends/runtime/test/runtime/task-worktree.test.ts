@@ -213,6 +213,15 @@ describe.sequential("task-worktree serialization", () => {
 						};
 					}
 
+					// A floating base ref ("HEAD") is resolved to the checked-out branch
+					// before anything is recorded for the task.
+					if (command[0] === "symbolic-ref") {
+						return {
+							stdout: "main\n",
+							stderr: "",
+						};
+					}
+
 					if (command[0] === "worktree" && command[1] === "add") {
 						const worktreePath = command[3];
 						const commit = command[4] ?? "base-commit";

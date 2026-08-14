@@ -18,7 +18,10 @@ import type {
 	RuntimeGitSyncAction,
 	RuntimeTaskWorkspaceInfoResponse,
 } from "@/runtime/types";
-import { findCardSelection } from "@/state/board-state";
+import {
+	findCardSelection,
+	resolveChainWorktreeOwnerTaskId,
+} from "@/state/board-state";
 import {
 	getTaskWorkspaceInfo,
 	getTaskWorkspaceSnapshot,
@@ -71,6 +74,7 @@ interface UseGitActionsInput {
 	) => Promise<{ ok: boolean; message?: string }>;
 	fetchTaskWorkspaceInfo: (
 		task: BoardCard,
+		options?: { worktreeTaskId?: string },
 	) => Promise<RuntimeTaskWorkspaceInfoResponse | null>;
 	isGitHistoryOpen: boolean;
 	refreshWorkspaceState: () => Promise<void>;
@@ -850,7 +854,12 @@ export function useGitActions({
 			}
 			setMergeTaskLoadingById((current) => ({ ...current, [taskId]: true }));
 			try {
-				const workspaceInfo = await fetchTaskWorkspaceInfo(selection.card);
+				// A chain follower has no worktree of its own: its branch and its locked
+				// base ref both live under the chain root's task id.
+				const worktreeTaskId = resolveChainWorktreeOwnerTaskId(board, taskId);
+				const workspaceInfo = await fetchTaskWorkspaceInfo(selection.card, {
+					worktreeTaskId,
+				});
 				if (!workspaceInfo) {
 					showAppToast({
 						intent: "danger",
@@ -864,6 +873,7 @@ export function useGitActions({
 				const payload = await trpcClient.workspace.mergeTaskBranch.mutate({
 					taskId: workspaceInfo.taskId,
 					baseRef: workspaceInfo.baseRef,
+					worktreeTaskId,
 				});
 				if (!payload.ok) {
 					if (payload.summary) {

@@ -93,6 +93,55 @@ describe("branch-registry baseRef", () => {
 		});
 	});
 
+	it("registerActiveBranch keeps the first baseRef when the worktree is recreated", async () => {
+		await registerActiveBranch("ws-1", {
+			taskId: "task-4",
+			branch: "kanban/task-4",
+			worktreePath: "/tmp/wt-4",
+			baseRef: "release",
+			baseCommit: "aaa111",
+		});
+
+		// Re-created worktree: the card's current base ref is whatever the home repo is
+		// on now, and it must not win over the ref the task actually branched from.
+		await registerActiveBranch("ws-1", {
+			taskId: "task-4",
+			branch: "kanban/task-4",
+			worktreePath: "/tmp/wt-4-new",
+			baseRef: "main",
+			baseCommit: "bbb222",
+		});
+
+		const entry = await getActiveBranchEntry("ws-1", "task-4");
+		expect(entry).toMatchObject({
+			baseRef: "release",
+			baseCommit: "aaa111",
+			worktreePath: "/tmp/wt-4-new",
+			status: "active",
+		});
+	});
+
+	it("registerActiveBranch adopts a baseRef onto an entry that has none", async () => {
+		await registerActiveBranch("ws-1", {
+			taskId: "task-5",
+			branch: "kanban/task-5",
+			worktreePath: "/tmp/wt-5",
+		});
+
+		await registerActiveBranch("ws-1", {
+			taskId: "task-5",
+			branch: "kanban/task-5",
+			worktreePath: "/tmp/wt-5",
+			baseRef: "develop",
+			baseCommit: "ccc333",
+		});
+
+		expect(await getActiveBranchEntry("ws-1", "task-5")).toMatchObject({
+			baseRef: "develop",
+			baseCommit: "ccc333",
+		});
+	});
+
 	it("recordTaskWorktreeBaseRef adopts baseRef onto a legacy entry", async () => {
 		await registerActiveBranch("ws-1", {
 			taskId: "task-3",

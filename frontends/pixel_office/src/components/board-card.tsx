@@ -1187,25 +1187,32 @@ export function BoardCard({
 							) : null}
 							{canMergeToBase && onMerge ? (
 								<div className="flex mt-1.5">
-									<Button
-										size="sm"
-										fill
-										icon={
-											isMergeLoading ? (
-												<Spinner size={12} />
-											) : (
-												<GitMerge size={12} />
-											)
-										}
-										disabled={isAnyGitActionLoading}
-										onMouseDown={stopEvent}
-										onClick={(event) => {
-											stopEvent(event);
-											onMerge(card.id);
-										}}
+									{/* Name the target: the base ref is pinned when the worktree is
+									    created, so it is not necessarily the branch the home repo
+									    currently has checked out. */}
+									<Tooltip
+										content={`Merge ${reviewWorkspaceSnapshot?.branch ?? "this task's branch"} into ${baseRefHint}`}
 									>
-										Merge to base
-									</Button>
+										<Button
+											size="sm"
+											fill
+											icon={
+												isMergeLoading ? (
+													<Spinner size={12} />
+												) : (
+													<GitMerge size={12} />
+												)
+											}
+											disabled={isAnyGitActionLoading}
+											onMouseDown={stopEvent}
+											onClick={(event) => {
+												stopEvent(event);
+												onMerge(card.id);
+											}}
+										>
+											Merge to base
+										</Button>
+									</Tooltip>
 								</div>
 							) : null}
 							{cancelAutomaticActionLabel && onCancelAutomaticAction ? (

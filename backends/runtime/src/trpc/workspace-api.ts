@@ -56,11 +56,13 @@ import {
 	runGitCreateBranchAction,
 	runGitDeleteBranchAction,
 	runGitMergeBranchAction,
+	runGitMergeBranchInTemporaryWorktree,
 	runGitMergeIntoCurrentAction,
 	runGitPushBranchAction,
 	runGitRebaseCurrentOntoAction,
 	runGitSyncAction,
 } from "../workspace/git-sync";
+import { hasLocalGitBranch, isFloatingGitRef } from "../workspace/git-utils";
 import { cleanMergedWorktrees } from "../workspace/git-worktree-cleanup";
 import { listGitWorktrees } from "../workspace/git-worktree-inventory";
 import { searchWorkspaceFiles } from "../workspace/search-workspace-files";
@@ -409,10 +411,12 @@ export function createWorkspaceApi(deps: CreateWorkspaceApiDependencies): Runtim
 		mergeTaskBranch: async (workspaceScope, input) => {
 			try {
 				const body = parseGitMergeBranchRequest(input);
+				// Chain followers share their chain root's worktree, so the locked base ref
+				// is recorded under the root's task id — look the worktree up by that id.
 				const info = await getTaskWorkspaceInfo({
 					cwd: workspaceScope.workspacePath,
 					workspaceId: workspaceScope.workspaceId,
-					taskId: body.taskId,
+					taskId: body.worktreeTaskId ?? body.taskId,
 					baseRef: body.baseRef,
 				});
 				if (!info.exists) {
@@ -421,19 +425,31 @@ export function createWorkspaceApi(deps: CreateWorkspaceApiDependencies): Runtim
 				if (!info.branch || info.isDetached) {
 					throw new Error("Task has no committed branch yet. Run Commit on the task first.");
 				}
+				if (!(await hasLocalGitBranch(workspaceScope.workspacePath, info.baseRef))) {
+					throw new Error(
+						isFloatingGitRef(info.baseRef)
+							? `This task recorded '${info.baseRef}' as its base ref, which follows whatever branch is checked out instead of naming one. Pick the base branch on the task card, then merge again.`
+							: `Task base ref '${info.baseRef}' is not a local branch. Pick the base branch on the task card, then merge again.`,
+					);
+				}
 				const inventory = await listGitWorktrees(workspaceScope.workspacePath);
 				if (!inventory.ok) {
 					throw new Error(inventory.error ?? "Could not list git worktrees.");
 				}
 				const baseWorktree = inventory.worktrees.find((entry) => entry.branch === info.baseRef);
-				if (!baseWorktree) {
-					throw new Error(`Check out '${info.baseRef}' in a worktree before merging.`);
-				}
-				const response = await runGitMergeBranchAction({
-					cwd: baseWorktree.path,
-					branch: info.branch,
-					baseRef: info.baseRef,
-				});
+				// Merge where the base already lives when possible; otherwise borrow a
+				// throwaway checkout so the recorded base ref wins over the current HEAD.
+				const response = baseWorktree
+					? await runGitMergeBranchAction({
+							cwd: baseWorktree.path,
+							branch: info.branch,
+							baseRef: info.baseRef,
+						})
+					: await runGitMergeBranchInTemporaryWorktree({
+							repoPath: workspaceScope.workspacePath,
+							branch: info.branch,
+							baseRef: info.baseRef,
+						});
 				if (response.ok) {
 					void deps.broadcastRuntimeWorkspaceStateUpdated(
 						workspaceScope.workspaceId,
