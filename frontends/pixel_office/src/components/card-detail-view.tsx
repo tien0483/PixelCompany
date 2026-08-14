@@ -9,6 +9,7 @@ import {
 	MessageSquare,
 	Minimize2,
 	Play,
+	RotateCcw,
 	X,
 } from "lucide-react";
 import type { MouseEvent as ReactMouseEvent, ReactNode } from "react";
@@ -800,7 +801,8 @@ export function CardDetailView({
 	const isSessionLive =
 		sessionSummary?.state === "running" ||
 		sessionSummary?.state === "awaiting_review";
-	// Only offer a restart when the card has an explicit pin that differs from the running session.
+	// A live session can always be restarted from the config panel; drift only decides
+	// whether the control names the pending change instead of the generic label.
 	const canRestartWithPinnedAccount =
 		typeof sessionSummary?.managerAccountId === "number" &&
 		typeof selection.card.managerAccountId === "number" &&
@@ -818,7 +820,9 @@ export function CardDetailView({
 				pinnedManagerAccount?.email ??
 				`account ${selection.card.managerAccountId}`
 			}`
-		: "Restart to apply the subagent seat";
+		: hasSubagentSeatDrift
+			? "Restart to apply the subagent seat"
+			: null;
 	useEffect(() => {
 		if (canRestartForConfigDrift) {
 			setIsTaskConfigExpanded(true);
@@ -1311,23 +1315,6 @@ export function CardDetailView({
 													}
 												: {})}
 										/>
-										{canRestartForConfigDrift ? (
-											<button
-												type="button"
-												data-testid="restart-task-with-account"
-												disabled={
-													restartTaskLoadingById?.[selection.card.id] === true
-												}
-												onClick={() =>
-													onRestartTaskSession?.(selection.card.id)
-												}
-												className="text-[10px] text-accent underline underline-offset-2 disabled:opacity-50 disabled:no-underline"
-											>
-												{restartTaskLoadingById?.[selection.card.id]
-													? "Restarting…"
-													: restartForConfigDriftLabel}
-											</button>
-										) : null}
 									</div>
 								) : null}
 								{onTaskAutoResumeOnUsageLimitChanged ? (
@@ -1373,6 +1360,37 @@ export function CardDetailView({
 												);
 											}}
 										/>
+									</div>
+								) : null}
+								{isSessionLive && onRestartTaskSession ? (
+									<div
+										data-testid="task-config-restart-strip"
+										className="flex flex-wrap items-center justify-between gap-2 border-t border-border px-2 py-1.5"
+									>
+										<p className="m-0 text-[10px] text-text-tertiary">
+											{restartForConfigDriftLabel
+												? "This session is still on the configuration it launched with."
+												: "Seat, model and effort are fixed at spawn. Restart to apply them."}
+										</p>
+										<Button
+											variant="default"
+											size="sm"
+											data-testid="restart-task-with-account"
+											title="Stops the agent and relaunches it with the current configuration, continuing this conversation."
+											icon={
+												restartTaskLoadingById?.[selection.card.id] ? (
+													<Spinner size={14} />
+												) : (
+													<RotateCcw size={14} />
+												)
+											}
+											disabled={restartTaskLoadingById?.[selection.card.id] === true}
+											onClick={() => onRestartTaskSession(selection.card.id)}
+										>
+											{restartTaskLoadingById?.[selection.card.id]
+												? "Restarting…"
+												: (restartForConfigDriftLabel ?? "Restart session")}
+										</Button>
 									</div>
 								) : null}
 							</Collapsible.Content>
