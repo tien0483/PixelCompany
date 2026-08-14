@@ -10,6 +10,7 @@ import {
 	getMergeConflicts,
 	resolveMergeConflict,
 	runGitCreateBranchAction,
+	runGitMergeBranchInTemporaryWorktree,
 	runGitSyncAction,
 } from "../../src/workspace/git-sync";
 import { createGitTestEnv } from "../utilities/git-env";
@@ -120,6 +121,62 @@ describe("git feature backends integration", () => {
 		});
 		expect(response.ok).toBe(false);
 		expect(response.error).toContain("Branch name cannot be empty.");
+	});
+
+	it("merges into a base branch that is checked out nowhere without moving HEAD", async () => {
+		const homeBranch = git(repo, ["rev-parse", "--abbrev-ref", "HEAD"]);
+		git(repo, ["checkout", "-b", "release"]);
+		writeFileSync(join(repo, "release.txt"), "release\n");
+		git(repo, ["add", "."]);
+		git(repo, ["commit", "-m", "release base"]);
+		git(repo, ["checkout", "-b", "kanban/task-1"]);
+		writeFileSync(join(repo, "task.txt"), "task work\n");
+		git(repo, ["add", "."]);
+		git(repo, ["commit", "-m", "task work"]);
+		// The home repo sits on its own branch, so nothing has `release` checked out.
+		git(repo, ["checkout", homeBranch]);
+		const releaseHeadBefore = git(repo, ["rev-parse", "release"]);
+
+		const response = await runGitMergeBranchInTemporaryWorktree({
+			repoPath: repo,
+			branch: "kanban/task-1",
+			baseRef: "release",
+		});
+
+		expect(response.ok).toBe(true);
+		expect(response.baseRef).toBe("release");
+		// The base branch advanced with an explicit merge commit...
+		expect(git(repo, ["rev-parse", "release"])).not.toBe(releaseHeadBefore);
+		expect(git(repo, ["log", "-1", "--format=%s", "release"])).toBe("Merge branch 'kanban/task-1' into release");
+		expect(git(repo, ["log", "-1", "--format=%P", "release"]).split(" ")).toHaveLength(2);
+		// ...while HEAD stayed where the user left it and no worktree leaked.
+		expect(git(repo, ["rev-parse", "--abbrev-ref", "HEAD"])).toBe(homeBranch);
+		expect(response.summary.currentBranch).toBe(homeBranch);
+		expect(git(repo, ["worktree", "list", "--porcelain"])).not.toContain("kanban-merge-base-");
+	});
+
+	it("reports a conflicting merge into a base branch that is checked out nowhere", async () => {
+		const homeBranch = git(repo, ["rev-parse", "--abbrev-ref", "HEAD"]);
+		git(repo, ["checkout", "-b", "release"]);
+		writeFileSync(join(repo, "foo.txt"), "line1\nRELEASE\nline3\n");
+		git(repo, ["commit", "-am", "release change"]);
+		git(repo, ["checkout", "-b", "kanban/task-2", homeBranch]);
+		writeFileSync(join(repo, "foo.txt"), "line1\nTASK\nline3\n");
+		git(repo, ["commit", "-am", "task change"]);
+		git(repo, ["checkout", homeBranch]);
+		const releaseHeadBefore = git(repo, ["rev-parse", "release"]);
+
+		const response = await runGitMergeBranchInTemporaryWorktree({
+			repoPath: repo,
+			branch: "kanban/task-2",
+			baseRef: "release",
+		});
+
+		expect(response.ok).toBe(false);
+		expect(response.error).toBeTruthy();
+		// The aborted merge left the base branch untouched, and the throwaway worktree is gone.
+		expect(git(repo, ["rev-parse", "release"])).toBe(releaseHeadBefore);
+		expect(git(repo, ["worktree", "list", "--porcelain"])).not.toContain("kanban-merge-base-");
 	});
 
 	it("detects and resolves a merge conflict by picking ours (Phase 7)", async () => {

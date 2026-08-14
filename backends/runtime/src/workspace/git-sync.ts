@@ -731,6 +731,48 @@ export async function runGitMergeBranchAction(options: {
 }
 
 /**
+ * Merges {@link options.branch} into {@link options.baseRef} when no existing worktree
+ * has that base checked out.
+ *
+ * A task's base ref is pinned at worktree creation, but the home repo moves on, so
+ * requiring the base to be the current HEAD somewhere made the merge target follow
+ * whatever the user last checked out. A throwaway worktree gives the base branch a
+ * checkout of its own for the length of the merge and leaves every existing worktree
+ * (including the home repo's HEAD) untouched.
+ */
+export async function runGitMergeBranchInTemporaryWorktree(options: {
+	repoPath: string;
+	branch: string;
+	baseRef: string;
+}): Promise<RuntimeGitMergeBranchResponse> {
+	const branch = options.branch.trim();
+	const baseRef = options.baseRef.trim();
+	const temporaryRoot = await mkdtemp(join(tmpdir(), "kanban-merge-base-"));
+	const worktreePath = join(temporaryRoot, "base");
+	try {
+		const addResult = await runGit(options.repoPath, ["worktree", "add", worktreePath, baseRef]);
+		if (!addResult.ok) {
+			return {
+				ok: false,
+				branch,
+				baseRef,
+				summary: await getGitSyncSummary(options.repoPath),
+				output: addResult.output,
+				error: addResult.error ?? `Could not check out '${baseRef}' to merge into.`,
+			};
+		}
+		const response = await runGitMergeBranchAction({ cwd: worktreePath, branch, baseRef });
+		// Report the home repo's summary: the caller feeds this into the home git panel,
+		// and a throwaway checkout's state would flash the wrong branch there.
+		return { ...response, summary: await getGitSyncSummary(options.repoPath) };
+	} finally {
+		await runGit(options.repoPath, ["worktree", "remove", "--force", worktreePath]);
+		await rm(temporaryRoot, { recursive: true, force: true });
+		await runGit(options.repoPath, ["worktree", "prune"]);
+	}
+}
+
+/**
  * Merges {@link options.branch} into the currently checked-out branch (HEAD stays put).
  * Aborts the merge on conflict so the worktree is never left half-merged.
  */

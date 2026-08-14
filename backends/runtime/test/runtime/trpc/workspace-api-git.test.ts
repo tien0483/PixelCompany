@@ -14,6 +14,7 @@ const gitSyncMocks = vi.hoisted(() => ({
 	runGitCherryPickAction: vi.fn(),
 	runGitMergeIntoCurrentAction: vi.fn(),
 	runGitMergeBranchAction: vi.fn(),
+	runGitMergeBranchInTemporaryWorktree: vi.fn(),
 	runGitPushBranchAction: vi.fn(),
 	runGitRebaseCurrentOntoAction: vi.fn(),
 	runGitSyncAction: vi.fn(),
@@ -34,7 +35,15 @@ const taskWorktreeMocks = vi.hoisted(() => ({
 	resolveTaskCwd: vi.fn(),
 }));
 
+const gitUtilsMocks = vi.hoisted(() => ({ hasLocalGitBranch: vi.fn() }));
+
 vi.mock("../../../src/workspace/git-sync.js", () => gitSyncMocks);
+// Partial mock: the merge endpoint asks git whether the recorded base ref is still a
+// local branch, and the rest of git-utils is used by unmocked collaborators.
+vi.mock("../../../src/workspace/git-utils.js", async (importOriginal) => ({
+	...(await importOriginal<typeof import("../../../src/workspace/git-utils.js")>()),
+	hasLocalGitBranch: gitUtilsMocks.hasLocalGitBranch,
+}));
 vi.mock("../../../src/workspace/git-gh.js", () => ghMocks);
 vi.mock("../../../src/workspace/git-history.js", () => historyMocks);
 vi.mock("../../../src/workspace/git-worktree-inventory.js", () => worktreeInventoryMocks);
@@ -75,6 +84,8 @@ beforeEach(() => {
 	taskWorktreeMocks.resolveTaskCwd.mockReset();
 	taskWorktreeMocks.getTaskWorkspaceInfo.mockReset();
 	taskWorktreeMocks.resolveTaskCwd.mockResolvedValue("/repo/.worktrees/task-1");
+	gitUtilsMocks.hasLocalGitBranch.mockReset();
+	gitUtilsMocks.hasLocalGitBranch.mockResolvedValue(true);
 });
 
 describe("workspaceApi.revertGitFile", () => {
@@ -463,5 +474,107 @@ describe("workspaceApi.mergeTaskBranch", () => {
 		});
 		expect(broadcast).toHaveBeenCalledWith("ws-1", "/repo");
 		expect(res.ok).toBe(true);
+	});
+
+	it("resolves the worktree from the chain root task id when one is supplied", async () => {
+		taskWorktreeMocks.getTaskWorkspaceInfo.mockResolvedValue({
+			taskId: "task-root",
+			path: "/repo/.worktrees/task-root",
+			exists: true,
+			baseRef: "release",
+			baseRefLocked: true,
+			branch: "kanban/task-root",
+			isDetached: false,
+			headCommit: "abc123",
+		});
+		worktreeInventoryMocks.listGitWorktrees.mockResolvedValue({
+			ok: true,
+			worktrees: [
+				{ path: "/repo", branch: "main" },
+				{ path: "/repo-release", branch: "release" },
+			],
+		});
+		gitSyncMocks.runGitMergeBranchAction.mockResolvedValue({
+			ok: true,
+			branch: "kanban/task-root",
+			baseRef: "release",
+			summary: SUMMARY,
+			output: "",
+		});
+		const { api } = makeApi();
+
+		const res = await api.mergeTaskBranch(SCOPE, {
+			taskId: "task-follower",
+			baseRef: "main",
+			worktreeTaskId: "task-root",
+		});
+
+		expect(taskWorktreeMocks.getTaskWorkspaceInfo).toHaveBeenCalledWith({
+			cwd: "/repo",
+			workspaceId: "ws-1",
+			taskId: "task-root",
+			baseRef: "main",
+		});
+		expect(res.ok).toBe(true);
+	});
+
+	it("merges through a temporary worktree when no worktree has the base checked out", async () => {
+		taskWorktreeMocks.getTaskWorkspaceInfo.mockResolvedValue({
+			taskId: "task-1",
+			path: "/repo/.worktrees/task-1",
+			exists: true,
+			baseRef: "release",
+			baseRefLocked: true,
+			branch: "kanban/task-1",
+			isDetached: false,
+			headCommit: "abc123",
+		});
+		worktreeInventoryMocks.listGitWorktrees.mockResolvedValue({
+			ok: true,
+			worktrees: [{ path: "/repo", branch: "main" }],
+		});
+		gitSyncMocks.runGitMergeBranchInTemporaryWorktree.mockResolvedValue({
+			ok: true,
+			branch: "kanban/task-1",
+			baseRef: "release",
+			summary: SUMMARY,
+			output: "",
+		});
+		const { api, broadcast } = makeApi();
+
+		const res = await api.mergeTaskBranch(SCOPE, { taskId: "task-1", baseRef: "main" });
+
+		expect(gitSyncMocks.runGitMergeBranchAction).not.toHaveBeenCalled();
+		expect(gitSyncMocks.runGitMergeBranchInTemporaryWorktree).toHaveBeenCalledWith({
+			repoPath: "/repo",
+			branch: "kanban/task-1",
+			baseRef: "release",
+		});
+		expect(broadcast).toHaveBeenCalledWith("ws-1", "/repo");
+		expect(res.ok).toBe(true);
+	});
+
+	it("refuses to merge when the recorded base ref is a floating HEAD", async () => {
+		taskWorktreeMocks.getTaskWorkspaceInfo.mockResolvedValue({
+			taskId: "task-1",
+			path: "/repo/.worktrees/task-1",
+			exists: true,
+			baseRef: "HEAD",
+			baseRefLocked: false,
+			branch: "kanban/task-1",
+			isDetached: false,
+			headCommit: "abc123",
+		});
+		gitUtilsMocks.hasLocalGitBranch.mockResolvedValue(false);
+		const { api, broadcast } = makeApi();
+
+		const res = await api.mergeTaskBranch(SCOPE, { taskId: "task-1", baseRef: "HEAD" });
+
+		expect(worktreeInventoryMocks.listGitWorktrees).not.toHaveBeenCalled();
+		expect(gitSyncMocks.runGitMergeBranchAction).not.toHaveBeenCalled();
+		expect(gitSyncMocks.runGitMergeBranchInTemporaryWorktree).not.toHaveBeenCalled();
+		expect(broadcast).not.toHaveBeenCalled();
+		expect(res.ok).toBe(false);
+		expect(res.error).toContain("Pick the base branch on the task card");
 	});
 });

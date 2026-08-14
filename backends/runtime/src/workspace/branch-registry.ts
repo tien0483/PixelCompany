@@ -22,6 +22,12 @@ export interface BranchRegistryEntry {
 	branch: string;
 	worktreePath: string;
 	baseRef?: string;
+	/**
+	 * Commit the worktree was created from. Recorded next to `baseRef` so a later
+	 * merge can tell "the base branch moved on" apart from "the base ref changed
+	 * under the task", which the ref name alone cannot express.
+	 */
+	baseCommit?: string;
 	agentDisplayName?: string;
 	status: BranchRegistryEntryStatus;
 	lastTouchedAt: string;
@@ -47,6 +53,7 @@ const branchRegistryEntrySchema = z.object({
 	branch: z.string().min(1),
 	worktreePath: z.string().min(1),
 	baseRef: z.string().min(1).optional(),
+	baseCommit: z.string().min(1).optional(),
 	agentDisplayName: z.string().optional(),
 	status: branchRegistryEntryStatusSchema,
 	lastTouchedAt: z.string(),
@@ -127,6 +134,16 @@ async function directoryExists(path: string): Promise<boolean> {
 	}
 }
 
+/**
+ * Registers (or refreshes) the entry for a task worktree.
+ *
+ * The base ref is write-once for the lifetime of an entry: a worktree that is
+ * recreated — after a reset, a purge, or a runtime restart — passes whatever the
+ * card says at that moment, and cards stay editable. Overwriting here is what made
+ * the "immutable base ref" drift to the home repo's current branch, so an existing
+ * `baseRef`/`baseCommit` wins over the requested one. Only `deregisterActiveBranch`
+ * (i.e. deleting the worktree) clears it.
+ */
 export async function registerActiveBranch(
 	workspaceId: string,
 	entry: Omit<BranchRegistryEntry, "lastTouchedAt" | "status"> & { status?: BranchRegistryEntry["status"] },
@@ -134,16 +151,24 @@ export async function registerActiveBranch(
 	const registryPath = getWorkspaceBranchRegistryPath(workspaceId);
 	await lockedFileSystem.withLock({ path: registryPath }, async () => {
 		const file = await readBranchRegistryFile(registryPath);
+		const existing = file.entries[entry.taskId];
 		const now = new Date().toISOString();
+		const keptBaseRef = existing?.baseRef;
+		const baseRef = keptBaseRef ?? entry.baseRef;
+		const baseCommit = keptBaseRef ? existing?.baseCommit : entry.baseCommit;
 		file.entries[entry.taskId] = {
 			...entry,
+			...(baseRef ? { baseRef } : {}),
+			...(baseCommit ? { baseCommit } : {}),
 			status: entry.status ?? "active",
 			lastTouchedAt: now,
 		};
+		const preservedDifferentBaseRef = Boolean(keptBaseRef && entry.baseRef && keptBaseRef !== entry.baseRef);
 		file.statusLog.push({
 			at: now,
 			taskId: entry.taskId,
-			op: "register",
+			op: preservedDifferentBaseRef ? "register-preserve-base-ref" : "register",
+			...(preservedDifferentBaseRef ? { detail: `kept ${keptBaseRef}, requested ${entry.baseRef}` } : {}),
 		});
 		await writeBranchRegistryFile(registryPath, file);
 	});
@@ -160,12 +185,14 @@ export async function recordTaskWorktreeBaseRef(
 		branch: string;
 		worktreePath: string;
 		baseRef: string;
+		baseCommit?: string;
 	},
 ): Promise<void> {
 	const normalizedBaseRef = entry.baseRef.trim();
 	if (!normalizedBaseRef) {
 		return;
 	}
+	const normalizedBaseCommit = entry.baseCommit?.trim();
 	const registryPath = getWorkspaceBranchRegistryPath(workspaceId);
 	await lockedFileSystem.withLock({ path: registryPath }, async () => {
 		const file = await readBranchRegistryFile(registryPath);
@@ -180,6 +207,7 @@ export async function recordTaskWorktreeBaseRef(
 				branch: existing.branch || entry.branch,
 				worktreePath: existing.worktreePath || entry.worktreePath,
 				baseRef: normalizedBaseRef,
+				...(normalizedBaseCommit ? { baseCommit: normalizedBaseCommit } : {}),
 				lastTouchedAt: now,
 			};
 		} else {
@@ -188,6 +216,7 @@ export async function recordTaskWorktreeBaseRef(
 				branch: entry.branch,
 				worktreePath: entry.worktreePath,
 				baseRef: normalizedBaseRef,
+				...(normalizedBaseCommit ? { baseCommit: normalizedBaseCommit } : {}),
 				status: "active",
 				lastTouchedAt: now,
 			};

@@ -767,6 +767,30 @@ describe("board dependency state", () => {
 		expect(updatedTask?.autoResumeOnUsageLimit).toBe(true);
 	});
 
+	it("keeps the card's base ref when the draft leaves it empty", () => {
+		let board = createInitialBoardData();
+		board = addTaskToColumn(board, "backlog", {
+			prompt: "Task on a feature base",
+			baseRef: "feature/x",
+		});
+		const task = board.columns.find((column) => column.id === "backlog")?.cards[0];
+		if (!task) {
+			throw new Error("Expected backlog task to exist");
+		}
+
+		// The editor seeds its branch field asynchronously from the server, so a save can
+		// carry an empty base ref. That must not re-target the task.
+		const updated = updateTask(board, task.id, {
+			prompt: "Task on a feature base, edited",
+			baseRef: "",
+		});
+
+		expect(updated.updated).toBe(true);
+		const updatedTask = updated.board.columns.find((column) => column.id === "backlog")?.cards[0];
+		expect(updatedTask?.baseRef).toBe("feature/x");
+		expect(updatedTask?.prompt).toBe("Task on a feature base, edited");
+	});
+
 	it("clears the auto-run countdown and usage-limit opt-in when the draft turns them off", () => {
 		let board = createInitialBoardData();
 		board = addTaskToColumn(board, "backlog", {

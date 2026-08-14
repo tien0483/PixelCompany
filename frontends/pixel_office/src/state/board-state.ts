@@ -703,10 +703,11 @@ export function updateTask(board: BoardData, taskId: string, draft: TaskDraft): 
 		return { board, updated: false };
 	}
 	const title = typeof draft.title === "string" ? draft.title.trim() : "";
-	const baseRef = draft.baseRef.trim();
-	if (!baseRef) {
-		return { board, updated: false };
-	}
+	// An empty draft ref means "leave it alone", not "reject the edit": the card's base
+	// ref is what the worktree was created from, and a partially-populated draft (the
+	// editor seeds its branch field asynchronously from the server) used to re-target
+	// the task to whatever branch the home repo had checked out.
+	const draftBaseRef = draft.baseRef.trim();
 
 	let updated = false;
 	const columns = board.columns.map((column) => {
@@ -739,7 +740,7 @@ export function updateTask(board: BoardData, taskId: string, draft: TaskDraft): 
 				agentId: draft.agentId,
 				clineSettings: draft.clineSettings,
 				taskLaunchSettings: draft.taskLaunchSettings,
-				baseRef,
+				baseRef: draftBaseRef || card.baseRef,
 				updatedAt: Date.now(),
 			};
 			if (draft.planFilePath !== undefined) {

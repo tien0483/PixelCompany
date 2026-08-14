@@ -143,6 +143,57 @@ export async function readGitHeadInfo(cwd: string): Promise<GitHeadInfo> {
 	};
 }
 
+export async function hasLocalGitBranch(repoPath: string, branch: string): Promise<boolean> {
+	const normalized = branch.trim();
+	if (!normalized) {
+		return false;
+	}
+	const result = await runGit(repoPath, ["show-ref", "--verify", "--quiet", `refs/heads/${normalized}`]);
+	return result.ok;
+}
+
+/**
+ * A base ref that points at "whatever is checked out right now" instead of a fixed
+ * branch. `rev-parse --verify HEAD^{commit}` accepts these, which is how tasks ended
+ * up with `"baseRef": "HEAD"` recorded as their supposedly immutable base.
+ */
+export function isFloatingGitRef(ref: string): boolean {
+	const normalized = ref.trim();
+	return normalized === "HEAD" || normalized === "@" || normalized === "refs/heads/HEAD";
+}
+
+export type ResolveBaseBranchResult = { ok: true; branch: string } | { ok: false; error: string };
+
+/**
+ * Resolves a requested task base ref to a concrete local branch name.
+ *
+ * Floating refs are replaced by the branch `repoPath` currently has checked out, so
+ * the value recorded at worktree creation keeps meaning the same commit lineage after
+ * the home repo moves on. A ref that is neither floating nor a local branch is passed
+ * through untouched (tags and raw commits are legitimate bases; they just cannot be
+ * merged into later, which the merge endpoint reports).
+ */
+export async function resolveConcreteBaseBranch(
+	repoPath: string,
+	requestedBaseRef: string,
+): Promise<ResolveBaseBranchResult> {
+	const normalized = requestedBaseRef.trim();
+	if (!normalized) {
+		return { ok: false, error: "Task base branch is required for worktree creation." };
+	}
+	if (!isFloatingGitRef(normalized)) {
+		return { ok: true, branch: normalized };
+	}
+	const headBranch = await runGit(repoPath, ["symbolic-ref", "--quiet", "--short", "HEAD"]);
+	if (!headBranch.ok || !headBranch.stdout) {
+		return {
+			ok: false,
+			error: `Pick a base branch — '${normalized}' is not a fixed ref and this repository has a detached HEAD.`,
+		};
+	}
+	return { ok: true, branch: headBranch.stdout };
+}
+
 export function getGitCommandErrorMessage(error: unknown): string {
 	if (error && typeof error === "object" && "stderr" in error) {
 		const stderr = (error as { stderr?: unknown }).stderr;

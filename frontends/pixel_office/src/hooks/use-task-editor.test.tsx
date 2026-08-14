@@ -7,6 +7,7 @@ import type {
 	RuntimeAgentId,
 	RuntimeTaskClineSettings,
 	RuntimeTaskLaunchSettings,
+	RuntimeTaskWorkspaceInfoResponse,
 } from "@/runtime/types";
 import { addTaskDependency } from "@/state/board-state";
 import type { BoardCard, BoardData, TaskAutoReviewMode, TaskImage } from "@/types";
@@ -50,6 +51,7 @@ interface HookSnapshot {
 	editingTaskId: string | null;
 	editTaskPrompt: string;
 	editTaskBranchRef: string;
+	isEditTaskBaseRefLocked: boolean;
 	editTaskStartInPlanMode: boolean;
 	isEditTaskStartInPlanModeDisabled: boolean;
 	handleOpenCreateTask: () => void;
@@ -61,6 +63,7 @@ interface HookSnapshot {
 	handleSaveEditedTask: () => string | null;
 	handleSaveAndStartEditedTask: () => void;
 	setEditTaskPrompt: (value: string) => void;
+	setEditTaskBranchRef: (value: string) => void;
 	setEditTaskAutoReviewEnabled: (value: boolean) => void;
 	setEditTaskAutoReviewMode: (value: TaskAutoReviewMode) => void;
 	setNewTaskAgentId: (value: RuntimeAgentId | undefined) => void;
@@ -89,12 +92,14 @@ function HookHarness({
 	queueTaskStartAfterEdit,
 	createTaskBranchOptions = [{ value: "main", label: "main" }],
 	defaultTaskBranchRef = "main",
+	fetchTaskWorkspaceInfo,
 }: {
 	initialBoard: BoardData;
 	onSnapshot: (snapshot: HookSnapshot) => void;
 	queueTaskStartAfterEdit?: (taskId: string) => void;
 	createTaskBranchOptions?: Array<{ value: string; label: string }>;
 	defaultTaskBranchRef?: string;
+	fetchTaskWorkspaceInfo?: (task: BoardCard) => Promise<RuntimeTaskWorkspaceInfoResponse | null>;
 }): null {
 	const [board, setBoard] = useState<BoardData>(initialBoard);
 	const [, setSelectedTaskId] = useState<string | null>(null);
@@ -107,6 +112,7 @@ function HookHarness({
 		selectedAgentId: null,
 		setSelectedTaskId,
 		queueTaskStartAfterEdit,
+		fetchTaskWorkspaceInfo,
 	});
 
 	useEffect(() => {
@@ -122,6 +128,7 @@ function HookHarness({
 			editingTaskId: editor.editingTaskId,
 			editTaskPrompt: editor.editTaskPrompt,
 			editTaskBranchRef: editor.editTaskBranchRef,
+			isEditTaskBaseRefLocked: editor.isEditTaskBaseRefLocked,
 			editTaskStartInPlanMode: editor.editTaskStartInPlanMode,
 			isEditTaskStartInPlanModeDisabled: editor.isEditTaskStartInPlanModeDisabled,
 			handleOpenCreateTask: editor.handleOpenCreateTask,
@@ -133,6 +140,7 @@ function HookHarness({
 			handleSaveEditedTask: editor.handleSaveEditedTask,
 			handleSaveAndStartEditedTask: editor.handleSaveAndStartEditedTask,
 			setEditTaskPrompt: editor.setEditTaskPrompt,
+			setEditTaskBranchRef: editor.setEditTaskBranchRef,
 			setEditTaskAutoReviewEnabled: editor.setEditTaskAutoReviewEnabled,
 			setEditTaskAutoReviewMode: editor.setEditTaskAutoReviewMode,
 			setNewTaskAgentId: editor.setNewTaskAgentId,
@@ -154,6 +162,7 @@ function HookHarness({
 		editor.handleOpenCreateTask,
 		editor.editTaskPrompt,
 		editor.editTaskBranchRef,
+		editor.isEditTaskBaseRefLocked,
 		editor.editTaskStartInPlanMode,
 		editor.editingTaskId,
 		editor.handleOpenEditTask,
@@ -170,6 +179,7 @@ function HookHarness({
 		editor.setEditTaskAutoReviewEnabled,
 		editor.setEditTaskAutoReviewMode,
 		editor.setEditTaskPrompt,
+		editor.setEditTaskBranchRef,
 		editor.setNewTaskImages,
 		editor.setNewTaskPrompt,
 		editor.editTaskManagerAccountId,
@@ -321,6 +331,101 @@ describe("useTaskEditor", () => {
 		});
 
 		expect(requireSnapshot(latestSnapshot).editTaskBranchRef).toBe("release/1.0");
+	});
+
+	it("saves the worktree's locked base ref for a started task, not a branch option", async () => {
+		let latestSnapshot: HookSnapshot | null = null;
+		// The card's stored ref drifted to "main"; the worktree was really created from
+		// "release/1.0", which is what the runtime reports back as locked.
+		const initialBoard = createBoard([createTask("task-1", "Initial prompt", 1, { baseRef: "main" })]);
+		const fetchTaskWorkspaceInfo = vi.fn(async () => ({
+			taskId: "task-1",
+			path: "/worktrees/task-1",
+			exists: true,
+			baseRef: "release/1.0",
+			baseRefLocked: true,
+			branch: "kanban/task-1",
+			isDetached: false,
+			headCommit: "abc123",
+		}));
+
+		await act(async () => {
+			root.render(
+				<HookHarness
+					initialBoard={initialBoard}
+					createTaskBranchOptions={[{ value: "main", label: "main" }]}
+					defaultTaskBranchRef="main"
+					fetchTaskWorkspaceInfo={fetchTaskWorkspaceInfo}
+					onSnapshot={(snapshot) => {
+						latestSnapshot = snapshot;
+					}}
+				/>,
+			);
+		});
+
+		const initialSnapshot = requireSnapshot(latestSnapshot);
+		const task = initialSnapshot.board.columns[0]?.cards[0];
+		if (!task) {
+			throw new Error("Expected a backlog task.");
+		}
+
+		await act(async () => {
+			initialSnapshot.handleOpenEditTask(task);
+		});
+
+		expect(requireSnapshot(latestSnapshot).editTaskBranchRef).toBe("release/1.0");
+		expect(requireSnapshot(latestSnapshot).isEditTaskBaseRefLocked).toBe(true);
+
+		await act(async () => {
+			latestSnapshot?.handleSaveEditedTask();
+		});
+
+		expect(requireSnapshot(latestSnapshot).board.columns[0]?.cards[0]?.baseRef).toBe("release/1.0");
+	});
+
+	it("keeps the card's base ref when the editor has no branch value to save", async () => {
+		let latestSnapshot: HookSnapshot | null = null;
+		const initialBoard = createBoard([createTask("task-1", "Initial prompt", 1, { baseRef: "release/1.0" })]);
+
+		await act(async () => {
+			root.render(
+				<HookHarness
+					initialBoard={initialBoard}
+					createTaskBranchOptions={[]}
+					defaultTaskBranchRef=""
+					onSnapshot={(snapshot) => {
+						latestSnapshot = snapshot;
+					}}
+				/>,
+			);
+		});
+
+		const initialSnapshot = requireSnapshot(latestSnapshot);
+		const task = initialSnapshot.board.columns[0]?.cards[0];
+		if (!task) {
+			throw new Error("Expected a backlog task.");
+		}
+
+		await act(async () => {
+			initialSnapshot.handleOpenEditTask(task);
+		});
+		await act(async () => {
+			latestSnapshot?.setEditTaskPrompt("Updated prompt");
+		});
+		// An empty branch field must never fall back to the home repo's current branch.
+		await act(async () => {
+			latestSnapshot?.setEditTaskBranchRef("");
+		});
+
+		let savedTaskId: string | null = null;
+		await act(async () => {
+			savedTaskId = latestSnapshot?.handleSaveEditedTask() ?? null;
+		});
+
+		expect(savedTaskId).toBe("task-1");
+		const savedCard = requireSnapshot(latestSnapshot).board.columns[0]?.cards[0];
+		expect(savedCard?.baseRef).toBe("release/1.0");
+		expect(savedCard?.prompt).toBe("Updated prompt");
 	});
 
 	it("queues the saved task id when saving and starting an edited task", async () => {
