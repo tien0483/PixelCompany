@@ -1353,7 +1353,7 @@ describe("CardDetailView", () => {
 		expect(onRestartTaskSession).toHaveBeenCalledWith("task-1");
 	});
 
-	it("stays quiet when the running session already matches the card's subagent seat", async () => {
+	it("keeps a generic restart available when the running session already matches the card's subagent seat", async () => {
 		const selection = createSelection();
 		selection.card.taskLaunchSettings = {
 			subagentSeatProviderId: "openrouter",
@@ -1386,8 +1386,51 @@ describe("CardDetailView", () => {
 			);
 		});
 
+		// Nothing drifted, so the section stays collapsed until the user opens it.
+		await act(async () => {
+			(
+				container.querySelector(
+					'[data-testid="task-config-toggle"]',
+				) as HTMLButtonElement
+			).click();
+		});
+
 		expect(
-			container.querySelector('[data-testid="restart-task-with-account"]'),
+			container.querySelector('[data-testid="restart-task-with-account"]')
+				?.textContent,
+		).toBe("Restart session");
+	});
+
+	it("hides the config restart control for a session that is not live", async () => {
+		await act(async () => {
+			root.render(
+				<CardDetailView
+					selection={createSelection()}
+					currentProjectId="workspace-1"
+					sessionSummary={createSessionSummary({
+						state: "idle",
+						startedAt: null,
+					})}
+					taskSessions={{}}
+					onSessionSummary={() => {}}
+					onCardSelect={() => {}}
+					onTaskDragEnd={() => {}}
+					onMoveToTrash={() => {}}
+					bottomTerminalOpen={false}
+					bottomTerminalTaskId={null}
+					bottomTerminalSummary={null}
+					onBottomTerminalClose={() => {}}
+					managerAccounts={[createManagerAccount(1)]}
+					onTaskManagerAccountChanged={() => {}}
+					onTaskLaunchSettingsChanged={() => {}}
+					onRestartTaskSession={() => {}}
+					restartTaskLoadingById={{}}
+				/>,
+			);
+		});
+
+		expect(
+			container.querySelector('[data-testid="task-config-restart-strip"]'),
 		).toBeNull();
 	});
 
