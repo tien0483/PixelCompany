@@ -784,30 +784,30 @@ export function ManagerAccountsView({
 	};
 
 	/**
-	 * Fleet-wide donate-cap switch. On: push every eligible seat to 100% and
-	 * remember where it was. Off: put each remembered seat back.
+	 * Fleet-wide donate-cap switch. On: push every seat to 100% and remember
+	 * where it was. Off: put each remembered seat back.
 	 *
 	 * Fans the existing per-seat `updateAccount` mutation out over the fleet —
-	 * there is no bulk endpoint. Locked seats (and seats whose own slider is
-	 * disabled) are skipped rather than failed; the count lands in the status
-	 * line. Partial success still flips the toggle so the seats that did move can
-	 * be restored later.
+	 * there is no bulk endpoint. Nothing is exempt: `allowLocked` carries locked
+	 * caps past jacked's 400 `DONATE_LIMIT_LOCKED`, and disabled / CC-unauthed
+	 * seats move too, even though each seat's own slider still refuses. Partial
+	 * success still flips the toggle so the seats that did move can be restored
+	 * later.
 	 */
 	const handleToggleDonateBoost = async (): Promise<{
 		ok: boolean;
 		error?: string;
 	}> => {
 		const fleet = managedAccounts(manager?.accounts ?? []);
+		if (fleet.length === 0) {
+			return { ok: false, error: "No Claude or Cursor seat to donate from." };
+		}
 		const restoring = donateBoost.active;
 		const boostPlan = restoring ? null : planDonateBoost(fleet);
 		const restorePlan = restoring ? planDonateRestore(fleet, donateBoost) : null;
-		const { patches, skipped } = boostPlan ?? restorePlan ?? { patches: [], skipped: 0 };
-		if (boostPlan && Object.keys(boostPlan.prior).length === 0) {
-			return {
-				ok: false,
-				error: "No seat can take a donate cap — every seat is locked, off, or needs CC auth.",
-			};
-		}
+		const patches = boostPlan?.patches ?? restorePlan?.patches ?? [];
+		// Boost never skips; restore does, when a seat is gone or was moved by hand.
+		const skipped = restorePlan?.skipped ?? 0;
 
 		const client = getRuntimeTrpcClient(null);
 		const results = await Promise.allSettled(
@@ -815,6 +815,7 @@ export function ManagerAccountsView({
 				client.manager.updateAccount.mutate({
 					accountId: patch.accountId,
 					donateLimitPercent: patch.percent,
+					allowLocked: true,
 				}),
 			),
 		);
@@ -840,11 +841,7 @@ export function ManagerAccountsView({
 		}
 		const notes: string[] = [];
 		if (skipped > 0) {
-			notes.push(
-				restoring
-					? `${skipped} skipped: gone or changed since`
-					: `${skipped} skipped: locked, off, or needs CC auth`,
-			);
+			notes.push(`${skipped} skipped: gone or changed since`);
 		}
 		if (failed > 0) {
 			notes.push(`${failed} failed`);

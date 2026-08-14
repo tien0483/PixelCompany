@@ -4,7 +4,6 @@ import {
 	type DonateBoostAccount,
 	type DonateBoostRecord,
 	clearDonateBoost,
-	isDonateBoostEligible,
 	planDonateBoost,
 	planDonateRestore,
 	readDonateBoost,
@@ -14,12 +13,7 @@ import { LocalStorageKey } from "@/storage/local-storage-store";
 
 function seat(overrides: Partial<DonateBoostAccount> & { id: number }): DonateBoostAccount {
 	return {
-		provider: "claude",
 		donateLimitPercent: 70,
-		donateLimitLocked: false,
-		isActive: true,
-		hasCcToken: true,
-		ccNeedsAuth: false,
 		...overrides,
 	};
 }
@@ -28,40 +22,20 @@ function boosted(prior: Record<string, number>): DonateBoostRecord {
 	return { v: 1, active: true, prior };
 }
 
-describe("isDonateBoostEligible", () => {
-	it("accepts a healthy, enabled Claude seat", () => {
-		expect(isDonateBoostEligible(seat({ id: 1 }))).toBe(true);
-	});
-
-	it("refuses locked, deactivated and CC-auth-pending seats", () => {
-		expect(isDonateBoostEligible(seat({ id: 1, donateLimitLocked: true }))).toBe(false);
-		expect(isDonateBoostEligible(seat({ id: 2, isActive: false }))).toBe(false);
-		expect(isDonateBoostEligible(seat({ id: 3, hasCcToken: false }))).toBe(false);
-		expect(isDonateBoostEligible(seat({ id: 4, ccNeedsAuth: true }))).toBe(false);
-	});
-
-	it("does not require CC tokens from a Cursor seat", () => {
-		expect(
-			isDonateBoostEligible(
-				seat({ id: 5, provider: "cursor", hasCcToken: false, ccNeedsAuth: true }),
-			),
-		).toBe(true);
-	});
-});
-
 describe("planDonateBoost", () => {
-	it("patches every eligible seat to 100 and counts the rest as skipped", () => {
+	it("patches every seat to 100, exempting none", () => {
 		const plan = planDonateBoost([
 			seat({ id: 1, donateLimitPercent: 40 }),
 			seat({ id: 2, donateLimitPercent: 70 }),
-			seat({ id: 3, donateLimitPercent: 30, donateLimitLocked: true }),
-			seat({ id: 4, donateLimitPercent: 50, isActive: false }),
+			seat({ id: 3, donateLimitPercent: 30 }),
+			seat({ id: 4, donateLimitPercent: 50 }),
 		]);
 		expect(plan.patches).toEqual([
 			{ accountId: 1, percent: 100 },
 			{ accountId: 2, percent: 100 },
+			{ accountId: 3, percent: 100 },
+			{ accountId: 4, percent: 100 },
 		]);
-		expect(plan.skipped).toBe(2);
 	});
 
 	it("remembers an already-maxed seat without patching it", () => {
@@ -96,13 +70,19 @@ describe("planDonateRestore", () => {
 		expect(plan.skipped).toBe(1);
 	});
 
-	it("skips seats that disappeared or stopped being eligible", () => {
+	it("skips only seats that disappeared from the fleet", () => {
 		const plan = planDonateRestore(
-			[seat({ id: 2, donateLimitPercent: 100, isActive: false })],
+			[seat({ id: 2, donateLimitPercent: 100 })],
 			boosted({ "1": 40, "2": 50 }),
 		);
-		expect(plan.patches).toEqual([]);
-		expect(plan.skipped).toBe(2);
+		expect(plan.patches).toEqual([{ accountId: 2, percent: 50 }]);
+		expect(plan.skipped).toBe(1);
+	});
+
+	it("restores a locked seat to its remembered cap", () => {
+		const plan = planDonateRestore([seat({ id: 1, donateLimitPercent: 100 })], boosted({ "1": 52 }));
+		expect(plan.patches).toEqual([{ accountId: 1, percent: 52 }]);
+		expect(plan.skipped).toBe(0);
 	});
 
 	it("does not patch a seat that started out maxed", () => {

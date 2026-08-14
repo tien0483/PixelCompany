@@ -207,6 +207,10 @@ class AccountPatchRequest(BaseModel):
     display_name: Optional[str] = Field(None, max_length=50)
     is_active: Optional[bool] = None
     donate_limit_percent: Optional[int] = Field(None, ge=0, le=100)
+    # Per-request override of the donate-cap lock. Only the fleet-wide
+    # "Max donate" toggle sets it; a single seat's slider never does, and the
+    # lock itself is never cleared.
+    allow_locked: bool = False
 
 
 class ReorderRequest(BaseModel):
@@ -824,14 +828,17 @@ async def update_account(account_id: int, body: AccountPatchRequest, request: Re
     if has_active:
         patch_fields["is_active"] = body.is_active
     if has_donate:
-        if account.get("donate_limit_locked"):
+        # A locked cap was agreed in the paste-code invite email, so a single
+        # seat's slider can never move it. The fleet-wide "Max donate" toggle
+        # opts out with allow_locked — the lock flag itself stays set either way.
+        if account.get("donate_limit_locked") and not body.allow_locked:
             return JSONResponse(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 content={
                     "error": {
                         "message": (
                             "Donate limit is locked for this seat — it was agreed "
-                            "in the paste-code invite email and cannot be changed."
+                            "in the paste-code invite email."
                         ),
                         "code": "DONATE_LIMIT_LOCKED",
                     }

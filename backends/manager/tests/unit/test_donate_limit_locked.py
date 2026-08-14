@@ -62,6 +62,19 @@ def test_patch_donate_rejected_when_locked(client, db):
     assert row["donate_limit_percent"] == 52
 
 
+def test_patch_donate_allowed_when_locked_with_allow_locked(client, db):
+    resp = client.patch(
+        "/api/auth/accounts/1",
+        json={"donate_limit_percent": 100, "allow_locked": True},
+    )
+    assert resp.status_code == 200
+    row = db.get_account(1)
+    assert row["donate_limit_percent"] == 100
+    # The override is per-request — the seat stays flagged as locked.
+    assert row["donate_limit_locked"] == 1
+    assert resp.json()["donate_limit_locked"] is True
+
+
 def test_patch_donate_allowed_when_unlocked(client, db):
     resp = client.patch("/api/auth/accounts/2", json={"donate_limit_percent": 70})
     assert resp.status_code == 200
