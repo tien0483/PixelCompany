@@ -57,6 +57,22 @@ function createFakeSnapshotStore(): TerminalSnapshotStore & { records: Map<strin
 	};
 }
 
+interface EntryHandle {
+	terminalStateMirror: unknown;
+}
+
+function getEntry(manager: TerminalSessionManager, taskId: string): EntryHandle {
+	const entry = (manager as unknown as { entries: Map<string, EntryHandle> }).entries.get(taskId);
+	if (!entry) {
+		throw new Error(`Expected a session entry for ${taskId}.`);
+	}
+	return entry;
+}
+
+async function persistSnapshotNow(manager: TerminalSessionManager, taskId: string): Promise<void> {
+	await (manager as unknown as { persistSnapshotNow: (id: string) => Promise<void> }).persistSnapshotNow(taskId);
+}
+
 async function startSpawnedTask(
 	manager: TerminalSessionManager,
 	taskId: string,
@@ -197,6 +213,40 @@ describe("TerminalSessionManager scrollback snapshot persistence", () => {
 			expect(store.save).toHaveBeenCalled();
 		});
 		expect(store.records.get("task-1")?.snapshot).toContain("last words before crashing");
+	});
+
+	it("skips the write when the mirror was disposed while the snapshot was in flight", async () => {
+		const store = createFakeSnapshotStore();
+		const manager = new TerminalSessionManager({ snapshotStore: store });
+		await startSpawnedTask(manager, "task-1");
+		const entry = getEntry(manager, "task-1");
+		// A disposed mirror answers null instead of serializing a dead terminal.
+		entry.terminalStateMirror = { getSnapshot: vi.fn(async () => null) };
+
+		await persistSnapshotNow(manager, "task-1");
+
+		expect(store.save).not.toHaveBeenCalled();
+	});
+
+	it("skips the write when a restart swapped in a fresh mirror mid-serialize", async () => {
+		const store = createFakeSnapshotStore();
+		const manager = new TerminalSessionManager({ snapshotStore: store });
+		await startSpawnedTask(manager, "task-1");
+		const entry = getEntry(manager, "task-1");
+		const replacementMirror = { getSnapshot: vi.fn() };
+		// The dying mirror still resolves (its terminal is disposed only after the serialize
+		// returns), but by then the entry points at the restarted session's mirror — writing
+		// the old run's scrollback now would clobber the new session's record.
+		entry.terminalStateMirror = {
+			getSnapshot: vi.fn(async () => {
+				entry.terminalStateMirror = replacementMirror;
+				return { snapshot: "output from the previous run", cols: 80, rows: 24 };
+			}),
+		};
+
+		await persistSnapshotNow(manager, "task-1");
+
+		expect(store.save).not.toHaveBeenCalled();
 	});
 
 	it("is a no-op when no snapshot store is configured", async () => {
