@@ -89,6 +89,8 @@ export interface ManagerClient {
 		isActive?: boolean;
 		displayName?: string | null;
 		donateLimitPercent?: number;
+		/** Move a locked donate cap anyway — only the fleet-wide "Max donate" toggle sets this. */
+		allowLocked?: boolean;
 	}) => Promise<{ ok: boolean; error?: string }>;
 	/** Soft-delete an account; jacked refuses to remove the primary while others are active. */
 	deleteAccount: (accountId: number) => Promise<{ ok: boolean; error?: string }>;
@@ -778,7 +780,7 @@ export function createManagerClient(deps: CreateManagerClientDependencies): Mana
 			await mutate("/api/auth/accounts/refresh-all-usage", { method: "POST" }, LONG_REQUEST_TIMEOUT_MS),
 		reconcileActive: async () =>
 			await mutate("/api/auth/reconcile-active", { method: "POST" }, LONG_REQUEST_TIMEOUT_MS),
-		updateAccount: async ({ accountId, isActive, displayName, donateLimitPercent }) => {
+		updateAccount: async ({ accountId, isActive, displayName, donateLimitPercent, allowLocked }) => {
 			// jacked rejects an empty patch, and `display_name` is keyed off presence
 			// (not null-ness), so only send what the caller actually set.
 			const body: Record<string, unknown> = {};
@@ -791,8 +793,13 @@ export function createManagerClient(deps: CreateManagerClientDependencies): Mana
 			if (donateLimitPercent !== undefined) {
 				body.donate_limit_percent = donateLimitPercent;
 			}
+			// Counted out of the emptiness check on purpose: `allow_locked` is a
+			// modifier on `donate_limit_percent`, never a field to update on its own.
 			if (Object.keys(body).length === 0) {
 				return { ok: false, error: "Nothing to update." };
+			}
+			if (allowLocked !== undefined) {
+				body.allow_locked = allowLocked;
 			}
 			return await mutate(`/api/auth/accounts/${String(accountId)}`, {
 				method: "PATCH",

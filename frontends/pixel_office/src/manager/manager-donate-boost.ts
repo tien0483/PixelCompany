@@ -33,17 +33,13 @@ export const INACTIVE_DONATE_BOOST: DonateBoostRecord = {
 	prior: {},
 };
 
-/** The subset of a seat the boost planners need. */
-export type DonateBoostAccount = Pick<
-	RuntimeManagerAccount,
-	| "id"
-	| "provider"
-	| "donateLimitPercent"
-	| "donateLimitLocked"
-	| "isActive"
-	| "hasCcToken"
-	| "ccNeedsAuth"
->;
+/**
+ * The subset of a seat the boost planners need.
+ *
+ * Deliberately narrow: the bulk action is a fleet-wide override, so it reads no
+ * lock, seat-enabled or CC-auth state — see `planDonateBoost`.
+ */
+export type DonateBoostAccount = Pick<RuntimeManagerAccount, "id" | "donateLimitPercent">;
 
 export interface DonateBoostPatch {
 	accountId: number;
@@ -52,17 +48,15 @@ export interface DonateBoostPatch {
 
 export interface DonateBoostPlan {
 	patches: DonateBoostPatch[];
-	/** Pre-boost cap of every eligible seat, keyed the same way as the record. */
+	/** Pre-boost cap of every seat in the fleet, keyed the same way as the record. */
 	prior: Record<string, number>;
-	/** Seats the bulk action refuses to touch (locked, off, or needing CC auth). */
-	skipped: number;
 }
 
 export interface DonateRestorePlan {
 	patches: DonateBoostPatch[];
 	/**
-	 * Remembered seats left alone: deleted, no longer eligible, or moved off 100%
-	 * by hand since the boost.
+	 * Remembered seats left alone: gone from the fleet, or moved off 100% by hand
+	 * since the boost.
 	 */
 	skipped: number;
 }
@@ -109,32 +103,18 @@ export function clearDonateBoost(): void {
 }
 
 /**
- * True when the bulk action may move this seat's cap.
+ * Plans "Max donate": push every seat to 100%, remembering where it was.
  *
- * Mirrors the per-row slider's own disable rule (`AccountRow` in
- * `manager-accounts-view.tsx`) so the toolbar never silently changes a seat
- * whose slider is greyed out. Only `donateLimitLocked` is enforced server-side
- * (PATCH answers 400 `DONATE_LIMIT_LOCKED`); the other two are UI parity.
+ * No seat is exempt — not a locked cap, not a disabled seat, not one still
+ * needing CC auth. The bulk toggle is an explicit fleet-wide override, so it
+ * deliberately does *not* mirror the per-row slider's disable rule; locked seats
+ * ride through on `allowLocked` (jacked would answer 400 `DONATE_LIMIT_LOCKED`
+ * otherwise). Each seat's own slider stays locked either way.
  */
-export function isDonateBoostEligible(account: DonateBoostAccount): boolean {
-	if (account.donateLimitLocked || !account.isActive) {
-		return false;
-	}
-	const ccAuthRequired =
-		account.provider !== "cursor" && (!account.hasCcToken || account.ccNeedsAuth);
-	return !ccAuthRequired;
-}
-
-/** Plans "Max donate": push every eligible seat to 100%, remembering where it was. */
 export function planDonateBoost(accounts: readonly DonateBoostAccount[]): DonateBoostPlan {
 	const patches: DonateBoostPatch[] = [];
 	const prior: Record<string, number> = {};
-	let skipped = 0;
 	for (const account of accounts) {
-		if (!isDonateBoostEligible(account)) {
-			skipped += 1;
-			continue;
-		}
 		// Recorded even when the seat is already maxed, so restore puts it back
 		// at 100 instead of forgetting it.
 		prior[String(account.id)] = account.donateLimitPercent;
@@ -142,7 +122,7 @@ export function planDonateBoost(accounts: readonly DonateBoostAccount[]): Donate
 			patches.push({ accountId: account.id, percent: DONATE_BOOST_TARGET_PERCENT });
 		}
 	}
-	return { patches, prior, skipped };
+	return { patches, prior };
 }
 
 /**
@@ -160,11 +140,7 @@ export function planDonateRestore(
 	let skipped = 0;
 	for (const [key, percent] of Object.entries(record.prior)) {
 		const account = byId.get(key);
-		if (
-			account === undefined ||
-			!isDonateBoostEligible(account) ||
-			account.donateLimitPercent !== DONATE_BOOST_TARGET_PERCENT
-		) {
+		if (account === undefined || account.donateLimitPercent !== DONATE_BOOST_TARGET_PERCENT) {
 			skipped += 1;
 			continue;
 		}

@@ -226,6 +226,7 @@ export function createManagerApi(deps: CreateManagerApiDependencies): RuntimeTrp
 					...(input.isActive === undefined ? {} : { isActive: input.isActive }),
 					...(input.displayName === undefined ? {} : { displayName: input.displayName }),
 					...(input.donateLimitPercent === undefined ? {} : { donateLimitPercent: input.donateLimitPercent }),
+					...(input.allowLocked === undefined ? {} : { allowLocked: input.allowLocked }),
 				}),
 			);
 		},

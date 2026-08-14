@@ -467,6 +467,29 @@ describe("createManagerClient", () => {
 		vi.unstubAllGlobals();
 	});
 
+	it("sends allow_locked alongside a donate cap when the caller overrides a lock", async () => {
+		const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => ({
+			ok: true,
+			json: async () => ({ id: 4 }),
+		}));
+		vi.stubGlobal("fetch", fetchMock);
+
+		const client = createManagerClient({ baseUrl: "http://127.0.0.1:8321", warn: vi.fn() });
+		const result = await client.updateAccount({
+			accountId: 4,
+			donateLimitPercent: 100,
+			allowLocked: true,
+		});
+
+		expect(result.ok).toBe(true);
+		expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
+			donate_limit_percent: 100,
+			allow_locked: true,
+		});
+		client.close();
+		vi.unstubAllGlobals();
+	});
+
 	it("parses usage resets, cache age, subscription, and donate limit", async () => {
 		const fetchMock = vi.fn(async (url: string) => {
 			const path = String(url);
@@ -541,6 +564,19 @@ describe("createManagerClient", () => {
 
 		const client = createManagerClient({ baseUrl: "http://127.0.0.1:8321", warn: vi.fn() });
 		const result = await client.updateAccount({ accountId: 4 });
+
+		expect(result).toEqual({ ok: false, error: "Nothing to update." });
+		expect(fetchMock).not.toHaveBeenCalled();
+		client.close();
+		vi.unstubAllGlobals();
+	});
+
+	it("treats allow_locked on its own as an empty patch", async () => {
+		const fetchMock = vi.fn();
+		vi.stubGlobal("fetch", fetchMock);
+
+		const client = createManagerClient({ baseUrl: "http://127.0.0.1:8321", warn: vi.fn() });
+		const result = await client.updateAccount({ accountId: 4, allowLocked: true });
 
 		expect(result).toEqual({ ok: false, error: "Nothing to update." });
 		expect(fetchMock).not.toHaveBeenCalled();

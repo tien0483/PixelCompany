@@ -1010,6 +1010,12 @@ export const RuntimeManagerAccountUpdateRequestSchema = z.object({
 	isActive: z.boolean().optional(),
 	displayName: z.string().max(200).nullable().optional(),
 	donateLimitPercent: z.number().int().min(0).max(100).optional(),
+	/**
+	 * Move a locked donate cap anyway (jacked answers 400 `DONATE_LIMIT_LOCKED`
+	 * without it). Only the fleet-wide "Max donate" toggle sets this; a single
+	 * seat's slider never does, and the lock flag is never cleared.
+	 */
+	allowLocked: z.boolean().optional(),
 });
 export type RuntimeManagerAccountUpdateRequest = z.infer<typeof RuntimeManagerAccountUpdateRequestSchema>;
 
