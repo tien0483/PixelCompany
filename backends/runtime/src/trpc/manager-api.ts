@@ -329,8 +329,12 @@ export function createManagerApi(deps: CreateManagerApiDependencies): RuntimeTrp
 			const lookup = await lookupManagedAccount(accountId);
 			return lookup.account?.provider ?? null;
 		},
-		getInstallationsOverview: async (): Promise<RuntimeManagerInstallationsOverview | null> => {
-			return await deps.client.fetchInstallationsOverview();
+		getInstallationsOverview: async (
+			workspaceId?: string,
+		): Promise<RuntimeManagerInstallationsOverview | null> => {
+			// Same scoping as `features`: install state is per project, so the readout has
+			// to look at the repo the toggles wrote to, not the global `~/.claude`.
+			return await deps.client.fetchInstallationsOverview(await resolveRepoPath(workspaceId));
 		},
 		getServerLogs: async (limit?: number): Promise<RuntimeManagerServerLogs | null> => {
 			return await deps.client.fetchServerLogs(limit);

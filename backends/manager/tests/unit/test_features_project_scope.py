@@ -178,3 +178,52 @@ class TestTraversalGuard:
         response = _toggle("agents", "../../escape", True, repo_path=str(repo))
         assert getattr(response, "status_code", None) == 422
         assert not (tmp_path / "escape.md").exists()
+
+
+class TestInstallationsOverviewIsProjectScoped:
+    """`/api/installations/overview` used to read ~/.claude regardless of project,
+    so every per-project install showed as missing in the Installations view."""
+
+    @staticmethod
+    def _overview(repo_path=None):
+        from manager.api.routes.system import installations_overview
+
+        return _run(installations_overview(request=_Request(), repo_path=repo_path))
+
+    @staticmethod
+    def _installed(overview, section, name):
+        items = getattr(overview.global_install, section)
+        return [i.installed for i in items if i.name == name]
+
+    def test_project_install_reads_back_for_that_project_only(self, tmp_path):
+        repo_a = tmp_path / "project-a"
+        repo_a.mkdir()
+        repo_b = tmp_path / "project-b"
+        repo_b.mkdir()
+        _toggle("knowledge", "skill_dcr", True, repo_path=str(repo_a))
+        _toggle("agents", "qa-bot", True, repo_path=str(repo_a))
+        _toggle("commands", "ship", True, repo_path=str(repo_a))
+
+        overview_a = self._overview(str(repo_a))
+        assert self._installed(overview_a, "skills", "skill_dcr") == [True]
+        assert self._installed(overview_a, "agents", "qa-bot") == [True]
+        assert self._installed(overview_a, "commands", "ship") == [True]
+
+        overview_b = self._overview(str(repo_b))
+        assert self._installed(overview_b, "skills", "skill_dcr") == [False]
+        assert self._installed(overview_b, "agents", "qa-bot") == [False]
+        assert self._installed(overview_b, "commands", "ship") == [False]
+
+    def test_no_repo_path_still_reads_the_global_dir(self, tmp_path):
+        repo = tmp_path / "project-a"
+        repo.mkdir()
+        _toggle("knowledge", "skill_dcr", True, repo_path=str(repo))
+
+        # The project install must not leak into the global readout.
+        assert self._installed(self._overview(None), "skills", "skill_dcr") == [False]
+
+    def test_hooks_stay_machine_wide(self, tmp_path):
+        repo = tmp_path / "project-a"
+        repo.mkdir()
+        # Hooks patch settings.json, not <repo>/.claude, so scoping must not touch them.
+        assert [h.name for h in self._overview(str(repo)).global_install.hooks] == ["sounds"]

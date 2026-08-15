@@ -165,7 +165,9 @@ export function ManagerSidebarSection({
 				/>
 			) : null}
 			{route === "workflows" ? <WorkflowsView online={online} workspaceId={workspaceId} /> : null}
-			{route === "installations" ? <ManagerInstallationsView online={online} /> : null}
+			{route === "installations" ? (
+				<ManagerInstallationsView online={online} workspaceId={workspaceId} />
+			) : null}
 			{route === "settings" ? <ManagerSettingsView online={online} manager={manager} /> : null}
 			{route === "logs" ? <ManagerLogsView online={online} /> : null}
 			{route === "analytics" ? <ManagerAnalyticsView online={online} /> : null}

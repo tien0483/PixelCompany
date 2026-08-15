@@ -55,8 +55,13 @@ const FEATURE_CATEGORIES: RuntimeManagerFeatureCategory[] = ["agents", "commands
 
 /** `/api/features`, scoped to a project when one is selected. */
 function featuresPath(repoPath?: string | null): string {
+	return withRepoPath("/api/features", repoPath);
+}
+
+/** Append `repo_path` when a project is selected; Manager falls back to global without it. */
+function withRepoPath(path: string, repoPath?: string | null): string {
 	const trimmed = repoPath?.trim();
-	return trimmed ? `/api/features?repo_path=${encodeURIComponent(trimmed)}` : "/api/features";
+	return trimmed ? `${path}?repo_path=${encodeURIComponent(trimmed)}` : path;
 }
 
 export interface ManagerClient {
@@ -121,7 +126,9 @@ export interface ManagerClient {
 	reimportCursorAccount: (
 		accountId: number,
 	) => Promise<{ ok: boolean; error?: string; accountId?: number; email?: string }>;
-	fetchInstallationsOverview: () => Promise<RuntimeManagerInstallationsOverview | null>;
+	fetchInstallationsOverview: (
+		repoPath?: string | null,
+	) => Promise<RuntimeManagerInstallationsOverview | null>;
 	fetchServerLogs: (limit?: number) => Promise<RuntimeManagerServerLogs | null>;
 	fetchHookLogs: (limit?: number) => Promise<RuntimeManagerHookLogs | null>;
 	fetchUsageOverview: (days?: number) => Promise<RuntimeManagerUsageOverview | null>;
@@ -1041,8 +1048,12 @@ export function createManagerClient(deps: CreateManagerClientDependencies): Mana
 				clearTimeout(timeout);
 			}
 		},
-		fetchInstallationsOverview: async () => {
-			const raw = await request("/api/installations/overview", undefined, LONG_REQUEST_TIMEOUT_MS);
+		fetchInstallationsOverview: async (repoPath) => {
+			const raw = await request(
+				withRepoPath("/api/installations/overview", repoPath),
+				undefined,
+				LONG_REQUEST_TIMEOUT_MS,
+			);
 			return parseInstallationsOverview(raw);
 		},
 		fetchServerLogs: async (limit = 100) => {
