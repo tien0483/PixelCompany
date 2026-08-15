@@ -22,7 +22,7 @@ import {
 	resolveChainWorktreeOwnerTaskId,
 	updateTask,
 } from "@/state/board-state";
-import { computeChainGroups } from "@/state/chain-groups";
+import { computeChainGroups, isTaskInChain } from "@/state/chain-groups";
 import { clearTaskWorkspaceInfo, setTaskWorkspaceInfo } from "@/stores/workspace-metadata-store";
 import type { SendTerminalInputOptions } from "@/terminal/terminal-input";
 import type { BoardCard, BoardColumnId, BoardData } from "@/types";
@@ -453,6 +453,7 @@ export function useBoardInteractions({
 	);
 
 	useEffect(() => {
+		const chainParkedTaskIds: string[] = [];
 		setBoard((currentBoard) => {
 			let nextBoard = currentBoard;
 			const previousSessions = previousSessionsRef.current;
@@ -502,6 +503,15 @@ export function useBoardInteractions({
 					columnId &&
 					columnId !== "trash"
 				) {
+					// A chain member never gets force-trashed on interrupt/restart: doing so used
+					// to strand every queued follower (worktree never handed off, no unlock) with
+					// no way back. Park it in place instead — the paused-session reconciler guard
+					// above already leaves paused sessions alone, this is the same idea for an
+					// interrupted one. Still stop the dead session so no process is left running.
+					if (isTaskInChain(nextBoard.dependencies, summary.taskId)) {
+						chainParkedTaskIds.push(summary.taskId);
+						continue;
+					}
 					const nextTaskId = getNextDetailTaskIdAfterTrashMove(nextBoard, summary.taskId);
 					const programmaticMoveAttempt = tryProgrammaticCardMove(summary.taskId, columnId, "trash", {
 						skipTrashWorkflow: true,
@@ -536,7 +546,17 @@ export function useBoardInteractions({
 			previousSessionsRef.current = nextPreviousSessions;
 			return nextBoard;
 		});
-	}, [programmaticCardMoveCycle, sessions, setBoard, setSelectedTaskId, tryProgrammaticCardMove]);
+		for (const taskId of chainParkedTaskIds) {
+			void stopTaskSession(taskId);
+		}
+	}, [
+		programmaticCardMoveCycle,
+		sessions,
+		setBoard,
+		setSelectedTaskId,
+		stopTaskSession,
+		tryProgrammaticCardMove,
+	]);
 
 	const {
 		confirmMoveTaskToTrash,

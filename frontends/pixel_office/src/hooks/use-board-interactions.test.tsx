@@ -1127,4 +1127,94 @@ describe("useBoardInteractions", () => {
 			);
 		});
 	});
+
+	describe("chain member interrupted handling", () => {
+		function createChainInProgressBoard(head: BoardCard, follower: BoardCard): BoardData {
+			return {
+				columns: [
+					{ id: "backlog", title: "Backlog", cards: [] },
+					{ id: "in_progress", title: "In Progress", cards: [head, follower] },
+					{ id: "review", title: "Review", cards: [] },
+					{ id: "trash", title: "Done", cards: [] },
+				],
+				dependencies: [
+					{
+						id: "dep-1",
+						fromTaskId: follower.id,
+						toTaskId: head.id,
+						createdAt: 1,
+						chain: true,
+					},
+				],
+			};
+		}
+
+		it("parks an interrupted chain head in place instead of force-trashing it", async () => {
+			const head = createTask("chain-head", "Chain head task", 1);
+			const follower = createTask("chain-follower", "Chain follower task", 2);
+			const board = createChainInProgressBoard(head, follower);
+			const setBoard = vi.fn<Dispatch<SetStateAction<BoardData>>>((nextBoard) => {
+				board.columns = (typeof nextBoard === "function" ? nextBoard(board) : nextBoard).columns;
+			});
+			const stopTaskSession = vi.fn(async () => {});
+
+			useProgrammaticCardMovesMock.mockReturnValue({
+				handleProgrammaticCardMoveReady: () => {},
+				setRequestMoveTaskToTrashHandler: () => {},
+				tryProgrammaticCardMove: () => "unavailable",
+				consumeProgrammaticCardMove: () => ({}),
+				resolvePendingProgrammaticTrashMove: () => {},
+				waitForProgrammaticCardMoveAvailability: async () => {},
+				resetProgrammaticCardMoves: () => {},
+				requestMoveTaskToTrashWithAnimation: async () => {},
+				programmaticCardMoveCycle: 0,
+			});
+			useLinkedBacklogTaskActionsMock.mockReturnValue({
+				handleCreateDependency: () => {},
+				handleDeleteDependency: () => {},
+				confirmMoveTaskToTrash: async () => {},
+				requestMoveTaskToTrash: async () => {},
+			});
+
+			let latestSnapshot: HookSnapshot | null = null;
+			await act(async () => {
+				root.render(
+					<HookHarness
+						board={board}
+						setBoard={setBoard}
+						ensureTaskWorkspace={async () => ({ ok: true as const })}
+						startTaskSession={async () => ({ ok: true as const })}
+						stopTaskSession={stopTaskSession}
+						onSnapshot={(snapshot) => {
+							latestSnapshot = snapshot;
+						}}
+					/>,
+				);
+			});
+			if (!latestSnapshot) {
+				throw new Error("Expected a hook snapshot.");
+			}
+
+			await act(async () => {
+				latestSnapshot!.setSessions({
+					[head.id]: createSessionSummary({
+						taskId: head.id,
+						state: "interrupted",
+						pausedAt: null,
+						pid: null,
+						updatedAt: 2,
+					}),
+				});
+			});
+
+			expect(board.columns.find((column) => column.id === "in_progress")?.cards.map((card) => card.id)).toEqual([
+				head.id,
+				follower.id,
+			]);
+			expect(board.columns.find((column) => column.id === "trash")?.cards.map((card) => card.id)).not.toContain(
+				head.id,
+			);
+			expect(stopTaskSession).toHaveBeenCalledWith(head.id);
+		});
+	});
 });
