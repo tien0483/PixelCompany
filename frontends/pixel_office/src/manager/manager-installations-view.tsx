@@ -9,6 +9,8 @@ import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
 
 interface ManagerInstallationsViewProps {
 	online: boolean;
+	/** Selected project. Install state is per project, so the readout is scoped to it. */
+	workspaceId?: string | null;
 }
 
 function ComponentSummary({
@@ -34,7 +36,10 @@ function ComponentSummary({
 /**
  * Native Installations surface — global install hero + per-project activity.
  */
-export function ManagerInstallationsView({ online }: ManagerInstallationsViewProps): ReactElement {
+export function ManagerInstallationsView({
+	online,
+	workspaceId = null,
+}: ManagerInstallationsViewProps): ReactElement {
 	const [overview, setOverview] = useState<RuntimeManagerInstallationsOverview | null>(null);
 	const [loading, setLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
@@ -49,7 +54,9 @@ export function ManagerInstallationsView({ online }: ManagerInstallationsViewPro
 			setLoading(true);
 			setError(null);
 			try {
-				const result = await getRuntimeTrpcClient(null).manager.installationsOverview.query();
+				const result = await getRuntimeTrpcClient(null).manager.installationsOverview.query(
+					workspaceId ? { workspaceId } : undefined,
+				);
 				if (cancelled) {
 					return;
 				}
@@ -72,7 +79,7 @@ export function ManagerInstallationsView({ online }: ManagerInstallationsViewPro
 		return () => {
 			cancelled = true;
 		};
-	}, [online]);
+	}, [online, workspaceId]);
 
 	const reload = () => {
 		void (async () => {
@@ -82,7 +89,9 @@ export function ManagerInstallationsView({ online }: ManagerInstallationsViewPro
 			setLoading(true);
 			setError(null);
 			try {
-				const result = await getRuntimeTrpcClient(null).manager.installationsOverview.query();
+				const result = await getRuntimeTrpcClient(null).manager.installationsOverview.query(
+					workspaceId ? { workspaceId } : undefined,
+				);
 				setOverview(result);
 				if (result === null) {
 					setError("Could not load installations.");

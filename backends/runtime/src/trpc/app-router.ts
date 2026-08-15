@@ -800,7 +800,9 @@ export interface RuntimeTrpcContext {
 			input: RuntimeManagerAccountIdRequest,
 		) => Promise<{ ok: boolean; error?: string; accountId?: number; email?: string }>;
 		getAccountProvider: (accountId: number) => Promise<RuntimeManagerProvider | null>;
-		getInstallationsOverview: () => Promise<RuntimeManagerInstallationsOverview | null>;
+		getInstallationsOverview: (
+			workspaceId?: string,
+		) => Promise<RuntimeManagerInstallationsOverview | null>;
 		getServerLogs: (limit?: number) => Promise<RuntimeManagerServerLogs | null>;
 		getHookLogs: (limit?: number) => Promise<RuntimeManagerHookLogs | null>;
 		getUsageOverview: (days?: number) => Promise<RuntimeManagerUsageOverview | null>;
@@ -1668,9 +1670,10 @@ export const runtimeAppRouter = t.router({
 				return await ctx.managerApi.getAccountProvider(input.accountId);
 			}),
 		installationsOverview: t.procedure
+			.input(z.object({ workspaceId: z.string().optional() }).optional())
 			.output(RuntimeManagerInstallationsOverviewSchema.nullable())
-			.query(async ({ ctx }) => {
-				return await ctx.managerApi.getInstallationsOverview();
+			.query(async ({ ctx, input }) => {
+				return await ctx.managerApi.getInstallationsOverview(input?.workspaceId);
 			}),
 		serverLogs: t.procedure
 			.input(z.object({ limit: z.number().int().min(1).max(500).optional() }).optional())

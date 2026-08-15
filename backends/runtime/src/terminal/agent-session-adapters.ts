@@ -41,9 +41,11 @@ import {
 	buildCursorLaunchTagPreface,
 	hasAgentAllowlist,
 	hasCommandAllowlist,
+	hasManagerFeatureIds,
 	hasMcpAllowlist,
 	hasSkillAllowlist,
 	hasWorkflowAllowlist,
+	managerFeatureInventoryIds,
 	prepareClaudeMcpAllowlistConfig,
 	prepareClaudeSkillScopedConfigDir,
 } from "./task-launch-settings";
@@ -720,9 +722,11 @@ const claudeAdapter: AgentSessionAdapter = {
 		const bridgeProjectAssets = localAssetsEnabled && Boolean(input.cwd?.trim());
 		// Manager installs live in the attached repo's `.claude`, not in the task
 		// worktree (they are untracked there), so bridge them from the repo path.
+		// Only skills/agents/commands are bridgeable — `knowledge/rules` writes into
+		// CLAUDE.md and `hooks/*` are machine-wide, so neither needs a scoped dir.
 		const managerFeatures = workspaceId ? await getWorkspaceManagerFeatures(workspaceId) : [];
 		const managerRepoPath =
-			workspaceId && managerFeatures.length > 0
+			workspaceId && hasManagerFeatureIds(managerFeatureInventoryIds(managerFeatures))
 				? ((await loadWorkspaceContextById(workspaceId))?.repoPath ?? null)
 				: null;
 		// Any allowlist needs a task-scoped CLAUDE_CONFIG_DIR so we can keep CC
@@ -730,11 +734,16 @@ const claudeAdapter: AgentSessionAdapter = {
 		// stripping mcpServers from settings.json (otherwise Claude still
 		// discovers every global Manager install / MCP). A workflow-only selection
 		// only needs the scoped dir when its project assets are actually bridged.
+		// A recorded Manager intent is on its own enough: the install lives in the
+		// repo's `.claude` and is untracked in the task worktree, so without the scoped
+		// dir it never reaches the session — enabling the feature for the project *is*
+		// the opt-in, no card allowlist required.
 		const needsScopedConfig =
 			skillAllowlist ||
 			agentAllowlist ||
 			commandAllowlist ||
 			mcpAllowlist ||
+			managerRepoPath !== null ||
 			(workflowAllowlist && bridgeProjectAssets);
 		if (needsScopedConfig) {
 			const scoped = await prepareClaudeSkillScopedConfigDir({

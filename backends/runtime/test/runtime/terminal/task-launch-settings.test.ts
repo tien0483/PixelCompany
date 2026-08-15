@@ -672,6 +672,16 @@ function writeManagerInstalls(repo: string): void {
 	writeAsset(join(repo, ".claude", "commands", "ship.md"), "ship", "Manager-installed command.");
 }
 
+/** Minimal `~/.claude` so the scoped dir has credentials/settings and inheritable assets. */
+function seedGlobalClaudeHome(home: string): void {
+	mkdirSync(join(home, ".claude", "skills", "globalskill"), { recursive: true });
+	writeAsset(join(home, ".claude", "skills", "globalskill", "SKILL.md"), "globalskill", "Global skill.");
+	writeAsset(join(home, ".claude", "agents", "globalagent.md"), "globalagent", "Global agent.");
+	writeAsset(join(home, ".claude", "commands", "globalcommand.md"), "globalcommand", "Global command.");
+	writeFileSync(join(home, ".claude", "settings.json"), "{}", "utf8");
+	writeFileSync(join(home, ".claude.json"), JSON.stringify({ hasCompletedOnboarding: true }), "utf8");
+}
+
 const MANAGER_FEATURES = ["knowledge/skill_foo", "agents/bar", "commands/ship", "knowledge/rules", "hooks/sounds"];
 
 describe("Manager-installed project features", () => {
@@ -762,6 +772,77 @@ describe("Manager-installed project features", () => {
 			await scoped.cleanup();
 		} finally {
 			rmSync(repo, { recursive: true, force: true });
+		}
+	});
+
+	it("BRIDGE: Manager installs reach the session with no card allowlist at all", async () => {
+		const home = setupTempHome();
+		const repo = makeProjectRepo();
+		try {
+			seedGlobalClaudeHome(home);
+			writeManagerInstalls(repo);
+
+			// No skillIds/agentIds/commandIds: enabling the feature for the project is the opt-in.
+			const scoped = await prepareClaudeSkillScopedConfigDir({
+				taskId: "task-manager-no-allowlist",
+				managerRepoPath: repo,
+				managerFeatures: MANAGER_FEATURES,
+			});
+			const skills = readdirSync(join(scoped.configDir, "skills")).sort();
+			expect(skills).toContain("foo");
+			// Inherited global assets survive the switch away from the whole-dir symlink.
+			expect(skills).toContain("globalskill");
+			// Repo-authored siblings are not Manager-installed, so they stay out.
+			expect(skills).not.toContain("untrusted");
+
+			const agents = readdirSync(join(scoped.configDir, "agents")).sort();
+			expect(agents).toEqual(["bar.md", "globalagent.md"]);
+			const commands = readdirSync(join(scoped.configDir, "commands")).sort();
+			expect(commands).toEqual(["globalcommand.md", "ship.md"]);
+			await scoped.cleanup();
+		} finally {
+			rmSync(repo, { recursive: true, force: true });
+		}
+	});
+
+	it("BRIDGE: Manager install wins over a same-id global skill", async () => {
+		const home = setupTempHome();
+		const repo = makeProjectRepo();
+		try {
+			seedGlobalClaudeHome(home);
+			mkdirSync(join(home, ".claude", "skills", "foo"), { recursive: true });
+			writeAsset(join(home, ".claude", "skills", "foo", "SKILL.md"), "foo", "Global skill that must lose.");
+			writeManagerInstalls(repo);
+
+			const scoped = await prepareClaudeSkillScopedConfigDir({
+				taskId: "task-manager-overrides-global",
+				managerRepoPath: repo,
+				managerFeatures: MANAGER_FEATURES,
+			});
+			expect(readFileSync(join(scoped.configDir, "skills", "foo", "SKILL.md"), "utf8")).toContain(
+				"Manager-installed skill.",
+			);
+			await scoped.cleanup();
+		} finally {
+			rmSync(repo, { recursive: true, force: true });
+		}
+	});
+
+	it("BRIDGE: no allowlist and no Manager features keeps the whole-dir symlink fast path", async () => {
+		const home = setupTempHome();
+		try {
+			seedGlobalClaudeHome(home);
+
+			const scoped = await prepareClaudeSkillScopedConfigDir({
+				taskId: "task-manager-fast-path",
+				mcpServerIds: ["filesystem"],
+			});
+			// Nothing to overlay, so the scoped dir stays a single link to the global folder.
+			expect(lstatSync(join(scoped.configDir, "skills")).isSymbolicLink()).toBe(true);
+			expect(lstatSync(join(scoped.configDir, "agents")).isSymbolicLink()).toBe(true);
+			await scoped.cleanup();
+		} finally {
+			// tempHome cleanup is handled by afterEach.
 		}
 	});
 });

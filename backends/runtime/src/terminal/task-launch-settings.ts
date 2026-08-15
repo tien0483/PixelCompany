@@ -362,6 +362,69 @@ async function writeScopedSettingsJson(
  * shared resources, optionally limiting skills and stripping MCP from settings.
  */
 /**
+ * Link every entry of `sourceDir` into `targetDir` individually, keeping the target a
+ * *real* directory. A whole-dir symlink is cheaper but cannot be overlaid — a later
+ * per-id link would land inside the source instead. A missing source is not an error.
+ * Returns the base names linked (skill folder name, or file name without `.md`).
+ */
+async function materializeInheritedDir(input: {
+	sourceDir: string;
+	targetDir: string;
+	entryKind: "markdown-file" | "skill-dir";
+}): Promise<Set<string>> {
+	const linkedBaseNames = new Set<string>();
+	await mkdir(input.targetDir, { recursive: true });
+	const entries = await readdir(input.sourceDir, { withFileTypes: true }).catch(() => []);
+	for (const entry of entries) {
+		const name = entry.name.trim();
+		if (!name || name.startsWith(".")) {
+			continue;
+		}
+		if (input.entryKind === "markdown-file") {
+			if (!entry.isFile() && !entry.isSymbolicLink()) {
+				continue;
+			}
+			if (!name.toLowerCase().endsWith(".md")) {
+				continue;
+			}
+			if (await ensureLinkedPath(join(input.sourceDir, name), join(input.targetDir, name), { isDirectory: false })) {
+				linkedBaseNames.add(name.slice(0, -".md".length));
+			}
+			continue;
+		}
+		if (!entry.isDirectory() && !entry.isSymbolicLink()) {
+			continue;
+		}
+		if (!(await pathExists(join(input.sourceDir, name, "SKILL.md")))) {
+			continue;
+		}
+		if (await ensureLinkedPath(join(input.sourceDir, name), join(input.targetDir, name), { isDirectory: true })) {
+			linkedBaseNames.add(name);
+		}
+	}
+	return linkedBaseNames;
+}
+
+/** Overlay Manager-installed `<managerDir>/<id>.md` onto an already-materialized dir. */
+async function overlayManagerMarkdownFiles(input: {
+	managerDir: string;
+	ids: Set<string>;
+	targetDir: string;
+	linkedBaseNames: Set<string>;
+}): Promise<void> {
+	for (const baseName of input.ids) {
+		const fileName = `${baseName}.md`;
+		if (
+			await ensureLinkedPath(join(input.managerDir, fileName), join(input.targetDir, fileName), {
+				isDirectory: false,
+			})
+		) {
+			input.linkedBaseNames.add(baseName);
+		}
+	}
+}
+
+/**
  * Link allowlisted `<subdir>/*.md` into the scoped config dir. Global sources link
  * first; each project source root (e.g. `<repo>/.agent/agents`) then overrides on the
  * same base name so a project-local asset wins over a same-id global one. Returns the
@@ -380,7 +443,26 @@ async function linkAllowlistedMarkdownFiles(input: {
 	const scopedSubdir = join(input.configDir, input.subdir);
 	const linkedBaseNames = new Set<string>();
 	if (input.allowlist.length === 0) {
-		await ensureLinkedPath(globalSubdir, scopedSubdir, { isDirectory: true });
+		const managerRoot = input.managerRoot;
+		if (!managerRoot) {
+			// Nothing to overlay — one symlink inherits every global asset.
+			await ensureLinkedPath(globalSubdir, scopedSubdir, { isDirectory: true });
+			return linkedBaseNames;
+		}
+		// Manager installs have to overlay the inherited set, so the dir must be real.
+		for (const baseName of await materializeInheritedDir({
+			sourceDir: globalSubdir,
+			targetDir: scopedSubdir,
+			entryKind: "markdown-file",
+		})) {
+			linkedBaseNames.add(baseName);
+		}
+		await overlayManagerMarkdownFiles({
+			managerDir: managerRoot.dir,
+			ids: managerRoot.ids,
+			targetDir: scopedSubdir,
+			linkedBaseNames,
+		});
 		return linkedBaseNames;
 	}
 	await mkdir(scopedSubdir, { recursive: true });
@@ -498,8 +580,19 @@ export async function prepareClaudeSkillScopedConfigDir(input: {
 	const globalSkills = join(globalDir, "skills");
 	const skillAllowlist = (input.skillIds ?? []).map((id) => id.trim()).filter((id) => id.length > 0);
 	if (skillAllowlist.length === 0) {
-		// Inherit all Manager skills (link, or recursive copy in restricted envs).
-		await ensureLinkedPath(globalSkills, skillsDir, { isDirectory: true });
+		if (managerClaudeDir) {
+			// Manager installs have to overlay the inherited set, so the dir must be real.
+			await materializeInheritedDir({ sourceDir: globalSkills, targetDir: skillsDir, entryKind: "skill-dir" });
+			for (const folderName of managerIds.skills) {
+				const managerSkillDir = join(managerClaudeDir, "skills", folderName);
+				if (await pathExists(join(managerSkillDir, "SKILL.md"))) {
+					await ensureLinkedPath(managerSkillDir, join(skillsDir, folderName), { isDirectory: true });
+				}
+			}
+		} else {
+			// Inherit all Manager skills (link, or recursive copy in restricted envs).
+			await ensureLinkedPath(globalSkills, skillsDir, { isDirectory: true });
+		}
 	} else {
 		await mkdir(skillsDir, { recursive: true });
 		for (const skillId of skillAllowlist) {
@@ -564,22 +657,18 @@ export async function prepareClaudeSkillScopedConfigDir(input: {
 		const globalCommandsDir = join(globalDir, "commands");
 		if (commandAllowlist.length === 0) {
 			// Inherit all global commands as individual links so workflows can join them.
-			try {
-				const entries = await readdir(globalCommandsDir, { withFileTypes: true });
-				for (const entry of entries) {
-					if (!entry.isFile() && !entry.isSymbolicLink()) {
-						continue;
-					}
-					const name = entry.name.trim();
-					if (!name.toLowerCase().endsWith(".md") || name.startsWith(".")) {
-						continue;
-					}
-					if (await ensureLinkedPath(join(globalCommandsDir, name), join(commandsDir, name), { isDirectory: false })) {
-						linkedCommandBaseNames.add(name.slice(0, -".md".length));
-					}
-				}
-			} catch {
-				// No global commands — fine.
+			linkedCommandBaseNames = await materializeInheritedDir({
+				sourceDir: globalCommandsDir,
+				targetDir: commandsDir,
+				entryKind: "markdown-file",
+			});
+			if (managerClaudeDir) {
+				await overlayManagerMarkdownFiles({
+					managerDir: join(managerClaudeDir, "commands"),
+					ids: managerIds.commands,
+					targetDir: commandsDir,
+					linkedBaseNames: linkedCommandBaseNames,
+				});
 			}
 		} else {
 			for (const rawId of commandAllowlist) {
@@ -901,7 +990,7 @@ export function managerFeatureInventoryIds(keys: readonly string[] | undefined):
 	return ids;
 }
 
-function hasManagerFeatureIds(ids: ManagerFeatureInventoryIds): boolean {
+export function hasManagerFeatureIds(ids: ManagerFeatureInventoryIds): boolean {
 	return ids.skills.size > 0 || ids.agents.size > 0 || ids.commands.size > 0;
 }
 

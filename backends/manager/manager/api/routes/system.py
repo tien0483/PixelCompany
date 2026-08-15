@@ -615,13 +615,12 @@ async def list_installations(request: Request):
 
 
 @router.get("/installations/overview", response_model=InstallationsOverview)
-async def installations_overview(request: Request):
-    """Global install state + per-project activity summary."""
+async def installations_overview(request: Request, repo_path: str | None = None):
+    """Install state for ``repo_path`` (global when omitted) + project activity."""
     from pathlib import Path
 
     from manager import __version__
     from manager.api.routes.features import (
-        CLAUDE_DIR,
         _detect_hook_installed,
         _detect_rules_status,
         _get_valid_agent_names,
@@ -629,6 +628,7 @@ async def installations_overview(request: Request):
         _get_valid_skill_names,
         _name_to_display,
         _read_settings_json,
+        _target_claude_dir,
     )
     from manager.memory.settings_io import SettingsUnreadableError
 
@@ -639,9 +639,14 @@ async def installations_overview(request: Request):
     except SettingsUnreadableError:
         settings = {}
 
+    # Toggling is project-scoped (PROJECT_SCOPED_CATEGORIES), so detection has to read
+    # the same dir the toggle wrote to or every per-project install reads as missing.
+    # Hooks stay global below — they patch machine-wide settings.json.
+    claude_dir = _target_claude_dir(repo_path)
+
     # Agents
     agent_names = _get_valid_agent_names()
-    agents_dst = CLAUDE_DIR / "agents"
+    agents_dst = claude_dir / "agents"
     agents = []
     for name in agent_names:
         installed = (agents_dst / f"{name}.md").exists()
@@ -653,7 +658,7 @@ async def installations_overview(request: Request):
 
     # Commands
     command_names = _get_valid_command_names()
-    commands_dst = CLAUDE_DIR / "commands"
+    commands_dst = claude_dir / "commands"
     commands = []
     for name in command_names:
         installed = (commands_dst / f"{name}.md").exists()
@@ -673,8 +678,8 @@ async def installations_overview(request: Request):
     ]
 
     # Knowledge
-    rules_status = _detect_rules_status()
-    ref_installed = (CLAUDE_DIR / "manager-reference.md").exists()
+    rules_status = _detect_rules_status(claude_dir)
+    ref_installed = (claude_dir / "manager-reference.md").exists()
     knowledge = [
         InstalledComponent(
             name="rules",
@@ -691,7 +696,7 @@ async def installations_overview(request: Request):
         InstalledComponent(
             name=f"skill_{skill_name}",
             display_name=f"/{skill_name}",
-            installed=(CLAUDE_DIR / "skills" / skill_name / "SKILL.md").exists(),
+            installed=(claude_dir / "skills" / skill_name / "SKILL.md").exists(),
         )
         for skill_name in _get_valid_skill_names()
     ]
