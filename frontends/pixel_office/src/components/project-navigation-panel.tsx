@@ -14,6 +14,7 @@ import { type MouseEvent as ReactMouseEvent, useCallback, useEffect, useRef, use
 import { canShowFeaturebaseFeedbackButton } from "@/components/featurebase-feedback-button";
 import { HomeSidebarManagerPanel, HomeSidebarManagerTab } from "@/components/home-sidebar-manager";
 import { HomeSidebarPlansPanel, HomeSidebarPlansTab } from "@/components/home-sidebar-plans";
+import { HomeSidebarReviewPanel, HomeSidebarReviewTab } from "@/components/home-sidebar-review";
 import askeeLogo from "@/assets/images/askee-logo.png";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
@@ -38,9 +39,16 @@ import type {
 	RuntimeProjectSummary,
 	RuntimeSavedPlan,
 } from "@/runtime/types";
+import type { ReviewTarget } from "@/review/review-target";
 import { formatPathForDisplay } from "@/utils/path-display";
 import { isMacPlatform, modifierKeyLabel } from "@/utils/platform";
 import { useUnmount, useWindowEvent } from "@/utils/react-use";
+
+/**
+ * Which sidebar surface is showing. Exported so `App.tsx` names one type instead of
+ * repeating the union — it drifted out of sync when Plans was added.
+ */
+export type HomeSidebarSection = "projects" | "manager" | "plans" | "review";
 
 const COLLAPSED_WIDTH = 48;
 const SIDEBAR_COLLAPSE_THRESHOLD = 120;
@@ -71,6 +79,8 @@ export function ProjectNavigationPanel({
 	onSelectProject,
 	onRemoveProject,
 	onAddProject,
+	reviewProjectKey,
+	onOpenMergeRequest,
 	sidebarWidth,
 	setExpandedSidebarWidth,
 	isCollapsed,
@@ -82,8 +92,8 @@ export function ProjectNavigationPanel({
 	isLoadingProjects?: boolean;
 	currentProjectId: string | null;
 	removingProjectId: string | null;
-	activeSection: "projects" | "manager" | "plans";
-	onActiveSectionChange: (section: "projects" | "manager" | "plans") => void;
+	activeSection: HomeSidebarSection;
+	onActiveSectionChange: (section: HomeSidebarSection) => void;
 	/** When true, Jacked tab treats the companion as reachable for mutations. */
 	managerOnline?: boolean;
 	/** Latest jacked snapshot from the runtime stream (may be stale when offline). */
@@ -101,6 +111,9 @@ export function ProjectNavigationPanel({
 	/** Incremented when Settings is requested so the Jacked panel focuses Settings. */
 	managerSettingsFocusToken?: number;
 	onOpenPlan: (plan: RuntimeSavedPlan) => void;
+	/** Rules-bundle key for the Review panel — the active project's identity. */
+	reviewProjectKey: string;
+	onOpenMergeRequest: (target: ReviewTarget) => void;
 }): React.ReactElement {
 	const sortedProjects = [...projects].sort((a, b) => a.path.localeCompare(b.path));
 	const shouldShowFeaturebaseFeedback = canShowFeaturebaseFeedbackButton({
@@ -355,7 +368,7 @@ export function ProjectNavigationPanel({
 					)}
 				</div>
 				<div className="mt-2 rounded-md bg-surface-2 border border-border p-1">
-					<div className="grid grid-cols-3 gap-1">
+					<div className="grid grid-cols-4 gap-1">
 						<button
 							type="button"
 							onClick={() => onActiveSectionChange("projects")}
@@ -375,6 +388,10 @@ export function ProjectNavigationPanel({
 						<HomeSidebarPlansTab
 							active={activeSection === "plans"}
 							onSelect={() => onActiveSectionChange("plans")}
+						/>
+						<HomeSidebarReviewTab
+							active={activeSection === "review"}
+							onSelect={() => onActiveSectionChange("review")}
 						/>
 					</div>
 				</div>
@@ -442,8 +459,14 @@ export function ProjectNavigationPanel({
 					settingsFocusToken={managerSettingsFocusToken}
 					workspaceId={currentProjectId}
 				/>
-			) : (
+			) : activeSection === "plans" ? (
 				<HomeSidebarPlansPanel workspaceId={currentProjectId} onOpenPlan={onOpenPlan} />
+			) : (
+				<HomeSidebarReviewPanel
+					workspaceId={currentProjectId}
+					projectKey={reviewProjectKey}
+					onOpenMergeRequest={onOpenMergeRequest}
+				/>
 			)}
 			<AlertDialog
 				open={pendingProjectRemoval !== null}

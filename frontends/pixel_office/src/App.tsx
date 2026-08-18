@@ -26,7 +26,11 @@ import {
 import { HomeTriplePane } from "@/components/home-triple-pane";
 import { KanbanBoard } from "@/components/kanban-board";
 import { PlanEditorView } from "@/components/plan-editor/plan-editor-view";
-import { ProjectNavigationPanel } from "@/components/project-navigation-panel";
+import { ReviewWorkspaceView } from "@/components/review/review-workspace-view";
+import {
+	type HomeSidebarSection,
+	ProjectNavigationPanel,
+} from "@/components/project-navigation-panel";
 import {
 	RuntimeSettingsDialog,
 	type RuntimeSettingsSection,
@@ -69,6 +73,7 @@ import {
 import { useProjectUiState } from "@/hooks/use-project-ui-state";
 import { useReviewReadyNotifications } from "@/hooks/use-review-ready-notifications";
 import { useReviewStalenessAlert } from "@/hooks/use-review-staleness-alert";
+import type { ReviewTarget } from "@/review/review-target";
 import { useSavedPlans } from "@/hooks/use-saved-plans";
 import { useShortcutActions } from "@/hooks/use-shortcut-actions";
 import { useStackControl } from "@/hooks/use-stack-control";
@@ -141,14 +146,14 @@ export default function App(): ReactElement {
 	const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 	const [settingsInitialSection, setSettingsInitialSection] =
 		useState<RuntimeSettingsSection | null>(null);
-	const [homeSidebarSection, setHomeSidebarSection] = useState<
-		"projects" | "manager" | "plans"
-	>("projects");
+	const [homeSidebarSection, setHomeSidebarSection] =
+		useState<HomeSidebarSection>("projects");
 	const [managerSettingsFocusToken, setManagerSettingsFocusToken] = useState(0);
 	const [isClearTrashDialogOpen, setIsClearTrashDialogOpen] = useState(false);
 	const [isGitHistoryOpen, setIsGitHistoryOpen] = useState(false);
 	const [isDocsOpen, setIsDocsOpen] = useState(false);
 	const [editingPlan, setEditingPlan] = useState<RuntimeSavedPlan | null>(null);
+	const [reviewTarget, setReviewTarget] = useState<ReviewTarget | null>(null);
 	const [isCommitDialogOpen, setIsCommitDialogOpen] = useState(false);
 	const [isPullRequestDialogOpen, setIsPullRequestDialogOpen] = useState(false);
 	const [isWorktreesDialogOpen, setIsWorktreesDialogOpen] = useState(false);
@@ -939,6 +944,13 @@ export default function App(): ReactElement {
 	}, [sidebarLayout]);
 
 	const navbarWorkspacePath = hasNoProjects ? undefined : activeWorkspacePath;
+
+	/**
+	 * Key the Review rules bundle is stored under. The project's path is used rather
+	 * than its id or name: ids are per-install, and names collide across GitLab
+	 * namespaces, so either would hand one project another's rules.
+	 */
+	const reviewProjectKey = navigationProjectPath ?? workspacePath ?? "default";
 	const navbarWorkspaceHint = hasNoProjects ? undefined : activeWorkspaceHint;
 	const navbarRuntimeHint = hasNoProjects ? undefined : runtimeHint;
 	const shouldHideProjectDependentTopBarActions =
@@ -1226,6 +1238,8 @@ export default function App(): ReactElement {
 						setSidebarCollapsed={sidebarLayout.setSidebarCollapsed}
 						managerSettingsFocusToken={managerSettingsFocusToken}
 						onOpenPlan={setEditingPlan}
+						reviewProjectKey={reviewProjectKey}
+						onOpenMergeRequest={setReviewTarget}
 					/>
 				) : null}
 				<div className="flex flex-col flex-1 min-w-0 overflow-hidden">
@@ -1352,7 +1366,17 @@ export default function App(): ReactElement {
 							aria-hidden={selectedCard ? true : undefined}
 							style={selectedCard ? { visibility: "hidden" } : undefined}
 						>
-							{editingPlan ? (
+							{reviewTarget ? (
+								// Same remount discipline as the plan editor below: the review view
+								// holds in-flight SSE streams and draft state keyed to the instance,
+								// so a prop swap would leak one merge request's drafts into the next.
+								<ReviewWorkspaceView
+									key={`${reviewTarget.host}-${reviewTarget.projectId}-${reviewTarget.iid}`}
+									target={reviewTarget}
+									workspaceId={currentProjectId}
+									onClose={() => setReviewTarget(null)}
+								/>
+							) : editingPlan ? (
 								<PlanEditorView
 									// Load-bearing: this key forces a full remount on every plan switch.
 									// PlanEditorView's internal state (brief/generated-HTML refs, in-flight

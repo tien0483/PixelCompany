@@ -25,6 +25,9 @@ import {
 	RuntimeHtmlBriefRequestSchema,
 	RuntimeHtmlDraftRequestSchema,
 	RuntimeHtmlGenerateRequestSchema,
+	runtimeReviewAuditRequestSchema,
+	runtimeReviewChatRequestSchema,
+	runtimeReviewRulesExtractRequestSchema,
 } from "../core/api-contract";
 import { DOC_SKILL_ALLOWED_TOOLS, resolveDocSkillAgentCwd } from "../doc-skill/doc-skill-agent-args";
 import { BUILD_REQUEST_TIMEOUT_MS, type DocSkillClient } from "../doc-skill/doc-skill-client";
@@ -38,6 +41,17 @@ import {
 	getKanbanRuntimeTls,
 	isKanbanRemoteHost,
 } from "../core/runtime-endpoint";
+import { createGitlabClient } from "../gitlab/gitlab-client";
+import { createGitlabOauthSession } from "../gitlab/gitlab-oauth";
+import {
+	REVIEW_AUDIT_ALLOWED_TOOLS,
+	REVIEW_CHAT_ALLOWED_TOOLS,
+	REVIEW_RULES_EXTRACT_ALLOWED_TOOLS,
+	resolveReviewAgentCwd,
+} from "../review/review-agent-args";
+import { buildAuditPrompt, buildChatPrompt, buildRulesExtractPrompt } from "../review/review-prompts";
+import { handleAgentStreamRoute } from "../review/review-stream-route";
+import { readReviewRulesBundle } from "../review/review-rules";
 import { HTML_NO_TOOLS, resolveHtmlAgentCwd, resolveHtmlAllowedTools } from "../html/html-agent-args";
 import { buildBriefPrompt, loadPromptMasterBody } from "../html/html-brief";
 import type { HtmlClient, HtmlPromptFailure } from "../html/html-client";
@@ -76,14 +90,17 @@ import { type RuntimeTrpcContext, type RuntimeTrpcWorkspaceScope, runtimeAppRout
 import { createClaudeUsageApi } from "../trpc/claude-usage-api";
 import { createDeployApi } from "../trpc/deploy-api";
 import { createDocSkillApi } from "../trpc/doc-skill-api";
+import { createGitlabApi } from "../trpc/gitlab-api";
 import { createHooksApi } from "../trpc/hooks-api";
 import { createHtmlApi } from "../trpc/html-api";
 import { createManagerApi } from "../trpc/manager-api";
 import { createPlansApi } from "../trpc/plans-api";
 import { createProjectsApi } from "../trpc/projects-api";
+import { createReviewApi } from "../trpc/review-api";
 import { createRuntimeApi } from "../trpc/runtime-api";
 import { createWorkspaceApi } from "../trpc/workspace-api";
 import { getWebUiDir, isWebUiServedExternally, normalizeRequestPath, readAsset } from "./assets";
+import { openInBrowser } from "./browser";
 import { handleHttpRequest, handleSocketUpgrade } from "./middleware";
 import type { RuntimeStateHub } from "./runtime-state-hub";
 import type { WorkspaceRegistry } from "./workspace-registry";
@@ -307,6 +324,18 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 	const docSkillApi = createDocSkillApi({
 		client: deps.docSkill.client,
 	});
+	// One GitLab identity serves the whole runtime, so the client and the OAuth flow
+	// registry are singletons here rather than per request: a flow started by one
+	// request is polled by the next, and the client caches the credential in process.
+	const gitlabClient = createGitlabClient({ warn: deps.warn });
+	const gitlabOauthSession = createGitlabOauthSession();
+	const gitlabApi = createGitlabApi({
+		client: gitlabClient,
+		oauth: gitlabOauthSession,
+		openInBrowser: (url) => openInBrowser(url, { warn: deps.warn }),
+		warn: deps.warn,
+	});
+	const reviewApi = createReviewApi();
 
 	/**
 	 * Account-pin wiring shared by every one-shot HTML agent route (`/api/html/brief`,
@@ -552,6 +581,8 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 			htmlApi,
 			claudeUsageApi,
 			docSkillApi,
+			gitlabApi,
+			reviewApi,
 		};
 	};
 
@@ -1192,6 +1223,92 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 				if (!res.writableEnded) {
 					res.end();
 				}
+				return;
+			}
+			if (pathname === "/api/review/rules-extract" && (req.method ?? "GET").toUpperCase() === "POST") {
+				await handleAgentStreamRoute(req, res, {
+					buildPinInput: buildHtmlAgentPinInput,
+					schema: runtimeReviewRulesExtractRequestSchema,
+					buildRun: async (input) => ({
+						ok: true,
+						prompt: buildRulesExtractPrompt({ sourceRoots: input.sourceRoots }),
+						// No cwd: the source roots are absolute paths into another repo
+						// entirely, so there is no single directory to anchor to.
+						model: input.model,
+						allowedTools: REVIEW_RULES_EXTRACT_ALLOWED_TOOLS,
+						managerAccountId: input.managerAccountId,
+					}),
+				});
+				return;
+			}
+			if (pathname === "/api/review/audit" && (req.method ?? "GET").toUpperCase() === "POST") {
+				await handleAgentStreamRoute(req, res, {
+					buildPinInput: buildHtmlAgentPinInput,
+					schema: runtimeReviewAuditRequestSchema,
+					// Patches travel inline, so this body is the largest of the three.
+					maxBodyBytes: 8 * 1024 * 1024,
+					buildRun: async (input) => {
+						const bundle = await readReviewRulesBundle(input.projectKey);
+						if (!bundle || bundle.rules.length === 0) {
+							// Auditing with no rules would produce generic review commentary
+							// under a banner that claims it checked the team's rules.
+							return {
+								ok: false,
+								status: 409,
+								error: "No rules have been extracted for this project yet. Refresh the rules first.",
+							};
+						}
+						return {
+							ok: true,
+							prompt: buildAuditPrompt({
+								title: input.title,
+								sourceBranch: input.sourceBranch,
+								targetBranch: input.targetBranch,
+								rules: bundle.rules,
+								files: input.files,
+							}),
+							model: input.model,
+							allowedTools: REVIEW_AUDIT_ALLOWED_TOOLS,
+							managerAccountId: input.managerAccountId,
+						};
+					},
+				});
+				return;
+			}
+			if (pathname === "/api/review/chat" && (req.method ?? "GET").toUpperCase() === "POST") {
+				await handleAgentStreamRoute(req, res, {
+					buildPinInput: buildHtmlAgentPinInput,
+					schema: runtimeReviewChatRequestSchema,
+					buildRun: async (input) => {
+						const detail = await gitlabApi.getMergeRequest({ projectId: input.projectId, iid: input.iid });
+						const mergeRequest = detail.mergeRequest;
+						const activeWorkspaceId = deps.workspaceRegistry.getActiveWorkspaceId();
+						return {
+							ok: true,
+							prompt: buildChatPrompt({
+								prompt: input.prompt,
+								// Falling back rather than failing: a chat turn about the diff is
+								// still useful when GitLab is briefly unreachable.
+								title: mergeRequest?.title ?? `!${input.iid}`,
+								sourceBranch: mergeRequest?.sourceBranch ?? "unknown",
+								targetBranch: mergeRequest?.targetBranch ?? "unknown",
+								changedPaths: input.changedPaths,
+								activeDiff: input.activeDiff,
+							}),
+							cwd: resolveReviewAgentCwd({
+								cwd: input.cwd,
+								// The active project's checkout, so `/understand-diff` and codebase
+								// questions resolve against the repo the reviewer is looking at.
+								projectPath: activeWorkspaceId
+									? deps.workspaceRegistry.getWorkspacePathById(activeWorkspaceId)
+									: null,
+							}),
+							model: input.model,
+							allowedTools: REVIEW_CHAT_ALLOWED_TOOLS,
+							managerAccountId: input.managerAccountId,
+						};
+					},
+				});
 				return;
 			}
 			if (pathname === "/api/plans/asset") {

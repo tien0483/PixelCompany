@@ -3156,3 +3156,465 @@ export const runtimeHookIngestResponseSchema = z.object({
 	error: z.string().optional(),
 });
 export type RuntimeHookIngestResponse = z.infer<typeof runtimeHookIngestResponseSchema>;
+
+/* ------------------------------------------------------------------------- *
+ * GitLab merge-request review
+ *
+ * One GitLab identity serves every project and every Claude seat, so nothing
+ * below is keyed by workspace: `host` is the only tenant discriminator, and it
+ * is carried explicitly so a credential minted against one instance can never
+ * be replayed against another.
+ * ------------------------------------------------------------------------- */
+
+export const runtimeGitlabConnectionSchema = z.object({
+	connected: z.boolean(),
+	host: z.string().nullable(),
+	username: z.string().nullable(),
+	name: z.string().nullable(),
+	userId: z.number().nullable(),
+	/** Epoch ms. Null for a token the server reported without an expiry. */
+	expiresAt: z.number().nullable(),
+	/** Set when a stored credential exists but the last call was rejected. */
+	reauthRequired: z.boolean().optional(),
+});
+export type RuntimeGitlabConnection = z.infer<typeof runtimeGitlabConnectionSchema>;
+
+export const runtimeGitlabConnectStartRequestSchema = z.object({
+	/** Defaults to the akselos instance the MCP config points at. */
+	host: z.string().min(1).optional(),
+});
+export type RuntimeGitlabConnectStartRequest = z.infer<typeof runtimeGitlabConnectStartRequestSchema>;
+
+export const runtimeGitlabConnectStartResponseSchema = z.object({
+	ok: z.boolean(),
+	/** Opened in the user's browser; absent when `ok` is false. */
+	authorizeUrl: z.string().optional(),
+	flowId: z.string().optional(),
+	error: z.string().optional(),
+});
+export type RuntimeGitlabConnectStartResponse = z.infer<typeof runtimeGitlabConnectStartResponseSchema>;
+
+export const runtimeGitlabConnectStatusRequestSchema = z.object({
+	flowId: z.string().min(1),
+});
+export type RuntimeGitlabConnectStatusRequest = z.infer<typeof runtimeGitlabConnectStatusRequestSchema>;
+
+export const runtimeGitlabConnectStatusSchema = z.object({
+	state: z.enum(["pending", "connected", "failed", "unknown"]),
+	connection: runtimeGitlabConnectionSchema.nullable(),
+	error: z.string().optional(),
+});
+export type RuntimeGitlabConnectStatus = z.infer<typeof runtimeGitlabConnectStatusSchema>;
+
+export const runtimeGitlabProjectSchema = z.object({
+	id: z.number(),
+	pathWithNamespace: z.string(),
+	name: z.string(),
+	webUrl: z.string(),
+	defaultBranch: z.string().nullable(),
+	lastActivityAt: z.string().nullable(),
+});
+export type RuntimeGitlabProject = z.infer<typeof runtimeGitlabProjectSchema>;
+
+export const runtimeGitlabProjectListRequestSchema = z.object({
+	/** Substring match against path/name; GitLab's `search` parameter. */
+	search: z.string().optional(),
+	membership: z.boolean().optional(),
+	limit: z.number().int().positive().max(100).optional(),
+});
+export type RuntimeGitlabProjectListRequest = z.infer<typeof runtimeGitlabProjectListRequestSchema>;
+
+export const runtimeGitlabProjectListResponseSchema = z.object({
+	ok: z.boolean(),
+	projects: z.array(runtimeGitlabProjectSchema),
+	error: z.string().optional(),
+});
+export type RuntimeGitlabProjectListResponse = z.infer<typeof runtimeGitlabProjectListResponseSchema>;
+
+export const runtimeGitlabPipelineStatusSchema = z.enum([
+	"created",
+	"waiting_for_resource",
+	"preparing",
+	"pending",
+	"running",
+	"success",
+	"failed",
+	"canceled",
+	"skipped",
+	"manual",
+	"scheduled",
+	"unknown",
+]);
+export type RuntimeGitlabPipelineStatus = z.infer<typeof runtimeGitlabPipelineStatusSchema>;
+
+export const runtimeGitlabMergeRequestSummarySchema = z.object({
+	projectId: z.number(),
+	iid: z.number(),
+	title: z.string(),
+	description: z.string(),
+	state: z.string(),
+	draft: z.boolean(),
+	authorUsername: z.string().nullable(),
+	sourceBranch: z.string(),
+	targetBranch: z.string(),
+	webUrl: z.string(),
+	updatedAt: z.string().nullable(),
+	pipelineStatus: runtimeGitlabPipelineStatusSchema.nullable(),
+	/** GitLab omits these on list endpoints unless asked; null means "unknown". */
+	changesCount: z.string().nullable(),
+	userNotesCount: z.number().nullable(),
+});
+export type RuntimeGitlabMergeRequestSummary = z.infer<typeof runtimeGitlabMergeRequestSummarySchema>;
+
+export const runtimeGitlabMergeRequestListRequestSchema = z.object({
+	projectId: z.number().int().positive().optional(),
+	state: z.enum(["opened", "merged", "closed", "all"]).optional(),
+	/** GitLab's `scope`: whose MRs to list when no project is given. */
+	scope: z.enum(["created_by_me", "assigned_to_me", "all"]).optional(),
+	search: z.string().optional(),
+	limit: z.number().int().positive().max(100).optional(),
+});
+export type RuntimeGitlabMergeRequestListRequest = z.infer<typeof runtimeGitlabMergeRequestListRequestSchema>;
+
+export const runtimeGitlabMergeRequestListResponseSchema = z.object({
+	ok: z.boolean(),
+	mergeRequests: z.array(runtimeGitlabMergeRequestSummarySchema),
+	error: z.string().optional(),
+});
+export type RuntimeGitlabMergeRequestListResponse = z.infer<typeof runtimeGitlabMergeRequestListResponseSchema>;
+
+export const runtimeGitlabMergeRequestRefSchema = z.object({
+	projectId: z.number().int().positive(),
+	iid: z.number().int().positive(),
+});
+export type RuntimeGitlabMergeRequestRef = z.infer<typeof runtimeGitlabMergeRequestRefSchema>;
+
+/**
+ * The three SHAs every diff note needs. GitLab rejects a `position` whose
+ * `base_sha`/`start_sha`/`head_sha` do not match a real version of the MR, so
+ * these travel together as one unit rather than as three loose strings.
+ */
+export const runtimeGitlabDiffRefsSchema = z.object({
+	baseSha: z.string(),
+	startSha: z.string(),
+	headSha: z.string(),
+});
+export type RuntimeGitlabDiffRefs = z.infer<typeof runtimeGitlabDiffRefsSchema>;
+
+export const runtimeGitlabMergeRequestDetailSchema = runtimeGitlabMergeRequestSummarySchema.extend({
+	diffRefs: runtimeGitlabDiffRefsSchema.nullable(),
+	/** True when the signed-in user has already approved this MR. */
+	approvedByMe: z.boolean(),
+	approvalsRequired: z.number().nullable(),
+	approvalsLeft: z.number().nullable(),
+});
+export type RuntimeGitlabMergeRequestDetail = z.infer<typeof runtimeGitlabMergeRequestDetailSchema>;
+
+export const runtimeGitlabMergeRequestDetailResponseSchema = z.object({
+	ok: z.boolean(),
+	mergeRequest: runtimeGitlabMergeRequestDetailSchema.nullable(),
+	error: z.string().optional(),
+});
+export type RuntimeGitlabMergeRequestDetailResponse = z.infer<typeof runtimeGitlabMergeRequestDetailResponseSchema>;
+
+export const runtimeGitlabDiffFileSchema = z.object({
+	oldPath: z.string(),
+	newPath: z.string(),
+	newFile: z.boolean(),
+	renamedFile: z.boolean(),
+	deletedFile: z.boolean(),
+	/** Unified patch text as GitLab returns it; empty for binary files. */
+	diff: z.string(),
+	binary: z.boolean(),
+	/** Counted from the patch — GitLab does not send per-file line stats. */
+	additions: z.number(),
+	deletions: z.number(),
+	/** True when GitLab truncated the patch itself (very large file). */
+	tooLarge: z.boolean(),
+});
+export type RuntimeGitlabDiffFile = z.infer<typeof runtimeGitlabDiffFileSchema>;
+
+export const runtimeGitlabDiffsResponseSchema = z.object({
+	ok: z.boolean(),
+	files: z.array(runtimeGitlabDiffFileSchema),
+	diffRefs: runtimeGitlabDiffRefsSchema.nullable(),
+	/** Set when the page cap stopped us short of the whole changeset. */
+	truncated: z.boolean(),
+	error: z.string().optional(),
+});
+export type RuntimeGitlabDiffsResponse = z.infer<typeof runtimeGitlabDiffsResponseSchema>;
+
+export const runtimeGitlabMergeRequestVersionSchema = z.object({
+	id: z.number(),
+	headSha: z.string(),
+	baseSha: z.string(),
+	startSha: z.string(),
+	createdAt: z.string().nullable(),
+});
+export type RuntimeGitlabMergeRequestVersion = z.infer<typeof runtimeGitlabMergeRequestVersionSchema>;
+
+export const runtimeGitlabMergeRequestVersionsResponseSchema = z.object({
+	ok: z.boolean(),
+	versions: z.array(runtimeGitlabMergeRequestVersionSchema),
+	error: z.string().optional(),
+});
+export type RuntimeGitlabMergeRequestVersionsResponse = z.infer<
+	typeof runtimeGitlabMergeRequestVersionsResponseSchema
+>;
+
+export const runtimeGitlabRawFileRequestSchema = z.object({
+	projectId: z.number().int().positive(),
+	path: z.string().min(1),
+	ref: z.string().min(1),
+});
+export type RuntimeGitlabRawFileRequest = z.infer<typeof runtimeGitlabRawFileRequestSchema>;
+
+export const runtimeGitlabRawFileResponseSchema = z.object({
+	ok: z.boolean(),
+	content: z.string().nullable(),
+	error: z.string().optional(),
+});
+export type RuntimeGitlabRawFileResponse = z.infer<typeof runtimeGitlabRawFileResponseSchema>;
+
+export const runtimeGitlabNotePositionSchema = z.object({
+	oldPath: z.string().nullable(),
+	newPath: z.string().nullable(),
+	oldLine: z.number().nullable(),
+	newLine: z.number().nullable(),
+});
+export type RuntimeGitlabNotePosition = z.infer<typeof runtimeGitlabNotePositionSchema>;
+
+export const runtimeGitlabNoteSchema = z.object({
+	id: z.number(),
+	body: z.string(),
+	authorUsername: z.string().nullable(),
+	authorName: z.string().nullable(),
+	createdAt: z.string().nullable(),
+	system: z.boolean(),
+	resolvable: z.boolean(),
+	resolved: z.boolean(),
+	position: runtimeGitlabNotePositionSchema.nullable(),
+});
+export type RuntimeGitlabNote = z.infer<typeof runtimeGitlabNoteSchema>;
+
+export const runtimeGitlabDiscussionSchema = z.object({
+	id: z.string(),
+	/** Mirrors GitLab: individual notes are discussions with one non-resolvable note. */
+	individualNote: z.boolean(),
+	resolved: z.boolean(),
+	notes: z.array(runtimeGitlabNoteSchema),
+});
+export type RuntimeGitlabDiscussion = z.infer<typeof runtimeGitlabDiscussionSchema>;
+
+export const runtimeGitlabDiscussionListResponseSchema = z.object({
+	ok: z.boolean(),
+	discussions: z.array(runtimeGitlabDiscussionSchema),
+	error: z.string().optional(),
+});
+export type RuntimeGitlabDiscussionListResponse = z.infer<typeof runtimeGitlabDiscussionListResponseSchema>;
+
+export const runtimeGitlabCreateDiffNoteRequestSchema = z.object({
+	projectId: z.number().int().positive(),
+	iid: z.number().int().positive(),
+	body: z.string().min(1),
+	diffRefs: runtimeGitlabDiffRefsSchema,
+	position: runtimeGitlabNotePositionSchema,
+});
+export type RuntimeGitlabCreateDiffNoteRequest = z.infer<typeof runtimeGitlabCreateDiffNoteRequestSchema>;
+
+export const runtimeGitlabCreateNoteRequestSchema = z.object({
+	projectId: z.number().int().positive(),
+	iid: z.number().int().positive(),
+	body: z.string().min(1),
+	/** Present to reply into an existing thread instead of opening one. */
+	discussionId: z.string().min(1).optional(),
+});
+export type RuntimeGitlabCreateNoteRequest = z.infer<typeof runtimeGitlabCreateNoteRequestSchema>;
+
+export const runtimeGitlabResolveDiscussionRequestSchema = z.object({
+	projectId: z.number().int().positive(),
+	iid: z.number().int().positive(),
+	discussionId: z.string().min(1),
+	resolved: z.boolean(),
+});
+export type RuntimeGitlabResolveDiscussionRequest = z.infer<typeof runtimeGitlabResolveDiscussionRequestSchema>;
+
+export const runtimeGitlabMutationResponseSchema = z.object({
+	ok: z.boolean(),
+	error: z.string().optional(),
+});
+export type RuntimeGitlabMutationResponse = z.infer<typeof runtimeGitlabMutationResponseSchema>;
+
+/* ------------------------------------------------------------------------- *
+ * Review sessions and the rules knowledge base
+ * ------------------------------------------------------------------------- */
+
+export const runtimeReviewRuleSeveritySchema = z.enum(["CRITICAL", "HIGH", "MEDIUM", "LOW"]);
+export type RuntimeReviewRuleSeverity = z.infer<typeof runtimeReviewRuleSeveritySchema>;
+
+/**
+ * `sourcePath` and `sourceAnchor` are required, not decorative: a citation the
+ * reviewer pastes into a merge request has to be traceable back to the doc line
+ * that justifies it, or the rule reads as the reviewer's personal opinion.
+ */
+export const runtimeReviewRuleSchema = z.object({
+	id: z.string().min(1),
+	title: z.string().min(1),
+	category: z.string().min(1),
+	severity: runtimeReviewRuleSeveritySchema,
+	summary: z.string(),
+	antiPattern: z.string(),
+	bestPractice: z.string(),
+	sourcePath: z.string().min(1),
+	sourceAnchor: z.string(),
+});
+export type RuntimeReviewRule = z.infer<typeof runtimeReviewRuleSchema>;
+
+export const runtimeReviewRulesBundleSchema = z.object({
+	/** Bumped whenever the extraction prompt or the shape changes. */
+	version: z.number(),
+	projectKey: z.string(),
+	generatedAt: z.string(),
+	sourceRoots: z.array(z.string()),
+	rules: z.array(runtimeReviewRuleSchema),
+});
+export type RuntimeReviewRulesBundle = z.infer<typeof runtimeReviewRulesBundleSchema>;
+
+export const runtimeReviewRulesReadRequestSchema = z.object({
+	projectKey: z.string().min(1),
+});
+export type RuntimeReviewRulesReadRequest = z.infer<typeof runtimeReviewRulesReadRequestSchema>;
+
+export const runtimeReviewRulesReadResponseSchema = z.object({
+	ok: z.boolean(),
+	bundle: runtimeReviewRulesBundleSchema.nullable(),
+	error: z.string().optional(),
+});
+export type RuntimeReviewRulesReadResponse = z.infer<typeof runtimeReviewRulesReadResponseSchema>;
+
+export const runtimeReviewRulesConfigSchema = z.object({
+	projectKey: z.string().min(1),
+	/** Files or directories the extraction agent reads. */
+	sourceRoots: z.array(z.string()),
+});
+export type RuntimeReviewRulesConfig = z.infer<typeof runtimeReviewRulesConfigSchema>;
+
+export const runtimeReviewRulesConfigResponseSchema = z.object({
+	ok: z.boolean(),
+	config: runtimeReviewRulesConfigSchema.nullable(),
+	error: z.string().optional(),
+});
+export type RuntimeReviewRulesConfigResponse = z.infer<typeof runtimeReviewRulesConfigResponseSchema>;
+
+export const runtimeReviewDraftCommentSchema = z.object({
+	id: z.string().min(1),
+	/** Post-image path; the pre-image path is only needed for a deleted-side note. */
+	newPath: z.string(),
+	oldPath: z.string(),
+	oldLine: z.number().nullable(),
+	newLine: z.number().nullable(),
+	text: z.string(),
+	ruleIds: z.array(z.string()),
+	author: z.string(),
+	createdAt: z.string(),
+	/** Set when the draft came from an accepted AI finding. */
+	aiFindingId: z.string().nullable(),
+});
+export type RuntimeReviewDraftComment = z.infer<typeof runtimeReviewDraftCommentSchema>;
+
+export const runtimeReviewFindingSchema = z.object({
+	id: z.string().min(1),
+	newPath: z.string(),
+	newLine: z.number().nullable(),
+	ruleId: z.string().nullable(),
+	severity: runtimeReviewRuleSeveritySchema,
+	message: z.string(),
+});
+export type RuntimeReviewFinding = z.infer<typeof runtimeReviewFindingSchema>;
+
+export const runtimeReviewSessionSchema = z.object({
+	host: z.string(),
+	projectId: z.number(),
+	iid: z.number(),
+	/** Head SHA at the end of the last review pass — drives the delta banner. */
+	lastReviewedHeadSha: z.string().nullable(),
+	reviewedPaths: z.array(z.string()),
+	draftComments: z.array(runtimeReviewDraftCommentSchema),
+	findings: z.array(runtimeReviewFindingSchema),
+	dismissedFindingIds: z.array(z.string()),
+	updatedAt: z.string(),
+});
+export type RuntimeReviewSession = z.infer<typeof runtimeReviewSessionSchema>;
+
+export const runtimeReviewSessionReadRequestSchema = z.object({
+	host: z.string().min(1),
+	projectId: z.number().int().positive(),
+	iid: z.number().int().positive(),
+});
+export type RuntimeReviewSessionReadRequest = z.infer<typeof runtimeReviewSessionReadRequestSchema>;
+
+export const runtimeReviewSessionResponseSchema = z.object({
+	ok: z.boolean(),
+	session: runtimeReviewSessionSchema.nullable(),
+	error: z.string().optional(),
+});
+export type RuntimeReviewSessionResponse = z.infer<typeof runtimeReviewSessionResponseSchema>;
+
+/**
+ * The whole session is written at once. Draft comments are the reviewer's
+ * unsubmitted work, and a field-by-field patch API would let a stale client
+ * silently drop the drafts it did not know about.
+ */
+export const runtimeReviewSessionWriteRequestSchema = z.object({
+	session: runtimeReviewSessionSchema,
+});
+export type RuntimeReviewSessionWriteRequest = z.infer<typeof runtimeReviewSessionWriteRequestSchema>;
+
+export const runtimeReviewRulesExtractRequestSchema = z.object({
+	projectKey: z.string().min(1),
+	sourceRoots: z.array(z.string()).min(1),
+	model: z.string().optional(),
+	managerAccountId: z.number().int().positive().optional(),
+});
+export type RuntimeReviewRulesExtractRequest = z.infer<typeof runtimeReviewRulesExtractRequestSchema>;
+
+export const runtimeReviewAuditRequestSchema = z.object({
+	host: z.string().min(1),
+	projectId: z.number().int().positive(),
+	iid: z.number().int().positive(),
+	title: z.string(),
+	sourceBranch: z.string(),
+	targetBranch: z.string(),
+	/** Only the files the reviewer wants audited, already patch-shaped. */
+	files: z
+		.array(
+			z.object({
+				newPath: z.string(),
+				diff: z.string(),
+			}),
+		)
+		.min(1),
+	projectKey: z.string().min(1),
+	model: z.string().optional(),
+	managerAccountId: z.number().int().positive().optional(),
+});
+export type RuntimeReviewAuditRequest = z.infer<typeof runtimeReviewAuditRequestSchema>;
+
+export const runtimeReviewChatRequestSchema = z.object({
+	/**
+	 * Sent to the CLI verbatim, so a leading `/understand-diff` or
+	 * `/security-review` reaches Claude Code as the slash command it is.
+	 */
+	prompt: z.string().min(1),
+	host: z.string().min(1),
+	projectId: z.number().int().positive(),
+	iid: z.number().int().positive(),
+	/** Context appended under the prompt: changed paths, active file's patch. */
+	changedPaths: z.array(z.string()),
+	activeDiff: z.string().optional(),
+	projectKey: z.string().min(1),
+	cwd: z.string().optional(),
+	model: z.string().optional(),
+	managerAccountId: z.number().int().positive().optional(),
+});
+export type RuntimeReviewChatRequest = z.infer<typeof runtimeReviewChatRequestSchema>;

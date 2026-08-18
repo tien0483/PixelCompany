@@ -26,6 +26,11 @@ import {
 	type UnifiedDiffRow,
 	useIncrementalExpand,
 } from "@/components/shared/diff-renderer";
+import {
+	isCommentableOnSplitSide,
+	SplitDiffGrid,
+	type SplitDiffSide,
+} from "@/components/shared/split-diff-renderer";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
 import {
@@ -382,87 +387,6 @@ function UnifiedDiff({
 	);
 }
 
-interface SplitDiffRowPair {
-	key: string;
-	left: UnifiedDiffRow | null;
-	right: UnifiedDiffRow | null;
-}
-
-function pairRowsForSplit(rows: UnifiedDiffRow[]): SplitDiffRowPair[] {
-	const pairs: SplitDiffRowPair[] = [];
-	let index = 0;
-	while (index < rows.length) {
-		const row = rows[index];
-		if (!row) {
-			index += 1;
-			continue;
-		}
-
-		if (row.variant === "removed") {
-			// Collect contiguous removed block
-			const removedStart = index;
-			while (index < rows.length && rows[index]!.variant === "removed") {
-				index += 1;
-			}
-			const removedBlock = rows.slice(removedStart, index);
-
-			// Collect contiguous added block immediately following
-			const addedStart = index;
-			while (index < rows.length && rows[index]!.variant === "added") {
-				index += 1;
-			}
-			const addedBlock = rows.slice(addedStart, index);
-
-			// Pair positionally
-			const pairCount = Math.max(removedBlock.length, addedBlock.length);
-			for (let pi = 0; pi < pairCount; pi += 1) {
-				const left = removedBlock[pi] ?? null;
-				const right = addedBlock[pi] ?? null;
-				const key =
-					left && right
-						? `pair-${left.key}-${right.key}`
-						: left
-							? `pair-left-${left.key}`
-							: `pair-right-${right!.key}`;
-				pairs.push({ key, left, right });
-			}
-			continue;
-		}
-
-		if (row.variant === "added") {
-			pairs.push({
-				key: `pair-right-${row.key}`,
-				left: null,
-				right: row,
-			});
-			index += 1;
-			continue;
-		}
-
-		pairs.push({
-			key: `pair-context-${row.key}`,
-			left: row,
-			right: row,
-		});
-		index += 1;
-	}
-
-	return pairs;
-}
-
-function isCommentableOnSplitSide(
-	row: UnifiedDiffRow,
-	side: "left" | "right",
-): boolean {
-	if (row.variant === "removed") {
-		return side === "left";
-	}
-	if (row.variant === "added") {
-		return side === "right";
-	}
-	return side === "right";
-}
-
 function SplitDiff({
 	path,
 	oldText,
@@ -507,10 +431,7 @@ function SplitDiff({
 		[expandedBlocks, rows],
 	);
 
-	const renderSide = (
-		row: UnifiedDiffRow,
-		side: "left" | "right",
-	): React.ReactElement => {
+	const renderSide = (row: UnifiedDiffRow, side: SplitDiffSide): React.ReactElement => {
 		const rowLineNumber = row.lineNumber;
 		if (rowLineNumber == null) {
 			return <></>;
@@ -600,80 +521,12 @@ function SplitDiff({
 		);
 	};
 
-	const renderPairs = (sourceRows: UnifiedDiffRow[]): React.ReactElement[] => {
-		const pairs = pairRowsForSplit(sourceRows);
-		return pairs.map((pair) => (
-			<div key={pair.key} className="kb-diff-split-grid-row">
-				<div
-					className={`kb-diff-split-cell ${pair.left ? "kb-diff-split-cell-filled" : "kb-diff-split-cell-placeholder"}`}
-				>
-					{pair.left ? renderSide(pair.left, "left") : null}
-				</div>
-				<div
-					className={`kb-diff-split-cell kb-diff-split-cell-right ${pair.right ? "kb-diff-split-cell-filled" : "kb-diff-split-cell-placeholder"}`}
-				>
-					{pair.right ? renderSide(pair.right, "right") : null}
-				</div>
-			</div>
-		));
-	};
-
-	const renderDisplayItems = (): React.ReactElement[] => {
-		const renderedItems: React.ReactElement[] = [];
-		let pendingRows: UnifiedDiffRow[] = [];
-
-		const flushPendingRows = (): void => {
-			if (pendingRows.length === 0) {
-				return;
-			}
-			renderedItems.push(...renderPairs(pendingRows));
-			pendingRows = [];
-		};
-
-		for (const item of displayItems) {
-			if (item.type === "row") {
-				pendingRows.push(item.row);
-				continue;
-			}
-
-			flushPendingRows();
-			renderedItems.push(
-				<div key={item.block.id}>
-					<div className="kb-diff-split-grid-row">
-						<div className="kb-diff-split-cell kb-diff-split-cell-filled">
-							<CollapsedBlockControls
-								block={item.block}
-								onExpandTop={expandTop}
-								onExpandBottom={expandBottom}
-								onExpandAll={expandAll}
-							/>
-						</div>
-						<div className="kb-diff-split-cell kb-diff-split-cell-filled kb-diff-split-cell-right">
-							<CollapsedBlockControls
-								block={item.block}
-								onExpandTop={expandTop}
-								onExpandBottom={expandBottom}
-								onExpandAll={expandAll}
-							/>
-						</div>
-					</div>
-					{item.block.expanded ? renderPairs(item.block.rows) : null}
-				</div>,
-			);
-		}
-
-		flushPendingRows();
-		return renderedItems;
-	};
-
 	return (
-		<div className="kb-diff-split-grid-shell">
-			<div className="kb-diff-split-grid-backgrounds" aria-hidden>
-				<div className="kb-diff-split-grid-background-column" />
-				<div className="kb-diff-split-grid-background-column kb-diff-split-grid-background-column-right" />
-			</div>
-			<div className="kb-diff-split-grid-content">{renderDisplayItems()}</div>
-		</div>
+		<SplitDiffGrid
+			displayItems={displayItems}
+			renderSide={renderSide}
+			expandHandlers={{ expandTop, expandBottom, expandAll }}
+		/>
 	);
 }
 

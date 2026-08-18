@@ -227,6 +227,62 @@ import {
 	RuntimeDocProjectCreateRequestSchema,
 	RuntimeDocProjectSchema,
 	RuntimeDocSkillStatusSchema,
+	type RuntimeGitlabConnectStartRequest,
+	runtimeGitlabConnectStartRequestSchema,
+	type RuntimeGitlabConnectStartResponse,
+	runtimeGitlabConnectStartResponseSchema,
+	type RuntimeGitlabConnectStatus,
+	type RuntimeGitlabConnectStatusRequest,
+	runtimeGitlabConnectStatusRequestSchema,
+	runtimeGitlabConnectStatusSchema,
+	type RuntimeGitlabConnection,
+	runtimeGitlabConnectionSchema,
+	type RuntimeGitlabCreateDiffNoteRequest,
+	runtimeGitlabCreateDiffNoteRequestSchema,
+	type RuntimeGitlabCreateNoteRequest,
+	runtimeGitlabCreateNoteRequestSchema,
+	type RuntimeGitlabDiffsResponse,
+	runtimeGitlabDiffsResponseSchema,
+	type RuntimeGitlabDiscussionListResponse,
+	runtimeGitlabDiscussionListResponseSchema,
+	type RuntimeGitlabMergeRequestDetailResponse,
+	runtimeGitlabMergeRequestDetailResponseSchema,
+	type RuntimeGitlabMergeRequestListRequest,
+	runtimeGitlabMergeRequestListRequestSchema,
+	type RuntimeGitlabMergeRequestListResponse,
+	runtimeGitlabMergeRequestListResponseSchema,
+	type RuntimeGitlabMergeRequestRef,
+	runtimeGitlabMergeRequestRefSchema,
+	type RuntimeGitlabMergeRequestVersionsResponse,
+	runtimeGitlabMergeRequestVersionsResponseSchema,
+	type RuntimeGitlabMutationResponse,
+	runtimeGitlabMutationResponseSchema,
+	type RuntimeGitlabProjectListRequest,
+	runtimeGitlabProjectListRequestSchema,
+	type RuntimeGitlabProjectListResponse,
+	runtimeGitlabProjectListResponseSchema,
+	type RuntimeGitlabRawFileRequest,
+	runtimeGitlabRawFileRequestSchema,
+	type RuntimeGitlabRawFileResponse,
+	runtimeGitlabRawFileResponseSchema,
+	type RuntimeGitlabResolveDiscussionRequest,
+	runtimeGitlabResolveDiscussionRequestSchema,
+	type RuntimeReviewRulesConfig,
+	runtimeReviewRulesConfigSchema,
+	type RuntimeReviewRulesConfigResponse,
+	runtimeReviewRulesConfigResponseSchema,
+	type RuntimeReviewRulesReadRequest,
+	runtimeReviewRulesReadRequestSchema,
+	type RuntimeReviewRulesReadResponse,
+	runtimeReviewRulesReadResponseSchema,
+	type RuntimeReviewSession,
+	runtimeReviewSessionSchema,
+	type RuntimeReviewSessionReadRequest,
+	runtimeReviewSessionReadRequestSchema,
+	type RuntimeReviewSessionResponse,
+	runtimeReviewSessionResponseSchema,
+	type RuntimeReviewSessionWriteRequest,
+	runtimeReviewSessionWriteRequestSchema,
 	type RuntimeHtmlStatus,
 	RuntimeHtmlStatusSchema,
 	type RuntimeHtmlTemplate,
@@ -825,6 +881,35 @@ export interface RuntimeTrpcContext {
 		status: () => Promise<RuntimeDocSkillStatus>;
 		projects: () => Promise<RuntimeDocProject[]>;
 		createProject: (input: RuntimeDocProjectCreateRequest) => Promise<RuntimeDocProject>;
+	};
+	gitlabApi: {
+		status: () => Promise<RuntimeGitlabConnection>;
+		connect: (input: RuntimeGitlabConnectStartRequest) => Promise<RuntimeGitlabConnectStartResponse>;
+		connectStatus: (input: RuntimeGitlabConnectStatusRequest) => Promise<RuntimeGitlabConnectStatus>;
+		disconnect: () => Promise<RuntimeGitlabMutationResponse>;
+		listProjects: (input: RuntimeGitlabProjectListRequest) => Promise<RuntimeGitlabProjectListResponse>;
+		listMergeRequests: (
+			input: RuntimeGitlabMergeRequestListRequest,
+		) => Promise<RuntimeGitlabMergeRequestListResponse>;
+		getMergeRequest: (input: RuntimeGitlabMergeRequestRef) => Promise<RuntimeGitlabMergeRequestDetailResponse>;
+		getDiffs: (input: RuntimeGitlabMergeRequestRef) => Promise<RuntimeGitlabDiffsResponse>;
+		getVersions: (input: RuntimeGitlabMergeRequestRef) => Promise<RuntimeGitlabMergeRequestVersionsResponse>;
+		getRawFile: (input: RuntimeGitlabRawFileRequest) => Promise<RuntimeGitlabRawFileResponse>;
+		listDiscussions: (input: RuntimeGitlabMergeRequestRef) => Promise<RuntimeGitlabDiscussionListResponse>;
+		createDiffDiscussion: (input: RuntimeGitlabCreateDiffNoteRequest) => Promise<RuntimeGitlabMutationResponse>;
+		createNote: (input: RuntimeGitlabCreateNoteRequest) => Promise<RuntimeGitlabMutationResponse>;
+		resolveDiscussion: (input: RuntimeGitlabResolveDiscussionRequest) => Promise<RuntimeGitlabMutationResponse>;
+		setApproval: (
+			input: RuntimeGitlabMergeRequestRef & { approved: boolean },
+		) => Promise<RuntimeGitlabMutationResponse>;
+	};
+	reviewApi: {
+		getSession: (input: RuntimeReviewSessionReadRequest) => Promise<RuntimeReviewSessionResponse>;
+		saveSession: (input: RuntimeReviewSessionWriteRequest) => Promise<RuntimeReviewSessionResponse>;
+		listSessionsWithDrafts: (input: { host: string }) => Promise<RuntimeReviewSession[]>;
+		getRules: (input: RuntimeReviewRulesReadRequest) => Promise<RuntimeReviewRulesReadResponse>;
+		getRulesConfig: (input: RuntimeReviewRulesReadRequest) => Promise<RuntimeReviewRulesConfigResponse>;
+		setRulesConfig: (input: RuntimeReviewRulesConfig) => Promise<RuntimeReviewRulesConfigResponse>;
 	};
 }
 
@@ -1777,6 +1862,130 @@ export const runtimeAppRouter = t.router({
 			.output(RuntimeDocProjectSchema)
 			.mutation(async ({ ctx, input }) => {
 				return await ctx.docSkillApi.createProject(input);
+			}),
+	}),
+	gitlab: t.router({
+		status: t.procedure.output(runtimeGitlabConnectionSchema).query(async ({ ctx }) => {
+			return await ctx.gitlabApi.status();
+		}),
+		connect: t.procedure
+			.input(runtimeGitlabConnectStartRequestSchema)
+			.output(runtimeGitlabConnectStartResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.gitlabApi.connect(input);
+			}),
+		connectStatus: t.procedure
+			.input(runtimeGitlabConnectStatusRequestSchema)
+			.output(runtimeGitlabConnectStatusSchema)
+			.query(async ({ ctx, input }) => {
+				return await ctx.gitlabApi.connectStatus(input);
+			}),
+		disconnect: t.procedure.output(runtimeGitlabMutationResponseSchema).mutation(async ({ ctx }) => {
+			return await ctx.gitlabApi.disconnect();
+		}),
+		listProjects: t.procedure
+			.input(runtimeGitlabProjectListRequestSchema)
+			.output(runtimeGitlabProjectListResponseSchema)
+			.query(async ({ ctx, input }) => {
+				return await ctx.gitlabApi.listProjects(input);
+			}),
+		listMergeRequests: t.procedure
+			.input(runtimeGitlabMergeRequestListRequestSchema)
+			.output(runtimeGitlabMergeRequestListResponseSchema)
+			.query(async ({ ctx, input }) => {
+				return await ctx.gitlabApi.listMergeRequests(input);
+			}),
+		getMergeRequest: t.procedure
+			.input(runtimeGitlabMergeRequestRefSchema)
+			.output(runtimeGitlabMergeRequestDetailResponseSchema)
+			.query(async ({ ctx, input }) => {
+				return await ctx.gitlabApi.getMergeRequest(input);
+			}),
+		getDiffs: t.procedure
+			.input(runtimeGitlabMergeRequestRefSchema)
+			.output(runtimeGitlabDiffsResponseSchema)
+			.query(async ({ ctx, input }) => {
+				return await ctx.gitlabApi.getDiffs(input);
+			}),
+		getVersions: t.procedure
+			.input(runtimeGitlabMergeRequestRefSchema)
+			.output(runtimeGitlabMergeRequestVersionsResponseSchema)
+			.query(async ({ ctx, input }) => {
+				return await ctx.gitlabApi.getVersions(input);
+			}),
+		getRawFile: t.procedure
+			.input(runtimeGitlabRawFileRequestSchema)
+			.output(runtimeGitlabRawFileResponseSchema)
+			.query(async ({ ctx, input }) => {
+				return await ctx.gitlabApi.getRawFile(input);
+			}),
+		listDiscussions: t.procedure
+			.input(runtimeGitlabMergeRequestRefSchema)
+			.output(runtimeGitlabDiscussionListResponseSchema)
+			.query(async ({ ctx, input }) => {
+				return await ctx.gitlabApi.listDiscussions(input);
+			}),
+		createDiffDiscussion: t.procedure
+			.input(runtimeGitlabCreateDiffNoteRequestSchema)
+			.output(runtimeGitlabMutationResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.gitlabApi.createDiffDiscussion(input);
+			}),
+		createNote: t.procedure
+			.input(runtimeGitlabCreateNoteRequestSchema)
+			.output(runtimeGitlabMutationResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.gitlabApi.createNote(input);
+			}),
+		resolveDiscussion: t.procedure
+			.input(runtimeGitlabResolveDiscussionRequestSchema)
+			.output(runtimeGitlabMutationResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.gitlabApi.resolveDiscussion(input);
+			}),
+		setApproval: t.procedure
+			.input(runtimeGitlabMergeRequestRefSchema.extend({ approved: z.boolean() }))
+			.output(runtimeGitlabMutationResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.gitlabApi.setApproval(input);
+			}),
+	}),
+	review: t.router({
+		getSession: t.procedure
+			.input(runtimeReviewSessionReadRequestSchema)
+			.output(runtimeReviewSessionResponseSchema)
+			.query(async ({ ctx, input }) => {
+				return await ctx.reviewApi.getSession(input);
+			}),
+		saveSession: t.procedure
+			.input(runtimeReviewSessionWriteRequestSchema)
+			.output(runtimeReviewSessionResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.reviewApi.saveSession(input);
+			}),
+		listSessionsWithDrafts: t.procedure
+			.input(z.object({ host: z.string().min(1) }))
+			.output(runtimeReviewSessionSchema.array())
+			.query(async ({ ctx, input }) => {
+				return await ctx.reviewApi.listSessionsWithDrafts(input);
+			}),
+		getRules: t.procedure
+			.input(runtimeReviewRulesReadRequestSchema)
+			.output(runtimeReviewRulesReadResponseSchema)
+			.query(async ({ ctx, input }) => {
+				return await ctx.reviewApi.getRules(input);
+			}),
+		getRulesConfig: t.procedure
+			.input(runtimeReviewRulesReadRequestSchema)
+			.output(runtimeReviewRulesConfigResponseSchema)
+			.query(async ({ ctx, input }) => {
+				return await ctx.reviewApi.getRulesConfig(input);
+			}),
+		setRulesConfig: t.procedure
+			.input(runtimeReviewRulesConfigSchema)
+			.output(runtimeReviewRulesConfigResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.reviewApi.setRulesConfig(input);
 			}),
 	}),
 });
