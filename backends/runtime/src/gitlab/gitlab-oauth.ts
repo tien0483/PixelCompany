@@ -282,7 +282,10 @@ export function createGitlabOauthSession(): GitlabOauthSession {
 		const host = normalizeHost(deps?.host ?? DEFAULT_GITLAB_HOST);
 		const warn = deps?.warn ?? (() => {});
 		const persist = deps?.persist ?? writeGitlabCredential;
-		const redirectUri = `http://127.0.0.1:${GITLAB_OAUTH_CALLBACK_PORT}${GITLAB_OAUTH_CALLBACK_PATH}`;
+		// GitLab matches redirect_uri as an exact string, and the pinned client id was
+		// registered with the `localhost` host form, not the `127.0.0.1` literal — the
+		// server below still binds to 127.0.0.1, which `localhost` resolves to locally.
+		const redirectUri = `http://localhost:${GITLAB_OAUTH_CALLBACK_PORT}${GITLAB_OAUTH_CALLBACK_PATH}`;
 
 		const metadata = await discoverOauthMetadata(host);
 		const scopes = selectScopes(metadata);
