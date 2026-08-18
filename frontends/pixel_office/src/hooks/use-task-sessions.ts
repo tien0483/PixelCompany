@@ -170,7 +170,8 @@ export function useTaskSessions({ currentProjectId, setSessions }: UseTaskSessio
 				return { ok: false, message: "No project selected." };
 			}
 			try {
-				const kickoffPrompt = options?.resumeFromTrash ? "" : task.prompt.trim();
+				const isResume = options?.resumeFromTrash || options?.resumeFromPersistence;
+				const kickoffPrompt = isResume ? "" : task.prompt.trim();
 				const trpcClient = getRuntimeTrpcClient(currentProjectId);
 				const geometry =
 					getTerminalGeometry(task.id) ?? estimateTaskSessionGeometry(window.innerWidth, window.innerHeight);
@@ -179,9 +180,9 @@ export function useTaskSessions({ currentProjectId, setSessions }: UseTaskSessio
 					...(options?.worktreeTaskId?.trim() ? { worktreeTaskId: options.worktreeTaskId.trim() } : {}),
 					prompt: kickoffPrompt,
 					taskTitle: task.title,
-					images: options?.resumeFromTrash ? undefined : task.images,
-					startInPlanMode: options?.resumeFromTrash ? undefined : task.startInPlanMode,
-					planFilePath: options?.resumeFromTrash ? undefined : task.planFilePath,
+					images: isResume ? undefined : task.images,
+					startInPlanMode: isResume ? undefined : task.startInPlanMode,
+					planFilePath: isResume ? undefined : task.planFilePath,
 					resumeFromTrash: options?.resumeFromTrash,
 					resumeFromPersistence: options?.resumeFromPersistence,
 					baseRef: task.baseRef,
