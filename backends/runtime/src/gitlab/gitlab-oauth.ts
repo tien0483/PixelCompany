@@ -1,29 +1,28 @@
 // Loopback OAuth (authorization code + PKCE) against a GitLab instance.
 //
-// The akselos MCP config already authorizes this machine's GitLab account, so we
-// reuse its instance URL, callback port and client id rather than asking the user
-// to register a second application:
+// The callback is handled by the runtime server itself at
+// `/api/gitlab/oauth/callback` — NOT by a sidecar HTTP server on port 14995.
+// This matters on WSL: a Windows browser redirects to 127.0.0.1, which is the
+// Windows loopback, not WSL's. The runtime server's port IS forwarded by WSL2,
+// so the callback reaches the right process.
 //
+// The MCP client id comment is kept for history:
 //   host          https://code.akselos.com/repo
 //   metadata      <host>/.well-known/oauth-authorization-server/api/v4/mcp
-//   callback port 14995
+//   fallback id   c323cb730c…
 //
-// The client id there was almost certainly minted by dynamic client registration
-// (RFC 7591), and a client is bound to the exact redirect URI it registered — so
-// reusing that id blind would fail on `redirect_uri` mismatch. We therefore
-// register our own client when the instance advertises a registration endpoint,
-// cache it, and keep the MCP id only as the last resort.
+// We register our own client via RFC 7591 when the instance supports it, and
+// cache client.json under the runtime home so re-starts skip re-registration.
 import { createHash, randomBytes } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { createServer, type Server } from "node:http";
 import { dirname, join } from "node:path";
 
 import { getRuntimeHomePath } from "../state/workspace-state";
 import { GITLAB_CREDENTIAL_DIR_NAME, type GitlabCredential, writeGitlabCredential } from "./gitlab-credentials";
 
 export const DEFAULT_GITLAB_HOST = "https://code.akselos.com/repo";
-export const GITLAB_OAUTH_CALLBACK_PORT = 14995;
-export const GITLAB_OAUTH_CALLBACK_PATH = "/callback";
+/** API path registered as the redirect URI on the runtime / standalone server. */
+export const GITLAB_OAUTH_CALLBACK_API_PATH = "/api/gitlab/oauth/callback";
 
 /**
  * Client id from `akselos-dev/.mcp.json`. Only tried when the instance offers no
@@ -178,10 +177,32 @@ function parseClient(raw: unknown, host: string, redirectUri: string): GitlabOau
 	return { host, clientId, clientSecret: readString(raw, "clientSecret"), redirectUri };
 }
 
+/** Reads client.json without checking the redirect URI — used for token refresh. */
+function parseClientLoose(raw: unknown, host: string): GitlabOauthClient | null {
+	if (!isRecord(raw)) {
+		return null;
+	}
+	const clientId = readString(raw, "clientId");
+	const redirectUri = readString(raw, "redirectUri");
+	if (!clientId || readString(raw, "host") !== host || !redirectUri) {
+		return null;
+	}
+	return { host, clientId, clientSecret: readString(raw, "clientSecret"), redirectUri };
+}
+
 async function readCachedClient(host: string, redirectUri: string): Promise<GitlabOauthClient | null> {
 	try {
 		const text = await readFile(getClientPath(), "utf-8");
 		return parseClient(JSON.parse(text) as unknown, host, redirectUri);
+	} catch {
+		return null;
+	}
+}
+
+async function readAnyCachedClient(host: string): Promise<GitlabOauthClient | null> {
+	try {
+		const text = await readFile(getClientPath(), "utf-8");
+		return parseClientLoose(JSON.parse(text) as unknown, host);
 	} catch {
 		return null;
 	}
@@ -211,10 +232,10 @@ async function registerClient(
 				body: JSON.stringify({
 					client_name: "PixelOffice Review",
 					redirect_uris: [redirectUri],
+					scope: scopes.join(" "),
 					grant_types: ["authorization_code", "refresh_token"],
 					response_types: ["code"],
 					token_endpoint_auth_method: "none",
-					scope: scopes.join(" "),
 				}),
 			},
 			METADATA_TIMEOUT_MS,
@@ -228,13 +249,11 @@ async function registerClient(
 		}
 		return { host, clientId, clientSecret: readString(parsed, "client_secret"), redirectUri };
 	} catch {
-		// Registration is an optimization over the hardcoded id, so a rejection here
-		// must not end the flow.
 		return null;
 	}
 }
 
-export async function resolveOauthClient(
+async function resolveOauthClient(
 	metadata: GitlabOauthMetadata,
 	host: string,
 	redirectUri: string,
@@ -320,45 +339,43 @@ async function fetchIdentity(host: string, accessToken: string): Promise<GitlabI
 	return { username, name: readString(parsed, "name") ?? username, userId: id };
 }
 
-const CALLBACK_HTML = `<!doctype html><meta charset="utf-8"><title>GitLab connected</title>
+const CALLBACK_SUCCESS_HTML = `<!doctype html><meta charset="utf-8"><title>GitLab connected</title>
 <body style="font-family:system-ui;background:#1F2428;color:#E6EDF3;padding:3rem">
 <h1 style="font-size:1.1rem">GitLab connected</h1>
 <p style="color:#8B949E">You can close this tab and return to PixelOffice.</p>`;
 
-function listenOnCallbackPort(server: Server, port: number): Promise<void> {
-	return new Promise((resolve, reject) => {
-		const onError = (error: NodeJS.ErrnoException): void => {
-			server.removeListener("listening", onListening);
-			// The MCP client owns this same port. Saying so beats a bare EADDRINUSE,
-			// which reads as a bug in this flow rather than as a live neighbour.
-			reject(
-				error.code === "EADDRINUSE"
-					? new Error(
-							`Port ${port} is already in use — a Claude Code session's GitLab MCP client is probably holding it. Close that session and retry.`,
-						)
-					: error,
-			);
-		};
-		const onListening = (): void => {
-			server.removeListener("error", onError);
-			resolve();
-		};
-		server.once("error", onError);
-		server.once("listening", onListening);
-		server.listen(port, "127.0.0.1");
-	});
+function buildCallbackErrorHtml(message: string): string {
+	return `<!doctype html><meta charset="utf-8"><title>GitLab connect failed</title>
+<body style="font-family:system-ui;background:#1F2428;color:#E6EDF3;padding:3rem">
+<h1 style="font-size:1.1rem;color:#F85149">GitLab connect failed</h1>
+<p style="color:#8B949E">${message.replace(/</g, "&lt;")}</p>
+<p style="color:#8B949E;margin-top:1rem">Close this tab and press <b>Connect GitLab</b> again.</p>`;
 }
 
 export interface StartGitlabOauthDependencies {
 	host?: string;
-	callbackPort?: number;
 	warn?: (message: string) => void;
 	/** Injected in tests; production stores under the runtime home. */
 	persist?: (credential: GitlabCredential) => Promise<void>;
 }
 
+interface PendingFlowContext {
+	flowId: string;
+	codeVerifier: string;
+	metadata: GitlabOauthMetadata;
+	client: GitlabOauthClient;
+	redirectUri: string;
+	warn: (message: string) => void;
+	persist: (credential: GitlabCredential) => Promise<void>;
+}
+
 export interface GitlabOauthSession {
 	start: (deps?: StartGitlabOauthDependencies) => Promise<GitlabOauthFlow>;
+	/**
+	 * Called by the runtime server's `/api/gitlab/oauth/callback` GET handler.
+	 * Returns HTML to write directly to the browser response.
+	 */
+	handleCallback: (code: string | null, state: string | null, error: string | null) => Promise<string>;
 	getState: (flowId: string) => GitlabOauthFlowState;
 }
 
@@ -366,16 +383,24 @@ export interface GitlabOauthSession {
  * Flows are tracked in memory: an interrupted runtime loses a half-finished
  * authorization, which is the correct outcome — the code in the browser's URL is
  * single-use and the user simply presses Connect again.
+ *
+ * `callbackBaseUrl` is the base URL of the server handling the OAuth callback,
+ * e.g. `http://127.0.0.1:3484`. The redirect URI registered with GitLab is
+ * `${callbackBaseUrl}/api/gitlab/oauth/callback`.
+ * On WSL this must be the main runtime/standalone port, not a sidecar port,
+ * because WSL2 forwards the runtime port to Windows localhost but not arbitrary
+ * additional ports.
  */
-export function createGitlabOauthSession(): GitlabOauthSession {
+export function createGitlabOauthSession(callbackBaseUrl: string): GitlabOauthSession {
 	const flows = new Map<string, GitlabOauthFlowState>();
+	// Keyed by stateToken (the CSRF token) so handleCallback can find the flow.
+	const pendingFlows = new Map<string, PendingFlowContext>();
 
 	const start = async (deps?: StartGitlabOauthDependencies): Promise<GitlabOauthFlow> => {
 		const host = normalizeHost(deps?.host ?? DEFAULT_GITLAB_HOST);
-		const port = deps?.callbackPort ?? GITLAB_OAUTH_CALLBACK_PORT;
 		const warn = deps?.warn ?? (() => {});
 		const persist = deps?.persist ?? writeGitlabCredential;
-		const redirectUri = `http://127.0.0.1:${port}${GITLAB_OAUTH_CALLBACK_PATH}`;
+		const redirectUri = `${callbackBaseUrl}${GITLAB_OAUTH_CALLBACK_API_PATH}`;
 
 		const metadata = await discoverOauthMetadata(host);
 		const scopes = selectScopes(metadata);
@@ -386,87 +411,17 @@ export function createGitlabOauthSession(): GitlabOauthSession {
 		const codeVerifier = base64Url(randomBytes(32));
 		const codeChallenge = base64Url(createHash("sha256").update(codeVerifier).digest());
 
-		let settle: (() => void) | null = null;
-		const server = createServer((req, res) => {
-			const requestUrl = new URL(req.url ?? "/", redirectUri);
-			if (requestUrl.pathname !== GITLAB_OAUTH_CALLBACK_PATH) {
-				res.writeHead(404).end();
-				return;
-			}
-			const error = requestUrl.searchParams.get("error");
-			const code = requestUrl.searchParams.get("code");
-			const returnedState = requestUrl.searchParams.get("state");
-
-			const fail = (message: string): void => {
-				flows.set(flowId, { state: "failed", error: message });
-				res.writeHead(400, { "Content-Type": "text/plain; charset=utf-8" }).end(message);
-				settle?.();
-			};
-
-			if (error) {
-				fail(`GitLab denied the authorization: ${error}`);
-				return;
-			}
-			if (returnedState !== stateToken) {
-				// A mismatched state is the CSRF signal this parameter exists for; never
-				// exchange the code in that case.
-				fail("Authorization state did not match. Start the connection again.");
-				return;
-			}
-			if (!code) {
-				fail("GitLab returned no authorization code.");
-				return;
-			}
-
-			res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" }).end(CALLBACK_HTML);
-			void (async () => {
-				try {
-					const token = await exchangeToken(metadata, client, {
-						grant_type: "authorization_code",
-						code,
-						redirect_uri: redirectUri,
-						code_verifier: codeVerifier,
-					});
-					const identity = await fetchIdentity(host, token.accessToken);
-					const credential: GitlabCredential = {
-						host,
-						accessToken: token.accessToken,
-						refreshToken: token.refreshToken,
-						expiresAt: token.expiresAt,
-						username: identity.username,
-						name: identity.name,
-						userId: identity.userId,
-					};
-					await persist(credential);
-					flows.set(flowId, { state: "connected", credential });
-				} catch (exchangeError) {
-					const message = exchangeError instanceof Error ? exchangeError.message : String(exchangeError);
-					warn(`GitLab token exchange failed: ${message}`);
-					flows.set(flowId, { state: "failed", error: message });
-				} finally {
-					settle?.();
-				}
-			})();
-		});
-
-		await listenOnCallbackPort(server, port);
+		const context: PendingFlowContext = { flowId, codeVerifier, metadata, client, redirectUri, warn, persist };
+		pendingFlows.set(stateToken, context);
 		flows.set(flowId, { state: "pending" });
 
-		const closeServer = (): void => {
-			server.close();
-		};
 		const timeout = setTimeout(() => {
 			if (flows.get(flowId)?.state === "pending") {
 				flows.set(flowId, { state: "failed", error: "Authorization timed out." });
 			}
-			closeServer();
+			pendingFlows.delete(stateToken);
 		}, AUTHORIZE_TIMEOUT_MS);
-		// `unref` so a forgotten browser tab cannot hold the process open at shutdown.
 		timeout.unref();
-		settle = () => {
-			clearTimeout(timeout);
-			closeServer();
-		};
 
 		const authorizeUrl = new URL(metadata.authorizationEndpoint);
 		authorizeUrl.searchParams.set("client_id", client.clientId);
@@ -480,8 +435,58 @@ export function createGitlabOauthSession(): GitlabOauthSession {
 		return { flowId, authorizeUrl: authorizeUrl.toString() };
 	};
 
+	const handleCallback = async (
+		code: string | null,
+		state: string | null,
+		error: string | null,
+	): Promise<string> => {
+		if (error) {
+			return buildCallbackErrorHtml(`GitLab denied the authorization: ${error}`);
+		}
+		if (!state) {
+			return buildCallbackErrorHtml("Authorization state is missing.");
+		}
+		const context = pendingFlows.get(state);
+		if (!context) {
+			return buildCallbackErrorHtml("Unknown or expired authorization state. Start the connection again.");
+		}
+		// A mismatched state is the CSRF signal; we already verified by Map lookup.
+		pendingFlows.delete(state);
+		if (!code) {
+			flows.set(context.flowId, { state: "failed", error: "GitLab returned no authorization code." });
+			return buildCallbackErrorHtml("GitLab returned no authorization code.");
+		}
+		try {
+			const token = await exchangeToken(context.metadata, context.client, {
+				grant_type: "authorization_code",
+				code,
+				redirect_uri: context.redirectUri,
+				code_verifier: context.codeVerifier,
+			});
+			const identity = await fetchIdentity(context.client.host, token.accessToken);
+			const credential: GitlabCredential = {
+				host: context.client.host,
+				accessToken: token.accessToken,
+				refreshToken: token.refreshToken,
+				expiresAt: token.expiresAt,
+				username: identity.username,
+				name: identity.name,
+				userId: identity.userId,
+			};
+			await context.persist(credential);
+			flows.set(context.flowId, { state: "connected", credential });
+			return CALLBACK_SUCCESS_HTML;
+		} catch (exchangeError) {
+			const message = exchangeError instanceof Error ? exchangeError.message : String(exchangeError);
+			context.warn(`GitLab token exchange failed: ${message}`);
+			flows.set(context.flowId, { state: "failed", error: message });
+			return buildCallbackErrorHtml(message);
+		}
+	};
+
 	return {
 		start,
+		handleCallback,
 		getState: (flowId) => flows.get(flowId) ?? { state: "failed", error: "Unknown authorization flow." },
 	};
 }
@@ -500,8 +505,16 @@ export async function refreshGitlabCredential(
 	}
 	try {
 		const metadata = await discoverOauthMetadata(credential.host);
-		const redirectUri = `http://127.0.0.1:${GITLAB_OAUTH_CALLBACK_PORT}${GITLAB_OAUTH_CALLBACK_PATH}`;
-		const client = await resolveOauthClient(metadata, credential.host, redirectUri, selectScopes(metadata));
+		// Refresh token grants don't need the redirect_uri in the body. We read
+		// any cached client for this host (ignoring redirect URI) so the same
+		// registered client_id is reused instead of triggering a new registration.
+		const anyClient = await readAnyCachedClient(credential.host);
+		const client: GitlabOauthClient = anyClient ?? {
+			host: credential.host,
+			clientId: GITLAB_MCP_FALLBACK_CLIENT_ID,
+			clientSecret: null,
+			redirectUri: "",
+		};
 		const token = await exchangeToken(metadata, client, {
 			grant_type: "refresh_token",
 			refresh_token: credential.refreshToken,

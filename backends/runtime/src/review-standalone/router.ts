@@ -47,6 +47,8 @@ export interface ReviewTrpcContext {
 	gitlabApi: RuntimeTrpcContext["gitlabApi"];
 	reviewApi: RuntimeTrpcContext["reviewApi"];
 	claudeUsageApi: RuntimeTrpcContext["claudeUsageApi"];
+	/** Exposed so the standalone server can handle the OAuth callback HTTP route. */
+	oauthSession: GitlabOauthSession;
 }
 
 const t = initTRPC.context<ReviewTrpcContext>().create();
@@ -198,5 +200,6 @@ export function createReviewStandaloneContext(deps: {
 		}),
 		reviewApi: createReviewApi(),
 		claudeUsageApi: createClaudeUsageApi(),
+		oauthSession: deps.gitlabOauth,
 	};
 }

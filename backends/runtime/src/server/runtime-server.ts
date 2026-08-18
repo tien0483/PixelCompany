@@ -328,7 +328,7 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 	// registry are singletons here rather than per request: a flow started by one
 	// request is polled by the next, and the client caches the credential in process.
 	const gitlabClient = createGitlabClient({ warn: deps.warn });
-	const gitlabOauthSession = createGitlabOauthSession();
+	const gitlabOauthSession = createGitlabOauthSession(`http://127.0.0.1:${getKanbanRuntimePort()}`);
 	const gitlabApi = createGitlabApi({
 		client: gitlabClient,
 		oauth: gitlabOauthSession,
@@ -1358,6 +1358,21 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 				}
 				return;
 			}
+			// GitLab OAuth callback — browser is redirected here after authorization.
+			// Must be a plain GET route (no /api/trpc, no passcode gate) so the
+			// browser's unguarded redirect reaches it.
+			if (req.method === "GET" && pathname === "/api/gitlab/oauth/callback") {
+				const callbackUrl = new URL(req.url ?? "/", "http://localhost");
+				const html = await gitlabOauthSession.handleCallback(
+					callbackUrl.searchParams.get("code"),
+					callbackUrl.searchParams.get("state"),
+					callbackUrl.searchParams.get("error"),
+				);
+				res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
+				res.end(html);
+				return;
+			}
+
 			if (pathname.startsWith("/api/")) {
 				res.writeHead(404, { "Content-Type": "application/json; charset=utf-8" });
 				res.end('{"error":"Not found"}');

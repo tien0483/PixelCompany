@@ -43,6 +43,7 @@ export function ReviewMergeRequestListScreen({
 }): ReactElement {
 	const [connection, setConnection] = useState<RuntimeGitlabConnection | null>(null);
 	const [connectFlowId, setConnectFlowId] = useState<string | null>(null);
+	const [connectAuthorizeUrl, setConnectAuthorizeUrl] = useState<string | null>(null);
 	const [isConnecting, setIsConnecting] = useState(false);
 	const [projects, setProjects] = useState<RuntimeGitlabProject[]>([]);
 	const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
@@ -82,6 +83,7 @@ export function ReviewMergeRequestListScreen({
 				}
 				setConnectFlowId(null);
 				setIsConnecting(false);
+				setConnectAuthorizeUrl(null);
 				if (status.state === "connected") {
 					setConnection(status.connection);
 					showAppToast({
@@ -113,6 +115,7 @@ export function ReviewMergeRequestListScreen({
 				return;
 			}
 			setConnectFlowId(response.flowId);
+			setConnectAuthorizeUrl(response.authorizeUrl ?? null);
 		} catch (connectError) {
 			setIsConnecting(false);
 			setError(connectError instanceof Error ? connectError.message : String(connectError));
@@ -210,6 +213,19 @@ export function ReviewMergeRequestListScreen({
 					>
 						{isConnecting ? "Waiting for your browser…" : "Connect GitLab"}
 					</Button>
+					{isConnecting && connectAuthorizeUrl ? (
+						<p className="text-xs text-text-tertiary">
+							Browser did not open?{" "}
+							<a
+								href={connectAuthorizeUrl}
+								target="_blank"
+								rel="noopener noreferrer"
+								className="text-accent underline"
+							>
+								Open authorization page
+							</a>
+						</p>
+					) : null}
 				</div>
 			</div>
 		);

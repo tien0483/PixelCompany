@@ -43,6 +43,19 @@ export async function startReviewServer(deps: StartReviewServerDependencies): Pr
 				return;
 			}
 
+			// GitLab OAuth callback — browser is redirected here after authorization.
+			if (req.method === "GET" && pathname === "/api/gitlab/oauth/callback") {
+				const callbackUrl = new URL(req.url ?? "/", "http://localhost");
+				const html = await deps.context.oauthSession.handleCallback(
+					callbackUrl.searchParams.get("code"),
+					callbackUrl.searchParams.get("state"),
+					callbackUrl.searchParams.get("error"),
+				);
+				res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
+				res.end(html);
+				return;
+			}
+
 			if (pathname.startsWith("/api/")) {
 				res.writeHead(404, { "Content-Type": "application/json; charset=utf-8" });
 				res.end('{"error":"Not found"}');

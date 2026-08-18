@@ -61,6 +61,7 @@ export function HomeSidebarReviewPanel({
 	const [isLoading, setIsLoading] = useState(true);
 	const [isConnecting, setIsConnecting] = useState(false);
 	const [connectFlowId, setConnectFlowId] = useState<string | null>(null);
+	const [connectAuthorizeUrl, setConnectAuthorizeUrl] = useState<string | null>(null);
 
 	const refresh = useCallback(async () => {
 		setIsLoading(true);
@@ -108,8 +109,10 @@ export function HomeSidebarReviewPanel({
 				setConnectFlowId(null);
 				setIsConnecting(false);
 				if (status.state === "connected") {
+					setConnectAuthorizeUrl(null);
 					await refresh();
 				} else if (status.error) {
+					setConnectAuthorizeUrl(null);
 					showAppToast({ intent: "danger", message: status.error });
 				}
 			} catch {
@@ -136,6 +139,7 @@ export function HomeSidebarReviewPanel({
 				return;
 			}
 			setConnectFlowId(response.flowId);
+			setConnectAuthorizeUrl(response.authorizeUrl ?? null);
 		} catch (error) {
 			setIsConnecting(false);
 			showAppToast({ intent: "danger", message: error instanceof Error ? error.message : String(error) });
@@ -169,6 +173,19 @@ export function HomeSidebarReviewPanel({
 						>
 							{isConnecting ? "Waiting for browser…" : "Connect GitLab"}
 						</Button>
+						{isConnecting && connectAuthorizeUrl ? (
+							<p className="text-[11px] text-text-tertiary">
+								Browser did not open?{" "}
+								<a
+									href={connectAuthorizeUrl}
+									target="_blank"
+									rel="noopener noreferrer"
+									className="text-accent underline"
+								>
+									Open authorization page
+								</a>
+							</p>
+						) : null}
 					</div>
 				) : null}
 

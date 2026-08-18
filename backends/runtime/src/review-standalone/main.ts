@@ -30,8 +30,14 @@ async function main(): Promise<void> {
 	const agentDataDir = process.env.REVIEW_AGENT_DATA ?? resolve(process.cwd(), "agent-data");
 	process.env.PIXELOFFICE_AGENT_DATA = agentDataDir;
 
+	// Port is resolved before the OAuth session so the callback URL is correct.
+	// The WSL OAuth fix: callback must land on the main server port, which WSL2
+	// forwards to Windows localhost; see gitlab-oauth.ts header for details.
+	const host = process.env.REVIEW_HOST ?? DEFAULT_HOST;
+	const port = Number(process.env.REVIEW_PORT ?? DEFAULT_PORT);
+
 	const gitlabClient = createGitlabClient({ warn });
-	const gitlabOauth = createGitlabOauthSession();
+	const gitlabOauth = createGitlabOauthSession(`http://127.0.0.1:${port}`);
 	const context = createReviewStandaloneContext({
 		gitlabClient,
 		gitlabOauth,
@@ -46,8 +52,6 @@ async function main(): Promise<void> {
 		log("No GitLab credential yet — use Connect GitLab in the UI to authorize.");
 	}
 
-	const host = process.env.REVIEW_HOST ?? DEFAULT_HOST;
-	const port = Number(process.env.REVIEW_PORT ?? DEFAULT_PORT);
 	const server = await startReviewServer({ context, host, port });
 	log(`Review ready at ${server.url}`);
 
