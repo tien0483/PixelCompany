@@ -97,6 +97,10 @@ export function createGitlabApi(deps: CreateGitlabApiDependencies): RuntimeTrpcC
 			return { state: "pending", connection: null };
 		},
 
+		cancelConnect: async (input: { flowId: string }): Promise<RuntimeGitlabMutationResponse> => {
+			return { ok: oauth.cancel(input.flowId) };
+		},
+
 		disconnect: async (): Promise<RuntimeGitlabMutationResponse> => {
 			try {
 				await clearGitlabCredential();

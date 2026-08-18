@@ -263,6 +263,8 @@ export interface StartGitlabOauthDependencies {
 export interface GitlabOauthSession {
 	start: (deps?: StartGitlabOauthDependencies) => Promise<GitlabOauthFlow>;
 	getState: (flowId: string) => GitlabOauthFlowState;
+	/** Closes the pending flow's callback server (releasing port 14995) early. Returns false if the flow is unknown or already settled. */
+	cancel: (flowId: string) => boolean;
 }
 
 /**
@@ -272,6 +274,9 @@ export interface GitlabOauthSession {
  */
 export function createGitlabOauthSession(): GitlabOauthSession {
 	const flows = new Map<string, GitlabOauthFlowState>();
+	// One closer per in-flight flow, so `cancel(flowId)` can release port 14995
+	// on demand instead of waiting out the 5-minute timeout.
+	const closers = new Map<string, () => void>();
 
 	const start = async (deps?: StartGitlabOauthDependencies): Promise<GitlabOauthFlow> => {
 		const host = normalizeHost(deps?.host ?? DEFAULT_GITLAB_HOST);
@@ -367,7 +372,14 @@ export function createGitlabOauthSession(): GitlabOauthSession {
 		settle = () => {
 			clearTimeout(timeout);
 			closeServer();
+			closers.delete(flowId);
 		};
+		closers.set(flowId, () => {
+			if (flows.get(flowId)?.state === "pending") {
+				flows.set(flowId, { state: "failed", error: "Cancelled by user." });
+			}
+			settle?.();
+		});
 
 		const authorizeUrl = new URL(metadata.authorizationEndpoint);
 		authorizeUrl.searchParams.set("client_id", GITLAB_MCP_CLIENT_ID);
@@ -384,6 +396,14 @@ export function createGitlabOauthSession(): GitlabOauthSession {
 	return {
 		start,
 		getState: (flowId) => flows.get(flowId) ?? { state: "failed", error: "Unknown authorization flow." },
+		cancel: (flowId) => {
+			const closer = closers.get(flowId);
+			if (!closer) {
+				return false;
+			}
+			closer();
+			return true;
+		},
 	};
 }
 
