@@ -30,8 +30,13 @@ export const GITLAB_OAUTH_CALLBACK_API_PATH = "/api/gitlab/oauth/callback";
  */
 export const GITLAB_MCP_FALLBACK_CLIENT_ID = "c323cb730c221cb5c186fbd51d8e193f0be912aa12a97c06682d5fdb4185ab79";
 
-/** `api` is required: posting discussions and approving are writes. */
-const REQUESTED_SCOPES = ["api", "read_user"] as const;
+/**
+ * `api` is required: posting discussions and approving are writes.
+ * `read_api`/`ai_workflows` are required by code.akselos.com's MCP-registered
+ * client even for plain REST v4 calls — omitting them gets a 403
+ * insufficient_scope on every call despite holding `api`/`read_user`.
+ */
+const REQUESTED_SCOPES = ["api", "read_user", "read_api", "ai_workflows"] as const;
 
 const METADATA_TIMEOUT_MS = 8000;
 const TOKEN_TIMEOUT_MS = 15_000;
