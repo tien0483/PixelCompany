@@ -25,9 +25,7 @@ export interface GitlabTextPosition {
 	new_line?: number;
 }
 
-export type GitlabPositionResult =
-	| { ok: true; position: GitlabTextPosition }
-	| { ok: false; error: string };
+export type GitlabPositionResult = { ok: true; position: GitlabTextPosition } | { ok: false; error: string };
 
 export function buildTextPosition(input: {
 	diffRefs: RuntimeGitlabDiffRefs;

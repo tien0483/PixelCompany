@@ -1,0 +1,202 @@
+// Minimal tRPC router for the standalone Review package: just `gitlab.*`,
+// `review.*` and `claude.usage`. Everything else in the full `runtimeAppRouter`
+// (board/task, git, terminal, manager, plans, hooks) is intentionally absent —
+// this router is mounted by `server.ts` instead of the full app router.
+import { initTRPC } from "@trpc/server";
+import { z } from "zod";
+
+import {
+	RuntimeClaudeUsageSchema,
+	runtimeGitlabConnectionSchema,
+	runtimeGitlabConnectStartRequestSchema,
+	runtimeGitlabConnectStartResponseSchema,
+	runtimeGitlabConnectStatusRequestSchema,
+	runtimeGitlabConnectStatusSchema,
+	runtimeGitlabCreateDiffNoteRequestSchema,
+	runtimeGitlabCreateNoteRequestSchema,
+	runtimeGitlabDiffsResponseSchema,
+	runtimeGitlabDiscussionListResponseSchema,
+	runtimeGitlabMergeRequestDetailResponseSchema,
+	runtimeGitlabMergeRequestListRequestSchema,
+	runtimeGitlabMergeRequestListResponseSchema,
+	runtimeGitlabMergeRequestRefSchema,
+	runtimeGitlabMergeRequestVersionsResponseSchema,
+	runtimeGitlabMutationResponseSchema,
+	runtimeGitlabProjectListRequestSchema,
+	runtimeGitlabProjectListResponseSchema,
+	runtimeGitlabRawFileRequestSchema,
+	runtimeGitlabRawFileResponseSchema,
+	runtimeGitlabResolveDiscussionRequestSchema,
+	runtimeReviewRulesConfigResponseSchema,
+	runtimeReviewRulesConfigSchema,
+	runtimeReviewRulesReadRequestSchema,
+	runtimeReviewRulesReadResponseSchema,
+	runtimeReviewSessionReadRequestSchema,
+	runtimeReviewSessionResponseSchema,
+	runtimeReviewSessionSchema,
+	runtimeReviewSessionWriteRequestSchema,
+} from "../core/api-contract";
+import type { GitlabClient } from "../gitlab/gitlab-client";
+import type { GitlabOauthSession } from "../gitlab/gitlab-oauth";
+import type { RuntimeTrpcContext } from "../trpc/app-router";
+import { createClaudeUsageApi } from "../trpc/claude-usage-api";
+import { createGitlabApi } from "../trpc/gitlab-api";
+import { createReviewApi } from "../trpc/review-api";
+
+export interface ReviewTrpcContext {
+	gitlabApi: RuntimeTrpcContext["gitlabApi"];
+	reviewApi: RuntimeTrpcContext["reviewApi"];
+	claudeUsageApi: RuntimeTrpcContext["claudeUsageApi"];
+}
+
+const t = initTRPC.context<ReviewTrpcContext>().create();
+
+export const reviewStandaloneRouter = t.router({
+	gitlab: t.router({
+		status: t.procedure.output(runtimeGitlabConnectionSchema).query(async ({ ctx }) => {
+			return await ctx.gitlabApi.status();
+		}),
+		connect: t.procedure
+			.input(runtimeGitlabConnectStartRequestSchema)
+			.output(runtimeGitlabConnectStartResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.gitlabApi.connect(input);
+			}),
+		connectStatus: t.procedure
+			.input(runtimeGitlabConnectStatusRequestSchema)
+			.output(runtimeGitlabConnectStatusSchema)
+			.query(async ({ ctx, input }) => {
+				return await ctx.gitlabApi.connectStatus(input);
+			}),
+		disconnect: t.procedure.output(runtimeGitlabMutationResponseSchema).mutation(async ({ ctx }) => {
+			return await ctx.gitlabApi.disconnect();
+		}),
+		listProjects: t.procedure
+			.input(runtimeGitlabProjectListRequestSchema)
+			.output(runtimeGitlabProjectListResponseSchema)
+			.query(async ({ ctx, input }) => {
+				return await ctx.gitlabApi.listProjects(input);
+			}),
+		listMergeRequests: t.procedure
+			.input(runtimeGitlabMergeRequestListRequestSchema)
+			.output(runtimeGitlabMergeRequestListResponseSchema)
+			.query(async ({ ctx, input }) => {
+				return await ctx.gitlabApi.listMergeRequests(input);
+			}),
+		getMergeRequest: t.procedure
+			.input(runtimeGitlabMergeRequestRefSchema)
+			.output(runtimeGitlabMergeRequestDetailResponseSchema)
+			.query(async ({ ctx, input }) => {
+				return await ctx.gitlabApi.getMergeRequest(input);
+			}),
+		getDiffs: t.procedure
+			.input(runtimeGitlabMergeRequestRefSchema)
+			.output(runtimeGitlabDiffsResponseSchema)
+			.query(async ({ ctx, input }) => {
+				return await ctx.gitlabApi.getDiffs(input);
+			}),
+		getVersions: t.procedure
+			.input(runtimeGitlabMergeRequestRefSchema)
+			.output(runtimeGitlabMergeRequestVersionsResponseSchema)
+			.query(async ({ ctx, input }) => {
+				return await ctx.gitlabApi.getVersions(input);
+			}),
+		getRawFile: t.procedure
+			.input(runtimeGitlabRawFileRequestSchema)
+			.output(runtimeGitlabRawFileResponseSchema)
+			.query(async ({ ctx, input }) => {
+				return await ctx.gitlabApi.getRawFile(input);
+			}),
+		listDiscussions: t.procedure
+			.input(runtimeGitlabMergeRequestRefSchema)
+			.output(runtimeGitlabDiscussionListResponseSchema)
+			.query(async ({ ctx, input }) => {
+				return await ctx.gitlabApi.listDiscussions(input);
+			}),
+		createDiffDiscussion: t.procedure
+			.input(runtimeGitlabCreateDiffNoteRequestSchema)
+			.output(runtimeGitlabMutationResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.gitlabApi.createDiffDiscussion(input);
+			}),
+		createNote: t.procedure
+			.input(runtimeGitlabCreateNoteRequestSchema)
+			.output(runtimeGitlabMutationResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.gitlabApi.createNote(input);
+			}),
+		resolveDiscussion: t.procedure
+			.input(runtimeGitlabResolveDiscussionRequestSchema)
+			.output(runtimeGitlabMutationResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.gitlabApi.resolveDiscussion(input);
+			}),
+		setApproval: t.procedure
+			.input(runtimeGitlabMergeRequestRefSchema.extend({ approved: z.boolean() }))
+			.output(runtimeGitlabMutationResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.gitlabApi.setApproval(input);
+			}),
+	}),
+	review: t.router({
+		getSession: t.procedure
+			.input(runtimeReviewSessionReadRequestSchema)
+			.output(runtimeReviewSessionResponseSchema)
+			.query(async ({ ctx, input }) => {
+				return await ctx.reviewApi.getSession(input);
+			}),
+		saveSession: t.procedure
+			.input(runtimeReviewSessionWriteRequestSchema)
+			.output(runtimeReviewSessionResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.reviewApi.saveSession(input);
+			}),
+		listSessionsWithDrafts: t.procedure
+			.input(z.object({ host: z.string().min(1) }))
+			.output(runtimeReviewSessionSchema.array())
+			.query(async ({ ctx, input }) => {
+				return await ctx.reviewApi.listSessionsWithDrafts(input);
+			}),
+		getRules: t.procedure
+			.input(runtimeReviewRulesReadRequestSchema)
+			.output(runtimeReviewRulesReadResponseSchema)
+			.query(async ({ ctx, input }) => {
+				return await ctx.reviewApi.getRules(input);
+			}),
+		getRulesConfig: t.procedure
+			.input(runtimeReviewRulesReadRequestSchema)
+			.output(runtimeReviewRulesConfigResponseSchema)
+			.query(async ({ ctx, input }) => {
+				return await ctx.reviewApi.getRulesConfig(input);
+			}),
+		setRulesConfig: t.procedure
+			.input(runtimeReviewRulesConfigSchema)
+			.output(runtimeReviewRulesConfigResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.reviewApi.setRulesConfig(input);
+			}),
+	}),
+	claude: t.router({
+		usage: t.procedure.output(RuntimeClaudeUsageSchema).query(async ({ ctx }) => {
+			return await ctx.claudeUsageApi.get();
+		}),
+	}),
+});
+
+export function createReviewStandaloneContext(deps: {
+	gitlabClient: GitlabClient;
+	gitlabOauth: GitlabOauthSession;
+	openInBrowser: (url: string) => void;
+	warn: (message: string) => void;
+}): ReviewTrpcContext {
+	return {
+		gitlabApi: createGitlabApi({
+			client: deps.gitlabClient,
+			oauth: deps.gitlabOauth,
+			openInBrowser: deps.openInBrowser,
+			warn: deps.warn,
+		}),
+		reviewApi: createReviewApi(),
+		claudeUsageApi: createClaudeUsageApi(),
+	};
+}

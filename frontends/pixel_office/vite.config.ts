@@ -72,6 +72,7 @@ export default defineConfig({
 			input: {
 				main: resolve(__dirname, "index.html"),
 				planEditor: resolve(__dirname, "index-plan-editor.html"),
+				review: resolve(__dirname, "index-review.html"),
 			},
 			output: {
 				manualChunks(id) {

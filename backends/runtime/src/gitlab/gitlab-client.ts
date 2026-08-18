@@ -18,11 +18,7 @@ import {
 	type RuntimeGitlabProject,
 	runtimeGitlabPipelineStatusSchema,
 } from "../core/api-contract";
-import {
-	type GitlabCredential,
-	markGitlabCredentialReauthRequired,
-	readGitlabCredential,
-} from "./gitlab-credentials";
+import { type GitlabCredential, markGitlabCredentialReauthRequired, readGitlabCredential } from "./gitlab-credentials";
 import { refreshGitlabCredential } from "./gitlab-oauth";
 import { buildTextPosition, countPatchLines } from "./gitlab-position";
 
@@ -284,16 +280,15 @@ export interface GitlabClient {
 	getMergeRequestDiffs: (input: {
 		projectId: number;
 		iid: number;
-	}) => Promise<GitlabResult<{ files: RuntimeGitlabDiffFile[]; diffRefs: RuntimeGitlabDiffRefs | null; truncated: boolean }>>;
+	}) => Promise<
+		GitlabResult<{ files: RuntimeGitlabDiffFile[]; diffRefs: RuntimeGitlabDiffRefs | null; truncated: boolean }>
+	>;
 	getMergeRequestVersions: (input: {
 		projectId: number;
 		iid: number;
 	}) => Promise<GitlabResult<RuntimeGitlabMergeRequestVersion[]>>;
 	getRawFile: (input: { projectId: number; path: string; ref: string }) => Promise<GitlabResult<string>>;
-	listDiscussions: (input: {
-		projectId: number;
-		iid: number;
-	}) => Promise<GitlabResult<RuntimeGitlabDiscussion[]>>;
+	listDiscussions: (input: { projectId: number; iid: number }) => Promise<GitlabResult<RuntimeGitlabDiscussion[]>>;
 	createDiffDiscussion: (input: {
 		projectId: number;
 		iid: number;
@@ -545,7 +540,9 @@ export function createGitlabClient(deps?: CreateGitlabClientDependencies): Gitla
 			const approvedBy = Array.isArray(raw.approved_by) ? raw.approved_by : [];
 			const approvedByMe =
 				credential !== null &&
-				approvedBy.some((entry) => isRecord(entry) && readNestedString(entry, "user", "username") === credential.username);
+				approvedBy.some(
+					(entry) => isRecord(entry) && readNestedString(entry, "user", "username") === credential.username,
+				);
 			return {
 				ok: true,
 				value: {
@@ -565,7 +562,10 @@ export function createGitlabClient(deps?: CreateGitlabClientDependencies): Gitla
 
 			for (let page = 1; page <= MAX_DIFF_PAGES; page += 1) {
 				const params = new URLSearchParams({ page: String(page), per_page: String(DEFAULT_PAGE_SIZE) });
-				const outcome = await request("GET", `/projects/${projectId}/merge_requests/${iid}/diffs?${params.toString()}`);
+				const outcome = await request(
+					"GET",
+					`/projects/${projectId}/merge_requests/${iid}/diffs?${params.toString()}`,
+				);
 				if (!outcome.ok) {
 					return { ok: false, failure: outcome.failure };
 				}

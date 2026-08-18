@@ -13,8 +13,8 @@ import {
 	type RuntimeReviewRule,
 	type RuntimeReviewRulesBundle,
 	type RuntimeReviewRulesConfig,
-	runtimeReviewRulesBundleSchema,
 	runtimeReviewRuleSchema,
+	runtimeReviewRulesBundleSchema,
 	runtimeReviewRulesConfigSchema,
 } from "../core/api-contract";
 import { findAgentDataRoot } from "../state/agent-data-manifest";

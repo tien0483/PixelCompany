@@ -50,6 +50,7 @@ import {
 	resolveReviewAgentCwd,
 } from "../review/review-agent-args";
 import { buildAuditPrompt, buildChatPrompt, buildRulesExtractPrompt } from "../review/review-prompts";
+import { handleAgentStreamRoute } from "../review/review-stream-route";
 import { readReviewRulesBundle } from "../review/review-rules";
 import { HTML_NO_TOOLS, resolveHtmlAgentCwd, resolveHtmlAllowedTools } from "../html/html-agent-args";
 import { buildBriefPrompt, loadPromptMasterBody } from "../html/html-brief";
@@ -610,99 +611,6 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 		});
 
 	const getRemoteIp = (req: IncomingMessage): string => req.socket.remoteAddress ?? "unknown";
-
-	/**
-	 * Body-read → JSON-parse → schema-validate → SSE-headers → one-shot agent, for a
-	 * POST route whose response is an agent's stream. The `/api/html/*` and
-	 * `/api/doc-skill/*` routes each spell this out inline; the three `/api/review/*`
-	 * routes share it instead, because they differ only in schema, prompt and tools.
-	 *
-	 * `buildRun` may return an error string to reject before any agent is spawned —
-	 * a missing rules bundle, say — and that has to happen before the SSE headers go
-	 * out, since a stream that has already started cannot become a 400.
-	 */
-	const handleAgentStreamRoute = async <TInput>(
-		req: IncomingMessage,
-		res: import("node:http").ServerResponse,
-		options: {
-			schema: { safeParse: (value: unknown) => { success: true; data: TInput } | { success: false; error: Error } };
-			maxBodyBytes?: number;
-			buildRun: (
-				input: TInput,
-			) => Promise<
-				| { ok: false; status: number; error: string }
-				| {
-						ok: true;
-						prompt: string;
-						cwd?: string;
-						model?: string;
-						allowedTools: readonly string[];
-						managerAccountId?: number;
-				  }
-			>;
-		},
-	): Promise<void> => {
-		let rawBody: string;
-		try {
-			rawBody = await readRequestBody(req, options.maxBodyBytes ?? 4 * 1024 * 1024);
-		} catch {
-			res.writeHead(413, { "Content-Type": "application/json; charset=utf-8" });
-			res.end(JSON.stringify({ error: "Request body too large" }));
-			return;
-		}
-		let parsedBody: unknown;
-		try {
-			parsedBody = JSON.parse(rawBody);
-		} catch {
-			res.writeHead(400, { "Content-Type": "application/json; charset=utf-8" });
-			res.end(JSON.stringify({ error: "invalid JSON body" }));
-			return;
-		}
-		const parsed = options.schema.safeParse(parsedBody);
-		if (!parsed.success) {
-			res.writeHead(400, { "Content-Type": "application/json; charset=utf-8" });
-			res.end(JSON.stringify({ error: parsed.error.message }));
-			return;
-		}
-
-		const run = await options.buildRun(parsed.data);
-		if (!run.ok) {
-			res.writeHead(run.status, { "Content-Type": "application/json; charset=utf-8" });
-			res.end(JSON.stringify({ error: run.error }));
-			return;
-		}
-
-		res.writeHead(200, {
-			"Content-Type": "text/event-stream; charset=utf-8",
-			"Cache-Control": "no-cache, no-transform",
-			Connection: "keep-alive",
-			"X-Accel-Buffering": "no",
-		});
-
-		const abortCtl = new AbortController();
-		req.on("close", () => abortCtl.abort());
-
-		await runAgentOneShot({
-			agentId: "claude",
-			prompt: run.prompt,
-			cwd: run.cwd,
-			model: run.model,
-			allowedTools: [...run.allowedTools],
-			idleTimeoutMs: HTML_AGENT_IDLE_TIMEOUT_MS,
-			timeoutMs: HTML_AGENT_HARD_TIMEOUT_MS,
-			signal: abortCtl.signal,
-			onEvent: (event) => {
-				if (res.writableEnded) {
-					return;
-				}
-				res.write(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
-			},
-			pinInput: buildHtmlAgentPinInput(run.managerAccountId),
-		});
-		if (!res.writableEnded) {
-			res.end();
-		}
-	};
 
 	const tlsConfig = getKanbanRuntimeTls();
 	const requestHandler = async (req: IncomingMessage, res: import("node:http").ServerResponse) => {
@@ -1319,6 +1227,7 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 			}
 			if (pathname === "/api/review/rules-extract" && (req.method ?? "GET").toUpperCase() === "POST") {
 				await handleAgentStreamRoute(req, res, {
+					buildPinInput: buildHtmlAgentPinInput,
 					schema: runtimeReviewRulesExtractRequestSchema,
 					buildRun: async (input) => ({
 						ok: true,
@@ -1334,6 +1243,7 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 			}
 			if (pathname === "/api/review/audit" && (req.method ?? "GET").toUpperCase() === "POST") {
 				await handleAgentStreamRoute(req, res, {
+					buildPinInput: buildHtmlAgentPinInput,
 					schema: runtimeReviewAuditRequestSchema,
 					// Patches travel inline, so this body is the largest of the three.
 					maxBodyBytes: 8 * 1024 * 1024,
@@ -1367,6 +1277,7 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 			}
 			if (pathname === "/api/review/chat" && (req.method ?? "GET").toUpperCase() === "POST") {
 				await handleAgentStreamRoute(req, res, {
+					buildPinInput: buildHtmlAgentPinInput,
 					schema: runtimeReviewChatRequestSchema,
 					buildRun: async (input) => {
 						const detail = await gitlabApi.getMergeRequest({ projectId: input.projectId, iid: input.iid });

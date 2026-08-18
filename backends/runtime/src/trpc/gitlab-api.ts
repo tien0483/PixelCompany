@@ -1,8 +1,8 @@
 import type {
+	RuntimeGitlabConnection,
 	RuntimeGitlabConnectStartRequest,
 	RuntimeGitlabConnectStartResponse,
 	RuntimeGitlabConnectStatus,
-	RuntimeGitlabConnection,
 	RuntimeGitlabCreateDiffNoteRequest,
 	RuntimeGitlabCreateNoteRequest,
 	RuntimeGitlabDiffsResponse,
@@ -19,7 +19,7 @@ import type {
 	RuntimeGitlabRawFileResponse,
 	RuntimeGitlabResolveDiscussionRequest,
 } from "../core/api-contract";
-import { type GitlabClient, describeGitlabFailure } from "../gitlab/gitlab-client";
+import { describeGitlabFailure, type GitlabClient } from "../gitlab/gitlab-client";
 import { clearGitlabCredential, type GitlabCredential } from "../gitlab/gitlab-credentials";
 import type { GitlabOauthSession } from "../gitlab/gitlab-oauth";
 import type { RuntimeTrpcContext } from "./app-router";
@@ -134,13 +134,16 @@ export function createGitlabApi(deps: CreateGitlabApiDependencies): RuntimeTrpcC
 		getDiffs: async (input: RuntimeGitlabMergeRequestRef): Promise<RuntimeGitlabDiffsResponse> => {
 			const result = await client.getMergeRequestDiffs(input);
 			return result.ok
-				? { ok: true, files: result.value.files, diffRefs: result.value.diffRefs, truncated: result.value.truncated }
+				? {
+						ok: true,
+						files: result.value.files,
+						diffRefs: result.value.diffRefs,
+						truncated: result.value.truncated,
+					}
 				: { ok: false, files: [], diffRefs: null, truncated: false, error: describeGitlabFailure(result.failure) };
 		},
 
-		getVersions: async (
-			input: RuntimeGitlabMergeRequestRef,
-		): Promise<RuntimeGitlabMergeRequestVersionsResponse> => {
+		getVersions: async (input: RuntimeGitlabMergeRequestRef): Promise<RuntimeGitlabMergeRequestVersionsResponse> => {
 			const result = await client.getMergeRequestVersions(input);
 			return result.ok
 				? { ok: true, versions: result.value }
@@ -154,9 +157,7 @@ export function createGitlabApi(deps: CreateGitlabApiDependencies): RuntimeTrpcC
 				: { ok: false, content: null, error: describeGitlabFailure(result.failure) };
 		},
 
-		listDiscussions: async (
-			input: RuntimeGitlabMergeRequestRef,
-		): Promise<RuntimeGitlabDiscussionListResponse> => {
+		listDiscussions: async (input: RuntimeGitlabMergeRequestRef): Promise<RuntimeGitlabDiscussionListResponse> => {
 			const result = await client.listDiscussions(input);
 			return result.ok
 				? { ok: true, discussions: result.value }

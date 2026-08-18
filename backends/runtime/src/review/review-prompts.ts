@@ -145,8 +145,12 @@ export function buildChatPrompt(input: {
 	// command, so context is appended below it rather than prepended.
 	const context = [
 		`Merge request under review: ${input.title} (${input.sourceBranch} → ${input.targetBranch})`,
-		input.changedPaths.length > 0 ? `Changed files:\n${input.changedPaths.map((path) => `- ${path}`).join("\n")}` : null,
-		input.activeDiff ? `Diff of the file the reviewer is looking at:\n\n\`\`\`diff\n${input.activeDiff}\n\`\`\`` : null,
+		input.changedPaths.length > 0
+			? `Changed files:\n${input.changedPaths.map((path) => `- ${path}`).join("\n")}`
+			: null,
+		input.activeDiff
+			? `Diff of the file the reviewer is looking at:\n\n\`\`\`diff\n${input.activeDiff}\n\`\`\``
+			: null,
 	]
 		.filter((part): part is string => part !== null)
 		.join("\n\n");

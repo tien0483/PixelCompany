@@ -19,11 +19,7 @@ import { createServer, type Server } from "node:http";
 import { dirname, join } from "node:path";
 
 import { getRuntimeHomePath } from "../state/workspace-state";
-import {
-	type GitlabCredential,
-	GITLAB_CREDENTIAL_DIR_NAME,
-	writeGitlabCredential,
-} from "./gitlab-credentials";
+import { GITLAB_CREDENTIAL_DIR_NAME, type GitlabCredential, writeGitlabCredential } from "./gitlab-credentials";
 
 export const DEFAULT_GITLAB_HOST = "https://code.akselos.com/repo";
 export const GITLAB_OAUTH_CALLBACK_PORT = 14995;
@@ -33,8 +29,7 @@ export const GITLAB_OAUTH_CALLBACK_PATH = "/callback";
  * Client id from `akselos-dev/.mcp.json`. Only tried when the instance offers no
  * registration endpoint — see the file header for why it is not the first choice.
  */
-export const GITLAB_MCP_FALLBACK_CLIENT_ID =
-	"c323cb730c221cb5c186fbd51d8e193f0be912aa12a97c06682d5fdb4185ab79";
+export const GITLAB_MCP_FALLBACK_CLIENT_ID = "c323cb730c221cb5c186fbd51d8e193f0be912aa12a97c06682d5fdb4185ab79";
 
 /** `api` is required: posting discussions and approving are writes. */
 const REQUESTED_SCOPES = ["api", "read_user"] as const;

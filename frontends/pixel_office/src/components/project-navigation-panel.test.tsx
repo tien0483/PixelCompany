@@ -134,6 +134,8 @@ describe("ProjectNavigationPanel width persistence", () => {
 					onRemoveProject={async () => true}
 					onAddProject={() => {}}
 					onOpenPlan={() => {}}
+					reviewProjectKey="test-project"
+					onOpenMergeRequest={() => {}}
 					{...overrides}
 				/>,
 			);
@@ -180,6 +182,32 @@ describe("ProjectNavigationPanel width persistence", () => {
 		renderPanel();
 		const sidebar = getSidebar(container);
 		expect(sidebar.style.width).toBe(`${expectedResizedWidth}px`);
+	});
+
+	it("offers all four sidebar sections and reports the one that was clicked", () => {
+		const onActiveSectionChange = vi.fn();
+		renderPanel({ onActiveSectionChange });
+
+		// The Manager tab keeps its pre-rename `jacked` test id.
+		const tabs = ["sidebar-jacked-tab", "sidebar-plans-tab", "sidebar-review-tab"];
+		for (const testId of tabs) {
+			expect(container.querySelector(`[data-testid="${testId}"]`)).not.toBeNull();
+		}
+		expect(container.textContent).toContain("Projects");
+
+		const reviewTab = container.querySelector<HTMLButtonElement>('[data-testid="sidebar-review-tab"]');
+		act(() => {
+			reviewTab?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+		});
+		expect(onActiveSectionChange).toHaveBeenCalledWith("review");
+	});
+
+	it("shows the Review panel body when the review section is active", () => {
+		renderPanel({ activeSection: "review" });
+		expect(container.querySelector('[data-testid="sidebar-review-panel"]')).not.toBeNull();
+		// The plans body must be gone: both used to fall out of the same else branch,
+		// so a missing case here would render Plans under the Review tab.
+		expect(container.querySelector('[data-testid="sidebar-plans-panel"]')).toBeNull();
 	});
 
 	it("renders beta hint card with report issue in the projects view", () => {
