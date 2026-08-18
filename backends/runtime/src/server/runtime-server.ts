@@ -100,7 +100,7 @@ import { createReviewApi } from "../trpc/review-api";
 import { createRuntimeApi } from "../trpc/runtime-api";
 import { createWorkspaceApi } from "../trpc/workspace-api";
 import { getWebUiDir, isWebUiServedExternally, normalizeRequestPath, readAsset } from "./assets";
-import { openInBrowser } from "./browser";
+import { openGitlabAuthUrl } from "./browser";
 import { handleHttpRequest, handleSocketUpgrade } from "./middleware";
 import type { RuntimeStateHub } from "./runtime-state-hub";
 import type { WorkspaceRegistry } from "./workspace-registry";
@@ -332,7 +332,7 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 	const gitlabApi = createGitlabApi({
 		client: gitlabClient,
 		oauth: gitlabOauthSession,
-		openInBrowser: (url) => openInBrowser(url, { warn: deps.warn }),
+		openInBrowser: (url) => openGitlabAuthUrl(url, { warn: deps.warn }),
 		warn: deps.warn,
 	});
 	const reviewApi = createReviewApi();

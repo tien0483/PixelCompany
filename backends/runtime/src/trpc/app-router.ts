@@ -886,6 +886,7 @@ export interface RuntimeTrpcContext {
 		status: () => Promise<RuntimeGitlabConnection>;
 		connect: (input: RuntimeGitlabConnectStartRequest) => Promise<RuntimeGitlabConnectStartResponse>;
 		connectStatus: (input: RuntimeGitlabConnectStatusRequest) => Promise<RuntimeGitlabConnectStatus>;
+		cancelConnect: (input: RuntimeGitlabConnectStatusRequest) => Promise<RuntimeGitlabMutationResponse>;
 		disconnect: () => Promise<RuntimeGitlabMutationResponse>;
 		listProjects: (input: RuntimeGitlabProjectListRequest) => Promise<RuntimeGitlabProjectListResponse>;
 		listMergeRequests: (
@@ -1879,6 +1880,12 @@ export const runtimeAppRouter = t.router({
 			.output(runtimeGitlabConnectStatusSchema)
 			.query(async ({ ctx, input }) => {
 				return await ctx.gitlabApi.connectStatus(input);
+			}),
+		cancelConnect: t.procedure
+			.input(runtimeGitlabConnectStatusRequestSchema)
+			.output(runtimeGitlabMutationResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.gitlabApi.cancelConnect(input);
 			}),
 		disconnect: t.procedure.output(runtimeGitlabMutationResponseSchema).mutation(async ({ ctx }) => {
 			return await ctx.gitlabApi.disconnect();

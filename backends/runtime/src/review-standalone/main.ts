@@ -9,7 +9,7 @@ import { resolve } from "node:path";
 
 import { createGitlabClient } from "../gitlab/gitlab-client";
 import { createGitlabOauthSession } from "../gitlab/gitlab-oauth";
-import { openInBrowser } from "../server/browser";
+import { openGitlabAuthUrl } from "../server/browser";
 import { createReviewStandaloneContext } from "./router";
 import { startReviewServer } from "./server";
 
@@ -40,7 +40,7 @@ async function main(): Promise<void> {
 	const context = createReviewStandaloneContext({
 		gitlabClient,
 		gitlabOauth,
-		openInBrowser: (url) => openInBrowser(url, { warn }),
+		openInBrowser: (url) => openGitlabAuthUrl(url, { warn }),
 		warn,
 	});
 

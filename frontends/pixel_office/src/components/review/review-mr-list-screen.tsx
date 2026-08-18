@@ -1,4 +1,4 @@
-import { GitPullRequest, LogIn, RefreshCw, Search } from "lucide-react";
+import { GitPullRequest, LogIn, RefreshCw, Search, X } from "lucide-react";
 import { type ReactElement, useCallback, useEffect, useMemo, useState } from "react";
 
 import { showAppToast } from "@/components/app-toaster";
@@ -122,6 +122,22 @@ export function ReviewMergeRequestListScreen({
 		}
 	}, [workspaceId]);
 
+	const cancelConnect = useCallback(async () => {
+		const flowId = connectFlowId;
+		setConnectFlowId(null);
+		setIsConnecting(false);
+		setConnectAuthorizeUrl(null);
+		if (!flowId) {
+			return;
+		}
+		try {
+			const client = getRuntimeTrpcClient(workspaceId);
+			await client.gitlab.cancelConnect.mutate({ flowId });
+		} catch {
+			// Best-effort: the UI has already reset regardless of whether the port freed cleanly.
+		}
+	}, [connectFlowId, workspaceId]);
+
 	const isConnected = connection?.connected === true;
 
 	const loadProjects = useCallback(async () => {
@@ -205,14 +221,21 @@ export function ReviewMergeRequestListScreen({
 						</p>
 					) : null}
 					{error ? <p className="text-xs text-status-red">{error}</p> : null}
-					<Button
-						variant="primary"
-						icon={isConnecting ? <Spinner size={13} /> : <LogIn size={13} />}
-						disabled={isConnecting}
-						onClick={() => void connect()}
-					>
-						{isConnecting ? "Waiting for your browser…" : "Connect GitLab"}
-					</Button>
+					<div className="flex items-center justify-center gap-2">
+						<Button
+							variant="primary"
+							icon={isConnecting ? <Spinner size={13} /> : <LogIn size={13} />}
+							disabled={isConnecting}
+							onClick={() => void connect()}
+						>
+							{isConnecting ? "Waiting for your browser…" : "Connect GitLab"}
+						</Button>
+						{isConnecting ? (
+							<Button variant="default" icon={<X size={13} />} onClick={() => void cancelConnect()}>
+								Cancel
+							</Button>
+						) : null}
+					</div>
 					{isConnecting && connectAuthorizeUrl ? (
 						<p className="text-xs text-text-tertiary">
 							Browser did not open?{" "}

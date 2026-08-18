@@ -1,4 +1,4 @@
-import { GitPullRequest, LogIn, RefreshCw } from "lucide-react";
+import { GitPullRequest, LogIn, RefreshCw, X } from "lucide-react";
 import { type ReactElement, useCallback, useEffect, useState } from "react";
 
 import { showAppToast } from "@/components/app-toaster";
@@ -146,6 +146,22 @@ export function HomeSidebarReviewPanel({
 		}
 	}, [workspaceId]);
 
+	const cancelConnect = useCallback(async () => {
+		const flowId = connectFlowId;
+		setConnectFlowId(null);
+		setIsConnecting(false);
+		setConnectAuthorizeUrl(null);
+		if (!flowId) {
+			return;
+		}
+		try {
+			const client = getRuntimeTrpcClient(workspaceId);
+			await client.gitlab.cancelConnect.mutate({ flowId });
+		} catch {
+			// Best-effort: the UI has already reset regardless of whether the port freed cleanly.
+		}
+	}, [connectFlowId, workspaceId]);
+
 	const host = connection?.host ?? "";
 
 	return (
@@ -164,15 +180,22 @@ export function HomeSidebarReviewPanel({
 								? `The stored GitLab token for ${connection.username} was rejected.`
 								: "Connect GitLab to review merge requests without leaving the board."}
 						</p>
-						<Button
-							variant="primary"
-							size="sm"
-							icon={isConnecting ? <Spinner size={12} /> : <LogIn size={12} />}
-							disabled={isConnecting}
-							onClick={() => void connect()}
-						>
-							{isConnecting ? "Waiting for browser…" : "Connect GitLab"}
-						</Button>
+						<div className="flex items-center gap-2">
+							<Button
+								variant="primary"
+								size="sm"
+								icon={isConnecting ? <Spinner size={12} /> : <LogIn size={12} />}
+								disabled={isConnecting}
+								onClick={() => void connect()}
+							>
+								{isConnecting ? "Waiting for browser…" : "Connect GitLab"}
+							</Button>
+							{isConnecting ? (
+								<Button variant="default" size="sm" icon={<X size={12} />} onClick={() => void cancelConnect()}>
+									Cancel
+								</Button>
+							) : null}
+						</div>
 						{isConnecting && connectAuthorizeUrl ? (
 							<p className="text-[11px] text-text-tertiary">
 								Browser did not open?{" "}
