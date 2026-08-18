@@ -1374,6 +1374,7 @@ export default function App(): ReactElement {
 									key={`${reviewTarget.host}-${reviewTarget.projectId}-${reviewTarget.iid}`}
 									target={reviewTarget}
 									workspaceId={currentProjectId}
+									localRepoPath={navigationProjectPath ?? workspacePath ?? undefined}
 									onClose={() => setReviewTarget(null)}
 								/>
 							) : editingPlan ? (

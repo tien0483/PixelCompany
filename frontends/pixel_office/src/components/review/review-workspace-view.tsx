@@ -92,12 +92,15 @@ export function ReviewWorkspaceView({
 	target,
 	workspaceId,
 	managerAccountId,
+	localRepoPath,
 	onClose,
 }: {
 	target: ReviewTarget;
 	workspaceId: string | null;
 	/** Claude seat the review agents bill, when the caller pins one. */
 	managerAccountId?: number;
+	/** Local checkout path — passed as cwd to review chat so slash commands can read the repo. */
+	localRepoPath?: string;
 	onClose: () => void;
 }): ReactElement {
 	const session = useReviewSession(target, workspaceId);
@@ -233,9 +236,10 @@ export function ReviewWorkspaceView({
 				...(session.activeFile ? { activeDiff: session.activeFile.diff } : {}),
 				projectKey: target.projectKey,
 				managerAccountId,
+				cwd: localRepoPath || undefined,
 			});
 		},
-		[chat, managerAccountId, session.activeFile, session.files, target],
+		[chat, localRepoPath, managerAccountId, session.activeFile, session.files, target],
 	);
 
 	const extractRules = useCallback(async () => {
@@ -258,6 +262,25 @@ export function ReviewWorkspaceView({
 			showAppToast({ intent: "danger", message: error instanceof Error ? error.message : String(error) });
 		}
 	}, [managerAccountId, rulesExtract, target.projectKey, workspaceId]);
+
+	const fetchFullFile = useCallback(async (): Promise<string | null> => {
+		if (!session.activeFile || !session.mergeRequest) {
+			return null;
+		}
+		try {
+			const client = getRuntimeTrpcClient(workspaceId);
+			const headSha =
+				session.mergeRequest.diffRefs?.headSha ?? session.mergeRequest.sourceBranch;
+			const result = await client.gitlab.getRawFile.query({
+				projectId: target.projectId,
+				ref: headSha,
+				path: session.activeFile.newPath,
+			});
+			return result.ok ? (result.content ?? null) : null;
+		} catch {
+			return null;
+		}
+	}, [session.activeFile, session.mergeRequest, target.projectId, workspaceId]);
 
 	const replyToThread = useCallback(
 		async (discussionId: string, body: string) => {
@@ -549,6 +572,7 @@ export function ReviewWorkspaceView({
 						onComposerOpenChange={setIsComposerOpen}
 						onClearCitations={() => setPendingCitations([])}
 						onRemoveCitation={removeCitation}
+						onFetchFullFile={fetchFullFile}
 					/>
 				)}
 

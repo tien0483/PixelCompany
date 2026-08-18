@@ -1,4 +1,4 @@
-import { ArrowUp, Bot, Check, Trash2, X } from "lucide-react";
+import { ArrowUp, Bot, Check, Network, Trash2, X } from "lucide-react";
 import { type ReactElement, useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -101,6 +101,20 @@ export function ReviewClaudePanel({
 						{prompt.command}
 					</button>
 				))}
+				<button
+					type="button"
+					title="Explain how these changes affect the broader codebase"
+					disabled={chatStatus === "running"}
+					onClick={() =>
+						onSend(
+							`Analyze how the changes in this merge request affect the broader codebase — without relying on any pre-built knowledge graph.\n\nFor each changed file:\n1. Use Grep to find all files that import or require it (search for the filename and any exported symbols that were modified).\n2. Use Grep to find callers of any functions or classes that were changed.\n3. Note which modules are downstream consumers and whether the changes are breaking, additive, or purely internal.\n\nSummarize: which parts of the codebase are affected, what the risk surface is, and whether any callers need updates.`,
+						)
+					}
+					className="flex cursor-pointer items-center gap-1 rounded border border-border bg-surface-2 px-1.5 py-0.5 text-[10px] text-text-secondary hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-40"
+				>
+					<Network size={10} />
+					Understand changes
+				</button>
 			</div>
 
 			{pendingFindings.length > 0 ? (

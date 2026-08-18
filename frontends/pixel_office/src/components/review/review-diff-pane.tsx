@@ -1,4 +1,4 @@
-import { Clock, Columns2, FileCode, Menu, MessageSquare, Square, SquareCheck } from "lucide-react";
+import { Clock, Columns2, FileCode, Loader2, Menu, MessageSquare, Square, SquareCheck } from "lucide-react";
 import { type ReactElement, useCallback, useMemo, useState } from "react";
 
 import { ReviewCommentComposer } from "@/components/review/review-comment-composer";
@@ -56,6 +56,7 @@ export function ReviewDiffPane({
 	onComposerOpenChange,
 	onClearCitations,
 	onRemoveCitation,
+	onFetchFullFile,
 }: {
 	file: RuntimeGitlabDiffFile | null;
 	mode: ReviewDiffMode;
@@ -72,10 +73,14 @@ export function ReviewDiffPane({
 	onComposerOpenChange: (open: boolean) => void;
 	onClearCitations: () => void;
 	onRemoveCitation: (ruleId: string) => void;
+	onFetchFullFile?: () => Promise<string | null>;
 }): ReactElement {
 	const [composer, setComposer] = useState<ComposerAnchor | null>(null);
 	const [composerText, setComposerText] = useState("");
 	const [forceRenderLargeDiff, setForceRenderLargeDiff] = useState(false);
+	const [fullFileContent, setFullFileContent] = useState<string | null>(null);
+	const [isLoadingFullFile, setIsLoadingFullFile] = useState(false);
+	const [showFullFile, setShowFullFile] = useState(false);
 	const { expandedBlocks, expandTop, expandBottom, expandAll } = useIncrementalExpand();
 
 	const path = file?.newPath ?? "";
@@ -95,6 +100,34 @@ export function ReviewDiffPane({
 			}),
 		[discussions, draftComments, file?.oldPath, path],
 	);
+
+	/** New-file line numbers that are added in this diff (used to highlight in full-file view). */
+	const changedLineNumbers = useMemo(() => {
+		const added = new Set<number>();
+		for (const row of rows) {
+			if (row.variant === "added" && row.lineNumber != null) {
+				added.add(row.lineNumber);
+			}
+		}
+		return { added };
+	}, [rows]);
+
+	const handleToggleFullFile = useCallback(async () => {
+		if (!showFullFile) {
+			setShowFullFile(true);
+			if (fullFileContent === null && onFetchFullFile) {
+				setIsLoadingFullFile(true);
+				try {
+					const content = await onFetchFullFile();
+					setFullFileContent(content);
+				} finally {
+					setIsLoadingFullFile(false);
+				}
+			}
+		} else {
+			setShowFullFile(false);
+		}
+	}, [showFullFile, fullFileContent, onFetchFullFile]);
 
 	const closeComposer = useCallback(() => {
 		setComposer(null);
@@ -318,26 +351,38 @@ export function ReviewDiffPane({
 					<div className="flex items-center rounded border border-border bg-surface-2 p-0.5">
 						<button
 							type="button"
-							onClick={() => onModeChange("split")}
+							onClick={() => { setShowFullFile(false); onModeChange("split"); }}
 							className={cn(
 								"flex cursor-pointer items-center gap-1 rounded-sm px-2 py-0.5 text-[11px]",
-								mode === "split" ? "bg-surface-4 text-text-primary" : "text-text-secondary hover:text-text-primary",
+								!showFullFile && mode === "split" ? "bg-surface-4 text-text-primary" : "text-text-secondary hover:text-text-primary",
 							)}
 						>
 							<Columns2 size={11} /> Side-by-side
 						</button>
 						<button
 							type="button"
-							onClick={() => onModeChange("unified")}
+							onClick={() => { setShowFullFile(false); onModeChange("unified"); }}
 							className={cn(
 								"flex cursor-pointer items-center gap-1 rounded-sm px-2 py-0.5 text-[11px]",
-								mode === "unified"
+								!showFullFile && mode === "unified"
 									? "bg-surface-4 text-text-primary"
 									: "text-text-secondary hover:text-text-primary",
 							)}
 						>
 							<Menu size={11} /> Unified
 						</button>
+						{onFetchFullFile ? (
+							<button
+								type="button"
+								onClick={() => { void handleToggleFullFile(); }}
+								className={cn(
+									"flex cursor-pointer items-center gap-1 rounded-sm px-2 py-0.5 text-[11px]",
+									showFullFile ? "bg-surface-4 text-text-primary" : "text-text-secondary hover:text-text-primary",
+								)}
+							>
+								<FileCode size={11} /> Full file
+							</button>
+						) : null}
 					</div>
 					<Button
 						variant={isReviewed ? "primary" : "default"}
@@ -350,7 +395,7 @@ export function ReviewDiffPane({
 				</div>
 			</div>
 
-			{mode === "split" ? (
+			{!showFullFile && mode === "split" ? (
 				<div className="grid shrink-0 grid-cols-2 divide-x divide-border border-b border-border bg-surface-0 px-0 font-mono text-[11px] text-text-tertiary">
 					<div className="px-3 py-1">Base — {file.oldPath}</div>
 					<div className="px-3 py-1">Merge request — {file.newPath}</div>
@@ -358,7 +403,45 @@ export function ReviewDiffPane({
 			) : null}
 
 			<div className="min-h-0 flex-1 overflow-auto">
-				{file.binary ? (
+				{showFullFile ? (
+					isLoadingFullFile ? (
+						<div className="flex items-center justify-center p-4">
+							<Loader2 size={16} className="animate-spin text-text-tertiary" />
+						</div>
+					) : fullFileContent === null ? (
+						<p className="p-4 text-xs text-text-tertiary">Could not load file content.</p>
+					) : (
+						<div>
+							{fullFileContent.split("\n").map((line, index) => {
+								const lineNum = index + 1;
+								const isAdded = changedLineNumbers.added.has(lineNum);
+								const highlightedHtml = getHighlightedLineHtml(line, prismGrammar, prismLanguage);
+								return (
+									<div
+										key={lineNum}
+										className={cn(
+											"kb-diff-row",
+											isAdded ? "kb-diff-row-added" : "kb-diff-row-context",
+										)}
+									>
+										<span className="kb-diff-line-number" style={{ color: "var(--color-text-tertiary)" }}>
+											<span className="kb-diff-line-number-text">{lineNum}</span>
+										</span>
+										{highlightedHtml != null ? (
+											<span
+												className="font-mono kb-diff-text"
+												// biome-ignore lint/security/noDangerouslySetInnerHtml: trusted Prism output
+												dangerouslySetInnerHTML={{ __html: highlightedHtml }}
+											/>
+										) : (
+											<span className="font-mono kb-diff-text">{line || " "}</span>
+										)}
+									</div>
+								);
+							})}
+						</div>
+					)
+				) : file.binary ? (
 					<p className="p-4 text-xs text-text-tertiary">Binary file — no text diff to show.</p>
 				) : file.tooLarge ? (
 					<p className="p-4 text-xs text-text-tertiary">
