@@ -1849,6 +1849,14 @@ async def full_sweep_loop(app):
             )
 
             if should_ping:
+                from manager.api.credential_helpers import get_live_session_account_ids
+
+                try:
+                    live_session_account_ids = get_live_session_account_ids(db)
+                except Exception:
+                    logger.debug("Live-session lookup failed for window keeper", exc_info=True)
+                    live_session_account_ids = set()
+
                 for acct in accounts:
                     needs_5h = needs_ping(acct.get("cached_5h_resets_at"))
                     needs_7d = needs_7d_ping(
@@ -1904,6 +1912,18 @@ async def full_sweep_loop(app):
                                     success = await ping_account(fresh_cc)
                             except Exception:
                                 logger.exception("Window keeper reconcile failed for active account %d", acct["id"])
+                        elif acct["id"] in live_session_account_ids:
+                            # A task has this seat pinned (e.g. via CLAUDE_CONFIG_DIR)
+                            # and its own Claude Code process is live — refreshing here
+                            # would race it for the single-use refresh_token, same
+                            # hazard as the active-account case above. Skip; the ping
+                            # backoff below covers this account until its own session
+                            # rotates the token.
+                            logger.info(
+                                "Window keeper: skipping CC refresh for account %d — "
+                                "live task session pinned to this seat",
+                                acct["id"],
+                            )
                         else:
                             from manager.web.auth import refresh_cc_token
                             refreshed = await refresh_cc_token(acct["id"], db)

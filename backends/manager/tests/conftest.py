@@ -31,3 +31,18 @@ def _block_browser_open():
     """
     with patch("webbrowser.open", return_value=True):
         yield
+
+
+@pytest.fixture(autouse=True)
+def _isolate_claude_config_dir(monkeypatch):
+    """Strip CLAUDE_CONFIG_DIR so tests can't write into a real live session.
+
+    claude_config_dir() (manager/api/credential_helpers.py) checks this env
+    var BEFORE falling back to Path.home(), so a test that mocks Path.home
+    but runs in a shell that already has CLAUDE_CONFIG_DIR set (e.g. inside
+    a running Claude Code task session) silently ignores that mock and
+    writes fixture data straight into the real, live .credentials.json for
+    that session — a genuine incident, not just a flaky test (2026-08-19).
+    Every test gets a clean slate here regardless of the ambient shell.
+    """
+    monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)

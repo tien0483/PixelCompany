@@ -357,6 +357,32 @@ def read_active_account_id() -> int | None:
     return account_id
 
 
+def get_live_session_account_ids(db) -> set:
+    """Return account ids with a live Claude Code session right now.
+
+    Populated by session_account_tracker.py's SessionStart/Stop/SessionEnd
+    hook into session_accounts, independent of jacked's single "active" seat
+    (read_active_account_id). A task pinned to a DIFFERENT seat via
+    CLAUDE_CONFIG_DIR runs its own Claude Code process there, refreshing
+    that seat's CC token on its own schedule — background refresh must treat
+    it as live too, or it races that process for the single-use
+    refresh_token and strands it on invalid_grant (forced re-login).
+
+    Never raises — a lookup failure yields an empty set so a DB hiccup fails
+    open to "no extra accounts protected" rather than blocking the refresh
+    sweep that calls this.
+    """
+    ids: set = set()
+    try:
+        for row in db.get_active_sessions():
+            acct_id = row.get("account_id")
+            if acct_id is not None:
+                ids.add(acct_id)
+    except Exception:
+        logger.debug("get_live_session_account_ids failed", exc_info=True)
+    return ids
+
+
 # ---------------------------------------------------------------------------
 # Cache for live credential reads (30s TTL)
 # ---------------------------------------------------------------------------

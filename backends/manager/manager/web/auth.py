@@ -1646,6 +1646,7 @@ async def refresh_all_expiring_tokens(buffer_seconds: int = 14400) -> dict:
     # NameError here would crash the entire refresh pipeline — see
     # architecture doc §7.1).
     active_id: int | None = None
+    live_session_account_ids: set = set()
     try:
         from manager.api.credential_helpers import (
             read_active_account_id,
@@ -1656,6 +1657,13 @@ async def refresh_all_expiring_tokens(buffer_seconds: int = 14400) -> dict:
             reconcile_credentials_from_live_store(active_id, db)
     except Exception:
         logger.debug("Periodic credential reconciliation failed", exc_info=True)
+
+    try:
+        from manager.api.credential_helpers import get_live_session_account_ids
+
+        live_session_account_ids = get_live_session_account_ids(db)
+    except Exception:
+        logger.debug("Live-session lookup failed for refresh guard", exc_info=True)
 
     for account in accounts:
         result["checked"] += 1
@@ -1698,16 +1706,19 @@ async def refresh_all_expiring_tokens(buffer_seconds: int = 14400) -> dict:
             result["skipped"] += 1
 
         # --- CC token refresh (independent from primary) ---
-        # Never rotate the active account's CC refresh token from a background
-        # loop. The CC refresh token is single-use and SHARED with Claude Code
-        # on the active account; if jacked exchanges it upstream, Claude Code's
-        # own refresher sees invalid_grant on its next attempt and forces a
-        # re-login across every session using those credentials. Claude Code
-        # (v2.1.81+) manages rotation for its active account on its own
-        # schedule; jacked imports rotated tokens via
-        # reconcile_credentials_from_live_store at line ~1044 above.
+        # Never rotate the CC refresh token of an account with a live Claude
+        # Code session — that includes jacked's single "active" seat, AND any
+        # other seat a task has pinned via CLAUDE_CONFIG_DIR (tracked in
+        # session_accounts by session_account_tracker.py, surfaced here via
+        # get_live_session_account_ids). The CC refresh token is single-use;
+        # if jacked exchanges it upstream while that session's own Claude
+        # Code process is refreshing on its own schedule, whichever loses the
+        # race sees invalid_grant on its next attempt and is forced into a
+        # re-login. Claude Code (v2.1.81+) manages rotation for its own
+        # session; jacked imports rotated tokens for the active seat via
+        # reconcile_credentials_from_live_store above.
         # See docs/architecture/oauth-and-credential-flows.md §7.1.
-        if active_id == account_id:
+        if active_id == account_id or account_id in live_session_account_ids:
             continue
 
         if should_refresh_cc(account):
