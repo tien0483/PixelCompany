@@ -377,15 +377,22 @@ def prepare_account_dir(account: dict, db: Database) -> Path:
 
     # Refresh CC token if near-expiry (independent from primary).
     # Skip refresh if this account is currently the active Claude Code
-    # session — rotating the CC refresh token upstream would invalidate
-    # the token Claude Code's running process holds in memory/Keychain,
-    # forcing a re-login. See docs/architecture/oauth-and-credential-flows.md §7.2.
+    # session, OR if a different already-running task has this same seat
+    # pinned (session_accounts, via get_live_session_account_ids) — e.g. a
+    # second task launching on a seat another task is already using.
+    # Rotating the CC refresh token upstream in either case would invalidate
+    # the token that other live process holds in memory/Keychain, forcing a
+    # re-login. See docs/architecture/oauth-and-credential-flows.md §7.2.
     if should_refresh_cc(account):
-        from manager.api.credential_helpers import read_active_account_id
+        from manager.api.credential_helpers import (
+            get_live_session_account_ids,
+            read_active_account_id,
+        )
 
         active_id = read_active_account_id()
+        live_elsewhere = account_id in get_live_session_account_ids(db)
 
-        if active_id != account_id:
+        if active_id != account_id and not live_elsewhere:
             from manager.web.auth import refresh_cc_token
 
             try:
@@ -398,18 +405,23 @@ def prepare_account_dir(account: dict, db: Database) -> Path:
         else:
             # Reconcile live creds into DB before the downstream Keychain
             # write so we don't roll back Claude Code's fresh token
-            # (architecture doc §7.2 — launch.py:489 stale write gap).
-            try:
-                from manager.api.credential_helpers import reconcile_credentials_from_live_store
-                reconcile_credentials_from_live_store(account_id, db)
-                account = db.get_account(account_id) or account
-            except Exception:
-                logger.debug("Pre-launch reconcile failed", exc_info=True)
+            # (architecture doc §7.2 — launch.py:489 stale write gap). Only
+            # meaningful when this account IS jacked's global active seat —
+            # this process's live-credential read only ever sees the global
+            # store, not another task's per-account CLAUDE_CONFIG_DIR.
+            if active_id == account_id:
+                try:
+                    from manager.api.credential_helpers import reconcile_credentials_from_live_store
+                    reconcile_credentials_from_live_store(account_id, db)
+                    account = db.get_account(account_id) or account
+                except Exception:
+                    logger.debug("Pre-launch reconcile failed", exc_info=True)
             logger.info(
-                "Account %d: skipping pre-launch CC refresh (account is the "
-                "active Claude Code session — Claude Code manages its own "
-                "token rotation).",
+                "Account %d: skipping pre-launch CC refresh (%s).",
                 account_id,
+                "account is the active Claude Code session — it manages its own "
+                "token rotation" if active_id == account_id
+                else "another running task already has this seat live",
             )
 
     # Pre-launch CC token warnings
