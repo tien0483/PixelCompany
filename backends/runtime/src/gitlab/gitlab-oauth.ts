@@ -34,12 +34,19 @@ export const GITLAB_OAUTH_CALLBACK_PATH = "/callback";
 export const GITLAB_MCP_CLIENT_ID = "c323cb730c221cb5c186fbd51d8e193f0be912aa12a97c06682d5fdb4185ab79";
 
 /**
- * `api` is required: posting discussions and approving are writes.
- * `read_api`/`ai_workflows` are required by code.akselos.com's MCP-registered
- * client even for plain REST v4 calls — omitting them gets a 403
- * insufficient_scope on every call despite holding `api`/`read_user`.
+ * Stopgap: `mcp` is the only scope this client can actually be granted. It shows
+ * up on code.akselos.com's Applications page as `[Unverified Dynamic
+ * Application] PixelOffice Review`, and the instance caps self-registered
+ * dynamic clients below `api` regardless of what's requested — asking for
+ * `api`/`read_api`/`ai_workflows` gets the whole authorize request rejected with
+ * "The requested scope is invalid, unknown, or malformed" instead of a degraded
+ * grant. Widening this again needs a verified (admin-registered) OAuth
+ * Application with those scopes explicitly enabled, then swapping
+ * `GITLAB_MCP_CLIENT_ID` (and `.mcp.json`'s `clientId`) to that app's id — until
+ * then, calls needing `api`/`read_api` (posting discussions, approvals, REST v4
+ * reads) will 403 insufficient_scope.
  */
-const REQUESTED_SCOPES = ["api", "read_user", "read_api", "ai_workflows"] as const;
+const REQUESTED_SCOPES = ["mcp"] as const;
 
 const METADATA_TIMEOUT_MS = 8000;
 const TOKEN_TIMEOUT_MS = 15_000;
