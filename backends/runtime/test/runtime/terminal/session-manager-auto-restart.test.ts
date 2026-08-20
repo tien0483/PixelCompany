@@ -327,12 +327,27 @@ describe("TerminalSessionManager auto-restart", () => {
 		await Promise.resolve();
 
 		expect(reporter).toHaveBeenCalledTimes(1);
-		expect(reporter).toHaveBeenCalledWith({
-			taskId: "task-claude",
-			agentId: "claude",
-			managerAccountId: 7,
-			message: expect.stringMatching(/Claude Code needs login/i),
-		});
+		expect(reporter).toHaveBeenCalledWith(
+			{
+				taskId: "task-claude",
+				agentId: "claude",
+				managerAccountId: 7,
+				message: expect.stringMatching(/Claude Code needs login/i),
+				retryRequest: {
+					kind: "task",
+					request: {
+						taskId: "task-claude",
+						agentId: "claude",
+						binary: "claude",
+						args: [],
+						cwd: "/tmp/task-claude",
+						prompt: "Fix the bug",
+						managerAccountId: 7,
+					},
+				},
+			},
+			manager,
+		);
 	});
 
 	it("reports an agent auth failure detected only at process exit", async () => {
@@ -373,12 +388,27 @@ describe("TerminalSessionManager auto-restart", () => {
 		await Promise.resolve();
 
 		expect(reporter).toHaveBeenCalledTimes(1);
-		expect(reporter).toHaveBeenCalledWith({
-			taskId: "task-cursor",
-			agentId: "cursor",
-			managerAccountId: 9,
-			message: expect.stringMatching(/Cursor authentication failed/i),
-		});
+		expect(reporter).toHaveBeenCalledWith(
+			{
+				taskId: "task-cursor",
+				agentId: "cursor",
+				managerAccountId: 9,
+				message: expect.stringMatching(/Cursor authentication failed/i),
+				retryRequest: {
+					kind: "task",
+					request: {
+						taskId: "task-cursor",
+						agentId: "cursor",
+						binary: "agent",
+						args: [],
+						cwd: "/tmp/task-cursor",
+						prompt: "Fix the bug",
+						managerAccountId: 9,
+					},
+				},
+			},
+			manager,
+		);
 	});
 
 	it("never throws when the reporter itself rejects", async () => {

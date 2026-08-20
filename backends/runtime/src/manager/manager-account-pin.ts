@@ -175,6 +175,18 @@ function pickHealthyPool<T extends ManagerDonateAccountLike>(accounts: ReadonlyA
 }
 
 /**
+ * Picks the pool member with the lowest 5h usage (missing usage counts as 0,
+ * so an unvalidated seat is never penalized). Ties keep the first candidate,
+ * matching the previous `pool[0]` fallback's determinism.
+ */
+function pickLeastFiveHourUsage<T extends ManagerDonateAccountLike>(pool: ReadonlyArray<T>): T | null {
+	if (pool.length === 0) {
+		return null;
+	}
+	return pool.reduce((best, account) => ((account.fiveHourPercent ?? 0) < (best.fiveHourPercent ?? 0) ? account : best));
+}
+
+/**
  * Prefer the Cursor fleet's own active seat (`isActiveForProvider`), else the
  * first Cursor account. Never treat Claude's global `activeAccountId` as a
  * Cursor default unless that id is itself a Cursor row.
@@ -204,16 +216,17 @@ export function pickDefaultCursorAccountId(input: {
 	) {
 		return input.activeAccountId;
 	}
-	return pool[0]?.id ?? null;
+	return pickLeastFiveHourUsage(pool)?.id ?? null;
 }
 
 /**
  * Prefer the currently active Claude seat if it is under its donate cap, else
- * the first under-cap Claude seat. Mirrors `pickDefaultCursorAccountId`: an
- * over-donate active seat is skipped for Auto selection so unpinned launches
- * do not wait on jacked's own async auto-swap daemon to move off it first. If
- * every Claude seat is exhausted, falls back to the unfiltered active seat so
- * the locked-cap hard-block in `resolveManagerAccountPin` still has a target.
+ * the under-cap Claude seat with the lowest 5h usage. Mirrors
+ * `pickDefaultCursorAccountId`: an over-donate active seat is skipped for
+ * Auto selection so unpinned launches do not wait on jacked's own async
+ * auto-swap daemon to move off it first. If every Claude seat is exhausted,
+ * falls back to the unfiltered active seat so the locked-cap hard-block in
+ * `resolveManagerAccountPin` still has a target.
  */
 export function pickDefaultClaudeAccountId(input: {
 	accounts: ReadonlyArray<ManagerDonateAccountLike>;
@@ -229,7 +242,7 @@ export function pickDefaultClaudeAccountId(input: {
 	if (input.activeAccountId !== null && pool.some((account) => account.id === input.activeAccountId)) {
 		return input.activeAccountId;
 	}
-	return pool[0]?.id ?? null;
+	return pickLeastFiveHourUsage(pool)?.id ?? null;
 }
 
 async function resolveCursorCredentialPin(

@@ -31,11 +31,14 @@ import {
 	setKanbanRuntimePort,
 	setKanbanRuntimeTls,
 } from "./core/runtime-endpoint";
+import { toManagerDonateAccount } from "./manager/manager-account-pin";
 import { disablePasscode, generateInternalToken, generatePasscode } from "./security/passcode-manager";
 import { terminateProcessForTimeout } from "./server/process-termination";
 import type { RuntimeStateHub } from "./server/runtime-state-hub";
 import { captureNodeException, flushNodeTelemetry } from "./telemetry/sentry-node.js";
+import { buildAuthFailoverRequest, createAuthFailoverGuard, pickAuthFailoverAccountId } from "./terminal/auth-failover";
 import type { AgentAuthFailureReporter, TerminalSessionManager } from "./terminal/session-manager";
+import { resolveHostPath } from "./terminal/task-launch-settings";
 import { runOnDemandUpdate } from "./update/update";
 
 interface CliOptions {
@@ -460,8 +463,9 @@ async function startServer(): Promise<{
 	// and the holder is filled in once ManagerClient is available below.
 	let authFailureReporter: AgentAuthFailureReporter | null = null;
 	const attachAuthFailureReporter = (manager: TerminalSessionManager) => {
-		manager.setAgentAuthFailureReporter((report) => authFailureReporter?.(report));
+		manager.setAgentAuthFailureReporter((report, reportingManager) => authFailureReporter?.(report, reportingManager));
 	};
+	const authFailoverGuard = createAuthFailoverGuard();
 
 	let runtimeStateHub: RuntimeStateHub | undefined;
 	const workspaceRegistry = await createWorkspaceRegistry({
@@ -504,15 +508,42 @@ async function startServer(): Promise<{
 			runtimeStateHub?.broadcastManagerStateUpdated(state);
 		},
 	});
-	authFailureReporter = async (report) => {
+	authFailureReporter = async (report, manager) => {
 		if (report.agentId !== "claude") {
 			return;
 		}
-		const accountId = report.managerAccountId ?? ManagerMonitor.getState()?.activeAccountId ?? null;
-		if (accountId === null) {
+		const brokenAccountId = report.managerAccountId ?? ManagerMonitor.getState()?.activeAccountId ?? null;
+		if (brokenAccountId !== null) {
+			await ManagerClient.validateAccount(brokenAccountId);
+		}
+		// Auto-failover: restart this task on the least-used healthy seat and resume
+		// the conversation, rather than leaving the card sitting at a login screen.
+		if (report.retryRequest === null || report.retryRequest.kind !== "task") {
 			return;
 		}
-		await ManagerClient.validateAccount(accountId);
+		if (!authFailoverGuard.shouldAttempt(report.taskId, Date.now())) {
+			console.warn(`[kanban] Auth failover cap reached for task ${report.taskId}; leaving it for manual re-auth.`);
+			return;
+		}
+		const accounts = (ManagerMonitor.getState()?.accounts ?? []).map(toManagerDonateAccount);
+		const nextAccountId = pickAuthFailoverAccountId({ brokenAccountId, accounts });
+		if (nextAccountId === null) {
+			return;
+		}
+		const launchDir = await ManagerClient.fetchAccountLaunchDir(nextAccountId).catch(() => null);
+		if (!launchDir || launchDir.configDir.trim().length === 0) {
+			return;
+		}
+		const rebuilt = buildAuthFailoverRequest(report.retryRequest, nextAccountId, resolveHostPath(launchDir.configDir));
+		if (rebuilt === null) {
+			return;
+		}
+		authFailoverGuard.recordAttempt(report.taskId, Date.now());
+		try {
+			await manager.startTaskSession(rebuilt);
+		} catch (error) {
+			console.warn(`[kanban] Auth failover restart failed for task ${report.taskId}: ${String(error)}`);
+		}
 	};
 	// Stating the expected template-skills dir keeps this launch off a sidecar belonging to
 	// another install (e.g. the standalone Plan Editor package), which would otherwise be

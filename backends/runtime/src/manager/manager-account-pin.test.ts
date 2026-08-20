@@ -239,6 +239,18 @@ describe("pickDefaultCursorAccountId", () => {
 			}),
 		).toBeNull();
 	});
+
+	it("prefers the healthy Cursor seat with the lowest 5h usage", () => {
+		expect(
+			pickDefaultCursorAccountId({
+				accounts: [
+					{ id: 1, provider: "cursor", fiveHourPercent: 40 },
+					{ id: 2, provider: "cursor", fiveHourPercent: 10 },
+				],
+				activeAccountId: null,
+			}),
+		).toBe(2);
+	});
 });
 
 describe("pickDefaultClaudeAccountId", () => {
@@ -285,6 +297,18 @@ describe("pickDefaultClaudeAccountId", () => {
 				activeAccountId: 1,
 			}),
 		).toBeNull();
+	});
+
+	it("prefers the healthy seat with the lowest 5h usage", () => {
+		expect(
+			pickDefaultClaudeAccountId({
+				accounts: [
+					{ id: 1, provider: "claude", fiveHourPercent: 40 },
+					{ id: 2, provider: "claude", fiveHourPercent: 10 },
+				],
+				activeAccountId: null,
+			}),
+		).toBe(2);
 	});
 });
 

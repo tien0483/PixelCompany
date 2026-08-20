@@ -82,11 +82,16 @@ export interface AgentAuthFailureReport {
 	agentId: RuntimeAgentId | null;
 	managerAccountId: number | null;
 	message: string;
+	/** The task's last start request, captured before it's cleared for auto-restart-on-exit. */
+	retryRequest: RestartableSessionRequest | null;
 }
 
-export type AgentAuthFailureReporter = (report: AgentAuthFailureReport) => void | Promise<void>;
+export type AgentAuthFailureReporter = (
+	report: AgentAuthFailureReport,
+	manager: TerminalSessionManager,
+) => void | Promise<void>;
 
-type RestartableSessionRequest =
+export type RestartableSessionRequest =
 	| { kind: "task"; request: StartTaskSessionRequest }
 	| { kind: "shell"; request: StartShellSessionRequest };
 
@@ -323,14 +328,23 @@ export class TerminalSessionManager implements TerminalSessionService {
 		this.agentAuthFailureReporter = reporter;
 	}
 
-	private reportAgentAuthFailure(entry: SessionEntry, taskId: string, message: string): void {
+	private reportAgentAuthFailure(
+		entry: SessionEntry,
+		taskId: string,
+		message: string,
+		retryRequest: RestartableSessionRequest | null,
+	): void {
 		try {
-			void this.agentAuthFailureReporter?.({
-				taskId,
-				agentId: entry.summary.agentId,
-				managerAccountId: entry.summary.managerAccountId ?? null,
-				message,
-			})?.catch?.(() => {});
+			void this.agentAuthFailureReporter?.(
+				{
+					taskId,
+					agentId: entry.summary.agentId,
+					managerAccountId: entry.summary.managerAccountId ?? null,
+					message,
+					retryRequest,
+				},
+				this,
+			)?.catch?.(() => {});
 		} catch {
 			// Reporting never takes down a session.
 		}
@@ -636,6 +650,9 @@ export class TerminalSessionManager implements TerminalSessionService {
 							const authFailure = detectAgentAuthFailure(entry.summary.agentId, entry.active.recentOutputText);
 							if (authFailure) {
 								entry.active.authFailureMessage = authFailure;
+								// Captured before clearing, so an auth-failover reporter can
+								// still replay this task's launch request onto a new account.
+								const retryRequest = entry.restartRequest;
 								// Stop relaunch loops: auth will keep failing until the user re-auths.
 								entry.suppressAutoRestartOnExit = true;
 								entry.restartRequest = null;
@@ -650,7 +667,7 @@ export class TerminalSessionManager implements TerminalSessionService {
 									taskListener.onState?.(cloneSummary(summary));
 								}
 								this.emitSummary(summary);
-								this.reportAgentAuthFailure(entry, request.taskId, authFailure);
+								this.reportAgentAuthFailure(entry, request.taskId, authFailure, retryRequest);
 							}
 						}
 					}
@@ -743,10 +760,11 @@ export class TerminalSessionManager implements TerminalSessionService {
 						detectAgentAuthFailure(currentEntry.summary.agentId, currentActive.recentOutputText);
 					if (authFailure) {
 						currentActive.authFailureMessage = authFailure;
+						const retryRequest = currentEntry.restartRequest;
 						currentEntry.suppressAutoRestartOnExit = true;
 						currentEntry.restartRequest = null;
 						if (previousAuthFailureMessage === null) {
-							this.reportAgentAuthFailure(currentEntry, request.taskId, authFailure);
+							this.reportAgentAuthFailure(currentEntry, request.taskId, authFailure, retryRequest);
 						}
 					}
 
