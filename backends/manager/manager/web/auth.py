@@ -978,10 +978,30 @@ async def fetch_usage(
                     > _USAGE_429_ROTATION_INTERVAL
                 )
                 if _retry_depth == 0 and rotation_due:
-                    # Stamp at attempt time (success or not): a failed
-                    # rotation still hit the token endpoint.
-                    state["last_429_rotation_at"] = time.time()
-                    fresh_token = await _try_refresh_on_429(account_id, db, state)
+                    # Never rotate the CC refresh token of an account with a
+                    # live Claude Code session — same single-use-token race
+                    # as refresh_all_expiring_tokens / window keeper / launch.py
+                    # (oauth-and-credential-flows.md §7.1). This 429 path was
+                    # the one call site that raced live sessions.
+                    from manager.api.credential_helpers import (
+                        get_live_session_account_ids,
+                        read_active_account_id,
+                    )
+                    active_id = read_active_account_id()
+                    live_elsewhere = account_id in get_live_session_account_ids(db)
+                    fresh_token = None
+                    if active_id == account_id or live_elsewhere:
+                        logger.info(
+                            "Account %d: skipping 429 token rotation (%s).",
+                            account_id,
+                            "active Claude Code session" if active_id == account_id
+                            else "another running task already has this seat live",
+                        )
+                    else:
+                        # Stamp at attempt time (success or not): a failed
+                        # rotation still hit the token endpoint.
+                        state["last_429_rotation_at"] = time.time()
+                        fresh_token = await _try_refresh_on_429(account_id, db, state)
                     if fresh_token:
                         state["consecutive_429s"] = 0
                         logger.info("Account %d: retrying usage fetch with fresh token", account_id)
