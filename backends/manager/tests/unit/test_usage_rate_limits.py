@@ -76,6 +76,10 @@ _USAGE_200 = {
 class TestManualFloor:
     def setup_method(self):
         mod._account_usage_state.clear()
+        # Stamp as just-refreshed so the 200-success piggybacked profile
+        # fetch (auth.py's _profile_refreshed_at throttle) doesn't consume
+        # an extra call from these tests' mocked HTTP response queues.
+        mod._profile_refreshed_at[1] = time.time()
 
     def test_floor_constant(self):
         assert mod._USAGE_MANUAL_FLOOR_SECONDS == 20
@@ -128,6 +132,10 @@ class TestManualFloor:
 class TestRetryPacing:
     def setup_method(self):
         mod._account_usage_state.clear()
+        # Stamp as just-refreshed so the 200-success piggybacked profile
+        # fetch (auth.py's _profile_refreshed_at throttle) doesn't consume
+        # an extra call from these tests' mocked HTTP response queues.
+        mod._profile_refreshed_at[1] = time.time()
 
     def test_429_retry_failure_does_not_unpace(self):
         """429 -> rotation -> retry fails with 500: last_fetched_at must NOT
@@ -138,6 +146,8 @@ class TestRetryPacing:
         client = _mock_client([(429, {}, {"retry-after": "65"}), (500, {}, {})])
 
         with patch("manager.web.auth.httpx.AsyncClient", return_value=client), \
+             patch("manager.api.credential_helpers.read_active_account_id", return_value=None), \
+             patch("manager.api.credential_helpers.get_live_session_account_ids", return_value=set()), \
              patch("manager.web.auth._try_refresh_on_429",
                    AsyncMock(return_value="fresh-tok")):
             result = asyncio.run(fetch_usage(1, db))
@@ -155,6 +165,8 @@ class TestRetryPacing:
         client = _mock_client([(429, {}, {}), (200, _USAGE_200, {})])
 
         with patch("manager.web.auth.httpx.AsyncClient", return_value=client), \
+             patch("manager.api.credential_helpers.read_active_account_id", return_value=None), \
+             patch("manager.api.credential_helpers.get_live_session_account_ids", return_value=set()), \
              patch("manager.web.auth._try_refresh_on_429",
                    AsyncMock(return_value="fresh-tok")):
             result = asyncio.run(fetch_usage(1, db, manual=True))
@@ -162,6 +174,47 @@ class TestRetryPacing:
         assert result == _USAGE_200
         assert client.get.call_count == 2
         assert state["last_fetched_at"] > 0
+
+    def test_429_skips_rotation_for_active_account(self):
+        """429 on the active account must NOT call _try_refresh_on_429 — that
+        would race Claude Code's own live CC refresh for the single-use
+        refresh_token and force a re-login (oauth-and-credential-flows.md
+        §7.1). Falls straight to backoff instead."""
+        state = mod._get_usage_state(1)
+        state["last_fetched_at"] = time.time() - 30
+        db = _mock_db()
+        client = _mock_client([(429, {}, {})])
+
+        with patch("manager.web.auth.httpx.AsyncClient", return_value=client), \
+             patch("manager.api.credential_helpers.read_active_account_id", return_value=1), \
+             patch("manager.api.credential_helpers.get_live_session_account_ids", return_value=set()), \
+             patch("manager.web.auth._try_refresh_on_429",
+                   AsyncMock(return_value="fresh-tok")) as mock_rotate:
+            result = asyncio.run(fetch_usage(1, db, manual=True))
+
+        mock_rotate.assert_not_called()
+        assert client.get.call_count == 1
+        assert result is None
+
+    def test_429_skips_rotation_for_live_task_session(self):
+        """429 on an account with a live task session (pinned via
+        CLAUDE_CONFIG_DIR, not jacked's global active seat) must also skip
+        rotation."""
+        state = mod._get_usage_state(1)
+        state["last_fetched_at"] = time.time() - 30
+        db = _mock_db()
+        client = _mock_client([(429, {}, {})])
+
+        with patch("manager.web.auth.httpx.AsyncClient", return_value=client), \
+             patch("manager.api.credential_helpers.read_active_account_id", return_value=None), \
+             patch("manager.api.credential_helpers.get_live_session_account_ids", return_value={1}), \
+             patch("manager.web.auth._try_refresh_on_429",
+                   AsyncMock(return_value="fresh-tok")) as mock_rotate:
+            result = asyncio.run(fetch_usage(1, db, manual=True))
+
+        mock_rotate.assert_not_called()
+        assert client.get.call_count == 1
+        assert result is None
 
     def test_401_retry_failure_does_not_unpace(self):
         """401 -> primary refresh -> retry fails with 500: last_fetched_at
@@ -194,6 +247,10 @@ class TestFailurePacing:
 
     def setup_method(self):
         mod._account_usage_state.clear()
+        # Stamp as just-refreshed so the 200-success piggybacked profile
+        # fetch (auth.py's _profile_refreshed_at throttle) doesn't consume
+        # an extra call from these tests' mocked HTTP response queues.
+        mod._profile_refreshed_at[1] = time.time()
 
     def test_perma_401_second_manual_call_is_cached(self):
         """Two back-to-back manual calls against a permanently-401 account
@@ -266,6 +323,10 @@ class TestFailurePacing:
 class TestRotationThrottle:
     def setup_method(self):
         mod._account_usage_state.clear()
+        # Stamp as just-refreshed so the 200-success piggybacked profile
+        # fetch (auth.py's _profile_refreshed_at throttle) doesn't consume
+        # an extra call from these tests' mocked HTTP response queues.
+        mod._profile_refreshed_at[1] = time.time()
 
     def test_rotation_interval_constant(self):
         assert mod._USAGE_429_ROTATION_INTERVAL == 600
