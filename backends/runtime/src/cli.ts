@@ -523,19 +523,23 @@ async function startServer(): Promise<{
 		}
 		if (!authFailoverGuard.shouldAttempt(report.taskId, Date.now())) {
 			console.warn(`[kanban] Auth failover cap reached for task ${report.taskId}; leaving it for manual re-auth.`);
+			manager.markAuthFailoverOutcome(report.taskId, "cap_reached");
 			return;
 		}
 		const accounts = (ManagerMonitor.getState()?.accounts ?? []).map(toManagerDonateAccount);
 		const nextAccountId = pickAuthFailoverAccountId({ brokenAccountId, accounts });
 		if (nextAccountId === null) {
+			manager.markAuthFailoverOutcome(report.taskId, "no_healthy_seat");
 			return;
 		}
 		const launchDir = await ManagerClient.fetchAccountLaunchDir(nextAccountId).catch(() => null);
 		if (!launchDir || launchDir.configDir.trim().length === 0) {
+			manager.markAuthFailoverOutcome(report.taskId, "seat_prep_failed");
 			return;
 		}
 		const rebuilt = buildAuthFailoverRequest(report.retryRequest, nextAccountId, resolveHostPath(launchDir.configDir));
 		if (rebuilt === null) {
+			manager.markAuthFailoverOutcome(report.taskId, "seat_prep_failed");
 			return;
 		}
 		authFailoverGuard.recordAttempt(report.taskId, Date.now());
@@ -543,6 +547,7 @@ async function startServer(): Promise<{
 			await manager.startTaskSession(rebuilt);
 		} catch (error) {
 			console.warn(`[kanban] Auth failover restart failed for task ${report.taskId}: ${String(error)}`);
+			manager.markAuthFailoverOutcome(report.taskId, "restart_failed", String(error).slice(0, 300));
 		}
 	};
 	// Stating the expected template-skills dir keeps this launch off a sidecar belonging to

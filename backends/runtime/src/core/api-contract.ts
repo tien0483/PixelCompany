@@ -514,6 +514,16 @@ export const runtimeTaskSessionReviewReasonSchema = z
 	.nullable();
 export type RuntimeTaskSessionReviewReason = z.infer<typeof runtimeTaskSessionReviewReasonSchema>;
 
+/**
+ * Why Claude's automatic auth-failover (retry on a healthier seat after a revoked-token
+ * 401) gave up without restarting the task. Set alongside `reviewReason: "error"`; null
+ * whenever failover hasn't been attempted or last succeeded.
+ */
+export const runtimeAuthFailoverOutcomeSchema = z
+	.enum(["cap_reached", "no_healthy_seat", "seat_prep_failed", "restart_failed"])
+	.nullable();
+export type RuntimeAuthFailoverOutcome = z.infer<typeof runtimeAuthFailoverOutcomeSchema>;
+
 export const runtimeTaskHookActivitySchema = z.object({
 	activityText: z.string().nullable().default(null),
 	toolName: z.string().nullable().default(null),
@@ -584,6 +594,10 @@ export const runtimeTaskSessionSummarySchema = z.object({
 	 * relaunches with --continue once the window clears. Null on every other state.
 	 */
 	resumeAt: z.number().nullable().optional(),
+	/** Why auto-failover stalled after the auth-failure that set `reviewReason: "error"`. */
+	authFailoverOutcome: runtimeAuthFailoverOutcomeSchema.optional(),
+	/** Free-text detail for `authFailoverOutcome: "restart_failed"` (the caught error's message). Null otherwise. */
+	authFailoverOutcomeDetail: z.string().nullable().optional(),
 	latestTurnCheckpoint: runtimeTaskTurnCheckpointSchema.nullable().optional(),
 	previousTurnCheckpoint: runtimeTaskTurnCheckpointSchema.nullable().optional(),
 });

@@ -3,6 +3,7 @@
 // for command-driven agents such as Claude Code, Codex, Gemini, and shell sessions.
 import type {
 	RuntimeAgentId,
+	RuntimeAuthFailoverOutcome,
 	RuntimeTaskHookActivity,
 	RuntimeTaskImage,
 	RuntimeTaskLaunchSettings,
@@ -202,6 +203,8 @@ function createDefaultSummary(taskId: string): RuntimeTaskSessionSummary {
 		managerAccountId: null,
 		subagentSeatProviderId: null,
 		resumeAt: null,
+		authFailoverOutcome: null,
+		authFailoverOutcomeDetail: null,
 		latestTurnCheckpoint: null,
 		previousTurnCheckpoint: null,
 	};
@@ -480,6 +483,31 @@ export class TerminalSessionManager implements TerminalSessionService {
 			state: "awaiting_review",
 			reviewReason: "usage_paused",
 			resumeAt,
+		});
+		this.emitSummary(summary);
+		return cloneSummary(summary);
+	}
+
+	/**
+	 * Records why Claude's automatic auth-failover gave up without restarting the task, so
+	 * the card can explain the stall instead of silently retrying forever. Called by the
+	 * CLI's `authFailureReporter` at each point it bails out or fails to relaunch. Does not
+	 * touch `state`/`reviewReason`/`warningMessage` — those are already set by the auth-failure
+	 * detection path in this file; this only annotates that outcome with failover-specific detail.
+	 * No-op when the task is unknown (it may have been cleaned up between detection and this call).
+	 */
+	markAuthFailoverOutcome(
+		taskId: string,
+		outcome: RuntimeAuthFailoverOutcome,
+		detail?: string | null,
+	): RuntimeTaskSessionSummary | null {
+		const entry = this.entries.get(taskId);
+		if (!entry) {
+			return null;
+		}
+		const summary = updateSummary(entry, {
+			authFailoverOutcome: outcome,
+			authFailoverOutcomeDetail: outcome === "restart_failed" ? (detail ?? null) : null,
 		});
 		this.emitSummary(summary);
 		return cloneSummary(summary);
@@ -823,6 +851,8 @@ export class TerminalSessionManager implements TerminalSessionService {
 				managerAccountId: request.managerAccountId ?? null,
 				subagentSeatProviderId: request.taskLaunchSettings?.subagentSeatProviderId ?? null,
 				resumeAt: null,
+				authFailoverOutcome: null,
+				authFailoverOutcomeDetail: null,
 				latestTurnCheckpoint: null,
 				previousTurnCheckpoint: null,
 			});
@@ -900,6 +930,8 @@ export class TerminalSessionManager implements TerminalSessionService {
 			subagentSeatProviderId: request.taskLaunchSettings?.subagentSeatProviderId ?? null,
 			autoResumeOnUsageLimit: request.autoResumeOnUsageLimit ?? false,
 			resumeAt: null,
+			authFailoverOutcome: null,
+			authFailoverOutcomeDetail: null,
 			latestTurnCheckpoint: null,
 			previousTurnCheckpoint: null,
 		});
