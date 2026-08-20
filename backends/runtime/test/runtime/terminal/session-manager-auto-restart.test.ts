@@ -508,4 +508,49 @@ describe("TerminalSessionManager auto-restart", () => {
 
 		expect(manager.getSummary("task-1")?.subagentSeatProviderId).toBeNull();
 	});
+
+	it("clears a stale auth-failover outcome once the task relaunches", async () => {
+		ptySessionSpawnMock.mockImplementation((request: MockSpawnRequest) => createMockPtySession(111, request));
+
+		const manager = new TerminalSessionManager();
+		manager.hydrateFromRecord({
+			"task-1": {
+				taskId: "task-1",
+				state: "awaiting_review",
+				agentId: "claude",
+				workspacePath: "/tmp/task-1",
+				pid: null,
+				startedAt: null,
+				updatedAt: Date.now(),
+				activeRunMs: 0,
+				runningSince: null,
+				pausedAt: null,
+				pauseReason: null,
+				lastOutputAt: null,
+				reviewReason: "error",
+				exitCode: null,
+				lastHookAt: null,
+				latestHookActivity: null,
+				warningMessage: "Claude Code needs login. Open the task terminal and run /login.",
+				authFailoverOutcome: "no_healthy_seat",
+				authFailoverOutcomeDetail: null,
+			},
+		});
+
+		await manager.startTaskSession({
+			taskId: "task-1",
+			agentId: "claude",
+			binary: "claude",
+			args: [],
+			cwd: "/tmp/task-1",
+			prompt: "",
+			resumeFromPersistence: true,
+			managerAccountId: 2,
+		});
+
+		const summary = manager.getSummary("task-1");
+		expect(summary?.state).toBe("running");
+		expect(summary?.authFailoverOutcome).toBeNull();
+		expect(summary?.authFailoverOutcomeDetail).toBeNull();
+	});
 });

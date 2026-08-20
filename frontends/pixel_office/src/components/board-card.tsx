@@ -35,7 +35,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { Tooltip } from "@/components/ui/tooltip";
 import { useCountdownMs, useElapsedMs } from "@/hooks/use-elapsed-timer";
 import { isSessionPausedLive, isSessionPausedOffline, pausedOfflineBadgeLabel } from "@/runtime/session-status";
-import type { RuntimeTaskSessionSummary } from "@/runtime/types";
+import type { RuntimeAuthFailoverOutcome, RuntimeTaskSessionSummary } from "@/runtime/types";
 import { useTaskWorkspaceInfoValue, useTaskWorkspaceSnapshotValue } from "@/stores/workspace-metadata-store";
 import type { BoardCard as BoardCardModel, BoardColumnId } from "@/types";
 import { getTaskAutoReviewCancelButtonLabel } from "@/types";
@@ -212,6 +212,25 @@ function formatUsagePausedLabel(resumeAt: number | null | undefined): string {
 	return `Paused · resumes ${resetTime}`;
 }
 
+/** Short, card-sized explanation for why Claude's automatic seat failover didn't restart the task. */
+function formatAuthFailoverOutcomeLabel(
+	outcome: RuntimeAuthFailoverOutcome | null | undefined,
+	detail: string | null | undefined,
+): string | null {
+	switch (outcome) {
+		case "cap_reached":
+			return "Retry limit reached — switch seats manually";
+		case "no_healthy_seat":
+			return "No other healthy seat available";
+		case "seat_prep_failed":
+			return "Couldn't prepare the new seat's credentials";
+		case "restart_failed":
+			return detail ? `Restart failed: ${detail.trim().slice(0, 80)}` : "Restart failed";
+		default:
+			return null;
+	}
+}
+
 function getCardSessionActivity(
 	summary: RuntimeTaskSessionSummary | undefined,
 ): CardSessionActivity | null {
@@ -250,9 +269,10 @@ function getCardSessionActivity(
 		(summary.state === "awaiting_review" && summary.reviewReason === "error") ||
 		summary.state === "failed"
 	) {
+		const failoverText = formatAuthFailoverOutcomeLabel(summary.authFailoverOutcome, summary.authFailoverOutcomeDetail);
 		return {
 			dotColor: SESSION_ACTIVITY_COLOR.error,
-			text: finalMessage ?? summary.warningMessage?.trim() ?? "Agent failed",
+			text: failoverText ?? finalMessage ?? summary.warningMessage?.trim() ?? "Agent failed",
 		};
 	}
 	if (summary.state === "awaiting_review" && finalMessage) {

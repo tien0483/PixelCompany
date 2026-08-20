@@ -329,4 +329,45 @@ describe("TerminalSessionManager", () => {
 		});
 		expect(getSnapshotSpy).toHaveBeenCalledTimes(1);
 	});
+
+	describe("markAuthFailoverOutcome", () => {
+		it("is a no-op for an unknown taskId", () => {
+			const manager = new TerminalSessionManager();
+			expect(manager.markAuthFailoverOutcome("does-not-exist", "no_healthy_seat")).toBeNull();
+		});
+
+		it("patches the outcome without touching state, reviewReason, or warningMessage", () => {
+			const manager = new TerminalSessionManager();
+			manager.hydrateFromRecord({
+				"task-1": createSummary({
+					state: "awaiting_review",
+					reviewReason: "error",
+					warningMessage: "Claude Code needs login. Open the task terminal and run /login.",
+				}),
+			});
+
+			const updated = manager.markAuthFailoverOutcome("task-1", "no_healthy_seat");
+
+			expect(updated?.authFailoverOutcome).toBe("no_healthy_seat");
+			expect(updated?.authFailoverOutcomeDetail).toBeNull();
+			expect(updated?.state).toBe("awaiting_review");
+			expect(updated?.reviewReason).toBe("error");
+			expect(updated?.warningMessage).toBe("Claude Code needs login. Open the task terminal and run /login.");
+		});
+
+		it("stores detail only for restart_failed", () => {
+			const manager = new TerminalSessionManager();
+			manager.hydrateFromRecord({
+				"task-1": createSummary({ state: "awaiting_review", reviewReason: "error" }),
+			});
+
+			const withDetail = manager.markAuthFailoverOutcome("task-1", "restart_failed", "spawn ENOENT");
+			expect(withDetail?.authFailoverOutcome).toBe("restart_failed");
+			expect(withDetail?.authFailoverOutcomeDetail).toBe("spawn ENOENT");
+
+			const withoutDetail = manager.markAuthFailoverOutcome("task-1", "cap_reached", "ignored detail");
+			expect(withoutDetail?.authFailoverOutcome).toBe("cap_reached");
+			expect(withoutDetail?.authFailoverOutcomeDetail).toBeNull();
+		});
+	});
 });

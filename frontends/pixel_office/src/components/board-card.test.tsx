@@ -830,6 +830,72 @@ describe("BoardCard", () => {
 		expect(container.textContent).toContain("Provider connection lost");
 	});
 
+	it.each([
+		["cap_reached", "Retry limit reached — switch seats manually"],
+		["no_healthy_seat", "No other healthy seat available"],
+		["seat_prep_failed", "Couldn't prepare the new seat's credentials"],
+		["restart_failed", "Restart failed: spawn ENOENT"],
+	] as const)("shows the auth-failover outcome label for %s", async (outcome, expectedText) => {
+		await act(async () => {
+			root.render(
+				<BoardCard
+					card={createCard()}
+					index={0}
+					columnId="review"
+					sessionSummary={createSummary("awaiting_review", {
+						reviewReason: "error",
+						warningMessage: "Claude Code needs login. Open the task terminal and run /login.",
+						authFailoverOutcome: outcome,
+						authFailoverOutcomeDetail: outcome === "restart_failed" ? "spawn ENOENT" : null,
+					})}
+				/>,
+			);
+		});
+
+		const dot = container.querySelector(".rounded-full") as HTMLElement | null;
+		expect(dot).not.toBeNull();
+		expect(dot?.style.backgroundColor).toBe("var(--color-status-red)");
+		expect(container.textContent).toContain(expectedText);
+	});
+
+	it("prefers the auth-failover outcome label over the warning message when both are set", async () => {
+		await act(async () => {
+			root.render(
+				<BoardCard
+					card={createCard()}
+					index={0}
+					columnId="review"
+					sessionSummary={createSummary("awaiting_review", {
+						reviewReason: "error",
+						warningMessage: "Claude Code needs login. Open the task terminal and run /login.",
+						authFailoverOutcome: "no_healthy_seat",
+					})}
+				/>,
+			);
+		});
+
+		expect(container.textContent).toContain("No other healthy seat available");
+		expect(container.textContent).not.toContain("Claude Code needs login");
+	});
+
+	it("falls back to the warning message when no auth-failover outcome is set", async () => {
+		await act(async () => {
+			root.render(
+				<BoardCard
+					card={createCard()}
+					index={0}
+					columnId="review"
+					sessionSummary={createSummary("awaiting_review", {
+						reviewReason: "error",
+						warningMessage: "Claude Code needs login. Open the task terminal and run /login.",
+					})}
+				/>,
+			);
+		});
+
+		expect(container.textContent).toContain("Claude Code needs login");
+	});
+
 	it("keeps the green success indicator for a clean review card", async () => {
 		await act(async () => {
 			root.render(
