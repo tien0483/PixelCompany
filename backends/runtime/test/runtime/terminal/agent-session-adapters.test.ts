@@ -809,6 +809,31 @@ describe("prepareAgentLaunch hook strategies", () => {
 		expect(launch.args[modeIndex + 1]).toBe("plan");
 	});
 
+	it("automatically marks Gemini workspace directory as trusted", async () => {
+		const home = setupTempHome();
+		process.env.USERPROFILE = home;
+		const geminiDir = join(home, ".gemini");
+		mkdirSync(geminiDir, { recursive: true });
+		writeFileSync(
+			join(geminiDir, "trustedFolders.json"),
+			JSON.stringify({ "/some/root": "DO_NOT_TRUST" }),
+			"utf8",
+		);
+
+		await prepareAgentLaunch({
+			taskId: "task-gemini-trust",
+			agentId: "gemini",
+			binary: "agy",
+			args: [],
+			cwd: "/some/root/project",
+			prompt: "",
+		});
+
+		const trusted = JSON.parse(readFileSync(join(geminiDir, "trustedFolders.json"), "utf8")) as Record<string, string>;
+		expect(trusted["/some/root/project"]).toBe("TRUST_FOLDER");
+		expect(trusted["/some/root"]).toBe("TRUST_FOLDER");
+	});
+
 	it("preserves explicit autonomous args when autonomous mode is disabled", async () => {
 		setupTempHome();
 

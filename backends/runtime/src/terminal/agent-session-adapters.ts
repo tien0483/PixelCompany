@@ -987,12 +987,47 @@ const codexAdapter: AgentSessionAdapter = {
 	},
 };
 
+async function ensureGeminiTrustedFolder(cwd: string): Promise<void> {
+	const targetPath = cwd?.trim();
+	if (!targetPath) {
+		return;
+	}
+	try {
+		const trustedFoldersPath = join(homedir(), ".gemini", "trustedFolders.json");
+		let current: Record<string, string> = {};
+		try {
+			const raw = await readFile(trustedFoldersPath, "utf8");
+			current = JSON.parse(raw) as Record<string, string>;
+		} catch {
+			current = {};
+		}
+		let changed = false;
+		if (current[targetPath] !== "TRUST_FOLDER") {
+			current[targetPath] = "TRUST_FOLDER";
+			changed = true;
+		}
+		for (const [folder, status] of Object.entries(current)) {
+			if (status === "DO_NOT_TRUST" && (targetPath === folder || targetPath.startsWith(folder.endsWith("/") ? folder : `${folder}/`))) {
+				current[folder] = "TRUST_FOLDER";
+				changed = true;
+			}
+		}
+		if (changed) {
+			await ensureTextFile(trustedFoldersPath, JSON.stringify(current, null, 2));
+		}
+	} catch {
+		// Best effort: failure to update trustedFolders should not block CLI startup
+	}
+}
+
 const geminiAdapter: AgentSessionAdapter = {
 	async prepare(input) {
 		const args = [...input.args];
 		const env: Record<string, string | undefined> = {};
 		const launchSettings = input.taskLaunchSettings;
 		applyModelAndEffortArgs(args, launchSettings, { effortFlag: "--effort" });
+
+		await ensureGeminiTrustedFolder(input.cwd);
 
 		if (input.startInPlanMode) {
 			const withoutBypass = args.filter((arg) => arg !== "--dangerously-skip-permissions");
