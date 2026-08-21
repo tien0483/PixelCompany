@@ -1,4 +1,4 @@
-﻿"""Token refresh, usage fetch, profile fetch, and account validation.
+"""Token refresh, usage fetch, profile fetch, and account validation.
 
 This module handles the ongoing lifecycle of authenticated accounts:
 - Proactive token refresh (5-minute buffer before expiry)
@@ -1185,6 +1185,39 @@ def _validate_cursor_account(account_id: int, db: Database) -> dict:
     return {"valid": False, "error": "Cursor signed out"}
 
 
+def _validate_antigravity_account(account_id: int, db: Database) -> dict:
+    """Validate an Antigravity account by verifying its stored refresh token / slot."""
+    try:
+        from manager.antigravity.switching import antigravity_slot_creds_path
+
+        account = db.get_account(account_id)
+        has_refresh = bool(account and account.get("refresh_token"))
+        slot = antigravity_slot_creds_path(account_id)
+        has_slot = slot.exists()
+        signed_in = has_refresh or has_slot
+    except Exception:
+        logger.debug("antigravity validation read failed for %s", account_id, exc_info=True)
+        signed_in = True
+    if signed_in:
+        db.update_account(
+            account_id,
+            validation_status="valid",
+            last_validated_at=int(time.time()),
+            consecutive_failures=0,
+            last_error=None,
+            last_error_at=None,
+        )
+        return {"valid": True, "error": None}
+    db.update_account(
+        account_id,
+        validation_status="invalid",
+        last_validated_at=int(time.time()),
+        last_error="Antigravity account signed out — log in with Antigravity / Gemini CLI",
+        last_error_at=datetime.now(timezone.utc).isoformat(),
+    )
+    return {"valid": False, "error": "Antigravity signed out"}
+
+
 async def _resolve_probe_token(account: dict, db: Database) -> tuple[Optional[str], str]:
     """Pick the token to run the inference probe with.
 
@@ -1263,6 +1296,10 @@ async def validate_account(account_id: int, db: Database) -> dict:
 
     if (account.get("provider") or "claude") == "cursor":
         result = _validate_cursor_account(account_id, db)
+        return {**result, "verdict": "good" if result["valid"] else "bad", "code": None}
+
+    if (account.get("provider") or "claude") == "antigravity":
+        result = _validate_antigravity_account(account_id, db)
         return {**result, "verdict": "good" if result["valid"] else "bad", "code": None}
 
     prior_validation_status = account.get("validation_status") or "unknown"

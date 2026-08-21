@@ -228,7 +228,7 @@ describe.sequential("runtime-config auto agent selection", () => {
 				join(runtimeConfigDir, "config.json"),
 				JSON.stringify(
 					{
-						selectedAgentId: "gemini",
+						selectedAgentId: "codex",
 					},
 					null,
 					2,

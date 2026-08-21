@@ -149,6 +149,9 @@ function expectedProviderForAgent(agentId: RuntimeAgentId): RuntimeManagerProvid
 	if (agentId === "cursor") {
 		return "cursor";
 	}
+	if (agentId === "gemini") {
+		return "antigravity";
+	}
 	return null;
 }
 
@@ -245,6 +248,24 @@ export function pickDefaultClaudeAccountId(input: {
 	return pickLeastFiveHourUsage(pool)?.id ?? null;
 }
 
+export function pickDefaultAntigravityAccountId(input: {
+	accounts: ReadonlyArray<ManagerDonateAccountLike>;
+	activeAccountId: number | null;
+}): number | null {
+	const antigravityAccounts = input.accounts.filter(
+		(account) => account.provider === "antigravity" && account.isActive !== false,
+	);
+	if (antigravityAccounts.length === 0) {
+		return null;
+	}
+	const pool = pickHealthyPool(antigravityAccounts);
+	const activeForProvider = pool.find((account) => account.isActiveForProvider === true);
+	if (activeForProvider) {
+		return activeForProvider.id;
+	}
+	return pickLeastFiveHourUsage(pool)?.id ?? null;
+}
+
 async function resolveCursorCredentialPin(
 	accountId: number,
 	getCredential: (accountId: number) => Promise<{ apiKey: string } | null>,
@@ -285,7 +306,7 @@ export async function resolveManagerAccountPin(
 		if (expectedProvider === null) {
 			return {
 				...UNPINNED,
-				warning: `Account pinning only applies to Claude Code and Cursor Agent; ${input.agentId} sessions ignore it.`,
+				warning: `Account pinning only applies to Claude Code, Cursor Agent, and Antigravity CLI; ${input.agentId} sessions ignore it.`,
 			};
 		}
 		if (accountProvider !== null && accountProvider !== expectedProvider) {
@@ -406,6 +427,14 @@ export async function resolveManagerAccountPin(
 			accountId: null,
 			blocked: true,
 			warning: `Account ${String(managerAccountId)} is over its donate cap; refusing to launch on this seat until usage resets.`,
+		};
+	}
+
+	if (input.agentId === "gemini") {
+		return {
+			env: {},
+			accountId: managerAccountId,
+			warning: mismatchWarning,
 		};
 	}
 

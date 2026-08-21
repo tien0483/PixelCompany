@@ -21,11 +21,13 @@ function sampleSnapshot(overrides: Partial<RuntimeManagerSnapshot> = {}): Runtim
 				usageCachedAt: null,
 				subscriptionType: null,
 				donateLimitPercent: 100,
+				donateLimitLocked: false,
 				pressure: 0.1,
 				nextRefreshAt: null,
 				canAutoSwap: true,
 				canTrackUsage: true,
 				hasCcToken: true,
+				ccNeedsAuth: false,
 				isActiveForProvider: true,
 				validationStatus: "valid",
 				lastError: null,
@@ -44,11 +46,13 @@ function sampleSnapshot(overrides: Partial<RuntimeManagerSnapshot> = {}): Runtim
 				usageCachedAt: null,
 				subscriptionType: null,
 				donateLimitPercent: 100,
+				donateLimitLocked: false,
 				pressure: 0,
 				nextRefreshAt: null,
 				canAutoSwap: false,
 				canTrackUsage: true,
 				hasCcToken: false,
+				ccNeedsAuth: false,
 				isActiveForProvider: true,
 				validationStatus: "valid",
 				lastError: null,
@@ -79,10 +83,20 @@ function createDeps() {
 			accountId: 3,
 			email: "cursor@example.com",
 		})),
+		reimportAntigravityAccount: vi.fn(async () => ({
+			ok: true,
+			accountId: 7,
+			email: "antigravity@example.com",
+		})),
 		importClaudeAccount: vi.fn(async () => ({
 			ok: true,
 			accountId: 5,
 			email: "dev@example.com",
+		})),
+		importAntigravityAccount: vi.fn(async () => ({
+			ok: true,
+			accountId: 7,
+			email: "antigravity@example.com",
 		})),
 		startAccountReauth: vi.fn(),
 		startAccountAuthorizeCc: vi.fn(),
@@ -113,6 +127,18 @@ describe("createManagerApi importClaudeAccount", () => {
 
 		expect(result.ok).toBe(false);
 		expect(monitor.refresh).not.toHaveBeenCalled();
+	});
+});
+
+describe("createManagerApi importAntigravityAccount", () => {
+	it("imports the local Antigravity CLI account and refreshes the monitor", async () => {
+		const { api, client, monitor } = createDeps();
+
+		const result = await api.importAntigravityAccount();
+
+		expect(result).toEqual({ ok: true, accountId: 7, email: "antigravity@example.com" });
+		expect(client.importAntigravityAccount).toHaveBeenCalledTimes(1);
+		expect(monitor.refresh).toHaveBeenCalledTimes(1);
 	});
 });
 
@@ -166,6 +192,21 @@ describe("createManagerApi reimportCursorAccount", () => {
 			error: "Only Claude accounts support this action.",
 		});
 		expect(client.startAccountAuthorizeCc).not.toHaveBeenCalled();
+	});
+});
+
+describe("createManagerApi reimportAntigravityAccount", () => {
+	it("refuses reimportAntigravityAccount for Cursor accounts", async () => {
+		const { api, client, monitor } = createDeps();
+
+		const result = await api.reimportAntigravityAccount({ accountId: 3 });
+
+		expect(result).toEqual({
+			ok: false,
+			error: "Only Antigravity accounts support this action.",
+		});
+		expect(client.reimportAntigravityAccount).not.toHaveBeenCalled();
+		expect(monitor.refresh).not.toHaveBeenCalled();
 	});
 });
 

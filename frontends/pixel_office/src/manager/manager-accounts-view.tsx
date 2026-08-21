@@ -105,14 +105,17 @@ function UsageWindowBar({
 	);
 }
 
-type AddAccountMenuStep = "provider" | "claude" | "cursor";
+type AddAccountMenuStep = "provider" | "claude" | "cursor" | "antigravity";
 
-/** Claude + Cursor accounts managed from PixelOffice. */
+/** Claude + Cursor + Antigravity accounts managed from PixelOffice. */
 function managedAccounts(
 	accounts: RuntimeManagerAccount[],
 ): RuntimeManagerAccount[] {
 	return accounts.filter(
-		(account) => account.provider === "claude" || account.provider === "cursor",
+		(account) =>
+			account.provider === "claude" ||
+			account.provider === "cursor" ||
+			account.provider === "antigravity",
 	);
 }
 
@@ -121,6 +124,9 @@ function providerDisplayName(
 ): string {
 	if (provider === "cursor") {
 		return "Cursor";
+	}
+	if (provider === "antigravity") {
+		return "Antigravity";
 	}
 	return "Claude";
 }
@@ -131,10 +137,13 @@ function sessionBadgeTitle(
 	if (provider === "cursor") {
 		return "Cursor Agent sessions currently running on this account";
 	}
+	if (provider === "antigravity") {
+		return "Antigravity CLI sessions currently running on this account";
+	}
 	return "Claude Code sessions currently running on this account";
 }
 
-/** Claude Code "active" seat vs Cursor IDE seat — never share one global badge. */
+/** Claude Code "active" seat vs Cursor IDE seat vs Antigravity seat. */
 function accountIsSelected(
 	account: RuntimeManagerAccount,
 	manager: RuntimeManagerSnapshot | null,
@@ -145,7 +154,7 @@ function accountIsSelected(
 	if (account.provider === "claude") {
 		return account.id === manager.activeAccountId;
 	}
-	if (account.provider === "cursor") {
+	if (account.provider === "cursor" || account.provider === "antigravity") {
 		return account.isActiveForProvider;
 	}
 	return false;
@@ -215,10 +224,11 @@ function AccountRow({
 	actions: ReactNode;
 }): ReactElement {
 	const isCursorAccount = account.provider === "cursor";
+	const isAntigravityAccount = account.provider === "antigravity";
 	const donateExhausted = isDonateExhausted(account);
 	const isSeatDisabled = !account.isActive;
 	const donateLocked = account.donateLimitLocked;
-	const ccAuthRequired = !isCursorAccount && (!account.hasCcToken || account.ccNeedsAuth);
+	const ccAuthRequired = !isCursorAccount && !isAntigravityAccount && (!account.hasCcToken || account.ccNeedsAuth);
 	const seatControlsLocked = !online || busy || isSeatDisabled;
 	const [donateDraft, setDonateDraft] = useState(account.donateLimitPercent);
 	const donateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -288,7 +298,9 @@ function AccountRow({
 									title={
 										isCursorAccount
 											? "This seat is written into the Cursor IDE database"
-											: "Active in Claude Code"
+											: isAntigravityAccount
+												? "Active in Antigravity CLI"
+												: "Active in Claude Code"
 									}
 								>
 									{activeBadgeLabel(account.provider)}
@@ -381,16 +393,16 @@ function AccountRow({
 						className="mt-2 flex flex-col gap-1.5"
 						data-testid={`manager-account-usage-${account.id}`}
 					>
-						{/* Cursor Plan & Usage uses Cursor Models / Other Models pools (monthly),
-					    stored in the shared five_hour / seven_day columns. Claude keeps 5h/7d. */}
+						{/* Cursor Plan & Usage uses Cursor Models / Other Models pools (monthly).
+						    Antigravity uses Pro (5h) / Flash (7d). Claude keeps 5h/7d. */}
 						<UsageWindowBar
-							label={isCursorAccount ? "Cursor" : "5h"}
+							label={isCursorAccount ? "Cursor" : isAntigravityAccount ? "Pro" : "5h"}
 							percent={account.fiveHourPercent}
 							resetsAt={account.fiveHourResetsAt}
 							canAutoSwap={account.canAutoSwap}
 						/>
 						<UsageWindowBar
-							label={isCursorAccount ? "Other" : "7d"}
+							label={isCursorAccount ? "Other" : isAntigravityAccount ? "Flash" : "7d"}
 							percent={account.sevenDayPercent}
 							resetsAt={account.sevenDayResetsAt}
 							canAutoSwap={account.canAutoSwap}
@@ -444,6 +456,10 @@ function AccountRow({
 					<p className="mt-1 text-[10px] text-text-tertiary">
 						Kanban: pin this account on a Cursor task — no IDE switch needed.
 					</p>
+				) : isAntigravityAccount ? (
+					<p className="mt-1 text-[10px] text-text-tertiary">
+						Kanban: pin this account on an Antigravity task.
+					</p>
 				) : null}
 				{account.lastError ? (
 					<p
@@ -471,7 +487,9 @@ function AccountRow({
 							? "Blocked — this seat is at or over its donate cap until usage resets"
 							: isCursorAccount
 								? "Use this Cursor seat in the IDE (writes state.vscdb — close Cursor first). Kanban tasks can pin instead."
-								: "Use this Claude Code seat as the active credential"
+								: isAntigravityAccount
+									? "Set this Antigravity seat as active"
+									: "Use this Claude Code seat as the active credential"
 					}
 				>
 					Use Account
@@ -593,6 +611,7 @@ export function ManagerAccountsView({
 		| "oauth"
 		| "import-cursor"
 		| "import-claude"
+		| "import-antigravity"
 		| "donate-boost"
 		| null
 	>(null);
@@ -717,6 +736,7 @@ export function ManagerAccountsView({
 			| "oauth"
 			| "import-cursor"
 			| "import-claude"
+			| "import-antigravity"
 			| "donate-boost",
 		action: () => Promise<{ ok: boolean; error?: string }>,
 		successMessage?: string,
@@ -1460,6 +1480,26 @@ export function ManagerAccountsView({
 										</DropdownMenu.Item>
 										<DropdownMenu.Item
 											className="flex cursor-pointer items-center justify-between gap-2 rounded-sm px-2 py-1.5 text-[11px] text-text-primary outline-none data-[highlighted]:bg-surface-3"
+											data-testid="manager-add-account-provider-antigravity"
+											onSelect={(event) => {
+												event.preventDefault();
+												setAddAccountStep("antigravity");
+											}}
+										>
+											<span>
+												<p className="font-medium">Antigravity CLI</p>
+												<p className="text-[10px] text-text-tertiary">
+													Import Gemini / Antigravity OAuth session
+												</p>
+											</span>
+											<ChevronRight
+												size={12}
+												className="shrink-0 text-text-tertiary"
+												aria-hidden
+											/>
+										</DropdownMenu.Item>
+										<DropdownMenu.Item
+											className="flex cursor-pointer items-center justify-between gap-2 rounded-sm px-2 py-1.5 text-[11px] text-text-primary outline-none data-[highlighted]:bg-surface-3"
 											data-testid="manager-add-account-provider-api-key"
 											onSelect={() => {
 												setApiSeatQuickAddOpen(true);
@@ -1559,6 +1599,38 @@ export function ManagerAccountsView({
 											<p className="font-medium">Import from Cursor IDE</p>
 											<p className="text-[10px] text-text-tertiary">
 												Sign in to Cursor first, then import that session
+											</p>
+										</DropdownMenu.Item>
+									</>
+								) : null}
+								{addAccountStep === "antigravity" ? (
+									<>
+										<button
+											type="button"
+											className="mb-0.5 flex w-full cursor-pointer items-center gap-1 rounded-sm px-2 py-1 text-[10px] text-text-secondary outline-none hover:bg-surface-3 hover:text-text-primary"
+											data-testid="manager-add-account-back"
+											onClick={() => setAddAccountStep("provider")}
+										>
+											<ArrowLeft size={10} aria-hidden />
+											Back
+										</button>
+										<p className="px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-text-tertiary">
+											Antigravity CLI
+										</p>
+										<DropdownMenu.Item
+											className="cursor-pointer rounded-sm px-2 py-1.5 text-[11px] text-text-primary outline-none data-[highlighted]:bg-surface-3"
+											data-testid="manager-add-account-import-antigravity"
+											onSelect={() => {
+												void run("import-antigravity", () =>
+													getRuntimeTrpcClient(
+														null,
+													).manager.importAntigravityAccount.mutate(),
+												);
+											}}
+										>
+											<p className="font-medium">Import local CLI login</p>
+											<p className="text-[10px] text-text-tertiary">
+												Use the Antigravity / Gemini account signed in locally (~/.gemini)
 											</p>
 										</DropdownMenu.Item>
 									</>
@@ -1890,6 +1962,7 @@ export function ManagerAccountsView({
 								busyId === account.id ||
 								busyId === "oauth" ||
 								busyId === "import-cursor" ||
+								busyId === "import-antigravity" ||
 								busyId === "all";
 							return (
 								<AccountRow
@@ -1983,7 +2056,20 @@ export function ManagerAccountsView({
 																"Cursor session re-imported. Restart the task to use it.",
 															);
 														}
-													: undefined
+													: account.provider === "antigravity"
+														? () => {
+																void run(
+																	account.id,
+																	() =>
+																		getRuntimeTrpcClient(
+																			null,
+																		).manager.reimportAntigravityAccount.mutate({
+																			accountId: account.id,
+																		}),
+																	"Antigravity session re-imported.",
+																);
+															}
+														: undefined
 											}
 											onValidate={() => {
 												void checkCredential(account);

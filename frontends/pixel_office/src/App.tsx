@@ -395,7 +395,9 @@ export default function App(): ReactElement {
 		() =>
 			(manager?.accounts ?? []).filter(
 				(account) =>
-					account.provider === "claude" || account.provider === "cursor",
+					account.provider === "claude" ||
+					account.provider === "cursor" ||
+					account.provider === "antigravity",
 			),
 		[manager?.accounts],
 	);

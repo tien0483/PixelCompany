@@ -1,4 +1,4 @@
-﻿import { access, readFile, rm } from "node:fs/promises";
+import { access, readFile, rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -991,17 +991,31 @@ const geminiAdapter: AgentSessionAdapter = {
 	async prepare(input) {
 		const args = [...input.args];
 		const env: Record<string, string | undefined> = {};
-
-		if (input.autonomousModeEnabled && !hasCliOption(args, "--yolo")) {
-			args.push("--yolo");
-		}
-
-		if (input.resumeFromTrash && !hasCliOption(args, "--resume")) {
-			args.push("--resume", "latest");
-		}
+		const launchSettings = input.taskLaunchSettings;
+		applyModelAndEffortArgs(args, launchSettings, { effortFlag: "--effort" });
 
 		if (input.startInPlanMode) {
-			args.push("--approval-mode=plan");
+			const withoutBypass = args.filter((arg) => arg !== "--dangerously-skip-permissions");
+			args.length = 0;
+			args.push(...withoutBypass);
+			if (!hasCliOption(args, "--mode")) {
+				args.push("--mode", "plan");
+			}
+		} else if (input.autonomousModeEnabled) {
+			if (!hasCliOption(args, "--dangerously-skip-permissions")) {
+				args.push("--dangerously-skip-permissions");
+			}
+			if (!hasCliOption(args, "--mode")) {
+				args.push("--mode", "accept-edits");
+			}
+		}
+
+		if (
+			(input.resumeFromTrash || input.resumeFromPersistence) &&
+			!hasCliOption(args, "--continue") &&
+			!hasCliOption(args, "-c")
+		) {
+			args.push("--continue");
 		}
 
 		const hooks = resolveHookContext(input);

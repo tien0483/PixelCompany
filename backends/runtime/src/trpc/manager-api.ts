@@ -86,7 +86,7 @@ export function createManagerApi(deps: CreateManagerApiDependencies): RuntimeTrp
 		return context?.repoPath ?? null;
 	};
 
-	const MANAGED_PROVIDERS = new Set<RuntimeManagerProvider>(["claude", "cursor"]);
+	const MANAGED_PROVIDERS = new Set<RuntimeManagerProvider>(["claude", "cursor", "antigravity"]);
 
 	const lookupManagedAccount = async (accountId: number) => {
 		const state = deps.monitor.getState() ?? (await deps.monitor.refresh());
@@ -126,6 +126,17 @@ export function createManagerApi(deps: CreateManagerApiDependencies): RuntimeTrp
 		}
 		if (lookup.account?.provider !== "cursor") {
 			return { ok: false, error: "Only Cursor accounts support this action." };
+		}
+		return null;
+	};
+
+	const refuseNonAntigravityAccount = async (accountId: number): Promise<RuntimeManagerMutationResponse | null> => {
+		const lookup = await lookupManagedAccount(accountId);
+		if (lookup.error !== null) {
+			return { ok: false, error: lookup.error };
+		}
+		if (lookup.account?.provider !== "antigravity") {
+			return { ok: false, error: "Only Antigravity accounts support this action." };
 		}
 		return null;
 	};
@@ -314,12 +325,30 @@ export function createManagerApi(deps: CreateManagerApiDependencies): RuntimeTrp
 			}
 			return result;
 		},
+		importAntigravityAccount: async () => {
+			const result = await deps.client.importAntigravityAccount();
+			if (result.ok) {
+				await deps.monitor.refresh();
+			}
+			return result;
+		},
 		reimportCursorAccount: async (input: RuntimeManagerAccountIdRequest) => {
 			const refused = await refuseNonCursorAccount(input.accountId);
 			if (refused !== null) {
 				return refused;
 			}
 			const result = await deps.client.reimportCursorAccount(input.accountId);
+			if (result.ok) {
+				await deps.monitor.refresh();
+			}
+			return result;
+		},
+		reimportAntigravityAccount: async (input: RuntimeManagerAccountIdRequest) => {
+			const refused = await refuseNonAntigravityAccount(input.accountId);
+			if (refused !== null) {
+				return refused;
+			}
+			const result = await deps.client.reimportAntigravityAccount(input.accountId);
 			if (result.ok) {
 				await deps.monitor.refresh();
 			}

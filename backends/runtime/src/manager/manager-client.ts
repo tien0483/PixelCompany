@@ -122,8 +122,13 @@ export interface ManagerClient {
 	/** Import the signed-in Cursor IDE user as a jacked account. */
 	importCursorAccount: () => Promise<{ ok: boolean; error?: string; accountId?: number; email?: string }>;
 	importClaudeAccount: () => Promise<{ ok: boolean; error?: string; accountId?: number; email?: string }>;
+	importAntigravityAccount: () => Promise<{ ok: boolean; error?: string; accountId?: number; email?: string }>;
 	/** Refresh an existing Cursor account slot from the live IDE session. */
 	reimportCursorAccount: (
+		accountId: number,
+	) => Promise<{ ok: boolean; error?: string; accountId?: number; email?: string }>;
+	/** Refresh an existing Antigravity account from ~/.gemini/oauth_creds.json. */
+	reimportAntigravityAccount: (
 		accountId: number,
 	) => Promise<{ ok: boolean; error?: string; accountId?: number; email?: string }>;
 	fetchInstallationsOverview: (
@@ -494,7 +499,12 @@ export function createManagerClient(deps: CreateManagerClientDependencies): Mana
 		if (Array.isArray(accountsRaw)) {
 			for (const raw of accountsRaw) {
 				const account = parseAccount(raw);
-				if (account && (account.provider === "claude" || account.provider === "cursor")) {
+				if (
+					account &&
+					(account.provider === "claude" ||
+						account.provider === "cursor" ||
+						account.provider === "antigravity")
+				) {
 					accounts.push(account);
 				}
 			}
@@ -1008,6 +1018,46 @@ export function createManagerClient(deps: CreateManagerClientDependencies): Mana
 				clearTimeout(timeout);
 			}
 		},
+		importAntigravityAccount: async () => {
+			const controller = new AbortController();
+			const timeout = setTimeout(() => {
+				controller.abort();
+			}, LONG_REQUEST_TIMEOUT_MS);
+			try {
+				const response = await fetch(`${baseUrl}/api/auth/accounts/add?provider=antigravity`, {
+					method: "POST",
+					signal: controller.signal,
+				});
+				let payload: unknown = null;
+				try {
+					payload = await response.json();
+				} catch {
+					payload = null;
+				}
+				if (!response.ok) {
+					const message =
+						isRecord(payload) && isRecord(payload.error) && typeof payload.error.message === "string"
+							? payload.error.message
+							: isRecord(payload) && typeof payload.error === "string"
+								? payload.error
+								: `Manager returned HTTP ${String(response.status)}.`;
+					return { ok: false, error: message };
+				}
+				if (!isRecord(payload)) {
+					return { ok: false, error: "Invalid Antigravity import response." };
+				}
+				didWarnUnreachable = false;
+				return {
+					ok: true,
+					accountId: readNumber(payload, "account_id") ?? undefined,
+					email: readString(payload, "email") ?? undefined,
+				};
+			} catch {
+				return { ok: false, error: "Manager is not reachable." };
+			} finally {
+				clearTimeout(timeout);
+			}
+		},
 		reimportCursorAccount: async (accountId: number) => {
 			const controller = new AbortController();
 			const timeout = setTimeout(() => {
@@ -1035,6 +1085,46 @@ export function createManagerClient(deps: CreateManagerClientDependencies): Mana
 				}
 				if (!isRecord(payload)) {
 					return { ok: false, error: "Invalid Cursor re-import response." };
+				}
+				didWarnUnreachable = false;
+				return {
+					ok: true,
+					accountId: readNumber(payload, "id") ?? accountId,
+					email: readString(payload, "email") ?? undefined,
+				};
+			} catch {
+				return { ok: false, error: "Manager is not reachable." };
+			} finally {
+				clearTimeout(timeout);
+			}
+		},
+		reimportAntigravityAccount: async (accountId: number) => {
+			const controller = new AbortController();
+			const timeout = setTimeout(() => {
+				controller.abort();
+			}, LONG_REQUEST_TIMEOUT_MS);
+			try {
+				const response = await fetch(`${baseUrl}/api/auth/accounts/${String(accountId)}/reimport?provider=antigravity`, {
+					method: "POST",
+					signal: controller.signal,
+				});
+				let payload: unknown = null;
+				try {
+					payload = await response.json();
+				} catch {
+					payload = null;
+				}
+				if (!response.ok) {
+					const message =
+						isRecord(payload) && isRecord(payload.error) && typeof payload.error.message === "string"
+							? payload.error.message
+							: isRecord(payload) && typeof payload.error === "string"
+								? payload.error
+								: `Manager returned HTTP ${String(response.status)}.`;
+					return { ok: false, error: message };
+				}
+				if (!isRecord(payload)) {
+					return { ok: false, error: "Invalid Antigravity re-import response." };
 				}
 				didWarnUnreachable = false;
 				return {

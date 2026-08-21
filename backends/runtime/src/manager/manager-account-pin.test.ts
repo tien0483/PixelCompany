@@ -397,14 +397,27 @@ describe("resolveManagerAccountPin", () => {
 		expect(pin.warning).toContain("ECONNREFUSED");
 	});
 
-	it("warns when pinning is used with Claude Code and Cursor Agent only", async () => {
+	it("warns when pinning is used with an unsupported agent", async () => {
 		const pin = await resolveManagerAccountPin({
-			agentId: "gemini",
+			agentId: "codex",
 			managerAccountId: 9,
 			getAccountLaunchDir: vi.fn(),
 		});
 
-		expect(pin.warning).toContain("Claude Code and Cursor Agent");
+		expect(pin.warning).toContain("Claude Code, Cursor Agent, and Antigravity CLI");
+	});
+
+	it("pins an Antigravity account for gemini task", async () => {
+		const pin = await resolveManagerAccountPin({
+			agentId: "gemini",
+			managerAccountId: 9,
+			getAccountLaunchDir: vi.fn(),
+			getAccountProvider: async () => "antigravity",
+		});
+
+		expect(pin.env).toEqual({});
+		expect(pin.accountId).toBe(9);
+		expect(pin.warning).toBeNull();
 	});
 
 	it("injects CURSOR_API_KEY for a pinned Cursor task", async () => {

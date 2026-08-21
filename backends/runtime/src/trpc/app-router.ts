@@ -852,7 +852,11 @@ export interface RuntimeTrpcContext {
 		) => Promise<RuntimeManagerAccountLaunchCredential | null>;
 		importCursorAccount: () => Promise<{ ok: boolean; error?: string; accountId?: number; email?: string }>;
 		importClaudeAccount: () => Promise<{ ok: boolean; error?: string; accountId?: number; email?: string }>;
+		importAntigravityAccount: () => Promise<{ ok: boolean; error?: string; accountId?: number; email?: string }>;
 		reimportCursorAccount: (
+			input: RuntimeManagerAccountIdRequest,
+		) => Promise<{ ok: boolean; error?: string; accountId?: number; email?: string }>;
+		reimportAntigravityAccount: (
 			input: RuntimeManagerAccountIdRequest,
 		) => Promise<{ ok: boolean; error?: string; accountId?: number; email?: string }>;
 		getAccountProvider: (accountId: number) => Promise<RuntimeManagerProvider | null>;
@@ -1736,6 +1740,18 @@ export const runtimeAppRouter = t.router({
 			.mutation(async ({ ctx }) => {
 				return await ctx.managerApi.importClaudeAccount();
 			}),
+		importAntigravityAccount: t.procedure
+			.output(
+				z.object({
+					ok: z.boolean(),
+					error: z.string().optional(),
+					accountId: z.number().int().positive().optional(),
+					email: z.string().optional(),
+				}),
+			)
+			.mutation(async ({ ctx }) => {
+				return await ctx.managerApi.importAntigravityAccount();
+			}),
 		reimportCursorAccount: t.procedure
 			.input(RuntimeManagerAccountIdRequestSchema)
 			.output(
@@ -1748,6 +1764,19 @@ export const runtimeAppRouter = t.router({
 			)
 			.mutation(async ({ ctx, input }) => {
 				return await ctx.managerApi.reimportCursorAccount(input);
+			}),
+		reimportAntigravityAccount: t.procedure
+			.input(RuntimeManagerAccountIdRequestSchema)
+			.output(
+				z.object({
+					ok: z.boolean(),
+					error: z.string().optional(),
+					accountId: z.number().int().positive().optional(),
+					email: z.string().optional(),
+				}),
+			)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.managerApi.reimportAntigravityAccount(input);
 			}),
 		accountProvider: t.procedure
 			.input(RuntimeManagerAccountIdRequestSchema)

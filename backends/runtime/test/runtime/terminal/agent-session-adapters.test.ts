@@ -590,13 +590,13 @@ describe("prepareAgentLaunch hook strategies", () => {
 		const geminiLaunch = await prepareAgentLaunch({
 			taskId: "task-gemini",
 			agentId: "gemini",
-			binary: "gemini",
+			binary: "agy",
 			args: [],
 			cwd: "/tmp",
 			prompt: "",
 			resumeFromTrash: true,
 		});
-		expect(geminiLaunch.args).toEqual(expect.arrayContaining(["--resume", "latest"]));
+		expect(geminiLaunch.args).toContain("--continue");
 
 		const opencodeLaunch = await prepareAgentLaunch({
 			taskId: "task-opencode",
@@ -705,13 +705,15 @@ describe("prepareAgentLaunch hook strategies", () => {
 		const geminiLaunch = await prepareAgentLaunch({
 			taskId: "task-gemini-auto",
 			agentId: "gemini",
-			binary: "gemini",
+			binary: "agy",
 			args: [],
 			autonomousModeEnabled: true,
 			cwd: "/tmp",
 			prompt: "",
 		});
-		expect(geminiLaunch.args).toContain("--yolo");
+		expect(geminiLaunch.args).toContain("--dangerously-skip-permissions");
+		expect(geminiLaunch.args).toContain("--mode");
+		expect(geminiLaunch.args[geminiLaunch.args.indexOf("--mode") + 1]).toBe("accept-edits");
 
 		const kiroLaunch = await prepareAgentLaunch({
 			taskId: "task-kiro-auto",
@@ -789,6 +791,24 @@ describe("prepareAgentLaunch hook strategies", () => {
 		expect(launch.args[permissionModeIndex + 1]).toBe("plan");
 	});
 
+	it("starts Gemini plan mode without bypass flags", async () => {
+		setupTempHome();
+		const launch = await prepareAgentLaunch({
+			taskId: "task-gemini-plan",
+			agentId: "gemini",
+			binary: "agy",
+			args: ["--dangerously-skip-permissions"],
+			autonomousModeEnabled: true,
+			cwd: "/tmp",
+			prompt: "",
+			startInPlanMode: true,
+		});
+		expect(launch.args).not.toContain("--dangerously-skip-permissions");
+		const modeIndex = launch.args.indexOf("--mode");
+		expect(modeIndex).toBeGreaterThan(-1);
+		expect(launch.args[modeIndex + 1]).toBe("plan");
+	});
+
 	it("preserves explicit autonomous args when autonomous mode is disabled", async () => {
 		setupTempHome();
 
@@ -817,13 +837,13 @@ describe("prepareAgentLaunch hook strategies", () => {
 		const geminiLaunch = await prepareAgentLaunch({
 			taskId: "task-gemini-no-auto",
 			agentId: "gemini",
-			binary: "gemini",
-			args: ["--yolo"],
+			binary: "agy",
+			args: ["--dangerously-skip-permissions"],
 			autonomousModeEnabled: false,
 			cwd: "/tmp",
 			prompt: "",
 		});
-		expect(geminiLaunch.args).toContain("--yolo");
+		expect(geminiLaunch.args).toContain("--dangerously-skip-permissions");
 
 		const clineLaunch = await prepareAgentLaunch({
 			taskId: "task-cline-no-auto",

@@ -189,7 +189,8 @@ export function ManagerAccountActions({
 	const label = account.displayName ?? account.email;
 	const isCursor = account.provider === "cursor";
 	const isClaude = account.provider === "claude";
-	const canReorder = account.canAutoSwap || isCursor;
+	const isAntigravity = account.provider === "antigravity";
+	const canReorder = account.canAutoSwap || isCursor || isAntigravity;
 	const priorityUpLabel = account.canAutoSwap
 		? "Higher auto-swap priority"
 		: "Higher fleet priority (primary seat)";
@@ -253,8 +254,8 @@ export function ManagerAccountActions({
 					</span>
 				</>
 			) : null}
-			{isCursor && onReimport ? (
-				<ActionTooltip content={offlineReason ?? seatLockedReason ?? "Re-import credential from the signed-in Cursor IDE"}>
+			{(isCursor || isAntigravity) && onReimport ? (
+				<ActionTooltip content={offlineReason ?? seatLockedReason ?? (isAntigravity ? "Re-import credential from local Antigravity CLI login" : "Re-import credential from the signed-in Cursor IDE")}>
 					<Button
 						variant="ghost"
 						size="sm"
@@ -266,7 +267,7 @@ export function ManagerAccountActions({
 								? "h-6 rounded border border-status-orange/30 bg-status-orange/10 px-1.5 text-[10px] text-status-orange"
 								: "h-6 px-1.5 text-[10px]"
 						}
-						aria-label={`Re-import ${label} from Cursor IDE`}
+						aria-label={`Re-import ${label} from ${isAntigravity ? "Antigravity CLI" : "Cursor IDE"}`}
 					>
 						Re-import
 					</Button>
@@ -290,7 +291,7 @@ export function ManagerAccountActions({
 			<ActionTooltip
 				content={
 					offlineReason ??
-					(isCursor
+					(isCursor || isAntigravity
 						? account.isActive
 							? "Deactivate (excluded from Kanban Auto account pick)"
 							: "Activate for Kanban Auto account pick"
@@ -371,7 +372,9 @@ export function ManagerAccountActions({
 					<p className="text-text-primary">
 						{isCursor
 							? "This removes the stored Cursor credential snapshot from manager. Sign in to Cursor IDE again and re-import to add it back."
-							: "This removes the stored credential from manager. Your Claude subscription is untouched, and you can add the account again with OAuth."}
+							: isAntigravity
+								? "This removes the stored Antigravity credential from manager. Your Google / Antigravity account is untouched, and you can import it again."
+								: "This removes the stored credential from manager. Your Claude subscription is untouched, and you can add the account again with OAuth."}
 					</p>
 				</AlertDialogBody>
 				<AlertDialogFooter>

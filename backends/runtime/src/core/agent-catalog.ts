@@ -61,11 +61,12 @@ export const RUNTIME_AGENT_CATALOG: RuntimeAgentCatalogEntry[] = [
 	},
 	{
 		id: "gemini",
-		label: "Gemini CLI",
-		binary: "gemini",
+		label: "Antigravity CLI",
+		binary: "agy",
+		binaryAliases: ["gemini", "antigravity"],
 		baseArgs: [],
-		autonomousArgs: ["--yolo"],
-		installUrl: "https://github.com/google-gemini/gemini-cli",
+		autonomousArgs: ["--dangerously-skip-permissions", "--mode", "accept-edits"],
+		installUrl: "https://antigravity.google",
 	},
 	{
 		id: "cursor",
@@ -78,7 +79,7 @@ export const RUNTIME_AGENT_CATALOG: RuntimeAgentCatalogEntry[] = [
 	},
 ];
 
-// Claude + Cursor are launchable; Jacked pins credentials per task. Cline runs
+// Claude + Cursor + Antigravity/Gemini are launchable; Jacked pins credentials per task. Cline runs
 // through the in-process SDK rather than a PTY, so it needs no binary on PATH —
 // the UI hides it until an API-key seat exists. Other CLIs stay gated until
 // explicitly enabled below.
@@ -86,11 +87,11 @@ export const RUNTIME_LAUNCH_SUPPORTED_AGENT_IDS: readonly RuntimeAgentId[] = [
 	"claude",
 	"cursor",
 	"cline",
+	"gemini",
 	// "codex",
 	// "droid",
 	// "kiro",
 	// "opencode",
-	// "gemini",
 ];
 
 const RUNTIME_LAUNCH_SUPPORTED_AGENT_ID_SET = new Set<RuntimeAgentId>(RUNTIME_LAUNCH_SUPPORTED_AGENT_IDS);

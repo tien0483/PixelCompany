@@ -113,7 +113,8 @@ export interface TaskAccountPickerProps {
 
 function accountLabel(account: RuntimeManagerAccount): string {
 	const name = account.displayName ?? account.email;
-	const usage = account.canTrackUsage ? ` · 5h ${formatPercent(account.fiveHourPercent)}` : "";
+	const usageLabel = account.provider === "antigravity" ? "Pro" : "5h";
+	const usage = account.canTrackUsage ? ` · ${usageLabel} ${formatPercent(account.fiveHourPercent)}` : "";
 	const deactivated = account.isActive ? "" : " · deactivated";
 	const needsReauth = isAuthBroken(account) ? " · needs re-auth" : "";
 	const donate = isDonateExhausted(account) ? (account.donateLimitLocked ? " · over cap (locked)" : " · over cap") : "";
@@ -123,6 +124,9 @@ function accountLabel(account: RuntimeManagerAccount): string {
 function agentAccountLabel(agentId: RuntimeAgentId | null): string {
 	if (agentId === "cursor") {
 		return "Cursor account for this task";
+	}
+	if (agentId === "gemini") {
+		return "Antigravity account for this task";
 	}
 	if (agentId === "cline") {
 		return "API seat for this task";
@@ -167,7 +171,7 @@ export function autoFallbackAccount(
 	const healthyBase = authHealthy.length > 0 ? authHealthy : poolBase;
 	const underLimit = healthyBase.filter((account) => !isDonateExhausted(account));
 	const pool = underLimit.length > 0 ? underLimit : healthyBase;
-	if (agentId === "cursor") {
+	if (agentId === "cursor" || agentId === "gemini") {
 		return pool.find((account) => account.isActiveForProvider) ?? pool[0] ?? null;
 	}
 	return pool.find((account) => account.id === activeAccountId) ?? pool[0] ?? null;
@@ -301,6 +305,9 @@ export function managerProviderForAgent(agentId: RuntimeAgentId | null | undefin
 	if (agentId === "cursor") {
 		return "cursor";
 	}
+	if (agentId === "gemini") {
+		return "antigravity";
+	}
 	return null;
 }
 
@@ -314,14 +321,17 @@ export function agentIdForManagerProvider(
 	if (provider === "cursor") {
 		return "cursor";
 	}
+	if (provider === "antigravity") {
+		return "gemini";
+	}
 	return null;
 }
 
 /**
  * Current active, non-disabled Manager seat used to drive Create-task defaults.
  *
- * Prefer Claude's `activeAccountId`, then Cursor's IDE-active seat, then the first
- * remaining enabled seat. Disabled seats are never returned.
+ * Prefer Claude's `activeAccountId`, then Cursor's IDE-active seat / Antigravity active seat,
+ * then the first remaining enabled seat. Disabled seats are never returned.
  */
 export function resolveActiveManagerSeat(
 	accounts: RuntimeManagerAccount[],
@@ -338,11 +348,11 @@ export function resolveActiveManagerSeat(
 	if (byActiveId) {
 		return byActiveId;
 	}
-	const cursorActive = enabled.find(
-		(account) => account.provider === "cursor" && account.isActiveForProvider,
+	const providerActive = enabled.find(
+		(account) => (account.provider === "cursor" || account.provider === "antigravity") && account.isActiveForProvider,
 	);
-	if (cursorActive) {
-		return cursorActive;
+	if (providerActive) {
+		return providerActive;
 	}
 	return enabled[0] ?? null;
 }

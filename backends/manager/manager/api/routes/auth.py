@@ -1542,7 +1542,7 @@ async def reimport_account(account_id: int, request: Request, provider: str = "c
     if db is None:
         return _db_unavailable()
 
-    if provider != "cursor":
+    if provider not in ("cursor", "antigravity"):
         return JSONResponse(
             status_code=status.HTTP_400_BAD_REQUEST,
             content={
@@ -1555,15 +1555,29 @@ async def reimport_account(account_id: int, request: Request, provider: str = "c
 
     import asyncio
 
-    from manager.cursor.accounts import CursorReimportError, reimport_cursor_account
-
-    try:
-        updated = await asyncio.to_thread(reimport_cursor_account, account_id, db)
-    except CursorReimportError as exc:
-        return JSONResponse(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            content={"error": {"message": str(exc), "code": "REIMPORT_FAILED"}},
+    if provider == "antigravity":
+        from manager.antigravity.accounts import (
+            AntigravityImportError,
+            import_antigravity_account,
         )
+
+        try:
+            updated = await asyncio.to_thread(import_antigravity_account, db)
+        except AntigravityImportError as exc:
+            return JSONResponse(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                content={"error": {"message": str(exc), "code": "REIMPORT_FAILED"}},
+            )
+    else:
+        from manager.cursor.accounts import CursorReimportError, reimport_cursor_account
+
+        try:
+            updated = await asyncio.to_thread(reimport_cursor_account, account_id, db)
+        except CursorReimportError as exc:
+            return JSONResponse(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                content={"error": {"message": str(exc), "code": "REIMPORT_FAILED"}},
+            )
 
     # Slot token just changed — pull Plan & Usage so Seats is not stuck on "never".
     try:
