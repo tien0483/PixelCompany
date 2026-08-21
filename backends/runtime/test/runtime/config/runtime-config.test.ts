@@ -71,10 +71,11 @@ describe.sequential("runtime-config auto agent selection", () => {
 	it("selects agents using the configured priority order", () => {
 		expect(pickBestInstalledAgentIdFromDetected(["claude", "codex", "cline"])).toBe("claude");
 		expect(pickBestInstalledAgentIdFromDetected(["claude", "droid"])).toBe("claude");
-		expect(pickBestInstalledAgentIdFromDetected(["codex", "opencode", "gemini"])).toBeNull();
-		expect(pickBestInstalledAgentIdFromDetected(["opencode", "droid", "gemini"])).toBeNull();
-		expect(pickBestInstalledAgentIdFromDetected(["kiro-cli", "gemini"])).toBeNull();
-		expect(pickBestInstalledAgentIdFromDetected(["gemini", "cline"])).toBeNull();
+		expect(pickBestInstalledAgentIdFromDetected(["cursor", "gemini"])).toBe("cursor");
+		expect(pickBestInstalledAgentIdFromDetected(["gemini", "cline"])).toBe("gemini");
+		expect(pickBestInstalledAgentIdFromDetected(["codex", "opencode"])).toBeNull();
+		expect(pickBestInstalledAgentIdFromDetected(["opencode", "droid"])).toBeNull();
+		expect(pickBestInstalledAgentIdFromDetected(["kiro-cli"])).toBeNull();
 		expect(pickBestInstalledAgentIdFromDetected(["cline"])).toBeNull();
 		expect(pickBestInstalledAgentIdFromDetected([])).toBeNull();
 	});

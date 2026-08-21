@@ -80,7 +80,7 @@ const PROJECT_CONFIG_FILENAME = "config.json";
 // `normalizeAgentId` coerces any persisted id that is no longer launch-supported
 // (for example an older config.json holding "cline") to DEFAULT_AGENT_ID.
 const DEFAULT_AGENT_ID: RuntimeAgentId = "claude";
-const AUTO_SELECT_AGENT_PRIORITY: readonly RuntimeAgentId[] = ["claude", "cursor"];
+const AUTO_SELECT_AGENT_PRIORITY: readonly RuntimeAgentId[] = ["claude", "cursor", "gemini"];
 const DEFAULT_AGENT_AUTONOMOUS_MODE_ENABLED = true;
 const DEFAULT_READY_FOR_REVIEW_NOTIFICATIONS_ENABLED = true;
 const DEFAULT_COMMIT_PROMPT_TEMPLATE = `You are in a worktree on a detached HEAD, created from {{base_ref}}. When you finish the task, commit the working changes onto a dedicated task branch. Do NOT modify {{base_ref}} — a human merges the task branch into {{base_ref}} later from the board (the "Merge → {{base_ref}}" button on the task card takes effect in {{base_ref}}).
