@@ -870,6 +870,31 @@ describe("prepareAgentLaunch hook strategies", () => {
 		});
 		expect(geminiLaunch.args).toContain("--dangerously-skip-permissions");
 
+		const agyYoloLaunch = await prepareAgentLaunch({
+			taskId: "task-agy-yolo",
+			agentId: "gemini",
+			binary: "agy",
+			args: ["--yolo"],
+			autonomousModeEnabled: false,
+			cwd: "/tmp",
+			prompt: "",
+		});
+		expect(agyYoloLaunch.args).not.toContain("--yolo");
+		expect(agyYoloLaunch.args).toContain("--dangerously-skip-permissions");
+		expect(agyYoloLaunch.args).toContain("--mode");
+		expect(agyYoloLaunch.args[agyYoloLaunch.args.indexOf("--mode") + 1]).toBe("accept-edits");
+
+		const geminiCliAutoLaunch = await prepareAgentLaunch({
+			taskId: "task-gemini-cli-auto",
+			agentId: "gemini",
+			binary: "gemini",
+			args: [],
+			autonomousModeEnabled: true,
+			cwd: "/tmp",
+			prompt: "",
+		});
+		expect(geminiCliAutoLaunch.args).toContain("--yolo");
+
 		const clineLaunch = await prepareAgentLaunch({
 			taskId: "task-cline-no-auto",
 			agentId: "cline",

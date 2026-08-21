@@ -1029,28 +1029,68 @@ const geminiAdapter: AgentSessionAdapter = {
 
 		await ensureGeminiTrustedFolder(input.cwd);
 
+		const isAgy =
+			input.binary === "agy" ||
+			input.binary === "antigravity" ||
+			input.binary.endsWith("/agy") ||
+			input.binary.endsWith("/antigravity");
+
+		if (isAgy) {
+			// Translate any explicit or preset --yolo flag to agy's native YOLO mode
+			const yoloIdx = args.indexOf("--yolo");
+			if (yoloIdx !== -1) {
+				args.splice(yoloIdx, 1);
+				if (!hasCliOption(args, "--dangerously-skip-permissions")) {
+					args.push("--dangerously-skip-permissions");
+				}
+				if (!hasCliOption(args, "--mode")) {
+					args.push("--mode", "accept-edits");
+				}
+			}
+		}
+
 		if (input.startInPlanMode) {
-			const withoutBypass = args.filter((arg) => arg !== "--dangerously-skip-permissions");
+			const withoutBypass = args.filter(
+				(arg) => arg !== "--dangerously-skip-permissions" && arg !== "--yolo" && arg !== "-y",
+			);
 			args.length = 0;
 			args.push(...withoutBypass);
-			if (!hasCliOption(args, "--mode")) {
-				args.push("--mode", "plan");
+			if (isAgy) {
+				if (!hasCliOption(args, "--mode")) {
+					args.push("--mode", "plan");
+				}
+			} else {
+				if (!hasCliOption(args, "--approval-mode")) {
+					args.push("--approval-mode=plan");
+				}
 			}
 		} else if (input.autonomousModeEnabled) {
-			if (!hasCliOption(args, "--dangerously-skip-permissions")) {
-				args.push("--dangerously-skip-permissions");
-			}
-			if (!hasCliOption(args, "--mode")) {
-				args.push("--mode", "accept-edits");
+			if (isAgy) {
+				if (!hasCliOption(args, "--dangerously-skip-permissions")) {
+					args.push("--dangerously-skip-permissions");
+				}
+				if (!hasCliOption(args, "--mode")) {
+					args.push("--mode", "accept-edits");
+				}
+			} else {
+				if (!hasCliOption(args, "--yolo") && !hasCliOption(args, "-y")) {
+					args.push("--yolo");
+				}
 			}
 		}
 
 		if (
 			(input.resumeFromTrash || input.resumeFromPersistence) &&
 			!hasCliOption(args, "--continue") &&
-			!hasCliOption(args, "-c")
+			!hasCliOption(args, "-c") &&
+			!hasCliOption(args, "--resume") &&
+			!hasCliOption(args, "-r")
 		) {
-			args.push("--continue");
+			if (isAgy) {
+				args.push("--continue");
+			} else {
+				args.push("--resume", "latest");
+			}
 		}
 
 		const hooks = resolveHookContext(input);
