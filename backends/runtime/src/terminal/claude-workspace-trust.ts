@@ -83,8 +83,19 @@ function isTaskWorktreePath(path: string): boolean {
 	);
 }
 
+/**
+ * Agents whose folder-trust prompt `hasClaudeWorkspaceTrustPrompt` recognises.
+ *
+ * `gemini` covers Antigravity CLI (`agy`), which has no agent id of its own — it
+ * launches under `gemini` with an `agy` binary. Its prompt ("Do you trust the
+ * contents of this project?") is matched by the regexes above, but this gate used to
+ * reject it, so nothing ever answered and the session froze on the prompt with the
+ * default "> Yes, I trust this folder" still highlighted.
+ */
+const AUTO_CONFIRM_WORKSPACE_TRUST_AGENT_IDS: readonly RuntimeAgentId[] = ["claude", "gemini"];
+
 export function shouldAutoConfirmClaudeWorkspaceTrust(agentId: RuntimeAgentId, cwd: string): boolean {
-	return agentId === "claude" && Boolean(cwd?.trim());
+	return AUTO_CONFIRM_WORKSPACE_TRUST_AGENT_IDS.includes(agentId) && Boolean(cwd?.trim());
 }
 
 export function stopWorkspaceTrustTimers(state: { workspaceTrustConfirmTimer: NodeJS.Timeout | null }): void {

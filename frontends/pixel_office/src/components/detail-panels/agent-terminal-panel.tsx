@@ -1,4 +1,6 @@
-import { Command, GitMerge, Maximize2, MessageSquare, Minimize2, PauseCircle, Play, X } from "lucide-react";
+import "@xterm/xterm/css/xterm.css";
+
+import { Command, Maximize2, MessageSquare, Minimize2, PauseCircle, Play, X } from "lucide-react";
 import type { MutableRefObject, ReactElement } from "react";
 import { useMemo } from "react";
 
@@ -36,10 +38,8 @@ export interface AgentTerminalPanelProps {
 	summary: RuntimeTaskSessionSummary | null;
 	onSummary?: (summary: RuntimeTaskSessionSummary) => void;
 	onCommit?: () => void;
-	onMerge?: () => void;
 	onOpenPr?: () => void;
 	isCommitLoading?: boolean;
-	isMergeLoading?: boolean;
 	isOpenPrLoading?: boolean;
 	taskColumnId?: string;
 	onMoveToTrash?: () => void;
@@ -114,53 +114,31 @@ function AgentTerminalReviewActions({
 	taskColumnId,
 	onCommit,
 	isCommitLoading,
-	onMerge,
-	isMergeLoading = false,
 }: {
 	taskId: string;
 	taskColumnId: string;
 	onCommit?: () => void;
 	isCommitLoading: boolean;
-	onMerge?: () => void;
-	isMergeLoading?: boolean;
 }): ReactElement | null {
 	const reviewWorkspaceSnapshot = useTaskWorkspaceSnapshotValue(taskId);
-	const showCommitAction =
+	const showReviewGitActions =
 		taskColumnId === "review" && (reviewWorkspaceSnapshot?.changedFiles ?? 0) > 0 && Boolean(onCommit);
-	const showMergeAction =
-		taskColumnId === "review" &&
-		Boolean(onMerge) &&
-		((reviewWorkspaceSnapshot?.changedFiles ?? 0) > 0 || (reviewWorkspaceSnapshot?.aheadOfBaseCount ?? 0) > 0);
 
-	if (!showCommitAction && !showMergeAction) {
+	if (!showReviewGitActions) {
 		return null;
 	}
 
 	return (
 		<div style={{ display: "flex", gap: 6 }}>
-			{showCommitAction ? (
-				<Button
-					variant="primary"
-					size="sm"
-					style={{ flex: "1 1 0" }}
-					disabled={isCommitLoading || isMergeLoading}
-					onClick={onCommit}
-				>
-					{isCommitLoading ? "..." : "Commit"}
-				</Button>
-			) : null}
-			{showMergeAction ? (
-				<Button
-					variant="default"
-					size="sm"
-					style={{ flex: "1 1 0" }}
-					disabled={isCommitLoading || isMergeLoading}
-					icon={isMergeLoading ? <Spinner size={12} /> : <GitMerge size={12} />}
-					onClick={onMerge}
-				>
-					{isMergeLoading ? "..." : "Merge to base"}
-				</Button>
-			) : null}
+			<Button
+				variant="primary"
+				size="sm"
+				style={{ flex: "1 1 0" }}
+				disabled={isCommitLoading}
+				onClick={onCommit}
+			>
+				{isCommitLoading ? "..." : "Commit"}
+			</Button>
 		</div>
 	);
 }
@@ -170,10 +148,8 @@ function AgentTerminalPanelLayout({
 	summary,
 	onSummary: _onSummary,
 	onCommit,
-	onMerge,
 	onOpenPr: _onOpenPr,
 	isCommitLoading = false,
-	isMergeLoading = false,
 	isOpenPrLoading: _isOpenPrLoading = false,
 	taskColumnId = "in_progress",
 	onMoveToTrash,
@@ -259,36 +235,11 @@ function AgentTerminalPanelLayout({
 							>
 								Stop
 							</Button>
-							{onToggleExpand ? (
-								<Tooltip
-									side="top"
-									content={
-										<span style={{ display: "inline-flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}>
-											<span>{isExpanded ? "Collapse" : "Expand"}</span>
-											<span
-												style={{ display: "inline-flex", alignItems: "center", gap: 2, whiteSpace: "nowrap" }}
-											>
-												<span>(</span>
-												{isMacPlatform ? <Command size={11} /> : <span style={{ fontSize: 11 }}>Ctrl</span>}
-												<span>+ M)</span>
-											</span>
-										</span>
-									}
-								>
-									<Button
-										icon={isExpanded ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
-										variant="ghost"
-										size="sm"
-										onClick={onToggleExpand}
-										aria-label={isExpanded ? "Collapse terminal" : "Expand terminal"}
-									/>
-								</Tooltip>
-							) : null}
 						</div>
 					</div>
 					<div className="h-px bg-border" />
 				</>
-			) : onClose || minimalHeaderSubtitle ? (
+			) : onClose ? (
 				<div
 					style={{
 						display: "flex",
@@ -349,15 +300,13 @@ function AgentTerminalPanelLayout({
 								/>
 							</Tooltip>
 						) : null}
-						{onClose ? (
-							<Button
-								icon={<X size={14} />}
-								variant="ghost"
-								size="sm"
-								onClick={onClose}
-								aria-label="Close terminal"
-							/>
-						) : null}
+						<Button
+							icon={<X size={14} />}
+							variant="ghost"
+							size="sm"
+							onClick={onClose}
+							aria-label="Close terminal"
+						/>
 					</div>
 				</div>
 			) : null}
@@ -414,8 +363,6 @@ function AgentTerminalPanelLayout({
 						taskColumnId={taskColumnId}
 						onCommit={onCommit}
 						isCommitLoading={isCommitLoading}
-						onMerge={onMerge}
-						isMergeLoading={isMergeLoading}
 					/>
 					{cancelAutomaticActionLabel && onCancelAutomaticAction ? (
 						<Button variant="default" fill onClick={onCancelAutomaticAction}>
