@@ -379,12 +379,12 @@ describe("CardDetailView", () => {
 			expandButton.click();
 		});
 
-		const toolbarButtons = Array.from(container.querySelectorAll("button"));
-		expect(toolbarButtons[0]?.getAttribute("aria-label")).toBe(
-			"Collapse expanded diff view",
+		const collapseButton = container.querySelector(
+			'button[aria-label="Collapse expanded diff view"]',
 		);
-		expect(toolbarButtons[1]?.textContent?.trim()).toBe("All Changes");
-		expect(toolbarButtons[2]?.textContent?.trim()).toBe("Last Turn");
+		expect(collapseButton).toBeInstanceOf(HTMLButtonElement);
+		expect(container.textContent).toContain("All Changes");
+		expect(container.textContent).toContain("Last Turn");
 		expect(
 			container.querySelector('button[aria-label="Expand split diff view"]'),
 		).toBeNull();

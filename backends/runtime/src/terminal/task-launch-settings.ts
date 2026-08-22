@@ -133,13 +133,16 @@ export function hasClaudeScopedConfigAllowlist(settings?: RuntimeTaskLaunchSetti
 export function applyModelAndEffortArgs(
 	args: string[],
 	settings: RuntimeTaskLaunchSettings | undefined,
-	options: { effortFlag?: string | null },
+	options: { effortFlag?: string | null; allowedEfforts?: readonly string[] },
 ): void {
 	const modelId = settings?.modelId?.trim();
 	if (modelId && !hasCliOption(args, "--model") && !hasCliOption(args, "-m")) {
 		args.push("--model", modelId);
 	}
-	const effort = settings?.effort;
+	let effort = settings?.effort;
+	if (effort && options.allowedEfforts && !options.allowedEfforts.includes(effort)) {
+		effort = options.allowedEfforts[options.allowedEfforts.length - 1] as RuntimeTaskLaunchEffort;
+	}
 	const effortFlag = options.effortFlag;
 	if (effort && effortFlag && !hasCliOption(args, effortFlag)) {
 		args.push(effortFlag, effort);

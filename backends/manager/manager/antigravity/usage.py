@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 
 _CODE_ASSIST = "https://cloudcode-pa.googleapis.com/v1internal"
 _POOLS = (
-    {"ideType": "ANTIGRAVITY", "pluginType": "ANTIGRAVITY", "name": "antigravity"},
+    {"ideType": "ANTIGRAVITY", "pluginType": "GEMINI", "name": "antigravity"},
     {"ideType": "GEMINI_CLI", "pluginType": "GEMINI", "name": "gemini_cli"},
 )
 
@@ -243,16 +243,6 @@ async def fetch_antigravity_usage(
     norm = normalize_pools(pools)
     five = norm["five_hour"]
     seven = norm["seven_day"]
-    if five["utilization"] is None and seven["utilization"] is None:
-        try:
-            db.record_account_error(
-                account_id,
-                "Code Assist returned no quota buckets",
-                increment_failures=False,
-            )
-        except Exception:
-            logger.debug("record_account_error failed", exc_info=True)
-        return None
 
     db.update_account_usage_cache(
         account_id,

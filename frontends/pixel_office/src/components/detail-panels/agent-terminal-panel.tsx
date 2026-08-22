@@ -259,11 +259,36 @@ function AgentTerminalPanelLayout({
 							>
 								Stop
 							</Button>
+							{onToggleExpand ? (
+								<Tooltip
+									side="top"
+									content={
+										<span style={{ display: "inline-flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}>
+											<span>{isExpanded ? "Collapse" : "Expand"}</span>
+											<span
+												style={{ display: "inline-flex", alignItems: "center", gap: 2, whiteSpace: "nowrap" }}
+											>
+												<span>(</span>
+												{isMacPlatform ? <Command size={11} /> : <span style={{ fontSize: 11 }}>Ctrl</span>}
+												<span>+ M)</span>
+											</span>
+										</span>
+									}
+								>
+									<Button
+										icon={isExpanded ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
+										variant="ghost"
+										size="sm"
+										onClick={onToggleExpand}
+										aria-label={isExpanded ? "Collapse terminal" : "Expand terminal"}
+									/>
+								</Tooltip>
+							) : null}
 						</div>
 					</div>
 					<div className="h-px bg-border" />
 				</>
-			) : onClose ? (
+			) : onClose || minimalHeaderSubtitle ? (
 				<div
 					style={{
 						display: "flex",
@@ -324,13 +349,15 @@ function AgentTerminalPanelLayout({
 								/>
 							</Tooltip>
 						) : null}
-						<Button
-							icon={<X size={14} />}
-							variant="ghost"
-							size="sm"
-							onClick={onClose}
-							aria-label="Close terminal"
-						/>
+						{onClose ? (
+							<Button
+								icon={<X size={14} />}
+								variant="ghost"
+								size="sm"
+								onClick={onClose}
+								aria-label="Close terminal"
+							/>
+						) : null}
 					</div>
 				</div>
 			) : null}

@@ -877,6 +877,9 @@ const claudeAdapter: AgentSessionAdapter = {
 		const withPromptLaunch = withPrompt(args, input.prompt, "append");
 		const promptFileCleanup = cleanupAppendedPromptFile;
 		const existingCleanup = withPromptLaunch.cleanup;
+		await ensureClaudeTrustedFolder(input.cwd, env[CLAUDE_CONFIG_DIR_ENV]);
+		await ensureGeminiTrustedFolder(input.cwd);
+
 		const runCleanups = async () => {
 			await existingCleanup?.();
 			await promptFileCleanup?.();
@@ -987,6 +990,43 @@ const codexAdapter: AgentSessionAdapter = {
 	},
 };
 
+async function ensureClaudeTrustedFolder(cwd: string, configDir?: string | null): Promise<void> {
+	const targetPath = cwd?.trim();
+	if (!targetPath) {
+		return;
+	}
+	const configPaths = [join(homedir(), ".claude.json")];
+	if (configDir?.trim()) {
+		configPaths.push(join(configDir.trim(), ".claude.json"));
+	}
+	for (const configPath of configPaths) {
+		try {
+			let current: Record<string, any> = {};
+			try {
+				const raw = await readFile(configPath, "utf8");
+				current = JSON.parse(raw) as Record<string, any>;
+			} catch {
+				current = {};
+			}
+			if (!current.projects || typeof current.projects !== "object" || Array.isArray(current.projects)) {
+				current.projects = {};
+			}
+			const existing = current.projects[targetPath] || {};
+			if (!existing.hasTrustDialogAccepted || !existing.hasCompletedProjectOnboarding) {
+				current.projects[targetPath] = {
+					...existing,
+					hasTrustDialogAccepted: true,
+					hasCompletedProjectOnboarding: true,
+					projectOnboardingSeenCount: Math.max(existing.projectOnboardingSeenCount ?? 0, 1),
+				};
+				await ensureTextFile(configPath, JSON.stringify(current, null, 2));
+			}
+		} catch {
+			// Best effort: failure to update claude.json should not block CLI startup
+		}
+	}
+}
+
 async function ensureGeminiTrustedFolder(cwd: string): Promise<void> {
 	const targetPath = cwd?.trim();
 	if (!targetPath) {
@@ -1025,9 +1065,13 @@ const geminiAdapter: AgentSessionAdapter = {
 		const args = [...input.args];
 		const env: Record<string, string | undefined> = {};
 		const launchSettings = input.taskLaunchSettings;
-		applyModelAndEffortArgs(args, launchSettings, { effortFlag: "--effort" });
+		applyModelAndEffortArgs(args, launchSettings, {
+			effortFlag: "--effort",
+			allowedEfforts: ["low", "medium", "high"],
+		});
 
 		await ensureGeminiTrustedFolder(input.cwd);
+		await ensureClaudeTrustedFolder(input.cwd);
 
 		const isAgy =
 			input.binary === "agy" ||

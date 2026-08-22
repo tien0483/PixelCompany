@@ -649,6 +649,7 @@ export function CardDetailView({
 	const { devtoolsUrl } = useStackDevtools(true);
 	const wasPlanReadyRef = useRef(false);
 	const [isDiffExpanded, setIsDiffExpanded] = useState(false);
+	const [isAgentExpanded, setIsAgentExpanded] = useState(false);
 	const [savedPlanTextKey, setSavedPlanTextKey] = useState<string | null>(null);
 	const { savePlan, isSaving: isSavingPlan } =
 		useSavePlanFromSession(currentProjectId);
@@ -917,8 +918,12 @@ export function CardDetailView({
 					event.preventDefault();
 					setIsDiffExpanded(false);
 				}
+				if (isAgentExpanded) {
+					event.preventDefault();
+					setIsAgentExpanded(false);
+				}
 			},
-			[gitHistoryPanel, isDiffExpanded, onCloseGitHistory],
+			[gitHistoryPanel, isAgentExpanded, isDiffExpanded, onCloseGitHistory],
 		),
 	);
 
@@ -944,14 +949,40 @@ export function CardDetailView({
 	useEffect(() => {
 		setDiffComments(new Map());
 		setDiffMode("working_copy");
+		setIsAgentExpanded(false);
 	}, [selection.card.id]);
 
 	const handleToggleDiffExpand = useCallback(() => {
 		if (!isDiffExpanded && bottomTerminalOpen) {
 			onBottomTerminalClose();
 		}
+		if (!isDiffExpanded && isAgentExpanded) {
+			setIsAgentExpanded(false);
+		}
 		setIsDiffExpanded((previous) => !previous);
-	}, [bottomTerminalOpen, isDiffExpanded, onBottomTerminalClose]);
+	}, [bottomTerminalOpen, isAgentExpanded, isDiffExpanded, onBottomTerminalClose]);
+
+	const handleToggleAgentExpand = useCallback(() => {
+		if (!isAgentExpanded && bottomTerminalOpen) {
+			onBottomTerminalClose();
+		}
+		if (!isAgentExpanded && isDiffExpanded) {
+			setIsDiffExpanded(false);
+		}
+		setIsAgentExpanded((previous) => !previous);
+	}, [bottomTerminalOpen, isAgentExpanded, isDiffExpanded, onBottomTerminalClose]);
+
+	useHotkeys(
+		"ctrl+m,meta+m",
+		() => {
+			handleToggleAgentExpand();
+		},
+		{
+			ignoreEventWhen: (event) => isTypingTarget(event.target),
+			preventDefault: true,
+		},
+		[handleToggleAgentExpand],
+	);
 
 	const handleAddDiffComments = useCallback(
 		(formatted: string) => {
@@ -1058,6 +1089,8 @@ export function CardDetailView({
 			cursorColor={terminalThemeColors.textPrimary}
 			taskColumnId={selection.column.id}
 			onResumeEndedSession={onResumeEndedSession}
+			isExpanded={isAgentExpanded}
+			onToggleExpand={handleToggleAgentExpand}
 		/>
 	);
 
@@ -1169,7 +1202,7 @@ export function CardDetailView({
 			ref={detailLayoutRef}
 			className="flex min-h-0 flex-1 overflow-hidden bg-surface-0"
 		>
-			{!isDiffExpanded ? (
+			{!isDiffExpanded && !isAgentExpanded ? (
 				<>
 					<div
 						className="flex min-h-0 min-w-0"
@@ -1216,7 +1249,12 @@ export function CardDetailView({
 			) : null}
 			<div
 				className="flex min-h-0 min-w-0 flex-col overflow-hidden"
-				style={{ width: isDiffExpanded ? "100%" : detailContentPanelPercent }}
+				style={{
+					width:
+						isDiffExpanded || isAgentExpanded
+							? "100%"
+							: detailContentPanelPercent,
+				}}
 			>
 				{gitHistoryPanel ? (
 					<div className="flex min-h-0 flex-1 overflow-hidden">
@@ -1410,15 +1448,16 @@ export function CardDetailView({
 							className="flex min-h-0 flex-1 overflow-hidden"
 						>
 							<div
-								className="min-h-0 min-w-0"
+								className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
 								style={{
 									display: isDiffExpanded ? "none" : "flex",
-									width: agentPanelPercent,
+									width: isAgentExpanded ? "100%" : agentPanelPercent,
+									flex: isAgentExpanded ? "1 1 100%" : "none",
 								}}
 							>
 								{agentChatPanel}
 							</div>
-							{!isDiffExpanded ? (
+							{!isDiffExpanded && !isAgentExpanded ? (
 								<ResizeHandle
 									orientation="vertical"
 									ariaLabel="Resize agent and diff panels"
@@ -1427,8 +1466,12 @@ export function CardDetailView({
 								/>
 							) : null}
 							<div
-								className="flex min-h-0 min-w-0 flex-col"
-								style={{ width: isDiffExpanded ? "100%" : diffPanelPercent }}
+								className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
+								style={{
+									display: isAgentExpanded ? "none" : "flex",
+									width: isDiffExpanded ? "100%" : diffPanelPercent,
+									flex: isDiffExpanded ? "1 1 100%" : "none",
+								}}
 							>
 								{isRuntimeAvailable ||
 								(planReadyForSave && planTextForSave) ||
@@ -1455,7 +1498,10 @@ export function CardDetailView({
 									) : diffPanelView === "plan" &&
 										planReadyForSave &&
 										planTextForSave ? (
-										<div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+										<div
+											data-testid="save-plan-panel"
+											className="flex min-h-0 flex-1 flex-col overflow-hidden"
+										>
 											<div className="flex shrink-0 items-center justify-between gap-2 border-b border-border px-3 py-2">
 												<span className="text-[12px] font-medium text-text-primary">
 													Plan ready for review

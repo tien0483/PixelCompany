@@ -17,7 +17,7 @@ import type {
 	RuntimeTaskLaunchSettings,
 } from "@/runtime/types";
 
-const EFFORT_OPTIONS: Array<{ value: RuntimeTaskLaunchEffort; label: string }> = [
+const CLAUDE_EFFORT_OPTIONS: Array<{ value: RuntimeTaskLaunchEffort; label: string }> = [
 	{ value: "low", label: "Low" },
 	{ value: "medium", label: "Medium" },
 	{ value: "high", label: "High" },
@@ -25,10 +25,24 @@ const EFFORT_OPTIONS: Array<{ value: RuntimeTaskLaunchEffort; label: string }> =
 	{ value: "max", label: "Max" },
 ];
 
+const GEMINI_EFFORT_OPTIONS: Array<{ value: RuntimeTaskLaunchEffort; label: string }> = [
+	{ value: "low", label: "Low" },
+	{ value: "medium", label: "Medium" },
+	{ value: "high", label: "High" },
+];
+
+const CURSOR_EFFORT_OPTIONS: Array<{ value: RuntimeTaskLaunchEffort; label: string }> = [
+	{ value: "low", label: "Low" },
+	{ value: "medium", label: "Medium" },
+	{ value: "high", label: "High" },
+];
+
 const CLAUDE_MODEL_FALLBACK: RuntimeAgentModelInventoryItem[] = [
 	{ id: "sonnet", label: "Sonnet (latest alias)" },
 	{ id: "opus", label: "Opus (latest alias)" },
 	{ id: "haiku", label: "Haiku (latest alias)" },
+	{ id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6" },
+	{ id: "claude-opus-4-6", label: "Claude Opus 4.6" },
 ];
 
 const CURSOR_MODEL_FALLBACK: RuntimeAgentModelInventoryItem[] = [
@@ -42,8 +56,15 @@ const GEMINI_MODEL_FALLBACK: RuntimeAgentModelInventoryItem[] = [
 	{ id: "gemini-3.7-flash-medium", label: "Gemini 3.7 Flash (Medium)" },
 	{ id: "gemini-3.7-flash-low", label: "Gemini 3.7 Flash (Low)" },
 	{ id: "gemini-3.6-flash-high", label: "Gemini 3.6 Flash (High)" },
+	{ id: "gemini-3.6-flash-medium", label: "Gemini 3.6 Flash (Medium)" },
+	{ id: "gemini-3.6-flash-low", label: "Gemini 3.6 Flash (Low)" },
+	{ id: "gemini-3.5-flash-high", label: "Gemini 3.5 Flash (High)" },
+	{ id: "gemini-3.5-flash-medium", label: "Gemini 3.5 Flash (Medium)" },
+	{ id: "gemini-3.5-flash-low", label: "Gemini 3.5 Flash (Low)" },
 	{ id: "gemini-3.1-pro-high", label: "Gemini 3.1 Pro (High)" },
+	{ id: "gemini-3.1-pro-low", label: "Gemini 3.1 Pro (Low)" },
 	{ id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6 (Thinking)" },
+	{ id: "claude-opus-4-6-thinking", label: "Claude Opus 4.6 (Thinking)" },
 	{ id: "gpt-oss-120b-medium", label: "GPT-OSS 120B (Medium)" },
 ];
 
@@ -346,6 +367,16 @@ export function TaskLaunchSettingsPicker({
 		[models],
 	);
 
+	const effortOptions = useMemo(() => {
+		if (effectiveAgentId === "gemini") {
+			return GEMINI_EFFORT_OPTIONS;
+		}
+		if (effectiveAgentId === "cursor") {
+			return CURSOR_EFFORT_OPTIONS;
+		}
+		return CLAUDE_EFFORT_OPTIONS;
+	}, [effectiveAgentId]);
+
 	const selectedModelLabel = useMemo(() => {
 		const selected = draft?.modelId;
 		if (!selected) {
@@ -473,7 +504,7 @@ export function TaskLaunchSettingsPicker({
 						}}
 					>
 						<option value="">Default</option>
-						{EFFORT_OPTIONS.map((option) => (
+						{effortOptions.map((option) => (
 							<option key={option.value} value={option.value}>
 								{option.label}
 							</option>

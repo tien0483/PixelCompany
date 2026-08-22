@@ -16,7 +16,7 @@ import { isBinaryAvailableOnPath } from "./command-discovery";
 
 const execFileAsync = promisify(execFile);
 
-const LIST_MODELS_TIMEOUT_MS = 12_000;
+const LIST_MODELS_TIMEOUT_MS = 8_000;
 const CACHE_TTL_MS = 60_000;
 
 const CLAUDE_MODEL_CATALOG: Array<{ id: string; label: string }> = [

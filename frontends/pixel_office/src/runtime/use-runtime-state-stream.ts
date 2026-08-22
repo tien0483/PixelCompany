@@ -472,7 +472,7 @@ export function useRuntimeStateStream(requestedWorkspaceId: string | null): UseR
 						});
 						return;
 					}
-					if (payload.type === "manager_state_updated" || payload.type === "jacked_state_updated") {
+					if (payload.type === "manager_state_updated" || (payload as { type: string }).type === "jacked_state_updated") {
 						const managerPayload = payload as {
 							type: string;
 							manager?: RuntimeManagerState;

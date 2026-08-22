@@ -27,8 +27,12 @@ describe("claude workspace trust across runtime home roots", () => {
 		);
 	});
 
-	it("does not auto-confirm outside any worktree root", () => {
-		expect(shouldAutoConfirmClaudeWorkspaceTrust("claude", join(homedir(), "code", "my-repo"))).toBe(false);
+	it("auto-confirms for claude with any workspace or worktree path", () => {
+		expect(shouldAutoConfirmClaudeWorkspaceTrust("claude", join(homedir(), "code", "my-repo"))).toBe(true);
+	});
+
+	it("does not auto-confirm when cwd is empty", () => {
+		expect(shouldAutoConfirmClaudeWorkspaceTrust("claude", "")).toBe(false);
 	});
 
 	it("only applies to Claude Code", () => {

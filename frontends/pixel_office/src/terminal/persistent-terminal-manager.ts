@@ -398,18 +398,27 @@ class PersistentTerminal {
 		if (!this.visibleContainer) {
 			return;
 		}
-		this.fitAddon.fit();
 		const bounds = this.visibleContainer.getBoundingClientRect();
 		const pixelWidth = Math.round(bounds.width);
 		const pixelHeight = Math.round(bounds.height);
+		if (pixelWidth < 60 || pixelHeight < 60) {
+			return;
+		}
+		try {
+			this.fitAddon.fit();
+		} catch {
+			// Ignore fit errors on unmeasured containers
+		}
+		const cols = Math.max(this.terminal.cols, 40);
+		const rows = Math.max(this.terminal.rows, 10);
 		reportTerminalGeometry(this.taskId, {
-			cols: this.terminal.cols,
-			rows: this.terminal.rows,
+			cols,
+			rows,
 		});
 		this.sendControlMessage({
 			type: "resize",
-			cols: this.terminal.cols,
-			rows: this.terminal.rows,
+			cols,
+			rows,
 			pixelWidth: pixelWidth > 0 ? pixelWidth : undefined,
 			pixelHeight: pixelHeight > 0 ? pixelHeight : undefined,
 		});
@@ -631,6 +640,11 @@ class PersistentTerminal {
 					this.terminal.focus();
 				}
 			});
+			setTimeout(() => {
+				if (!this.disposed && this.visibleContainer === container) {
+					this.requestResize();
+				}
+			}, 150);
 		}
 	}
 

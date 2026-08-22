@@ -18,7 +18,7 @@ const TASK_CARDS_RATIO_PREFERENCE: ResizeNumberPreference = {
 
 const AGENT_RATIO_PREFERENCE: ResizeNumberPreference = {
 	key: LocalStorageKey.DetailAgentPanelRatio,
-	defaultValue: 0.4,
+	defaultValue: 0.55,
 	normalize: (value) => clampBetween(value, 0.15, 0.75),
 };
 

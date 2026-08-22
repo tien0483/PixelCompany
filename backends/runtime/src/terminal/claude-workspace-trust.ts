@@ -58,7 +58,13 @@ function stripAnsiAndControl(input: string): string {
 
 export function hasClaudeWorkspaceTrustPrompt(text: string): boolean {
 	const normalized = normalizeTerminalText(stripAnsiAndControl(text));
-	return /yes,?\s*i\s*trust\s*this\s*folder/u.test(normalized) || /trust\s+this\s+folder/u.test(normalized);
+	return (
+		/yes,?\s*i\s*trust\s*this\s*folder/u.test(normalized) ||
+		/trust\s+this\s+folder/u.test(normalized) ||
+		/trust\s+the\s+files/u.test(normalized) ||
+		/trust\s+the\s+authors/u.test(normalized) ||
+		/do\s+you\s+trust/u.test(normalized)
+	);
 }
 
 function normalizeDirectoryPrefix(path: string): string {
@@ -78,7 +84,7 @@ function isTaskWorktreePath(path: string): boolean {
 }
 
 export function shouldAutoConfirmClaudeWorkspaceTrust(agentId: RuntimeAgentId, cwd: string): boolean {
-	return agentId === "claude" && isTaskWorktreePath(cwd);
+	return agentId === "claude" && Boolean(cwd?.trim());
 }
 
 export function stopWorkspaceTrustTimers(state: { workspaceTrustConfirmTimer: NodeJS.Timeout | null }): void {
