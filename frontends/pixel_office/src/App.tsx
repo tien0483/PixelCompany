@@ -1632,11 +1632,13 @@ export default function App(): ReactElement {
 									}}
 									onSaveTaskTitle={handleSaveTaskTitle}
 									onCommitTask={handleCommitTask}
+									onMergeTask={handleMergeTaskBranch}
 									onSavePlan={handleSavePlan}
 									onOpenPrTask={handleOpenPrTask}
 									onAgentCommitTask={handleAgentCommitTask}
 									onAgentOpenPrTask={handleAgentOpenPrTask}
 									commitTaskLoadingById={commitTaskLoadingById}
+									mergeTaskLoadingById={mergeTaskLoadingById}
 									openPrTaskLoadingById={openPrTaskLoadingById}
 									agentCommitTaskLoadingById={agentCommitTaskLoadingById}
 									agentOpenPrTaskLoadingById={agentOpenPrTaskLoadingById}

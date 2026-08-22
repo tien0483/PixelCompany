@@ -353,7 +353,10 @@ export function useBoardInteractions({
 					setTaskWorkspaceInfo(infoAfterEnsure);
 				}
 			}
-			const started = await startTaskSession(task, { worktreeTaskId });
+			const started = await startTaskSession(task, {
+				worktreeTaskId,
+				...(fromColumnId === "trash" ? { resumeFromTrash: true } : {}),
+			});
 			if (!started.ok) {
 				notifyError(started.message ?? "Could not start task session.");
 				if (optimisticMove) {
@@ -714,6 +717,23 @@ export function useBoardInteractions({
 					return;
 				}
 				void resumeTaskFromTrash(movedSelection.card, moveEvent.taskId, { optimisticMoveApplied: true });
+				return;
+			}
+
+			if (moveEvent.fromColumnId === "trash" && moveEvent.toColumnId === "in_progress") {
+				setBoard(applied.board);
+				const movedSelection = findCardSelection(applied.board, moveEvent.taskId);
+				if (!movedSelection) {
+					return;
+				}
+				maybeRequestNotificationPermissionForTaskStart();
+				void kickoffTaskInProgress(movedSelection.card, moveEvent.taskId, moveEvent.fromColumnId)
+					.then((started) => {
+						resolvePendingProgrammaticStartMove(moveEvent.taskId, started);
+					})
+					.catch(() => {
+						resolvePendingProgrammaticStartMove(moveEvent.taskId, false);
+					});
 				return;
 			}
 

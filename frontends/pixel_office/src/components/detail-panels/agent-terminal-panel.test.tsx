@@ -7,9 +7,14 @@ import type { RuntimeTaskSessionSummary } from "@/runtime/types";
 import type { UsePersistentTerminalSessionResult } from "@/terminal/use-persistent-terminal-session";
 
 const mockUsePersistentTerminalSession = vi.hoisted(() => vi.fn());
+const mockUseTaskWorkspaceSnapshotValue = vi.hoisted(() => vi.fn());
 
 vi.mock("@/terminal/use-persistent-terminal-session", () => ({
 	usePersistentTerminalSession: (...args: unknown[]) => mockUsePersistentTerminalSession(...args),
+}));
+
+vi.mock("@/stores/workspace-metadata-store", () => ({
+	useTaskWorkspaceSnapshotValue: (...args: unknown[]) => mockUseTaskWorkspaceSnapshotValue(...args),
 }));
 
 function createSessionControls(
@@ -188,5 +193,51 @@ describe("AgentTerminalPanel", () => {
 
 		expect(container.querySelector('[data-testid="ended-session-bar"]')).toBeNull();
 		expect(container.querySelector('[data-testid="ended-session-empty-state"]')).toBeNull();
+	});
+
+	it("renders Commit and Merge to base buttons in review column and invokes callbacks", async () => {
+		mockUseTaskWorkspaceSnapshotValue.mockReturnValue({
+			taskId: "task-1",
+			changedFiles: 3,
+			aheadOfBaseCount: 1,
+			branch: "feat/gemini",
+		});
+		const onCommit = vi.fn();
+		const onMerge = vi.fn();
+
+		await act(async () => {
+			root.render(
+				<AgentTerminalPanel
+					taskId="task-1"
+					workspaceId="workspace-1"
+					taskColumnId="review"
+					showMoveToTrash
+					onMoveToTrash={vi.fn()}
+					onCommit={onCommit}
+					onMerge={onMerge}
+					summary={createSummary({ state: "awaiting_review" })}
+				/>,
+			);
+		});
+
+		const commitButton = Array.from(container.querySelectorAll("button")).find(
+			(btn) => btn.textContent === "Commit",
+		);
+		const mergeButton = Array.from(container.querySelectorAll("button")).find((btn) =>
+			btn.textContent?.includes("Merge to base"),
+		);
+
+		expect(commitButton).toBeDefined();
+		expect(mergeButton).toBeDefined();
+
+		await act(async () => {
+			commitButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+		});
+		expect(onCommit).toHaveBeenCalled();
+
+		await act(async () => {
+			mergeButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+		});
+		expect(onMerge).toHaveBeenCalled();
 	});
 });

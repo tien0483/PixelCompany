@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { parseCursorListModelsOutput } from "../../../src/terminal/agent-model-inventory";
+import {
+	listAgentModelInventory,
+	parseCursorListModelsOutput,
+	parseGeminiListModelsOutput,
+} from "../../../src/terminal/agent-model-inventory";
 
 describe("parseCursorListModelsOutput", () => {
 	it("parses agent --list-models lines", () => {
@@ -22,5 +26,32 @@ describe("parseCursorListModelsOutput", () => {
 	it("dedupes repeated ids", () => {
 		const stdout = ["auto - Auto", "auto - Auto again"].join("\n");
 		expect(parseCursorListModelsOutput(stdout)).toEqual([{ id: "auto", label: "Auto" }]);
+	});
+});
+
+describe("parseGeminiListModelsOutput", () => {
+	it("parses agy models output lines and strips spinners", () => {
+		const stdout = [
+			"⠋ Fetching available models...⠙ Fetching available models...",
+			"gemini-3.7-flash-high     Gemini 3.7 Flash (High)",
+			"gemini-3.7-flash-medium   Gemini 3.7 Flash (Medium)",
+			"gemini-3.1-pro-high       Gemini 3.1 Pro (High)",
+			"claude-sonnet-4-6         Claude Sonnet 4.6 (Thinking)",
+			"Available agents:",
+			"cavecrew-builder",
+		].join("\n");
+		expect(parseGeminiListModelsOutput(stdout)).toEqual([
+			{ id: "gemini-3.7-flash-high", label: "Gemini 3.7 Flash (High)" },
+			{ id: "gemini-3.7-flash-medium", label: "Gemini 3.7 Flash (Medium)" },
+			{ id: "gemini-3.1-pro-high", label: "Gemini 3.1 Pro (High)" },
+			{ id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6 (Thinking)" },
+		]);
+	});
+
+	it("falls back to Gemini catalog models when CLI is unavailable", async () => {
+		const result = await listAgentModelInventory("gemini");
+		expect(result.agentId).toBe("gemini");
+		expect(result.models.length).toBeGreaterThan(0);
+		expect(result.models.some((m) => m.id === "gemini-3.7-flash-high")).toBe(true);
 	});
 });

@@ -181,7 +181,7 @@ describe("TaskLaunchSettingsPicker", () => {
 			Array.from(select.options).some((option) => option.textContent === "Add agent…"),
 		);
 		const commandSelect = Array.from(container.querySelectorAll("select")).find((select) =>
-			Array.from(select.options).some((option) => option.textContent === "Add slash command…"),
+			Array.from(select.options).some((option) => option.textContent === "Add command…"),
 		);
 		expect(agentSelect).toBeTruthy();
 		expect(commandSelect).toBeTruthy();
@@ -201,6 +201,22 @@ describe("TaskLaunchSettingsPicker", () => {
 		expect(onChange).toHaveBeenCalled();
 		const last = onChange.mock.calls.at(-1)?.[0] as RuntimeTaskLaunchSettings;
 		expect(last.commandIds).toEqual(["pr"]);
+	});
+
+	it("renders launch settings picker and Gemini models for gemini agent", async () => {
+		const onChange = vi.fn();
+		await act(async () => {
+			renderUi(
+				<TaskLaunchSettingsPicker active agentId="gemini" value={undefined} onChange={onChange} />,
+			);
+		});
+		await act(async () => {
+			await Promise.resolve();
+		});
+
+		expect(container.textContent).toContain("Model");
+		expect(container.textContent).toContain("Effort");
+		expect(container.textContent).toContain("Skill");
 	});
 
 	it("accumulates multiple skill adds before parent value catches up", async () => {

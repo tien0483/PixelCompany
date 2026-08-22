@@ -1,4 +1,4 @@
-﻿"""Antigravity oauth_creds write preserves unknown fields and mode."""
+"""Antigravity oauth_creds write preserves unknown fields and mode."""
 
 from __future__ import annotations
 
@@ -74,3 +74,68 @@ def test_refresh_access_token_merges_unknown_fields(monkeypatch):
     assert merged["access_token"] == "new"
     assert merged["custom_field"] == 42
     assert merged["refresh_token"] == "refresh"
+
+
+import pytest
+
+
+@pytest.mark.anyio
+async def test_fetch_antigravity_usage_loads_account_slot(tmp_path: Path, monkeypatch):
+    from manager.antigravity.switching import seed_antigravity_slot
+    from manager.antigravity.usage import fetch_antigravity_usage
+
+    home = tmp_path / ".gemini"
+    home.mkdir()
+    account_id = 42
+    creds = {
+        "access_token": "valid-token",
+        "refresh_token": "ref-42",
+        "expiry_date": 9999999999999,
+    }
+    seed_antigravity_slot(account_id, creds, home=home)
+
+    class FakeDb:
+        def __init__(self):
+            self.cached = None
+            self.active_id = 42
+
+        def get_account(self, aid):
+            return {"id": aid, "provider": "antigravity", "refresh_token": "ref-42"}
+
+        def get_active_account_id(self, provider="antigravity"):
+            return self.active_id
+
+        def update_account_usage_cache(self, aid, **kwargs):
+            self.cached = (aid, kwargs)
+
+        def clear_account_errors(self, aid):
+            pass
+
+        def update_account(self, aid, **kwargs):
+            pass
+
+    async def fake_fetch_pool(client, token, pool):
+        assert token == "valid-token"
+        return {
+            "name": pool["name"],
+            "project_id": "test-project",
+            "tier": "STANDARD",
+            "buckets": [
+                {
+                    "model_id": "gemini-2.5-pro",
+                    "used_percent": 25.0,
+                    "is_pro": True,
+                    "is_flash": False,
+                    "reset_time": "2026-08-22T15:00:00Z",
+                }
+            ],
+        }
+
+    monkeypatch.setattr("manager.antigravity.usage._fetch_pool", fake_fetch_pool)
+    db = FakeDb()
+    result = await fetch_antigravity_usage(account_id, db, home=home)
+    assert result is not None
+    assert db.cached is not None
+    assert db.cached[0] == 42
+    assert db.cached[1]["five_hour"] == 25.0
+

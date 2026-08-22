@@ -661,6 +661,28 @@ export async function ensureTaskWorktreeIfDoesntExist(options: {
 	}
 }
 
+async function cleanupTaskScratchAndPromptFiles(taskId: string): Promise<void> {
+	try {
+		const slug = taskId.replace(/[^a-zA-Z0-9._-]+/g, "_").slice(0, 120) || "session";
+		const scratchDir = join(getRuntimeHomePath(), "task-launch", slug);
+		await rm(scratchDir, { recursive: true, force: true });
+	} catch {
+		// Best effort
+	}
+	try {
+		const geminiPromptFile = join(getRuntimeHomePath(), "hooks", "gemini", `append-system-prompt-${taskId}.md`);
+		await rm(geminiPromptFile, { force: true });
+	} catch {
+		// Best effort
+	}
+	try {
+		const claudePromptFile = join(getRuntimeHomePath(), "hooks", "claude", `append-system-prompt-${taskId}.md`);
+		await rm(claudePromptFile, { force: true });
+	} catch {
+		// Best effort
+	}
+}
+
 export async function deleteTaskWorktree(options: {
 	repoPath: string;
 	taskId: string;
@@ -700,6 +722,7 @@ export async function deleteTaskWorktree(options: {
 		});
 
 		await deregisterActiveBranchForRepo(options.repoPath, taskId);
+		await cleanupTaskScratchAndPromptFiles(taskId);
 		return result;
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
