@@ -648,6 +648,8 @@ export function TaskCreateDialog({
 									onAgentIdChange,
 									onClineSettingsChange,
 									currentAgentId: effectiveAgentId,
+									accounts: eligibleManagerAccounts,
+									activeAccountId: managerActiveAccountId,
 								});
 							}}
 							subagentSeatProviderId={taskLaunchSettings?.subagentSeatProviderId ?? null}

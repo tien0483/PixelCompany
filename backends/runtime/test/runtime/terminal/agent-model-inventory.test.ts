@@ -30,7 +30,7 @@ describe("parseCursorListModelsOutput", () => {
 });
 
 describe("parseGeminiListModelsOutput", () => {
-	it("parses agy models output lines and strips spinners", () => {
+	it("parses agy models output lines, normalizes base IDs and dedupes", () => {
 		const stdout = [
 			"⠋ Fetching available models...⠙ Fetching available models...",
 			"gemini-3.7-flash-high     Gemini 3.7 Flash (High)",
@@ -41,10 +41,9 @@ describe("parseGeminiListModelsOutput", () => {
 			"cavecrew-builder",
 		].join("\n");
 		expect(parseGeminiListModelsOutput(stdout)).toEqual([
-			{ id: "gemini-3.7-flash-high", label: "Gemini 3.7 Flash (High)" },
-			{ id: "gemini-3.7-flash-medium", label: "Gemini 3.7 Flash (Medium)" },
-			{ id: "gemini-3.1-pro-high", label: "Gemini 3.1 Pro (High)" },
-			{ id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6 (Thinking)" },
+			{ id: "gemini-3.7-flash", label: "Gemini 3.7 Flash" },
+			{ id: "gemini-3.1-pro", label: "Gemini 3.1 Pro" },
+			{ id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6" },
 		]);
 	});
 
@@ -52,6 +51,6 @@ describe("parseGeminiListModelsOutput", () => {
 		const result = await listAgentModelInventory("gemini");
 		expect(result.agentId).toBe("gemini");
 		expect(result.models.length).toBeGreaterThan(0);
-		expect(result.models.some((m) => m.id === "gemini-3.7-flash-high")).toBe(true);
+		expect(result.models.some((m) => m.id === "gemini-3.7-flash")).toBe(true);
 	});
 });

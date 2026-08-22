@@ -1274,14 +1274,12 @@ describe("CardDetailView", () => {
 		expect(onRestartTaskSession).toHaveBeenCalledWith("task-1");
 	});
 
-	it("opens Task configuration for a card that has not run yet", async () => {
+	it("keeps Task configuration collapsed by default so the terminal view has full height", async () => {
 		await act(async () => {
 			root.render(
 				<CardDetailView
 					selection={createSelection()}
 					currentProjectId="workspace-1"
-					// App never passes null here: an unstarted card gets a placeholder idle
-					// summary, which is what used to leave the section collapsed.
 					sessionSummary={createSessionSummary({
 						state: "idle",
 						startedAt: null,
@@ -1299,11 +1297,16 @@ describe("CardDetailView", () => {
 			);
 		});
 
-		expect(
-			container
-				.querySelector('[data-testid="task-config-toggle"]')
-				?.getAttribute("aria-expanded"),
-		).toBe("true");
+		const toggle = container.querySelector(
+			'[data-testid="task-config-toggle"]',
+		);
+		expect(toggle?.getAttribute("aria-expanded")).toBe("false");
+
+		await act(async () => {
+			(toggle as HTMLButtonElement).click();
+		});
+
+		expect(toggle?.getAttribute("aria-expanded")).toBe("true");
 	});
 
 	it("offers a restart when the card's subagent seat drifted from the running session", async () => {

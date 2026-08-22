@@ -78,7 +78,7 @@ function ToolMessageBlock({ message }: { message: ClineChatMessage }): ReactElem
 					{fullInput ? (
 						<div>
 							<div className="mb-0.5 text-xs text-text-tertiary">Command</div>
-							<pre className="max-h-60 overflow-auto rounded bg-surface-0 px-2 py-1.5 text-xs leading-relaxed whitespace-pre-wrap break-all text-text-primary">
+							<pre className="max-h-[500px] overflow-auto rounded bg-surface-0 px-2 py-1.5 text-xs leading-relaxed whitespace-pre-wrap break-all text-text-primary">
 								{fullInput}
 							</pre>
 						</div>
@@ -92,12 +92,12 @@ function ToolMessageBlock({ message }: { message: ClineChatMessage }): ReactElem
 									<div className="mb-0.5 truncate text-xs text-text-tertiary">{result.query}</div>
 								) : null}
 								{result.error ? (
-									<pre className="max-h-60 overflow-auto rounded bg-status-red/5 px-2 py-1.5 text-xs leading-relaxed whitespace-pre-wrap break-all text-status-red">
+									<pre className="max-h-[500px] overflow-auto rounded bg-status-red/5 px-2 py-1.5 text-xs leading-relaxed whitespace-pre-wrap break-all text-status-red">
 										{result.error}
 									</pre>
 								) : null}
 								{result.content ? (
-									<pre className="max-h-60 overflow-auto rounded bg-surface-0 px-2 py-1.5 text-xs leading-relaxed whitespace-pre-wrap break-all text-text-primary">
+									<pre className="max-h-[500px] overflow-auto rounded bg-surface-0 px-2 py-1.5 text-xs leading-relaxed whitespace-pre-wrap break-all text-text-primary">
 										{result.content}
 									</pre>
 								) : null}
@@ -107,7 +107,7 @@ function ToolMessageBlock({ message }: { message: ClineChatMessage }): ReactElem
 						/* Fallback for non-ToolOperationResult output (skills, ask_question, MCP tools) */
 						<div>
 							<div className="mb-0.5 text-xs text-text-tertiary">Output</div>
-							<pre className="max-h-60 overflow-auto rounded bg-surface-0 px-2 py-1.5 text-xs leading-relaxed whitespace-pre-wrap break-all text-text-primary">
+							<pre className="max-h-[500px] overflow-auto rounded bg-surface-0 px-2 py-1.5 text-xs leading-relaxed whitespace-pre-wrap break-all text-text-primary">
 								{parsed.output}
 							</pre>
 						</div>
@@ -117,7 +117,7 @@ function ToolMessageBlock({ message }: { message: ClineChatMessage }): ReactElem
 					{parsed.error ? (
 						<div>
 							<div className="mb-0.5 text-xs text-status-red">Error</div>
-							<pre className="max-h-60 overflow-auto rounded bg-status-red/5 px-2 py-1.5 text-xs leading-relaxed whitespace-pre-wrap break-all text-status-red">
+							<pre className="max-h-[500px] overflow-auto rounded bg-status-red/5 px-2 py-1.5 text-xs leading-relaxed whitespace-pre-wrap break-all text-status-red">
 								{parsed.error}
 							</pre>
 						</div>

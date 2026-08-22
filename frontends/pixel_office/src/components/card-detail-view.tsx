@@ -660,21 +660,10 @@ export function CardDetailView({
 	const planTextForSave = sessionSummary?.latestHookActivity?.planText ?? null;
 	const planAlreadySaved =
 		typeof planTextForSave === "string" && savedPlanTextKey === planTextForSave;
-	// A card that has not run yet opens with its configuration in view. Testing for a
-	// missing summary is not enough: callers pass a placeholder idle summary rather than
-	// null, which used to leave the section collapsed for every card.
-	const isTaskUnstarted =
-		!sessionSummary ||
-		(sessionSummary.state === "idle" && sessionSummary.startedAt === null);
-	const [isTaskConfigExpanded, setIsTaskConfigExpanded] =
-		useState(isTaskUnstarted);
+	const [isTaskConfigExpanded, setIsTaskConfigExpanded] = useState(false);
 	const selectedCardId = selection.card.id;
-	const isTaskUnstartedRef = useRef(isTaskUnstarted);
-	isTaskUnstartedRef.current = isTaskUnstarted;
 	useEffect(() => {
-		// The panel stays mounted across selections, so re-apply the default per card —
-		// but only on that switch, or starting the task would fold it back up mid-edit.
-		setIsTaskConfigExpanded(isTaskUnstartedRef.current);
+		setIsTaskConfigExpanded(false);
 	}, [selectedCardId]);
 	useEffect(() => {
 		if (planReadyForSave && planTextForSave && !wasPlanReadyRef.current) {

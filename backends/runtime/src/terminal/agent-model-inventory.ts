@@ -40,20 +40,14 @@ const CURSOR_MODEL_FALLBACK: Array<{ id: string; label: string }> = [
 ];
 
 const GEMINI_MODEL_FALLBACK: Array<{ id: string; label: string }> = [
-	{ id: "gemini-3.7-flash-high", label: "Gemini 3.7 Flash (High)" },
-	{ id: "gemini-3.7-flash-medium", label: "Gemini 3.7 Flash (Medium)" },
-	{ id: "gemini-3.7-flash-low", label: "Gemini 3.7 Flash (Low)" },
-	{ id: "gemini-3.6-flash-high", label: "Gemini 3.6 Flash (High)" },
-	{ id: "gemini-3.6-flash-medium", label: "Gemini 3.6 Flash (Medium)" },
-	{ id: "gemini-3.6-flash-low", label: "Gemini 3.6 Flash (Low)" },
-	{ id: "gemini-3.5-flash-high", label: "Gemini 3.5 Flash (High)" },
-	{ id: "gemini-3.5-flash-medium", label: "Gemini 3.5 Flash (Medium)" },
-	{ id: "gemini-3.5-flash-low", label: "Gemini 3.5 Flash (Low)" },
-	{ id: "gemini-3.1-pro-high", label: "Gemini 3.1 Pro (High)" },
-	{ id: "gemini-3.1-pro-low", label: "Gemini 3.1 Pro (Low)" },
-	{ id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6 (Thinking)" },
-	{ id: "claude-opus-4-6-thinking", label: "Claude Opus 4.6 (Thinking)" },
-	{ id: "gpt-oss-120b-medium", label: "GPT-OSS 120B (Medium)" },
+	{ id: "gemini-3.7-flash", label: "Gemini 3.7 Flash" },
+	{ id: "gemini-3.7-pro", label: "Gemini 3.7 Pro" },
+	{ id: "gemini-3.6-flash", label: "Gemini 3.6 Flash" },
+	{ id: "gemini-3.5-flash", label: "Gemini 3.5 Flash" },
+	{ id: "gemini-3.1-pro", label: "Gemini 3.1 Pro" },
+	{ id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6" },
+	{ id: "claude-opus-4-6", label: "Claude Opus 4.6" },
+	{ id: "gpt-oss-120b", label: "GPT-OSS 120B" },
 ];
 
 type CacheEntry = { expiresAt: number; inventory: RuntimeAgentModelInventory };
@@ -83,6 +77,15 @@ export function parseCursorListModelsOutput(stdout: string): Array<{ id: string;
 	return models;
 }
 
+export function normalizeGeminiModelEntry(id: string, rawLabel: string): { id: string; label: string } {
+	const cleanId = id.replace(/-(high|medium|low|thinking)$/i, "");
+	const cleanLabel = rawLabel
+		.replace(/\s*\((High|Medium|Low|Thinking)\)\s*/gi, "")
+		.replace(/\s*\(Current, Default\)\s*/gi, "")
+		.trim();
+	return { id: cleanId, label: cleanLabel || cleanId };
+}
+
 export function parseGeminiListModelsOutput(stdout: string): Array<{ id: string; label: string }> {
 	const models: Array<{ id: string; label: string }> = [];
 	const seen = new Set<string>();
@@ -102,13 +105,14 @@ export function parseGeminiListModelsOutput(stdout: string): Array<{ id: string;
 		if (!match) {
 			continue;
 		}
-		const id = (match[1] ?? "").trim();
-		const label = (match[2] ?? "").trim();
-		if (!id || seen.has(id)) {
+		const rawId = (match[1] ?? "").trim();
+		const rawLabel = (match[2] ?? "").trim();
+		const normalized = normalizeGeminiModelEntry(rawId, rawLabel);
+		if (!normalized.id || seen.has(normalized.id)) {
 			continue;
 		}
-		seen.add(id);
-		models.push({ id, label: label || id });
+		seen.add(normalized.id);
+		models.push(normalized);
 	}
 	return models;
 }

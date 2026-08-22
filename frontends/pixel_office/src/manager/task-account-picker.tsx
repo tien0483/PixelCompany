@@ -31,6 +31,8 @@ export interface ApplyTaskSeatSelectionHandlers {
 	onManagerAccountIdChange?: (value: number | undefined) => void;
 	onAgentIdChange?: (value: RuntimeAgentId | undefined) => void;
 	onClineSettingsChange?: (value: RuntimeTaskClineSettings | undefined) => void;
+	accounts?: RuntimeManagerAccount[];
+	activeAccountId?: number | null;
 }
 
 /**
@@ -42,7 +44,14 @@ export function applyTaskSeatSelection(
 	selection: TaskSeatSelection,
 	handlers: ApplyTaskSeatSelectionHandlers,
 ): void {
-	const { currentAgentId, onManagerAccountIdChange, onAgentIdChange, onClineSettingsChange } = handlers;
+	const {
+		currentAgentId,
+		onManagerAccountIdChange,
+		onAgentIdChange,
+		onClineSettingsChange,
+		accounts,
+		activeAccountId,
+	} = handlers;
 
 	if (selection.kind === "api") {
 		onManagerAccountIdChange?.(undefined);
@@ -54,10 +63,25 @@ export function applyTaskSeatSelection(
 		return;
 	}
 
+	if (selection.kind === "auto") {
+		onManagerAccountIdChange?.(undefined);
+		if (currentAgentId === "cline") {
+			onClineSettingsChange?.(undefined);
+		}
+		if (accounts && accounts.length > 0) {
+			const fallback = autoFallbackAccount(accounts, activeAccountId ?? null, currentAgentId);
+			const fallbackAgentId = agentIdForManagerProvider(fallback?.provider);
+			if (fallbackAgentId && fallbackAgentId !== currentAgentId) {
+				onAgentIdChange?.(fallbackAgentId);
+			}
+		}
+		return;
+	}
+
 	// Leaving an API seat means leaving Cline; the caller's default agent takes over.
 	if (currentAgentId === "cline") {
 		onClineSettingsChange?.(undefined);
-		onAgentIdChange?.(selection.kind === "manager" ? (agentIdForManagerProvider(selection.provider) ?? undefined) : undefined);
+		onAgentIdChange?.(agentIdForManagerProvider(selection.provider) ?? undefined);
 	} else if (selection.kind === "manager") {
 		const seatAgentId = agentIdForManagerProvider(selection.provider);
 		if (seatAgentId && seatAgentId !== currentAgentId) {
@@ -65,7 +89,7 @@ export function applyTaskSeatSelection(
 		}
 	}
 
-	onManagerAccountIdChange?.(selection.kind === "manager" ? selection.accountId : undefined);
+	onManagerAccountIdChange?.(selection.accountId);
 }
 
 /** A seat the session's subagents bill instead of the card's own; null = inherit. */

@@ -478,6 +478,34 @@ describe("applyTaskSeatSelection", () => {
 			agentId: "cursor",
 		});
 	});
+
+	it("switches agent family to gemini when pinning an Antigravity seat from a Claude task", () => {
+		expect(collect("claude", { kind: "manager", accountId: 5, provider: "antigravity" })).toEqual({
+			managerAccountId: 5,
+			agentId: "gemini",
+		});
+	});
+
+	it("aligns agent to active Antigravity account when Auto is selected", () => {
+		const accounts = [account(5, "antigravity", "user@example.com")];
+		const applied: { managerAccountId?: number; agentId?: RuntimeAgentId } = {};
+		applyTaskSeatSelection(
+			{ kind: "auto" },
+			{
+				currentAgentId: "claude",
+				onManagerAccountIdChange: (val) => {
+					applied.managerAccountId = val;
+				},
+				onAgentIdChange: (val) => {
+					applied.agentId = val;
+				},
+				accounts,
+				activeAccountId: 5,
+			},
+		);
+		expect(applied.managerAccountId).toBeUndefined();
+		expect(applied.agentId).toBe("gemini");
+	});
 });
 
 describe("subagent seat row", () => {
