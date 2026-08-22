@@ -1079,8 +1079,9 @@ const geminiAdapter: AgentSessionAdapter = {
 			}
 		}
 
+		const isResuming = Boolean(input.resumeFromTrash || input.resumeFromPersistence);
 		if (
-			(input.resumeFromTrash || input.resumeFromPersistence) &&
+			isResuming &&
 			!hasCliOption(args, "--continue") &&
 			!hasCliOption(args, "-c") &&
 			!hasCliOption(args, "--resume") &&
@@ -1090,6 +1091,13 @@ const geminiAdapter: AgentSessionAdapter = {
 				args.push("--continue");
 			} else {
 				args.push("--resume", "latest");
+			}
+		}
+
+		if (isAgy && launchSettings?.agentIds && launchSettings.agentIds.length > 0 && !hasCliOption(args, "--agent")) {
+			const selectedAgent = launchSettings.agentIds[0];
+			if (selectedAgent) {
+				args.push("--agent", selectedAgent);
 			}
 		}
 
@@ -1139,7 +1147,7 @@ const geminiAdapter: AgentSessionAdapter = {
 		}
 
 		const trimmed = input.prompt.trim();
-		if (trimmed) {
+		if (trimmed && !isResuming) {
 			args.push("-i", trimmed);
 			return {
 				args,

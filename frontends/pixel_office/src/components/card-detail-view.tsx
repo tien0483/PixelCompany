@@ -470,6 +470,7 @@ export function CardDetailView({
 	onEditTask,
 	onSaveTaskTitle,
 	onCommitTask,
+	onMergeTask,
 	onOpenPrTask,
 	onAgentCommitTask,
 	onAgentOpenPrTask,
@@ -477,6 +478,7 @@ export function CardDetailView({
 	onRestoreTaskFromTrash,
 	onCancelAutomaticTaskAction,
 	commitTaskLoadingById,
+	mergeTaskLoadingById,
 	openPrTaskLoadingById,
 	agentCommitTaskLoadingById,
 	agentOpenPrTaskLoadingById,
@@ -545,6 +547,7 @@ export function CardDetailView({
 	onEditTask?: (card: BoardCard) => void;
 	onSaveTaskTitle?: (taskId: string, title: string) => void;
 	onCommitTask?: (taskId: string) => void;
+	onMergeTask?: (taskId: string) => void;
 	onOpenPrTask?: (taskId: string) => void;
 	onAgentCommitTask?: (taskId: string) => void;
 	onAgentOpenPrTask?: (taskId: string) => void;
@@ -552,6 +555,7 @@ export function CardDetailView({
 	onRestoreTaskFromTrash?: (taskId: string) => void;
 	onCancelAutomaticTaskAction?: (taskId: string) => void;
 	commitTaskLoadingById?: Record<string, boolean>;
+	mergeTaskLoadingById?: Record<string, boolean>;
 	openPrTaskLoadingById?: Record<string, boolean>;
 	agentCommitTaskLoadingById?: Record<string, boolean>;
 	agentOpenPrTaskLoadingById?: Record<string, boolean>;
@@ -1027,7 +1031,13 @@ export function CardDetailView({
 					? () => onAgentCommitTask(selection.card.id)
 					: undefined
 			}
+			onMerge={
+				onMergeTask
+					? () => onMergeTask(selection.card.id)
+					: undefined
+			}
 			isCommitLoading={agentCommitTaskLoadingById?.[selection.card.id] ?? false}
+			isMergeLoading={mergeTaskLoadingById?.[selection.card.id] ?? false}
 			showSessionToolbar={false}
 			autoFocus
 			showMoveToTrash={showMoveToTrashActions}

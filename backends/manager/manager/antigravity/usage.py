@@ -1,4 +1,4 @@
-﻿"""Antigravity / Gemini Code Assist quota via cloudcode-pa.googleapis.com.
+"""Antigravity / Gemini Code Assist quota via cloudcode-pa.googleapis.com.
 
 Two pools exist for the same Google account:
 
@@ -196,8 +196,24 @@ async def fetch_antigravity_usage(
     """Fetch + normalize + cache Antigravity/Gemini quota for ``account_id``."""
     home = home or gemini_home(env)
     try:
-        creds = mint_live_token(home=home, env=env)
-    except ValueError as exc:
+        from .credentials import refresh_access_token, write_oauth_creds
+        from .switching import _load_slot_or_db_creds, seed_antigravity_slot
+
+        creds = _load_slot_or_db_creds(account_id, db, home, env)
+        expiry_ms = creds.get("expiry_date")
+        now_ms = int(time.time() * 1000)
+        needs_refresh = (
+            not isinstance(creds.get("access_token"), str)
+            or not isinstance(expiry_ms, (int, float))
+            or expiry_ms <= now_ms + 120 * 1000
+        )
+        if needs_refresh:
+            creds = refresh_access_token(creds, env)
+            seed_antigravity_slot(account_id, creds, home=home, env=env)
+            active_id = db.get_active_account_id(provider="antigravity")
+            if active_id == account_id:
+                write_oauth_creds(creds, home, env)
+    except Exception as exc:
         logger.warning("Antigravity usage auth failed for %s: %s", account_id, exc)
         try:
             db.record_account_error(account_id, str(exc))

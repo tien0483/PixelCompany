@@ -37,6 +37,16 @@ const CURSOR_MODEL_FALLBACK: RuntimeAgentModelInventoryItem[] = [
 	{ id: "gpt-5.2", label: "GPT-5.2" },
 ];
 
+const GEMINI_MODEL_FALLBACK: RuntimeAgentModelInventoryItem[] = [
+	{ id: "gemini-3.7-flash-high", label: "Gemini 3.7 Flash (High)" },
+	{ id: "gemini-3.7-flash-medium", label: "Gemini 3.7 Flash (Medium)" },
+	{ id: "gemini-3.7-flash-low", label: "Gemini 3.7 Flash (Low)" },
+	{ id: "gemini-3.6-flash-high", label: "Gemini 3.6 Flash (High)" },
+	{ id: "gemini-3.1-pro-high", label: "Gemini 3.1 Pro (High)" },
+	{ id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6 (Thinking)" },
+	{ id: "gpt-oss-120b-medium", label: "GPT-OSS 120B (Medium)" },
+];
+
 type AllowlistKey = "skillIds" | "agentIds" | "commandIds" | "workflowIds" | "mcpServerIds";
 
 function cloneLaunchSettings(settings?: RuntimeTaskLaunchSettings | null): RuntimeTaskLaunchSettings | undefined {
@@ -217,7 +227,8 @@ export function TaskLaunchSettingsPicker({
 	sessionAppliesOnRestart?: boolean;
 }): ReactElement | null {
 	const effectiveAgentId = agentId ?? defaultAgentId ?? null;
-	const showForAgent = effectiveAgentId === "claude" || effectiveAgentId === "cursor";
+	const showForAgent =
+		effectiveAgentId === "claude" || effectiveAgentId === "cursor" || effectiveAgentId === "gemini";
 	const [skills, setSkills] = useState<RuntimeSkillInventoryItem[]>([]);
 	const [agents, setAgents] = useState<RuntimeSkillInventoryItem[]>([]);
 	const [commands, setCommands] = useState<RuntimeSkillInventoryItem[]>([]);
@@ -289,13 +300,21 @@ export function TaskLaunchSettingsPicker({
 	}, [active, refreshInventories, showForAgent]);
 
 	useEffect(() => {
-		if (!active || (effectiveAgentId !== "claude" && effectiveAgentId !== "cursor")) {
+		if (
+			!active ||
+			(effectiveAgentId !== "claude" && effectiveAgentId !== "cursor" && effectiveAgentId !== "gemini")
+		) {
 			setModels([]);
 			return;
 		}
 		let cancelled = false;
 		setModelsLoading(true);
-		const fallback = effectiveAgentId === "cursor" ? CURSOR_MODEL_FALLBACK : CLAUDE_MODEL_FALLBACK;
+		const fallback =
+			effectiveAgentId === "cursor"
+				? CURSOR_MODEL_FALLBACK
+				: effectiveAgentId === "gemini"
+					? GEMINI_MODEL_FALLBACK
+					: CLAUDE_MODEL_FALLBACK;
 		void getRuntimeTrpcClient(null)
 			.runtime.listAgentModels.query({ agentId: effectiveAgentId })
 			.then((inventory) => {

@@ -593,10 +593,30 @@ describe("prepareAgentLaunch hook strategies", () => {
 			binary: "agy",
 			args: [],
 			cwd: "/tmp",
-			prompt: "",
+			prompt: "Original prompt that should not be re-submitted",
 			resumeFromTrash: true,
 		});
 		expect(geminiLaunch.args).toContain("--continue");
+		expect(geminiLaunch.args).not.toContain("-i");
+
+		const geminiFreshLaunch = await prepareAgentLaunch({
+			taskId: "task-gemini-fresh",
+			agentId: "gemini",
+			binary: "agy",
+			args: [],
+			cwd: "/tmp",
+			prompt: "Initial prompt",
+			taskLaunchSettings: {
+				agentIds: ["cavecrew-builder"],
+				effort: "high",
+			},
+		});
+		expect(geminiFreshLaunch.args).toContain("-i");
+		expect(geminiFreshLaunch.args).toContain("Initial prompt");
+		expect(geminiFreshLaunch.args).toContain("--agent");
+		expect(geminiFreshLaunch.args).toContain("cavecrew-builder");
+		expect(geminiFreshLaunch.args).toContain("--effort");
+		expect(geminiFreshLaunch.args).toContain("high");
 
 		const opencodeLaunch = await prepareAgentLaunch({
 			taskId: "task-opencode",

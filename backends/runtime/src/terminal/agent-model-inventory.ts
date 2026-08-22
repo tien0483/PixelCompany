@@ -39,6 +39,23 @@ const CURSOR_MODEL_FALLBACK: Array<{ id: string; label: string }> = [
 	{ id: "claude-4.6-opus", label: "Claude 4.6 Opus" },
 ];
 
+const GEMINI_MODEL_FALLBACK: Array<{ id: string; label: string }> = [
+	{ id: "gemini-3.7-flash-high", label: "Gemini 3.7 Flash (High)" },
+	{ id: "gemini-3.7-flash-medium", label: "Gemini 3.7 Flash (Medium)" },
+	{ id: "gemini-3.7-flash-low", label: "Gemini 3.7 Flash (Low)" },
+	{ id: "gemini-3.6-flash-high", label: "Gemini 3.6 Flash (High)" },
+	{ id: "gemini-3.6-flash-medium", label: "Gemini 3.6 Flash (Medium)" },
+	{ id: "gemini-3.6-flash-low", label: "Gemini 3.6 Flash (Low)" },
+	{ id: "gemini-3.5-flash-high", label: "Gemini 3.5 Flash (High)" },
+	{ id: "gemini-3.5-flash-medium", label: "Gemini 3.5 Flash (Medium)" },
+	{ id: "gemini-3.5-flash-low", label: "Gemini 3.5 Flash (Low)" },
+	{ id: "gemini-3.1-pro-high", label: "Gemini 3.1 Pro (High)" },
+	{ id: "gemini-3.1-pro-low", label: "Gemini 3.1 Pro (Low)" },
+	{ id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6 (Thinking)" },
+	{ id: "claude-opus-4-6-thinking", label: "Claude Opus 4.6 (Thinking)" },
+	{ id: "gpt-oss-120b-medium", label: "GPT-OSS 120B (Medium)" },
+];
+
 type CacheEntry = { expiresAt: number; inventory: RuntimeAgentModelInventory };
 
 const modelCache = new Map<RuntimeAgentId, CacheEntry>();
@@ -52,6 +69,36 @@ export function parseCursorListModelsOutput(stdout: string): Array<{ id: string;
 			continue;
 		}
 		const match = /^([^\s]+)\s+-\s+(.+)$/.exec(line);
+		if (!match) {
+			continue;
+		}
+		const id = (match[1] ?? "").trim();
+		const label = (match[2] ?? "").trim();
+		if (!id || seen.has(id)) {
+			continue;
+		}
+		seen.add(id);
+		models.push({ id, label: label || id });
+	}
+	return models;
+}
+
+export function parseGeminiListModelsOutput(stdout: string): Array<{ id: string; label: string }> {
+	const models: Array<{ id: string; label: string }> = [];
+	const seen = new Set<string>();
+	// Remove ANSI escape codes and spinner sequences
+	const cleaned = stdout.replace(/\u001b\[[0-9;]*[a-zA-Z]/g, "").replace(/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/g, "");
+	for (const rawLine of cleaned.split(/\r?\n/)) {
+		const line = rawLine.trim();
+		if (
+			!line ||
+			line.toLowerCase().startsWith("fetching") ||
+			line.toLowerCase().startsWith("available") ||
+			line.toLowerCase().startsWith("cavecrew")
+		) {
+			continue;
+		}
+		const match = /^([a-zA-Z0-9._-]+)\s{2,}(.+)$/.exec(line) || /^([a-zA-Z0-9._-]+)\t+(.+)$/.exec(line);
 		if (!match) {
 			continue;
 		}
@@ -94,6 +141,25 @@ async function listCursorModelsFromCli(): Promise<Array<{ id: string; label: str
 	}
 }
 
+async function listGeminiModelsFromCli(): Promise<Array<{ id: string; label: string }> | null> {
+	const binary = await resolveAgentBinary("gemini");
+	if (!binary) {
+		return null;
+	}
+	try {
+		const { stdout, stderr } = await execFileAsync(binary, ["models"], {
+			timeout: LIST_MODELS_TIMEOUT_MS,
+			windowsHide: true,
+			maxBuffer: 2 * 1024 * 1024,
+			env: process.env,
+		});
+		const parsed = parseGeminiListModelsOutput(`${stdout}\n${stderr}`);
+		return parsed.length > 0 ? parsed : null;
+	} catch {
+		return null;
+	}
+}
+
 async function enrichClaudeModelsFromSettings(
 	catalog: Array<{ id: string; label: string }>,
 ): Promise<Array<{ id: string; label: string }>> {
@@ -123,7 +189,7 @@ async function enrichClaudeModelsFromSettings(
 }
 
 export async function listAgentModelInventory(agentId: RuntimeAgentId): Promise<RuntimeAgentModelInventory> {
-	if (agentId !== "claude" && agentId !== "cursor") {
+	if (agentId !== "claude" && agentId !== "cursor" && agentId !== "gemini") {
 		return { agentId, models: [], source: "fallback" };
 	}
 
@@ -139,6 +205,13 @@ export async function listAgentModelInventory(agentId: RuntimeAgentId): Promise<
 			inventory = { agentId, models: live, source: "cli" };
 		} else {
 			inventory = { agentId, models: CURSOR_MODEL_FALLBACK, source: "fallback" };
+		}
+	} else if (agentId === "gemini") {
+		const live = await listGeminiModelsFromCli();
+		if (live && live.length > 0) {
+			inventory = { agentId, models: live, source: "cli" };
+		} else {
+			inventory = { agentId, models: GEMINI_MODEL_FALLBACK, source: "fallback" };
 		}
 	} else {
 		const models = await enrichClaudeModelsFromSettings(CLAUDE_MODEL_CATALOG);
