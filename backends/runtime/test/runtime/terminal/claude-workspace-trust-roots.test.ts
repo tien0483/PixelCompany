@@ -35,7 +35,16 @@ describe("claude workspace trust across runtime home roots", () => {
 		expect(shouldAutoConfirmClaudeWorkspaceTrust("claude", "")).toBe(false);
 	});
 
-	it("only applies to Claude Code", () => {
+	it("auto-confirms for gemini, which is also how Antigravity CLI launches", () => {
+		expect(shouldAutoConfirmClaudeWorkspaceTrust("gemini", worktreeUnder(RUNTIME_HOME_PARENT_DIR_NAME))).toBe(true);
+	});
+
+	it("does not auto-confirm for gemini when cwd is empty", () => {
+		expect(shouldAutoConfirmClaudeWorkspaceTrust("gemini", "")).toBe(false);
+	});
+
+	it("leaves agents with their own trust handling alone", () => {
 		expect(shouldAutoConfirmClaudeWorkspaceTrust("codex", worktreeUnder(RUNTIME_HOME_PARENT_DIR_NAME))).toBe(false);
+		expect(shouldAutoConfirmClaudeWorkspaceTrust("cursor", worktreeUnder(RUNTIME_HOME_PARENT_DIR_NAME))).toBe(false);
 	});
 });

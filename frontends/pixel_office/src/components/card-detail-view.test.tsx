@@ -379,12 +379,12 @@ describe("CardDetailView", () => {
 			expandButton.click();
 		});
 
-		const collapseButton = container.querySelector(
-			'button[aria-label="Collapse expanded diff view"]',
+		const toolbarButtons = Array.from(container.querySelectorAll("button"));
+		expect(toolbarButtons[0]?.getAttribute("aria-label")).toBe(
+			"Collapse expanded diff view",
 		);
-		expect(collapseButton).toBeInstanceOf(HTMLButtonElement);
-		expect(container.textContent).toContain("All Changes");
-		expect(container.textContent).toContain("Last Turn");
+		expect(toolbarButtons[1]?.textContent?.trim()).toBe("All Changes");
+		expect(toolbarButtons[2]?.textContent?.trim()).toBe("Last Turn");
 		expect(
 			container.querySelector('button[aria-label="Expand split diff view"]'),
 		).toBeNull();
@@ -1274,12 +1274,14 @@ describe("CardDetailView", () => {
 		expect(onRestartTaskSession).toHaveBeenCalledWith("task-1");
 	});
 
-	it("keeps Task configuration collapsed by default so the terminal view has full height", async () => {
+	it("opens Task configuration for a card that has not run yet", async () => {
 		await act(async () => {
 			root.render(
 				<CardDetailView
 					selection={createSelection()}
 					currentProjectId="workspace-1"
+					// App never passes null here: an unstarted card gets a placeholder idle
+					// summary, which is what used to leave the section collapsed.
 					sessionSummary={createSessionSummary({
 						state: "idle",
 						startedAt: null,
@@ -1297,16 +1299,11 @@ describe("CardDetailView", () => {
 			);
 		});
 
-		const toggle = container.querySelector(
-			'[data-testid="task-config-toggle"]',
-		);
-		expect(toggle?.getAttribute("aria-expanded")).toBe("false");
-
-		await act(async () => {
-			(toggle as HTMLButtonElement).click();
-		});
-
-		expect(toggle?.getAttribute("aria-expanded")).toBe("true");
+		expect(
+			container
+				.querySelector('[data-testid="task-config-toggle"]')
+				?.getAttribute("aria-expanded"),
+		).toBe("true");
 	});
 
 	it("offers a restart when the card's subagent seat drifted from the running session", async () => {

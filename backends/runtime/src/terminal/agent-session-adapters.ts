@@ -877,8 +877,14 @@ const claudeAdapter: AgentSessionAdapter = {
 		const withPromptLaunch = withPrompt(args, input.prompt, "append");
 		const promptFileCleanup = cleanupAppendedPromptFile;
 		const existingCleanup = withPromptLaunch.cleanup;
-		await ensureClaudeTrustedFolder(input.cwd, env[CLAUDE_CONFIG_DIR_ENV]);
-		await ensureGeminiTrustedFolder(input.cwd);
+		// A skill-scoped dir (set above) wins, then whatever seat the card resolved to
+		// (`input.env`), and only an unpinned session falls through to `$HOME/.claude.json`.
+		// Reading `env` alone missed the pinned-seat case entirely, so trust was written to
+		// the one file that session would not read.
+		await ensureClaudeTrustedFolder(
+			input.cwd,
+			env[CLAUDE_CONFIG_DIR_ENV] ?? input.env?.[CLAUDE_CONFIG_DIR_ENV] ?? null,
+		);
 
 		const runCleanups = async () => {
 			await existingCleanup?.();
@@ -990,40 +996,70 @@ const codexAdapter: AgentSessionAdapter = {
 	},
 };
 
+interface ClaudeProjectTrustEntry {
+	hasTrustDialogAccepted?: boolean;
+	hasCompletedProjectOnboarding?: boolean;
+	projectOnboardingSeenCount?: number;
+}
+
+interface ClaudeConfigFile {
+	projects?: Record<string, ClaudeProjectTrustEntry | undefined>;
+	[key: string]: unknown;
+}
+
+function asPlainObject(value: unknown): Record<string, unknown> | null {
+	return typeof value === "object" && value !== null && !Array.isArray(value)
+		? (value as Record<string, unknown>)
+		: null;
+}
+
+/**
+ * Pre-accepts Claude Code's folder-trust prompt for `cwd` so a task session does not
+ * stall on it.
+ *
+ * Writes exactly ONE file: the config the session will actually launch with. Touching
+ * `$HOME/.claude.json` *in addition* to a pinned seat's copy was pure risk — that file is
+ * Claude Code's live config and it rewrites the whole thing continuously, so a
+ * read-modify-write races the user's own running sessions and an atomic replace built
+ * from a stale read silently drops whatever landed in between (history, MCP config,
+ * onboarding state). The seat dir is the file the CLI reads, so the home write had no
+ * effect there anyway.
+ */
 async function ensureClaudeTrustedFolder(cwd: string, configDir?: string | null): Promise<void> {
 	const targetPath = cwd?.trim();
 	if (!targetPath) {
 		return;
 	}
-	const configPaths = [join(homedir(), ".claude.json")];
-	if (configDir?.trim()) {
-		configPaths.push(join(configDir.trim(), ".claude.json"));
-	}
-	for (const configPath of configPaths) {
-		try {
-			let current: Record<string, any> = {};
-			try {
-				const raw = await readFile(configPath, "utf8");
-				current = JSON.parse(raw) as Record<string, any>;
-			} catch {
-				current = {};
+	const scopedConfigDir = configDir?.trim();
+	const configPath = join(scopedConfigDir ? scopedConfigDir : homedir(), ".claude.json");
+	try {
+		// One lock spanning read *and* write: two task launches racing each other would
+		// otherwise each write from its own pre-read snapshot and lose the other's entry.
+		await lockedFileSystem.withLock({ path: configPath, type: "file" }, async () => {
+			const raw = await readOptionalTextFile(configPath);
+			const current = (raw === null ? null : asPlainObject(JSON.parse(raw) as unknown)) ?? {};
+			const projects = (asPlainObject(current.projects) as ClaudeConfigFile["projects"]) ?? {};
+			const existing = projects[targetPath] ?? {};
+			if (existing.hasTrustDialogAccepted === true && existing.hasCompletedProjectOnboarding === true) {
+				return;
 			}
-			if (!current.projects || typeof current.projects !== "object" || Array.isArray(current.projects)) {
-				current.projects = {};
-			}
-			const existing = current.projects[targetPath] || {};
-			if (!existing.hasTrustDialogAccepted || !existing.hasCompletedProjectOnboarding) {
-				current.projects[targetPath] = {
-					...existing,
-					hasTrustDialogAccepted: true,
-					hasCompletedProjectOnboarding: true,
-					projectOnboardingSeenCount: Math.max(existing.projectOnboardingSeenCount ?? 0, 1),
-				};
-				await ensureTextFile(configPath, JSON.stringify(current, null, 2));
-			}
-		} catch {
-			// Best effort: failure to update claude.json should not block CLI startup
-		}
+			const next: ClaudeConfigFile = {
+				...current,
+				projects: {
+					...projects,
+					[targetPath]: {
+						...existing,
+						hasTrustDialogAccepted: true,
+						hasCompletedProjectOnboarding: true,
+						projectOnboardingSeenCount: Math.max(existing.projectOnboardingSeenCount ?? 0, 1),
+					},
+				},
+			};
+			// The lock is already held for this path — re-locking it here would deadlock.
+			await lockedFileSystem.writeTextFileAtomic(configPath, JSON.stringify(next, null, 2), { lock: null });
+		});
+	} catch {
+		// Best effort: failure to pre-accept trust should not block CLI startup.
 	}
 }
 
@@ -1070,14 +1106,18 @@ const geminiAdapter: AgentSessionAdapter = {
 			allowedEfforts: ["low", "medium", "high"],
 		});
 
+		// Gemini and Antigravity both keep folder trust in `~/.gemini/trustedFolders.json`
+		// (agy's own state lives under `~/.gemini/antigravity-cli/`). Neither reads
+		// `~/.claude.json`, so writing it here only put the user's live Claude Code config
+		// at risk for no gain.
 		await ensureGeminiTrustedFolder(input.cwd);
-		await ensureClaudeTrustedFolder(input.cwd);
 
+		const binaryPath = input.binary ?? "";
 		const isAgy =
-			input.binary === "agy" ||
-			input.binary === "antigravity" ||
-			input.binary.endsWith("/agy") ||
-			input.binary.endsWith("/antigravity");
+			binaryPath === "agy" ||
+			binaryPath === "antigravity" ||
+			binaryPath.endsWith("/agy") ||
+			binaryPath.endsWith("/antigravity");
 
 		if (isAgy) {
 			// Translate any explicit or preset --yolo flag to agy's native YOLO mode

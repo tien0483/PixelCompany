@@ -470,7 +470,6 @@ export function CardDetailView({
 	onEditTask,
 	onSaveTaskTitle,
 	onCommitTask,
-	onMergeTask,
 	onOpenPrTask,
 	onAgentCommitTask,
 	onAgentOpenPrTask,
@@ -478,7 +477,6 @@ export function CardDetailView({
 	onRestoreTaskFromTrash,
 	onCancelAutomaticTaskAction,
 	commitTaskLoadingById,
-	mergeTaskLoadingById,
 	openPrTaskLoadingById,
 	agentCommitTaskLoadingById,
 	agentOpenPrTaskLoadingById,
@@ -547,7 +545,6 @@ export function CardDetailView({
 	onEditTask?: (card: BoardCard) => void;
 	onSaveTaskTitle?: (taskId: string, title: string) => void;
 	onCommitTask?: (taskId: string) => void;
-	onMergeTask?: (taskId: string) => void;
 	onOpenPrTask?: (taskId: string) => void;
 	onAgentCommitTask?: (taskId: string) => void;
 	onAgentOpenPrTask?: (taskId: string) => void;
@@ -555,7 +552,6 @@ export function CardDetailView({
 	onRestoreTaskFromTrash?: (taskId: string) => void;
 	onCancelAutomaticTaskAction?: (taskId: string) => void;
 	commitTaskLoadingById?: Record<string, boolean>;
-	mergeTaskLoadingById?: Record<string, boolean>;
 	openPrTaskLoadingById?: Record<string, boolean>;
 	agentCommitTaskLoadingById?: Record<string, boolean>;
 	agentOpenPrTaskLoadingById?: Record<string, boolean>;
@@ -649,7 +645,6 @@ export function CardDetailView({
 	const { devtoolsUrl } = useStackDevtools(true);
 	const wasPlanReadyRef = useRef(false);
 	const [isDiffExpanded, setIsDiffExpanded] = useState(false);
-	const [isAgentExpanded, setIsAgentExpanded] = useState(false);
 	const [savedPlanTextKey, setSavedPlanTextKey] = useState<string | null>(null);
 	const { savePlan, isSaving: isSavingPlan } =
 		useSavePlanFromSession(currentProjectId);
@@ -660,10 +655,21 @@ export function CardDetailView({
 	const planTextForSave = sessionSummary?.latestHookActivity?.planText ?? null;
 	const planAlreadySaved =
 		typeof planTextForSave === "string" && savedPlanTextKey === planTextForSave;
-	const [isTaskConfigExpanded, setIsTaskConfigExpanded] = useState(false);
+	// A card that has not run yet opens with its configuration in view. Testing for a
+	// missing summary is not enough: callers pass a placeholder idle summary rather than
+	// null, which used to leave the section collapsed for every card.
+	const isTaskUnstarted =
+		!sessionSummary ||
+		(sessionSummary.state === "idle" && sessionSummary.startedAt === null);
+	const [isTaskConfigExpanded, setIsTaskConfigExpanded] =
+		useState(isTaskUnstarted);
 	const selectedCardId = selection.card.id;
+	const isTaskUnstartedRef = useRef(isTaskUnstarted);
+	isTaskUnstartedRef.current = isTaskUnstarted;
 	useEffect(() => {
-		setIsTaskConfigExpanded(false);
+		// The panel stays mounted across selections, so re-apply the default per card —
+		// but only on that switch, or starting the task would fold it back up mid-edit.
+		setIsTaskConfigExpanded(isTaskUnstartedRef.current);
 	}, [selectedCardId]);
 	useEffect(() => {
 		if (planReadyForSave && planTextForSave && !wasPlanReadyRef.current) {
@@ -907,12 +913,8 @@ export function CardDetailView({
 					event.preventDefault();
 					setIsDiffExpanded(false);
 				}
-				if (isAgentExpanded) {
-					event.preventDefault();
-					setIsAgentExpanded(false);
-				}
 			},
-			[gitHistoryPanel, isAgentExpanded, isDiffExpanded, onCloseGitHistory],
+			[gitHistoryPanel, isDiffExpanded, onCloseGitHistory],
 		),
 	);
 
@@ -938,40 +940,14 @@ export function CardDetailView({
 	useEffect(() => {
 		setDiffComments(new Map());
 		setDiffMode("working_copy");
-		setIsAgentExpanded(false);
 	}, [selection.card.id]);
 
 	const handleToggleDiffExpand = useCallback(() => {
 		if (!isDiffExpanded && bottomTerminalOpen) {
 			onBottomTerminalClose();
 		}
-		if (!isDiffExpanded && isAgentExpanded) {
-			setIsAgentExpanded(false);
-		}
 		setIsDiffExpanded((previous) => !previous);
-	}, [bottomTerminalOpen, isAgentExpanded, isDiffExpanded, onBottomTerminalClose]);
-
-	const handleToggleAgentExpand = useCallback(() => {
-		if (!isAgentExpanded && bottomTerminalOpen) {
-			onBottomTerminalClose();
-		}
-		if (!isAgentExpanded && isDiffExpanded) {
-			setIsDiffExpanded(false);
-		}
-		setIsAgentExpanded((previous) => !previous);
-	}, [bottomTerminalOpen, isAgentExpanded, isDiffExpanded, onBottomTerminalClose]);
-
-	useHotkeys(
-		"ctrl+m,meta+m",
-		() => {
-			handleToggleAgentExpand();
-		},
-		{
-			ignoreEventWhen: (event) => isTypingTarget(event.target),
-			preventDefault: true,
-		},
-		[handleToggleAgentExpand],
-	);
+	}, [bottomTerminalOpen, isDiffExpanded, onBottomTerminalClose]);
 
 	const handleAddDiffComments = useCallback(
 		(formatted: string) => {
@@ -1051,13 +1027,7 @@ export function CardDetailView({
 					? () => onAgentCommitTask(selection.card.id)
 					: undefined
 			}
-			onMerge={
-				onMergeTask
-					? () => onMergeTask(selection.card.id)
-					: undefined
-			}
 			isCommitLoading={agentCommitTaskLoadingById?.[selection.card.id] ?? false}
-			isMergeLoading={mergeTaskLoadingById?.[selection.card.id] ?? false}
 			showSessionToolbar={false}
 			autoFocus
 			showMoveToTrash={showMoveToTrashActions}
@@ -1078,8 +1048,6 @@ export function CardDetailView({
 			cursorColor={terminalThemeColors.textPrimary}
 			taskColumnId={selection.column.id}
 			onResumeEndedSession={onResumeEndedSession}
-			isExpanded={isAgentExpanded}
-			onToggleExpand={handleToggleAgentExpand}
 		/>
 	);
 
@@ -1191,7 +1159,7 @@ export function CardDetailView({
 			ref={detailLayoutRef}
 			className="flex min-h-0 flex-1 overflow-hidden bg-surface-0"
 		>
-			{!isDiffExpanded && !isAgentExpanded ? (
+			{!isDiffExpanded ? (
 				<>
 					<div
 						className="flex min-h-0 min-w-0"
@@ -1238,12 +1206,7 @@ export function CardDetailView({
 			) : null}
 			<div
 				className="flex min-h-0 min-w-0 flex-col overflow-hidden"
-				style={{
-					width:
-						isDiffExpanded || isAgentExpanded
-							? "100%"
-							: detailContentPanelPercent,
-				}}
+				style={{ width: isDiffExpanded ? "100%" : detailContentPanelPercent }}
 			>
 				{gitHistoryPanel ? (
 					<div className="flex min-h-0 flex-1 overflow-hidden">
@@ -1437,16 +1400,15 @@ export function CardDetailView({
 							className="flex min-h-0 flex-1 overflow-hidden"
 						>
 							<div
-								className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
+								className="min-h-0 min-w-0"
 								style={{
 									display: isDiffExpanded ? "none" : "flex",
-									width: isAgentExpanded ? "100%" : agentPanelPercent,
-									flex: isAgentExpanded ? "1 1 100%" : "none",
+									width: agentPanelPercent,
 								}}
 							>
 								{agentChatPanel}
 							</div>
-							{!isDiffExpanded && !isAgentExpanded ? (
+							{!isDiffExpanded ? (
 								<ResizeHandle
 									orientation="vertical"
 									ariaLabel="Resize agent and diff panels"
@@ -1455,12 +1417,8 @@ export function CardDetailView({
 								/>
 							) : null}
 							<div
-								className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
-								style={{
-									display: isAgentExpanded ? "none" : "flex",
-									width: isDiffExpanded ? "100%" : diffPanelPercent,
-									flex: isDiffExpanded ? "1 1 100%" : "none",
-								}}
+								className="flex min-h-0 min-w-0 flex-col"
+								style={{ width: isDiffExpanded ? "100%" : diffPanelPercent }}
 							>
 								{isRuntimeAvailable ||
 								(planReadyForSave && planTextForSave) ||
@@ -1487,10 +1445,7 @@ export function CardDetailView({
 									) : diffPanelView === "plan" &&
 										planReadyForSave &&
 										planTextForSave ? (
-										<div
-											data-testid="save-plan-panel"
-											className="flex min-h-0 flex-1 flex-col overflow-hidden"
-										>
+										<div className="flex min-h-0 flex-1 flex-col overflow-hidden">
 											<div className="flex shrink-0 items-center justify-between gap-2 border-b border-border px-3 py-2">
 												<span className="text-[12px] font-medium text-text-primary">
 													Plan ready for review
