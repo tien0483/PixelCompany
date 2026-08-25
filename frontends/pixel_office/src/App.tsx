@@ -1376,6 +1376,8 @@ export default function App(): ReactElement {
 									key={`${reviewTarget.host}-${reviewTarget.projectId}-${reviewTarget.iid}`}
 									target={reviewTarget}
 									workspaceId={currentProjectId}
+									managerAccounts={managedManagerAccounts}
+									managerActiveAccountId={manager?.activeAccountId ?? null}
 									localRepoPath={navigationProjectPath ?? workspacePath ?? undefined}
 									onClose={() => setReviewTarget(null)}
 								/>

@@ -1,14 +1,20 @@
-import { describe, expect, it } from "vitest";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { readFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import type { RuntimeReviewRule } from "../../../src/core/api-contract";
+import { buildChatPrompt, formatDiffsForPrompt, formatRulesForPrompt } from "../../../src/review/review-prompts";
 import {
 	buildRulesBundle,
+	getReviewRulesPath,
 	parseAuditFindings,
 	parseExtractedRules,
+	persistExtractedRules,
 	REVIEW_RULES_BUNDLE_VERSION,
 	toProjectKeyFileName,
 } from "../../../src/review/review-rules";
-import { buildChatPrompt, formatDiffsForPrompt, formatRulesForPrompt } from "../../../src/review/review-prompts";
 
 const VALID_RULE = {
 	id: "RES-02",
@@ -103,6 +109,76 @@ describe("buildRulesBundle", () => {
 		const bundle = buildRulesBundle({ projectKey: "app", sourceRoots: ["/docs"], rules });
 		expect(bundle.version).toBe(REVIEW_RULES_BUNDLE_VERSION);
 		expect(bundle.rules).toHaveLength(1);
+	});
+});
+
+describe("persistExtractedRules", () => {
+	let agentDataRoot: string;
+	let previousOverride: string | undefined;
+
+	beforeEach(() => {
+		// `PIXELOFFICE_AGENT_DATA` points at an `agent-data/` directory that must hold a
+		// manifest for the walk to accept it; the content is never read here.
+		const tmp = mkdtempSync(join(tmpdir(), "review-rules-"));
+		agentDataRoot = join(tmp, "agent-data");
+		mkdirSync(agentDataRoot, { recursive: true });
+		writeFileSync(join(agentDataRoot, "manifest.json"), '{"version":1,"sources":[]}', "utf-8");
+		previousOverride = process.env.PIXELOFFICE_AGENT_DATA;
+		process.env.PIXELOFFICE_AGENT_DATA = agentDataRoot;
+	});
+
+	afterEach(() => {
+		if (previousOverride === undefined) {
+			delete process.env.PIXELOFFICE_AGENT_DATA;
+		} else {
+			process.env.PIXELOFFICE_AGENT_DATA = previousOverride;
+		}
+		rmSync(join(agentDataRoot, ".."), { recursive: true, force: true });
+	});
+
+	it("writes the bundle the audit reads back", async () => {
+		const result = await persistExtractedRules({
+			projectKey: "team/app",
+			sourceRoots: ["/repo/docs"],
+			text: JSON.stringify([VALID_RULE]),
+		});
+		expect(result).toEqual({ saved: 1, dropped: 0 });
+
+		const written: unknown = JSON.parse(await readFile(getReviewRulesPath("team/app"), "utf-8"));
+		expect(written).toMatchObject({
+			version: REVIEW_RULES_BUNDLE_VERSION,
+			projectKey: "team/app",
+			sourceRoots: ["/repo/docs"],
+		});
+		expect((written as { rules: RuntimeReviewRule[] }).rules.map((rule) => rule.id)).toEqual(["RES-02"]);
+	});
+
+	it("leaves an existing bundle alone when the agent answered in prose", async () => {
+		await persistExtractedRules({
+			projectKey: "app",
+			sourceRoots: ["/repo/docs"],
+			text: JSON.stringify([VALID_RULE]),
+		});
+		const result = await persistExtractedRules({
+			projectKey: "app",
+			sourceRoots: ["/repo/docs"],
+			text: "I could not read those files.",
+		});
+
+		// A zero-rule write would disarm every later audit under a bundle that claims
+		// the project has no rules.
+		expect(result).toEqual({ saved: 0, dropped: 0 });
+		const written: unknown = JSON.parse(await readFile(getReviewRulesPath("app"), "utf-8"));
+		expect((written as { rules: RuntimeReviewRule[] }).rules).toHaveLength(1);
+	});
+
+	it("still reports the rules it dropped alongside the ones it kept", async () => {
+		const result = await persistExtractedRules({
+			projectKey: "app",
+			sourceRoots: [],
+			text: JSON.stringify([VALID_RULE, { id: "X", title: "no source path" }]),
+		});
+		expect(result).toEqual({ saved: 1, dropped: 1 });
 	});
 });
 

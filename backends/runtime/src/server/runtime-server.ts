@@ -51,7 +51,7 @@ import {
 } from "../review/review-agent-args";
 import { buildAuditPrompt, buildChatPrompt, buildRulesExtractPrompt } from "../review/review-prompts";
 import { handleAgentStreamRoute } from "../review/review-stream-route";
-import { readReviewRulesBundle } from "../review/review-rules";
+import { persistExtractedRules, readReviewRulesBundle } from "../review/review-rules";
 import { HTML_NO_TOOLS, resolveHtmlAgentCwd, resolveHtmlAllowedTools } from "../html/html-agent-args";
 import { buildBriefPrompt, loadPromptMasterBody } from "../html/html-brief";
 import type { HtmlClient, HtmlPromptFailure } from "../html/html-client";
@@ -1237,6 +1237,15 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 						model: input.model,
 						allowedTools: REVIEW_RULES_EXTRACT_ALLOWED_TOOLS,
 						managerAccountId: input.managerAccountId,
+						// The stream is the reviewer's progress view; this is what the audit
+						// actually reads back.
+						onComplete: async (text) => {
+							await persistExtractedRules({
+								projectKey: input.projectKey,
+								sourceRoots: input.sourceRoots,
+								text,
+							});
+						},
 					}),
 				});
 				return;

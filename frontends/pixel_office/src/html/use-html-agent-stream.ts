@@ -13,6 +13,24 @@ export interface HtmlStreamState {
 	doneAt: number | null;
 }
 
+/**
+ * These routes reject with `{"error": "..."}` before the stream opens. Showing the
+ * raw body would put `HTTP 409: {"error":"No rules have been extracted…"}` in front
+ * of the user, so the sentence is unwrapped when it is there and the status kept as
+ * the prefix — a 413 with an empty body still has to say something.
+ */
+function describeHttpFailure(status: number, body: string): string {
+	try {
+		const parsed: unknown = JSON.parse(body);
+		if (typeof parsed === "object" && parsed !== null && typeof (parsed as { error?: unknown }).error === "string") {
+			return (parsed as { error: string }).error;
+		}
+	} catch {
+		// Not JSON — fall through to the raw body.
+	}
+	return `HTTP ${status}: ${body}`;
+}
+
 const INITIAL: HtmlStreamState = {
 	status: "idle",
 	text: "",
@@ -119,7 +137,7 @@ export function useHtmlAgentStream<TRequest>(endpoint: string) {
 				});
 				if (!res.ok || !res.body) {
 					const text = await res.text().catch(() => res.statusText);
-					throw new Error(`HTTP ${res.status}: ${text}`);
+					throw new Error(describeHttpFailure(res.status, text));
 				}
 
 				const reader = res.body.getReader();

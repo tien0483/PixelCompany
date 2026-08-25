@@ -1,4 +1,4 @@
-import { Quote, RefreshCw, Search } from "lucide-react";
+import { FolderTree, Plus, Quote, RefreshCw, Search, Trash2 } from "lucide-react";
 import { type ReactElement, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -18,19 +18,43 @@ export function ReviewRulesPanel({
 	generatedAt,
 	isExtracting,
 	canCite,
+	sourceRoots,
+	isSavingSourceRoots,
+	suggestedSourceRoot,
 	onCite,
 	onRefresh,
+	onSaveSourceRoots,
 }: {
 	rules: RuntimeReviewRule[];
 	generatedAt: string | null;
 	isExtracting: boolean;
 	/** False when no comment composer is open, so "Cite" would have nowhere to land. */
 	canCite: boolean;
+	/** Guideline paths the extraction agent reads. Extraction cannot run while empty. */
+	sourceRoots: string[];
+	isSavingSourceRoots: boolean;
+	/** The reviewer's local checkout, offered as the first path. Absent in the standalone app. */
+	suggestedSourceRoot?: string;
 	onCite: (ruleId: string) => void;
 	onRefresh: () => void;
+	onSaveSourceRoots: (sourceRoots: string[]) => void;
 }): ReactElement {
 	const [query, setQuery] = useState("");
 	const [category, setCategory] = useState<string | null>(null);
+	const [draftRoot, setDraftRoot] = useState("");
+	// Open by default when nothing is configured: that is the state in which the
+	// panel is otherwise a dead end, and the section is the only way out of it.
+	const [isSourcesOpen, setIsSourcesOpen] = useState(sourceRoots.length === 0);
+
+	const addDraftRoot = (): void => {
+		const root = draftRoot.trim();
+		if (root.length === 0 || sourceRoots.includes(root)) {
+			setDraftRoot("");
+			return;
+		}
+		onSaveSourceRoots([...sourceRoots, root]);
+		setDraftRoot("");
+	};
 
 	const categories = useMemo(() => {
 		const seen = new Set<string>();
@@ -88,11 +112,96 @@ export function ReviewRulesPanel({
 			</div>
 
 			<div className="min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain p-2">
+				<div className="rounded-md border border-border bg-surface-2">
+					<button
+						type="button"
+						onClick={() => setIsSourcesOpen((open) => !open)}
+						className="flex w-full cursor-pointer items-center justify-between gap-2 px-2 py-1.5 text-[11px] font-semibold text-text-primary"
+					>
+						<span className="flex items-center gap-1.5">
+							<FolderTree size={11} className="text-accent" />
+							Rule sources
+						</span>
+						<span className="text-[10px] font-normal text-text-tertiary">
+							{sourceRoots.length === 0 ? "none set" : `${sourceRoots.length} path${sourceRoots.length === 1 ? "" : "s"}`}
+						</span>
+					</button>
+
+					{isSourcesOpen ? (
+						<div className="space-y-1.5 border-t border-border p-2">
+							<p className="text-[10px] leading-snug text-text-tertiary">
+								Guideline documents and lint configuration the extraction agent reads. Files or
+								directories, absolute paths.
+							</p>
+
+							{sourceRoots.map((root) => (
+								<div
+									key={root}
+									className="flex items-center justify-between gap-1 rounded border border-border bg-surface-1 px-1.5 py-1"
+								>
+									<span className="truncate font-mono text-[10px] text-text-secondary" title={root}>
+										{root}
+									</span>
+									<button
+										type="button"
+										aria-label={`Remove ${root}`}
+										disabled={isSavingSourceRoots}
+										className="shrink-0 cursor-pointer text-text-tertiary hover:text-status-red disabled:opacity-40"
+										onClick={() => onSaveSourceRoots(sourceRoots.filter((entry) => entry !== root))}
+									>
+										<Trash2 size={11} />
+									</button>
+								</div>
+							))}
+
+							<div className="flex gap-1">
+								<input
+									type="text"
+									value={draftRoot}
+									onChange={(event) => setDraftRoot(event.target.value)}
+									onKeyDown={(event) => {
+										if (event.key === "Enter") {
+											event.preventDefault();
+											addDraftRoot();
+										}
+									}}
+									placeholder="/path/to/docs or CONTRIBUTING.md"
+									aria-label="Add a rule source path"
+									className="min-w-0 flex-1 rounded border border-border bg-surface-0 px-1.5 py-1 font-mono text-[10px] text-text-primary placeholder:text-text-tertiary focus:border-border-focus focus:outline-none"
+								/>
+								<Button
+									variant="default"
+									size="sm"
+									icon={<Plus size={11} />}
+									disabled={isSavingSourceRoots || draftRoot.trim().length === 0}
+									onClick={addDraftRoot}
+								>
+									Add
+								</Button>
+							</div>
+
+							{/* One click for the common case — the repo the reviewer already has open. */}
+							{suggestedSourceRoot && !sourceRoots.includes(suggestedSourceRoot) ? (
+								<button
+									type="button"
+									disabled={isSavingSourceRoots}
+									onClick={() => onSaveSourceRoots([...sourceRoots, suggestedSourceRoot])}
+									className="w-full cursor-pointer truncate rounded border border-dashed border-border px-1.5 py-1 text-left font-mono text-[10px] text-text-tertiary hover:text-text-primary disabled:opacity-40"
+									title={suggestedSourceRoot}
+								>
+									+ this project: {suggestedSourceRoot}
+								</button>
+							) : null}
+						</div>
+					) : null}
+				</div>
+
 				{rules.length === 0 ? (
 					<div className="space-y-2 px-1 py-2">
 						<p className="text-xs text-text-tertiary">
 							No rules have been extracted for this project yet. Extraction reads your team's guideline
 							documents and lint configuration and turns them into citable rules.
+							{sourceRoots.length === 0 ? " Add a rule source above to enable it." : ""}
 						</p>
 					</div>
 				) : null}
@@ -157,7 +266,11 @@ export function ReviewRulesPanel({
 					variant="default"
 					size="sm"
 					icon={isExtracting ? <Spinner size={12} /> : <RefreshCw size={12} />}
-					disabled={isExtracting}
+					// Disabled rather than failing on click: extraction with no source roots
+					// has nothing to read, and the reason belongs on the control, not in a
+					// toast that points at a panel the reviewer is already looking at.
+					disabled={isExtracting || sourceRoots.length === 0}
+					title={sourceRoots.length === 0 ? "Add a rule source first" : undefined}
 					onClick={onRefresh}
 				>
 					{isExtracting ? "Extracting…" : rules.length === 0 ? "Extract rules" : "Refresh"}
