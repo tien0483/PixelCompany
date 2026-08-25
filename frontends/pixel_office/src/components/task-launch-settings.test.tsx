@@ -76,6 +76,67 @@ describe("TaskLaunchSettingsPicker", () => {
 		expect(container.querySelector('[data-testid="task-launch-settings"]')).toBeNull();
 	});
 
+	// Picking an API-key seat switches the card to the Cline agent while this
+	// component stays mounted. Hooks below the `showForAgent` early return used to
+	// drop out of the render, which React reports as error #300.
+	it("survives switching from Claude to an agent without launch settings", async () => {
+		const onChange = vi.fn();
+		await act(async () => {
+			renderUi(
+				<TaskLaunchSettingsPicker active agentId="claude" value={undefined} onChange={onChange} />,
+			);
+		});
+		await act(async () => {
+			await Promise.resolve();
+		});
+		expect(container.querySelector('[data-testid="task-launch-settings"]')).toBeTruthy();
+
+		await act(async () => {
+			renderUi(
+				<TaskLaunchSettingsPicker active agentId="cline" value={undefined} onChange={onChange} />,
+			);
+		});
+		expect(container.querySelector('[data-testid="task-launch-settings"]')).toBeNull();
+
+		// ...and back again, which is the "rendered more hooks" direction.
+		await act(async () => {
+			renderUi(
+				<TaskLaunchSettingsPicker active agentId="claude" value={undefined} onChange={onChange} />,
+			);
+		});
+		expect(container.querySelector('[data-testid="task-launch-settings"]')).toBeTruthy();
+	});
+
+	it("drops the model tag when the card moves to an agent without launch settings", async () => {
+		const onChange = vi.fn();
+		await act(async () => {
+			renderUi(
+				<TaskLaunchSettingsPicker
+					active
+					agentId="claude"
+					value={{ modelId: "opus", skillIds: ["review"] } satisfies RuntimeTaskLaunchSettings}
+					onChange={onChange}
+				/>,
+			);
+		});
+		await act(async () => {
+			await Promise.resolve();
+		});
+		onChange.mockClear();
+
+		await act(async () => {
+			renderUi(
+				<TaskLaunchSettingsPicker
+					active
+					agentId="cline"
+					value={{ modelId: "opus", skillIds: ["review"] } satisfies RuntimeTaskLaunchSettings}
+					onChange={onChange}
+				/>,
+			);
+		});
+		expect(onChange).toHaveBeenCalledWith({ skillIds: ["review"] });
+	});
+
 	it("attaches and detaches skill chips", async () => {
 		const onChange = vi.fn();
 		await act(async () => {

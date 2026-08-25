@@ -385,10 +385,6 @@ export function TaskLaunchSettingsPicker({
 	const attachedWorkflowIds = draft?.workflowIds ?? [];
 	const attachedMcpIds = draft?.mcpServerIds ?? [];
 
-	if (!showForAgent) {
-		return null;
-	}
-
 	const commit = (next: RuntimeTaskLaunchSettings | undefined) => {
 		const cloned = cloneLaunchSettings(next);
 		draftKeyRef.current = launchSettingsKey(cloned);
@@ -396,6 +392,9 @@ export function TaskLaunchSettingsPicker({
 		emitSettings(cloned, onChange);
 	};
 
+	// Stays above the `showForAgent` early return: agents without launch settings
+	// (cline, antigravity) render this component as null, and a hook below the
+	// return would change the hook count mid-mount — React error #300.
 	const prevAgentIdRef = useRef(effectiveAgentId);
 	useEffect(() => {
 		if (prevAgentIdRef.current !== effectiveAgentId) {
@@ -414,6 +413,10 @@ export function TaskLaunchSettingsPicker({
 			}
 		}
 	}, [draft, effectiveAgentId]);
+
+	if (!showForAgent) {
+		return null;
+	}
 
 	const update = (patch: Partial<RuntimeTaskLaunchSettings> | null) => {
 		if (patch === null) {
