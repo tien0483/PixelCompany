@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
 import { Dialog, DialogBody, DialogFooter, DialogHeader } from "@/components/ui/dialog";
 import { Spinner } from "@/components/ui/spinner";
+import { formatDraftLineLabel } from "@/review/review-target";
 import type { RuntimeReviewDraftComment } from "@/runtime/types";
 
 export type ReviewSubmitAction = "approve" | "comment" | "request_changes";
@@ -114,7 +115,7 @@ export function ReviewSubmitDialog({
 						{draftComments.slice(0, 5).map((draft) => (
 							<div key={draft.id} className="truncate font-mono text-[10px] text-text-tertiary">
 								{draft.newPath}
-								{draft.newLine !== null ? `:${draft.newLine}` : draft.oldLine !== null ? `:-${draft.oldLine}` : ""}
+								{formatDraftLineLabel(draft)}
 							</div>
 						))}
 						{draftComments.length > 5 ? (

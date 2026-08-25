@@ -108,6 +108,41 @@ export function countReviewProgress(input: {
 	};
 }
 
+/**
+ * The file to open after the reviewer finishes reading the current one.
+ *
+ * Walks forward from the active file and wraps once, so a reviewer who jumped
+ * back to file 2 still reaches the unreviewed file 9 instead of dead-ending. The
+ * active path is never returned — reaching the bottom of a file must not
+ * "advance" onto itself — and neither is any file already marked reviewed.
+ * Returns null when there is nowhere left to go, which the caller reads as
+ * "stay put".
+ */
+export function selectNextUnreviewedPath(input: {
+	files: RuntimeGitlabDiffFile[];
+	reviewedPaths: string[];
+	activePath: string | null;
+}): string | null {
+	if (input.files.length === 0) {
+		return null;
+	}
+	const reviewed = new Set(input.reviewedPaths);
+	const activeIndex = input.files.findIndex((file) => file.newPath === input.activePath);
+	// An unknown active path (a file dropped by a refresh) starts the walk at the top.
+	const start = activeIndex < 0 ? -1 : activeIndex;
+
+	for (let offset = 1; offset <= input.files.length; offset += 1) {
+		const candidate = input.files[(start + offset + input.files.length) % input.files.length];
+		if (!candidate || candidate.newPath === input.activePath) {
+			continue;
+		}
+		if (!reviewed.has(candidate.newPath)) {
+			return candidate.newPath;
+		}
+	}
+	return null;
+}
+
 export function sumDiffStats(files: RuntimeGitlabDiffFile[]): { additions: number; deletions: number } {
 	let additions = 0;
 	let deletions = 0;
@@ -116,6 +151,22 @@ export function sumDiffStats(files: RuntimeGitlabDiffFile[]): { additions: numbe
 		deletions += file.deletions;
 	}
 	return { additions, deletions };
+}
+
+/**
+ * The `:12` / `:-7` / `:2-4` suffix a draft gets in the lists that only have room
+ * for a path. Old-side notes keep their leading `-` so a note on a deleted line is
+ * not read as a post-image line number.
+ */
+export function formatDraftLineLabel(draft: RuntimeReviewDraftComment): string {
+	const isOldSide = draft.newLine === null && draft.oldLine !== null;
+	const end = isOldSide ? draft.oldLine : draft.newLine;
+	if (end === null) {
+		return "";
+	}
+	const start = isOldSide ? draft.lineRange?.startOldLine : draft.lineRange?.startNewLine;
+	const prefix = isOldSide ? ":-" : ":";
+	return start != null && start !== end ? `${prefix}${start}-${end}` : `${prefix}${end}`;
 }
 
 export type ReviewFileStatus = "added" | "deleted" | "renamed" | "modified";

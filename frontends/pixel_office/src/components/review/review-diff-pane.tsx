@@ -1,5 +1,5 @@
 import { Clock, Columns2, FileCode, Loader2, Menu, MessageSquare, Square, SquareCheck } from "lucide-react";
-import { type ReactElement, useCallback, useMemo, useState } from "react";
+import { type ReactElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { ReviewCommentComposer } from "@/components/review/review-comment-composer";
 import {
@@ -22,23 +22,75 @@ import {
 import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
 import { buildLineAnnotations, type ReviewDiffMode, resolveFileStatus } from "@/review/review-target";
-import type { RuntimeGitlabDiffFile, RuntimeGitlabDiscussion, RuntimeReviewDraftComment } from "@/runtime/types";
+import type {
+	RuntimeGitlabDiffFile,
+	RuntimeGitlabDiscussion,
+	RuntimeGitlabNoteLineRange,
+	RuntimeReviewDraftComment,
+} from "@/runtime/types";
 
 export interface ReviewCommentDraftInput {
 	newPath: string;
 	oldPath: string;
 	oldLine: number | null;
 	newLine: number | null;
+	/** Set only for a note dragged across several lines; the lines above are its end. */
+	lineRange?: RuntimeGitlabNoteLineRange;
 	text: string;
 	ruleIds: string[];
 }
 
-/** Which line the composer is open on, and on which side of the split. */
+/**
+ * Which lines the composer is open on, and on which side of the split. The
+ * `oldLine`/`newLine` pair is the *end* of the run, matching how GitLab positions a
+ * range note; `startRowKey` is kept so the selection stays highlighted while the
+ * reviewer types.
+ */
 interface ComposerAnchor {
 	rowKey: string;
+	startRowKey: string;
 	side: SplitDiffSide;
 	oldLine: number | null;
 	newLine: number | null;
+	startOldLine: number | null;
+	startNewLine: number | null;
+}
+
+/** A drag in progress: where it started and which row the pointer is over now. */
+interface DragState {
+	side: SplitDiffSide;
+	anchorKey: string;
+	headKey: string;
+}
+
+/** A resolved, contiguous, single-side run of rows. */
+interface RowRange {
+	keys: Set<string>;
+	start: UnifiedDiffRow;
+	end: UnifiedDiffRow;
+}
+
+/** How close to the bottom counts as "the reviewer finished this file". */
+const END_THRESHOLD_PX = 24;
+/**
+ * How long the diff has to stay at the bottom before advancing. Firing on the
+ * threshold alone advances mid-momentum, which reads as the file being yanked away.
+ */
+const END_DWELL_MS = 350;
+
+/** The old/new line pair a row anchors a note to. A removed row is old-side only. */
+function resolveRowLines(row: UnifiedDiffRow): { oldLine: number | null; newLine: number | null } {
+	if (row.lineNumber == null) {
+		return { oldLine: null, newLine: null };
+	}
+	return row.variant === "removed"
+		? { oldLine: row.lineNumber, newLine: null }
+		: { oldLine: null, newLine: row.lineNumber };
+}
+
+/** `+33` / `-12` — how GitLab labels the ends of a commented range. */
+function formatLineEndpoint(oldLine: number | null, newLine: number | null): string {
+	return newLine !== null ? `+${newLine}` : `-${oldLine ?? "?"}`;
 }
 
 export function ReviewDiffPane({
@@ -57,6 +109,7 @@ export function ReviewDiffPane({
 	onClearCitations,
 	onRemoveCitation,
 	onFetchFullFile,
+	onReachedEnd,
 }: {
 	file: RuntimeGitlabDiffFile | null;
 	mode: ReviewDiffMode;
@@ -74,9 +127,12 @@ export function ReviewDiffPane({
 	onClearCitations: () => void;
 	onRemoveCitation: (ruleId: string) => void;
 	onFetchFullFile?: () => Promise<string | null>;
+	/** Called once the reviewer has dwelt at the bottom of this file's diff. */
+	onReachedEnd?: () => void;
 }): ReactElement {
 	const [composer, setComposer] = useState<ComposerAnchor | null>(null);
 	const [composerText, setComposerText] = useState("");
+	const [drag, setDrag] = useState<DragState | null>(null);
 	const [forceRenderLargeDiff, setForceRenderLargeDiff] = useState(false);
 	const [fullFileContent, setFullFileContent] = useState<string | null>(null);
 	const [isLoadingFullFile, setIsLoadingFullFile] = useState(false);
@@ -89,6 +145,70 @@ export function ReviewDiffPane({
 
 	const rows = useMemo(() => (file ? parsePatchToRows(file.diff) : []), [file]);
 	const displayItems = useMemo(() => buildDisplayItems(rows, expandedBlocks), [expandedBlocks, rows]);
+
+	/** Patch order by row key — a drag has to be orderable regardless of its direction. */
+	const rowIndexByKey = useMemo(() => {
+		const indexes = new Map<string, number>();
+		rows.forEach((row, index) => indexes.set(row.key, index));
+		return indexes;
+	}, [rows]);
+
+	/**
+	 * The contiguous, single-side run of rows between two keys.
+	 *
+	 * GitLab range notes cannot span sides — the two endpoints would name lines in
+	 * different revisions of the file — so the run is clamped at the first row that
+	 * is not commentable on the anchor's side. Walking outwards from the anchor
+	 * rather than between the two indexes is what keeps that clamp on the reviewer's
+	 * side of the gap: dragging past a deletion block in the right column selects up
+	 * to it, not across it.
+	 */
+	const resolveRange = useCallback(
+		(side: SplitDiffSide, anchorKey: string, headKey: string): RowRange | null => {
+			const anchorIndex = rowIndexByKey.get(anchorKey);
+			const headIndex = rowIndexByKey.get(headKey) ?? anchorIndex;
+			if (anchorIndex === undefined || headIndex === undefined) {
+				return null;
+			}
+			const anchorRow = rows[anchorIndex];
+			if (!anchorRow || !isCommentableOnSplitSide(anchorRow, side)) {
+				return null;
+			}
+
+			const keys = new Set<string>([anchorRow.key]);
+			let first = anchorIndex;
+			let last = anchorIndex;
+			const step = headIndex >= anchorIndex ? 1 : -1;
+			for (let index = anchorIndex + step; index !== headIndex + step; index += step) {
+				const row = rows[index];
+				if (!row || !isCommentableOnSplitSide(row, side) || row.lineNumber == null) {
+					break;
+				}
+				keys.add(row.key);
+				first = Math.min(first, index);
+				last = Math.max(last, index);
+			}
+
+			const start = rows[first];
+			const end = rows[last];
+			if (!start || !end) {
+				return null;
+			}
+			return { keys, start, end };
+		},
+		[rowIndexByKey, rows],
+	);
+
+	/** Rows painted as selected: the live drag, or the run the open composer covers. */
+	const selectedRowKeys = useMemo(() => {
+		if (drag) {
+			return resolveRange(drag.side, drag.anchorKey, drag.headKey)?.keys ?? null;
+		}
+		if (composer) {
+			return resolveRange(composer.side, composer.startRowKey, composer.rowKey)?.keys ?? null;
+		}
+		return null;
+	}, [composer, drag, resolveRange]);
 
 	const annotations = useMemo(
 		() =>
@@ -136,6 +256,10 @@ export function ReviewDiffPane({
 		onComposerOpenChange(false);
 	}, [onClearCitations, onComposerOpenChange]);
 
+	/** Read while resolving a gesture, so opening can no-op on the run already shown. */
+	const composerRef = useRef(composer);
+	composerRef.current = composer;
+
 	const openComposer = useCallback(
 		(anchor: ComposerAnchor) => {
 			setComposer(anchor);
@@ -146,20 +270,154 @@ export function ReviewDiffPane({
 		[onClearCitations, onComposerOpenChange],
 	);
 
+	/**
+	 * Opens the composer for a finished drag. A press and release on one row resolves
+	 * to a one-row range, so click-to-comment needs no separate path.
+	 */
+	const openComposerForRange = useCallback(
+		(side: SplitDiffSide, anchorKey: string, headKey: string) => {
+			const range = resolveRange(side, anchorKey, headKey);
+			if (!range) {
+				return;
+			}
+			const open = composerRef.current;
+			if (open && open.side === side && open.rowKey === range.end.key && open.startRowKey === range.start.key) {
+				// The same run as the composer already showing — a press and release inside
+				// one row raises both mouseup and click, and re-opening would wipe the text.
+				return;
+			}
+			const startLines = resolveRowLines(range.start);
+			const endLines = resolveRowLines(range.end);
+			openComposer({
+				rowKey: range.end.key,
+				startRowKey: range.start.key,
+				side,
+				oldLine: endLines.oldLine,
+				newLine: endLines.newLine,
+				startOldLine: startLines.oldLine,
+				startNewLine: startLines.newLine,
+			});
+		},
+		[openComposer, resolveRange],
+	);
+
+	const startDrag = useCallback((side: SplitDiffSide, rowKey: string) => {
+		setDrag({ side, anchorKey: rowKey, headKey: rowKey });
+	}, []);
+
+	const extendDrag = useCallback((side: SplitDiffSide, rowKey: string) => {
+		setDrag((current) => {
+			// A pointer crossing into the other column keeps the run it started in.
+			if (!current || current.side !== side || current.headKey === rowKey) {
+				return current;
+			}
+			if (rowKey !== current.anchorKey) {
+				// The gesture is now a row selection, not a text selection. Dropping the
+				// native one here (rather than preventing it on mousedown) is what keeps
+				// selecting and copying the text of a single line working.
+				window.getSelection()?.removeAllRanges();
+			}
+			return { ...current, headKey: rowKey };
+		});
+	}, []);
+
+	// Release ends the drag wherever it happens, including outside the pane — a
+	// mouseup the window never sees would leave the rows stuck in selection.
+	useEffect(() => {
+		if (!drag) {
+			return;
+		}
+		const finish = (): void => {
+			openComposerForRange(drag.side, drag.anchorKey, drag.headKey);
+			setDrag(null);
+		};
+		window.addEventListener("mouseup", finish);
+		return () => window.removeEventListener("mouseup", finish);
+	}, [drag, openComposerForRange]);
+
 	const saveComposer = useCallback(() => {
 		if (!composer || !file) {
 			return;
 		}
+		const isRange =
+			composer.startOldLine !== composer.oldLine || composer.startNewLine !== composer.newLine;
 		onAddDraft({
 			newPath: file.newPath,
 			oldPath: file.oldPath,
 			oldLine: composer.oldLine,
 			newLine: composer.newLine,
+			...(isRange
+				? { lineRange: { startOldLine: composer.startOldLine, startNewLine: composer.startNewLine } }
+				: {}),
 			text: composerText.trim(),
 			ruleIds: pendingCitations,
 		});
 		closeComposer();
 	}, [closeComposer, composer, composerText, file, onAddDraft, pendingCitations]);
+
+	const scrollRef = useRef<HTMLDivElement | null>(null);
+	const advanceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+	/** Latched so one long stay at the bottom advances once, not once per scroll event. */
+	const hasAdvancedRef = useRef(false);
+	// Read inside the timer rather than captured: the reviewer may start writing during
+	// the dwell, and a note in progress must not be teleported off screen.
+	const suppressAdvanceRef = useRef(false);
+	suppressAdvanceRef.current = composer !== null || drag !== null;
+
+	const clearAdvanceTimer = useCallback(() => {
+		if (advanceTimerRef.current) {
+			clearTimeout(advanceTimerRef.current);
+			advanceTimerRef.current = null;
+		}
+	}, []);
+
+	const handleScroll = useCallback(() => {
+		const element = scrollRef.current;
+		if (!element || !onReachedEnd) {
+			return;
+		}
+		// A file shorter than the viewport is already "at the bottom" on open, so
+		// without the overflow check it would navigate away the moment it appeared.
+		const canScroll = element.scrollHeight > element.clientHeight;
+		const atEnd =
+			canScroll && element.scrollTop + element.clientHeight >= element.scrollHeight - END_THRESHOLD_PX;
+		if (!atEnd) {
+			hasAdvancedRef.current = false;
+			clearAdvanceTimer();
+			return;
+		}
+		if (hasAdvancedRef.current || advanceTimerRef.current) {
+			return;
+		}
+		advanceTimerRef.current = setTimeout(() => {
+			advanceTimerRef.current = null;
+			if (suppressAdvanceRef.current) {
+				return;
+			}
+			hasAdvancedRef.current = true;
+			onReachedEnd();
+		}, END_DWELL_MS);
+	}, [clearAdvanceTimer, onReachedEnd]);
+
+	// Held in a ref because the parent passes fresh callback identities every render,
+	// so depending on `closeComposer` directly would close the composer as fast as it
+	// opens.
+	const closeComposerRef = useRef(closeComposer);
+	closeComposerRef.current = closeComposer;
+
+	// A new file starts at the top, un-advanced, with nothing carried over from the
+	// last one — a composer anchored to a row key of the previous file cannot resolve.
+	useEffect(() => {
+		hasAdvancedRef.current = false;
+		clearAdvanceTimer();
+		setDrag(null);
+		closeComposerRef.current();
+		if (scrollRef.current) {
+			scrollRef.current.scrollTop = 0;
+		}
+	}, [clearAdvanceTimer, path]);
+
+	useEffect(() => clearAdvanceTimer, [clearAdvanceTimer]);
 
 	const renderSide = useCallback(
 		(row: UnifiedDiffRow, side: SplitDiffSide): ReactElement | null => {
@@ -169,10 +427,8 @@ export function ReviewDiffPane({
 			}
 			const commentable = isCommentableOnSplitSide(row, side);
 			// A removed row's number is an old-side number; everything else is new-side.
-			// Mixing these up is what silently posts a note against the wrong revision.
-			const oldLine = row.variant === "removed" ? lineNumber : null;
-			const newLine = row.variant === "removed" ? null : lineNumber;
-
+			// Mixing these up is what silently posts a note against the wrong revision;
+			// `resolveRowLines` is the single place that decision is made.
 			const rowDrafts = commentable
 				? (row.variant === "removed"
 						? annotations.draftsByOldLine.get(lineNumber)
@@ -192,6 +448,7 @@ export function ReviewDiffPane({
 						? "kb-diff-row-removed"
 						: "kb-diff-row-context";
 			const isComposerHere = composer?.rowKey === row.key && composer.side === side;
+			const isSelected = commentable && selectedRowKeys?.has(row.key) === true;
 
 			return (
 				<div className="flex min-w-0 flex-col">
@@ -200,15 +457,23 @@ export function ReviewDiffPane({
 							"kb-diff-row",
 							variantClass,
 							hasAnnotation && "kb-diff-row-commented",
+							isSelected && "kb-diff-row-selected",
 							!commentable && "kb-diff-row-noncommentable",
 						)}
-						onClick={
-							commentable
-								? () => openComposer({ rowKey: row.key, side, oldLine, newLine })
-								: undefined
-						}
+						data-row-key={row.key}
+						data-diff-side={side}
+						// Press-drag-release is one gesture: a press and release on the same row
+						// resolves to a one-row range, which is the old click-to-comment.
+						onMouseDown={commentable ? () => startDrag(side, row.key) : undefined}
+						onMouseEnter={commentable ? () => extendDrag(side, row.key) : undefined}
 					>
-						<span className="kb-diff-line-number" style={{ color: "var(--color-text-tertiary)" }}>
+						<span
+							className="kb-diff-line-number"
+							style={{ color: "var(--color-text-tertiary)" }}
+							// A press that starts on the gutter is never meant to select text, so
+							// this one suppresses it up front instead of clearing it mid-drag.
+							onMouseDown={commentable ? (event) => event.preventDefault() : undefined}
+						>
 							<span className="kb-diff-line-number-text">{lineNumber}</span>
 							{commentable ? (
 								<span className="kb-diff-comment-gutter">
@@ -276,14 +541,24 @@ export function ReviewDiffPane({
 								</div>
 							) : null}
 							<div className="text-[9px] text-text-tertiary">
+								{/* A range note hangs off its end line, so the span it covers is not
+								    otherwise visible from where the draft renders. */}
+								{draft.lineRange
+									? `Lines ${formatLineEndpoint(
+											draft.lineRange.startOldLine,
+											draft.lineRange.startNewLine,
+										)} to ${formatLineEndpoint(draft.oldLine, draft.newLine)} · `
+									: ""}
 								Draft by {draft.author} — not published yet
 							</div>
 						</div>
 					))}
 
-					{isComposerHere ? (
+					{isComposerHere && composer ? (
 						<ReviewCommentComposer
-							lineLabel={`${path}:${lineNumber}`}
+							path={path}
+							startLabel={formatLineEndpoint(composer.startOldLine, composer.startNewLine)}
+							endLabel={formatLineEndpoint(composer.oldLine, composer.newLine)}
 							text={composerText}
 							citedRuleIds={pendingCitations}
 							onTextChange={setComposerText}
@@ -300,14 +575,16 @@ export function ReviewDiffPane({
 			closeComposer,
 			composer,
 			composerText,
+			extendDrag,
 			onRemoveCitation,
 			onRemoveDraft,
-			openComposer,
 			path,
 			pendingCitations,
 			prismGrammar,
 			prismLanguage,
 			saveComposer,
+			selectedRowKeys,
+			startDrag,
 		],
 	);
 
@@ -402,7 +679,17 @@ export function ReviewDiffPane({
 				</div>
 			) : null}
 
-			<div className="min-h-0 flex-1 overflow-auto">
+			<div
+				ref={scrollRef}
+				onScroll={handleScroll}
+				data-testid="review-diff-scroll"
+				className={cn(
+					"min-h-0 flex-1 overflow-auto",
+					// Only once the drag spans rows: a press inside one row is still a text
+					// selection, and locking `user-select` would break copying that line.
+					drag && drag.headKey !== drag.anchorKey && "kb-diff-body-dragging",
+				)}
+			>
 				{showFullFile ? (
 					isLoadingFullFile ? (
 						<div className="flex items-center justify-center p-4">

@@ -7,6 +7,8 @@ export enum LocalStorageKey {
 	AgentTipsDismissed = "kanban.agent-tips-dismissed",
 	/** Claude model the Review tab's one-shot agents run on. Defaults to Haiku. */
 	ReviewAgentModel = "kanban.review-agent-model",
+	/** Whether the review comment composer opens in rich or plain text mode. */
+	ReviewCommentEditorMode = "kanban.review-comment-editor-mode",
 	TaskCreatePrimaryStartAction = "kanban.task-create-primary-start-action",
 	BottomTerminalPaneHeight = "kanban.bottom-terminal-pane-height",
 	DetailAgentPanelRatio = "kanban.detail-agent-panel-ratio",

@@ -3430,11 +3430,25 @@ export const runtimeGitlabRawFileResponseSchema = z.object({
 });
 export type RuntimeGitlabRawFileResponse = z.infer<typeof runtimeGitlabRawFileResponseSchema>;
 
+/**
+ * Where a multi-line note starts. The note's own `oldLine`/`newLine` are its *end*
+ * — that is how GitLab positions a range — so only the start pair lives here.
+ *
+ * Optional rather than defaulted: `z.infer` yields the output type, so a default
+ * would make this field required on every existing position construction site.
+ */
+export const runtimeGitlabNoteLineRangeSchema = z.object({
+	startOldLine: z.number().nullable(),
+	startNewLine: z.number().nullable(),
+});
+export type RuntimeGitlabNoteLineRange = z.infer<typeof runtimeGitlabNoteLineRangeSchema>;
+
 export const runtimeGitlabNotePositionSchema = z.object({
 	oldPath: z.string().nullable(),
 	newPath: z.string().nullable(),
 	oldLine: z.number().nullable(),
 	newLine: z.number().nullable(),
+	lineRange: runtimeGitlabNoteLineRangeSchema.optional(),
 });
 export type RuntimeGitlabNotePosition = z.infer<typeof runtimeGitlabNotePositionSchema>;
 
@@ -3567,6 +3581,8 @@ export const runtimeReviewDraftCommentSchema = z.object({
 	oldPath: z.string(),
 	oldLine: z.number().nullable(),
 	newLine: z.number().nullable(),
+	/** Present only for a note dragged across several lines; absent means one line. */
+	lineRange: runtimeGitlabNoteLineRangeSchema.optional(),
 	text: z.string(),
 	ruleIds: z.array(z.string()),
 	author: z.string(),
