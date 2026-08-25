@@ -3287,6 +3287,12 @@ export const runtimeGitlabMergeRequestSummarySchema = z.object({
 	state: z.string(),
 	draft: z.boolean(),
 	authorUsername: z.string().nullable(),
+	/**
+	 * Usernames GitLab lists as requested reviewers. An empty array is the signal
+	 * that separates real review work from a merge request opened only to read a
+	 * diff against master or to get a pipeline to run — nobody was ever asked.
+	 */
+	reviewers: z.array(z.string()),
 	sourceBranch: z.string(),
 	targetBranch: z.string(),
 	webUrl: z.string(),
@@ -3303,6 +3309,12 @@ export const runtimeGitlabMergeRequestListRequestSchema = z.object({
 	state: z.enum(["opened", "merged", "closed", "all"]).optional(),
 	/** GitLab's `scope`: whose MRs to list when no project is given. */
 	scope: z.enum(["created_by_me", "assigned_to_me", "all"]).optional(),
+	/**
+	 * GitLab's `reviewer_id`: only merge requests this user was asked to review.
+	 * This is the "someone requested my review" inbox, and it is not the same as
+	 * `scope: "assigned_to_me"` — that one is the assignee field.
+	 */
+	reviewerId: z.number().int().positive().optional(),
 	search: z.string().optional(),
 	limit: z.number().int().positive().max(100).optional(),
 });
