@@ -1,6 +1,7 @@
 import { type ReactElement } from "react";
 
 import { autoFallbackAccount } from "@/manager/task-account-picker";
+import type { ReviewSeatChoice } from "@/review/use-review-seat";
 import type { RuntimeManagerAccount } from "@/runtime/types";
 
 const MANAGER_VALUE_PREFIX = "manager:";
@@ -14,20 +15,25 @@ const MANAGER_VALUE_PREFIX = "manager:";
  * a review never changes agent, and its agents spawn no subagents.
  */
 export function ReviewSeatPicker({
-	accounts,
+	claudeAccounts,
 	activeAccountId,
 	value,
 	disabled = false,
 	onChange,
 }: {
-	accounts: RuntimeManagerAccount[];
+	/** Already narrowed to Claude seats by the caller, which needs the same list. */
+	claudeAccounts: RuntimeManagerAccount[];
 	activeAccountId: number | null;
-	/** Undefined is Auto: the routes then resolve the Manager's active Claude seat. */
+	/**
+	 * The seat the next run will actually use — the caller's resolved id, not the raw
+	 * stored choice, so the select cannot disagree with what gets billed. Undefined
+	 * only while the Manager snapshot is still loading, or on explicit Auto.
+	 */
 	value: number | undefined;
 	disabled?: boolean;
-	onChange: (accountId: number | undefined) => void;
+	/** `"auto"` rather than `undefined`, so declining the default is remembered. */
+	onChange: (choice: ReviewSeatChoice) => void;
 }): ReactElement | null {
-	const claudeAccounts = accounts.filter((account) => account.provider === "claude");
 	// Nothing to choose between, and no Manager to fall back to either — the select
 	// would be a control with one disabled option.
 	if (claudeAccounts.length === 0) {
@@ -47,7 +53,7 @@ export function ReviewSeatPicker({
 			value={isKnown ? `${MANAGER_VALUE_PREFIX}${value}` : "auto"}
 			onChange={(event) => {
 				const next = event.target.value;
-				onChange(next.startsWith(MANAGER_VALUE_PREFIX) ? Number(next.slice(MANAGER_VALUE_PREFIX.length)) : undefined);
+				onChange(next.startsWith(MANAGER_VALUE_PREFIX) ? Number(next.slice(MANAGER_VALUE_PREFIX.length)) : "auto");
 			}}
 			className="max-w-44 truncate rounded border border-border bg-surface-2 px-1.5 py-0.5 text-[11px] text-text-secondary focus:border-border-focus focus:outline-none disabled:opacity-40"
 		>

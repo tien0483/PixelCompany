@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
 import { Spinner } from "@/components/ui/spinner";
 import { useHtmlAgentStream } from "@/html/use-html-agent-stream";
+import { autoFallbackAccount } from "@/manager/task-account-picker";
 import {
 	type ReviewAgentModelId,
 	readStoredReviewAgentModel,
@@ -117,7 +118,7 @@ export function ReviewWorkspaceView({
 }): ReactElement {
 	const session = useReviewSession(target, workspaceId);
 	const rulesConfig = useReviewRulesConfig(target.projectKey, workspaceId);
-	const { managerAccountId, setManagerAccountId } = useReviewSeat(target.host);
+	const { seatChoice, setSeatChoice } = useReviewSeat(target.host);
 	const [leftTab, setLeftTab] = useState<LeftTab>("files");
 	const [diffMode, setDiffMode] = useState<ReviewDiffMode>("split");
 	const [pendingCitations, setPendingCitations] = useState<string[]>([]);
@@ -139,6 +140,33 @@ export function ReviewWorkspaceView({
 	const chat = useHtmlAgentStream<RuntimeReviewChatRequest>("/api/review/chat");
 	const audit = useHtmlAgentStream<RuntimeReviewAuditRequest>("/api/review/audit");
 	const rulesExtract = useHtmlAgentStream<RuntimeReviewRulesExtractRequest>("/api/review/rules-extract");
+
+	const claudeAccounts = useMemo(
+		() => managerAccounts.filter((account) => account.provider === "claude"),
+		[managerAccounts],
+	);
+
+	/**
+	 * The seat every review run pins. A reviewer who has never chosen gets the
+	 * Manager's active Claude seat as an *explicit* pin rather than Auto: an explicit
+	 * pin refuses a disabled, re-auth-needed or over-cap seat outright, while the
+	 * unpinned path may silently redirect onto a different seat — and a review pass is
+	 * expensive enough that it should not move seats without saying so.
+	 *
+	 * `autoFallbackAccount` is the same resolver the picker labels its Auto option
+	 * with, so the header and the run cannot disagree. Undefined — an explicit Auto,
+	 * or a Manager snapshot that has not arrived — sends no id and keeps today's
+	 * unpinned behaviour, which is also the only possible one in the standalone app.
+	 */
+	const effectiveAccountId = useMemo(() => {
+		if (seatChoice === "auto") {
+			return undefined;
+		}
+		if (seatChoice !== undefined) {
+			return seatChoice;
+		}
+		return autoFallbackAccount(claudeAccounts, managerActiveAccountId, "claude")?.id;
+	}, [claudeAccounts, managerActiveAccountId, seatChoice]);
 
 	const draftComments = session.session?.draftComments ?? [];
 	const reviewedPaths = session.session?.reviewedPaths ?? [];
@@ -229,6 +257,19 @@ export function ReviewWorkspaceView({
 		showAppToast({ intent: "danger", message: rulesExtractError });
 		rulesExtractReset();
 	}, [rulesExtractError, rulesExtractReset, rulesExtractStatus]);
+	// Chat gets the same banner and toast, but deliberately no `reset()`: the audit and
+	// extraction streams are consumed by a completion effect and then discarded, whereas
+	// the chat panel keeps rendering `chat.text` — resetting here would delete a partial
+	// answer the reviewer is still reading.
+	const chatStatus = chat.status;
+	const chatError = chat.error;
+	useEffect(() => {
+		if (chatStatus !== "error" || !chatError) {
+			return;
+		}
+		setAgentError(chatError);
+		showAppToast({ intent: "danger", message: chatError });
+	}, [chatError, chatStatus]);
 
 	const citeRule = useCallback((ruleId: string) => {
 		setPendingCitations((current) => (current.includes(ruleId) ? current : [...current, ruleId]));
@@ -269,9 +310,9 @@ export function ReviewWorkspaceView({
 			files,
 			projectKey: target.projectKey,
 			model: agentModel,
-			managerAccountId,
+			managerAccountId: effectiveAccountId,
 		});
-	}, [agentModel, audit, managerAccountId, session.files, session.mergeRequest, target]);
+	}, [agentModel, audit, effectiveAccountId, session.files, session.mergeRequest, target]);
 
 	const sendChat = useCallback(
 		(prompt: string) => {
@@ -284,11 +325,11 @@ export function ReviewWorkspaceView({
 				...(session.activeFile ? { activeDiff: session.activeFile.diff } : {}),
 				projectKey: target.projectKey,
 				model: agentModel,
-				managerAccountId,
+				managerAccountId: effectiveAccountId,
 				cwd: localRepoPath || undefined,
 			});
 		},
-		[agentModel, chat, localRepoPath, managerAccountId, session.activeFile, session.files, target],
+		[agentModel, chat, effectiveAccountId, localRepoPath, session.activeFile, session.files, target],
 	);
 
 	const changeAgentModel = useCallback((model: ReviewAgentModelId) => {
@@ -307,9 +348,9 @@ export function ReviewWorkspaceView({
 			projectKey: target.projectKey,
 			sourceRoots: rulesConfig.sourceRoots,
 			model: agentModel,
-			managerAccountId,
+			managerAccountId: effectiveAccountId,
 		});
-	}, [agentModel, managerAccountId, rulesConfig.sourceRoots, rulesExtract, target.projectKey]);
+	}, [agentModel, effectiveAccountId, rulesConfig.sourceRoots, rulesExtract, target.projectKey]);
 
 	const fetchFullFile = useCallback(async (): Promise<string | null> => {
 		if (!session.activeFile || !session.mergeRequest) {
@@ -329,6 +370,32 @@ export function ReviewWorkspaceView({
 			return null;
 		}
 	}, [session.activeFile, session.mergeRequest, target.projectId, workspaceId]);
+
+	/**
+	 * A new top-level thread. Same mutation as a reply, minus `discussionId` — that
+	 * omission is the whole difference between starting a thread and answering one —
+	 * and minus a diff position, so it lands as a plain merge-request comment.
+	 *
+	 * Throws on failure rather than swallowing: the panel keeps the reviewer's text in
+	 * the box when this rejects, so a refused comment does not have to be retyped.
+	 */
+	const createThread = useCallback(
+		async (body: string) => {
+			const client = getRuntimeTrpcClient(workspaceId);
+			const response = await client.gitlab.createNote.mutate({
+				projectId: target.projectId,
+				iid: target.iid,
+				body,
+			});
+			if (!response.ok) {
+				const message = response.error ?? "Could not post the comment.";
+				showAppToast({ intent: "danger", message });
+				throw new Error(message);
+			}
+			await session.refreshDiscussions();
+		},
+		[session, target.iid, target.projectId, workspaceId],
+	);
 
 	const replyToThread = useCallback(
 		async (discussionId: string, body: string) => {
@@ -510,13 +577,13 @@ export function ReviewWorkspaceView({
 						{progress.reviewed}/{progress.total} reviewed
 					</span>
 					<ReviewSeatPicker
-						accounts={managerAccounts}
+						claudeAccounts={claudeAccounts}
 						activeAccountId={managerActiveAccountId}
-						value={managerAccountId}
+						value={effectiveAccountId}
 						// Switching seats mid-run would not move the running agent, and the next
 						// run would silently disagree with what the header shows.
 						disabled={audit.status === "running" || chat.status === "running" || rulesExtract.status === "running"}
-						onChange={setManagerAccountId}
+						onChange={setSeatChoice}
 					/>
 					<Button
 						variant="default"
@@ -593,6 +660,7 @@ export function ReviewWorkspaceView({
 					) : leftTab === "threads" ? (
 						<ReviewThreadsPanel
 							discussions={session.discussions}
+							onCreateThread={createThread}
 							onReply={replyToThread}
 							onToggleResolved={toggleThreadResolved}
 							onJumpToThread={(path) => {
@@ -657,6 +725,8 @@ export function ReviewWorkspaceView({
 						chatText={chat.text}
 						chatStatus={chat.status}
 						chatError={chat.error}
+						chatLog={chat.log}
+						chatNotices={chat.notices}
 						pendingFindings={pendingFindings}
 						draftComments={draftComments}
 						isAuditing={audit.status === "running"}

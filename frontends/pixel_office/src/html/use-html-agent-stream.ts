@@ -8,9 +8,36 @@ export interface HtmlStreamState {
 	text: string;
 	error: string | null;
 	log: string[];
+	/**
+	 * Things the run wants the user to know that are not failures — chiefly which
+	 * seat it actually landed on when the runtime redirected it. These arrive as
+	 * `meta` frames, which used to be dropped entirely, so a redirect or a rate
+	 * limit was invisible even though the runtime had already explained itself.
+	 */
+	notices: string[];
 	startedAt: number | null;
 	firstByteAt: number | null;
 	doneAt: number | null;
+}
+
+/**
+ * `meta` frames carry everything the stream parser can extract — model, session,
+ * cwd, thinking deltas, partial usage, cost, timings. An allowlist rather than a
+ * denylist because the noisy keys outnumber the useful ones and `thinking` alone
+ * would push a frame per token into `notices`.
+ */
+function describeMetaNotice(key: string, value: unknown): string | null {
+	if (key === "pin_warning") {
+		return typeof value === "string" ? value : null;
+	}
+	if (key === "rate_limit") {
+		return `Rate limited upstream: ${typeof value === "string" ? value : JSON.stringify(value)}`;
+	}
+	// `result` is emitted on every run; only a non-success subtype says anything.
+	if (key === "result" && typeof value === "string" && value !== "success") {
+		return `Run ended as "${value}".`;
+	}
+	return null;
 }
 
 /**
@@ -36,6 +63,7 @@ const INITIAL: HtmlStreamState = {
 	text: "",
 	error: null,
 	log: [],
+	notices: [],
 	startedAt: null,
 	firstByteAt: null,
 	doneAt: null,
@@ -123,6 +151,7 @@ export function useHtmlAgentStream<TRequest>(endpoint: string) {
 				text: "",
 				error: null,
 				log: [],
+				notices: [],
 				startedAt: Date.now(),
 				firstByteAt: null,
 				doneAt: null,
@@ -193,6 +222,16 @@ export function useHtmlAgentStream<TRequest>(endpoint: string) {
 								log: [...prev.log, message],
 								doneAt: prev.doneAt ?? Date.now(),
 							}));
+						} else if (event === "meta" && typeof data.key === "string") {
+							// Deliberately not folded into `error`: a pin warning accompanies a
+							// run that went on to succeed on another seat, and treating it as a
+							// failure would mark a working answer as broken.
+							const notice = describeMetaNotice(data.key, data.value);
+							if (notice !== null) {
+								setState((prev) =>
+									prev.notices.includes(notice) ? prev : { ...prev, notices: [...prev.notices, notice] },
+								);
+							}
 						} else if (event === "stderr" && typeof data.text === "string") {
 							setState((prev) => ({ ...prev, log: [...prev.log, data.text as string] }));
 						} else if (event === "done") {

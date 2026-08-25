@@ -35,6 +35,8 @@ export function ReviewClaudePanel({
 	chatText,
 	chatStatus,
 	chatError,
+	chatLog,
+	chatNotices,
 	pendingFindings,
 	draftComments,
 	isAuditing,
@@ -50,6 +52,10 @@ export function ReviewClaudePanel({
 	chatText: string;
 	chatStatus: "idle" | "running" | "done" | "error";
 	chatError: string | null;
+	/** The run's stderr. Only shown once a run has failed — it explains the failure. */
+	chatLog: string[];
+	/** Non-fatal things the run reported, e.g. which seat it was redirected onto. */
+	chatNotices: string[];
 	pendingFindings: RuntimeReviewFinding[];
 	draftComments: RuntimeReviewDraftComment[];
 	isAuditing: boolean;
@@ -216,6 +222,20 @@ export function ReviewClaudePanel({
 					<pre className="whitespace-pre-wrap break-words font-sans text-text-primary">{chatText}</pre>
 				) : null}
 				{chatError ? <p className="mt-2 text-status-red">{chatError}</p> : null}
+				{/* Shown on healthy runs too: "launched on account N instead" is exactly the
+				    kind of thing that has to be visible while the answer still looks fine. */}
+				{chatNotices.map((notice) => (
+					<p key={notice} className="mt-2 text-status-orange">
+						{notice}
+					</p>
+				))}
+				{/* Stderr is only an explanation once something failed; on a good run it is
+				    startup chatter nobody asked for. */}
+				{chatStatus === "error" && chatLog.length > 0 ? (
+					<pre className="mt-2 max-h-32 overflow-y-auto whitespace-pre-wrap break-words rounded border border-border bg-surface-0 p-1.5 text-[10px] text-text-tertiary">
+						{chatLog.join("\n")}
+					</pre>
+				) : null}
 			</div>
 
 			{draftComments.length > 0 ? (

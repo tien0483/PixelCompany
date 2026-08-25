@@ -88,11 +88,16 @@ function buildClaudeArgv(model?: string, allowedTools?: string[]): string[] {
 }
 
 export async function runAgentOneShot(input: RunAgentOneShotInput): Promise<{ code: number | null }> {
+	// Every early return below emits `done` alongside its `error`. A consumer that
+	// only learns a run is over from `done` — the SSE hook in the browser — sees a
+	// stream that just stops otherwise, which is indistinguishable from a dropped
+	// connection and is why a refused pin looked like an empty answer area.
 	if (input.agentId !== "claude") {
 		input.onEvent({
 			type: "error",
 			message: `HTML generation only supports Claude Code (got ${input.agentId}).`,
 		});
+		input.onEvent({ type: "done", code: 1 });
 		return { code: 1 };
 	}
 
@@ -106,6 +111,7 @@ export async function runAgentOneShot(input: RunAgentOneShotInput): Promise<{ co
 	if (pin.blocked) {
 		const message = pin.warning ?? "Pinned Claude account is over its donate cap.";
 		input.onEvent({ type: "error", message });
+		input.onEvent({ type: "done", code: 1 });
 		return { code: 1 };
 	}
 	if (pin.warning) {
@@ -118,6 +124,7 @@ export async function runAgentOneShot(input: RunAgentOneShotInput): Promise<{ co
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
 		input.onEvent({ type: "error", message });
+		input.onEvent({ type: "done", code: 1 });
 		return { code: 1 };
 	}
 
@@ -154,6 +161,7 @@ export async function runAgentOneShot(input: RunAgentOneShotInput): Promise<{ co
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
 		input.onEvent({ type: "error", message });
+		input.onEvent({ type: "done", code: 1 });
 		return { code: 1 };
 	}
 

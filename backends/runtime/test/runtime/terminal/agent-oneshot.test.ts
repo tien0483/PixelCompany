@@ -360,5 +360,30 @@ describe("runAgentOneShot", () => {
 		expect(result.code).toBe(1);
 		expect(spawnMock).not.toHaveBeenCalled();
 		expect(events.some((event) => event.type === "error" && event.message === "over cap")).toBe(true);
+		// The SSE consumer only learns a run is over from `done`. Without one, a refused
+		// pin reaches the browser as a stream that simply stops — which is why this
+		// failure used to render as an empty answer area rather than the reason above.
+		expect(events.filter((event) => event.type === "error")).toHaveLength(1);
+		expect(events.filter((event) => event.type === "done")).toHaveLength(1);
+		expect(events.findIndex((event) => event.type === "done")).toBeGreaterThan(
+			events.findIndex((event) => event.type === "error"),
+		);
+	});
+
+	it("emits an error and a done when the claude binary is missing", async () => {
+		isBinaryAvailableOnPath.mockReturnValueOnce(false);
+		const events: Array<{ type: string; message?: string }> = [];
+		const result = await runAgentOneShot({
+			agentId: "claude",
+			prompt: "x",
+			onEvent: (event) => events.push(event),
+		});
+		expect(result.code).toBe(1);
+		expect(spawnMock).not.toHaveBeenCalled();
+		expect(events.filter((event) => event.type === "error")).toHaveLength(1);
+		expect(events.filter((event) => event.type === "done")).toHaveLength(1);
+		expect(events.findIndex((event) => event.type === "done")).toBeGreaterThan(
+			events.findIndex((event) => event.type === "error"),
+		);
 	});
 });
