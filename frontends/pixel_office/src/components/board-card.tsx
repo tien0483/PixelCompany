@@ -226,6 +226,12 @@ function formatAuthFailoverOutcomeLabel(
 			return "Couldn't prepare the new seat's credentials";
 		case "restart_failed":
 			return detail ? `Restart failed: ${detail.trim().slice(0, 80)}` : "Restart failed";
+		case "login_recovery_restarted":
+			return "Login expired — restarted on the same seat";
+		case "login_recovery_failed":
+			return detail
+				? `Login recovery failed: ${detail.trim().slice(0, 80)}`
+				: "Login recovery failed — seat needs /login";
 		default:
 			return null;
 	}

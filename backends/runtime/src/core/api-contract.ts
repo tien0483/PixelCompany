@@ -515,12 +515,24 @@ export const runtimeTaskSessionReviewReasonSchema = z
 export type RuntimeTaskSessionReviewReason = z.infer<typeof runtimeTaskSessionReviewReasonSchema>;
 
 /**
- * Why Claude's automatic auth-failover (retry on a healthier seat after a revoked-token
- * 401) gave up without restarting the task. Set alongside `reviewReason: "error"`; null
- * whenever failover hasn't been attempted or last succeeded.
+ * How the runtime's automatic auth recovery ended for this task. Set alongside
+ * `reviewReason: "error"`; null whenever recovery hasn't been attempted or last succeeded.
+ *
+ * The first four values belong to cross-seat failover (retry on a healthier seat after a
+ * revoked-token 401) and mean it gave up without restarting. The `login_recovery_*` pair
+ * belongs to the same-seat login recovery that runs *before* failover: the seat's launch
+ * dir is re-prepared (which refreshes its token) and the session is relaunched on the same
+ * account with `--continue`.
  */
 export const runtimeAuthFailoverOutcomeSchema = z
-	.enum(["cap_reached", "no_healthy_seat", "seat_prep_failed", "restart_failed"])
+	.enum([
+		"cap_reached",
+		"no_healthy_seat",
+		"seat_prep_failed",
+		"restart_failed",
+		"login_recovery_restarted",
+		"login_recovery_failed",
+	])
 	.nullable();
 export type RuntimeAuthFailoverOutcome = z.infer<typeof runtimeAuthFailoverOutcomeSchema>;
 
@@ -3402,9 +3414,7 @@ export const runtimeGitlabMergeRequestVersionsResponseSchema = z.object({
 	versions: z.array(runtimeGitlabMergeRequestVersionSchema),
 	error: z.string().optional(),
 });
-export type RuntimeGitlabMergeRequestVersionsResponse = z.infer<
-	typeof runtimeGitlabMergeRequestVersionsResponseSchema
->;
+export type RuntimeGitlabMergeRequestVersionsResponse = z.infer<typeof runtimeGitlabMergeRequestVersionsResponseSchema>;
 
 export const runtimeGitlabRawFileRequestSchema = z.object({
 	projectId: z.number().int().positive(),

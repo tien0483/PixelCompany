@@ -23,6 +23,13 @@ const CLAUDE_AUTH_PATTERNS: ReadonlyArray<RegExp> = [
 	/please run\s*\/login/i,
 	/not logged in\.?\s*please run/i,
 	/run\s*\/login\s+to/i,
+	// Claude Code's expired-credential banner and its status-line twin. The banner reads
+	// "Login expired · Please run /login" (already matched by the first pattern), but the
+	// status line reads "Not logged in · Run /login" — no "please", no trailing "to" — so
+	// none of the patterns above see it. A session that only ever renders the status-line
+	// form would otherwise sit at the login screen unreported.
+	/login expired/i,
+	/not logged in\W{0,4}run\s*\/login/i,
 	/authentication required/i,
 	/login required/i,
 	/oauth.?token.*(expired|invalid|revoked)/i,

@@ -78,6 +78,14 @@ const SNAPSHOT_RETRY_SCROLLBACK_LINES = 500;
 const OSC_FOREGROUND_QUERY_REPLY = "\u001b]10;rgb:e6e6/eded/f3f3\u001b\\";
 const OSC_BACKGROUND_QUERY_REPLY = "\u001b]11;rgb:1717/1717/2121\u001b\\";
 
+// `postStartInput` is typed into a freshly started session once its TUI is up. Claude has
+// no prompt-ready signal to wait on (only the Codex and Cursor adapters install an output
+// transition detector), so readiness is inferred from the PTY going quiet: the settle timer
+// is re-armed on every output chunk, and the max-wait timer covers a session that renders
+// nothing at all.
+const POST_START_INPUT_SETTLE_MS = 1_500;
+const POST_START_INPUT_MAX_WAIT_MS = 15_000;
+
 export interface AgentAuthFailureReport {
 	taskId: string;
 	agentId: RuntimeAgentId | null;
@@ -112,6 +120,12 @@ interface ActiveProcessState {
 	awaitingCodexPromptAfterEnter: boolean;
 	autoConfirmedWorkspaceTrust: boolean;
 	workspaceTrustConfirmTimer: NodeJS.Timeout | null;
+	/** Text to type once this session's TUI settles; cleared as soon as it is written. */
+	pendingPostStartInput: string | null;
+	postStartInputSettleTimer: NodeJS.Timeout | null;
+	postStartInputMaxWaitTimer: NodeJS.Timeout | null;
+	/** Epoch-ms after which queued input is sent even if the session still looks busy. */
+	postStartInputDeadlineAt: number | null;
 }
 
 /** Debounce/max-latency timer bookkeeping for one task's pending scrollback snapshot write. */
@@ -165,6 +179,12 @@ export interface StartTaskSessionRequest {
 	taskLaunchSettings?: RuntimeTaskLaunchSettings;
 	/** Card opt-in: a usage-limit exit parks as "usage_paused" and auto-resumes at the reset. */
 	autoResumeOnUsageLimit?: boolean;
+	/**
+	 * Typed into the session once its TUI settles, submit bytes included. Used by login
+	 * recovery to send `continue\r` after a same-seat relaunch, i.e. the keystrokes the user
+	 * would otherwise send by hand after clicking "Restart session".
+	 */
+	postStartInput?: string;
 }
 
 export interface StartShellSessionRequest {
@@ -302,6 +322,23 @@ function buildTerminalEnvironment(
 	});
 }
 
+/**
+ * Clears every timer a live PTY can have outstanding. Anywhere an `ActiveProcessState` is
+ * torn down (a stop, a restart, a real exit) has to go through this, or a settle timer can
+ * fire after the PTY is gone and write into a dead session.
+ */
+function stopActiveProcessTimers(active: ActiveProcessState): void {
+	stopWorkspaceTrustTimers(active);
+	if (active.postStartInputSettleTimer) {
+		clearTimeout(active.postStartInputSettleTimer);
+		active.postStartInputSettleTimer = null;
+	}
+	if (active.postStartInputMaxWaitTimer) {
+		clearTimeout(active.postStartInputMaxWaitTimer);
+		active.postStartInputMaxWaitTimer = null;
+	}
+}
+
 function hasCodexInteractivePrompt(text: string): boolean {
 	const stripped = stripAnsi(text);
 	return /(?:^|[\n\r])\s*›\s*/u.test(stripped);
@@ -412,6 +449,55 @@ export class TerminalSessionManager implements TerminalSessionService {
 		active.deferredStartupInput = null;
 		active.session.write(deferredInput);
 		return true;
+	}
+
+	/** (Re)starts the quiet-gap countdown for this session's queued post-start input. */
+	private armPostStartInputSettle(taskId: string): void {
+		const active = this.entries.get(taskId)?.active;
+		if (!active || active.pendingPostStartInput === null) {
+			return;
+		}
+		if (active.postStartInputSettleTimer) {
+			clearTimeout(active.postStartInputSettleTimer);
+		}
+		const settleTimer = setTimeout(() => {
+			this.trySendPostStartInput(taskId);
+		}, POST_START_INPUT_SETTLE_MS);
+		settleTimer.unref?.();
+		active.postStartInputSettleTimer = settleTimer;
+	}
+
+	/**
+	 * Types the queued post-start input, holding it back while the folder-trust prompt is
+	 * still on screen — typed there it would answer the prompt instead of the agent. The
+	 * trust auto-confirm normally clears its own buffer right after replying, so the wait
+	 * ends on its own; the deadline covers the case where it doesn't (auto-confirm fires at
+	 * most once per session, so trust text redrawn afterwards is never answered again) and
+	 * makes sure the input is never withheld forever.
+	 */
+	private trySendPostStartInput(taskId: string): void {
+		const active = this.entries.get(taskId)?.active;
+		if (!active || active.pendingPostStartInput === null) {
+			return;
+		}
+		const trustPromptVisible =
+			active.workspaceTrustBuffer !== null && hasClaudeWorkspaceTrustPrompt(active.workspaceTrustBuffer);
+		if (trustPromptVisible && (active.postStartInputDeadlineAt === null || now() < active.postStartInputDeadlineAt)) {
+			this.armPostStartInputSettle(taskId);
+			return;
+		}
+		const input = active.pendingPostStartInput;
+		active.pendingPostStartInput = null;
+		active.postStartInputDeadlineAt = null;
+		if (active.postStartInputSettleTimer) {
+			clearTimeout(active.postStartInputSettleTimer);
+			active.postStartInputSettleTimer = null;
+		}
+		if (active.postStartInputMaxWaitTimer) {
+			clearTimeout(active.postStartInputMaxWaitTimer);
+			active.postStartInputMaxWaitTimer = null;
+		}
+		active.session.write(input);
 	}
 
 	private hasLiveOutputListener(entry: SessionEntry): boolean {
@@ -594,7 +680,7 @@ export class TerminalSessionManager implements TerminalSessionService {
 			if (isCursorOutputTransitionDetector(previousDetect)) {
 				previousDetect.dispose();
 			}
-			stopWorkspaceTrustTimers(entry.active);
+			stopActiveProcessTimers(entry.active);
 			entry.active.session.stop();
 			entry.active = null;
 		}
@@ -731,6 +817,12 @@ export class TerminalSessionManager implements TerminalSessionService {
 					}
 					updateSummary(entry, { lastOutputAt: now() });
 
+					// Every chunk pushes the queued post-start input further out, so it lands in
+					// the first quiet gap after the TUI (and any trust prompt) finished drawing.
+					if (entry.active.pendingPostStartInput !== null) {
+						this.armPostStartInputSettle(request.taskId);
+					}
+
 					// Codex plan-mode startup input is deferred until we know the TUI rendered.
 					// Trigger on either the interactive prompt marker or the startup header text.
 					if (
@@ -777,7 +869,7 @@ export class TerminalSessionManager implements TerminalSessionService {
 					if (!currentActive) {
 						return;
 					}
-					stopWorkspaceTrustTimers(currentActive);
+					stopActiveProcessTimers(currentActive);
 					// A session ending should never lose its last output to an unlucky debounce
 					// window, so force a final snapshot write regardless of the debounce state.
 					void this.persistSnapshotNow(request.taskId).catch(() => {});
@@ -884,9 +976,22 @@ export class TerminalSessionManager implements TerminalSessionService {
 			awaitingCodexPromptAfterEnter: false,
 			autoConfirmedWorkspaceTrust: false,
 			workspaceTrustConfirmTimer: null,
+			pendingPostStartInput: request.postStartInput ?? null,
+			postStartInputSettleTimer: null,
+			postStartInputMaxWaitTimer: null,
+			postStartInputDeadlineAt: request.postStartInput === undefined ? null : now() + POST_START_INPUT_MAX_WAIT_MS,
 		};
 		entry.active = active;
 		entry.terminalStateMirror = terminalStateMirror;
+		if (active.pendingPostStartInput !== null) {
+			// Armed before any output arrives, so a session that renders nothing still gets
+			// its input instead of waiting on a settle timer that is never started.
+			const maxWaitTimer = setTimeout(() => {
+				this.trySendPostStartInput(request.taskId);
+			}, POST_START_INPUT_MAX_WAIT_MS);
+			maxWaitTimer.unref?.();
+			active.postStartInputMaxWaitTimer = maxWaitTimer;
+		}
 
 		// Cursor idle→review waits for a quiet gap after the last work signal; the
 		// timer may fire when no further PTY chunks arrive, so bind a deferred emit.
@@ -951,7 +1056,7 @@ export class TerminalSessionManager implements TerminalSessionService {
 		}
 
 		if (entry.active) {
-			stopWorkspaceTrustTimers(entry.active);
+			stopActiveProcessTimers(entry.active);
 			entry.active.session.stop();
 			entry.active = null;
 		}
@@ -1020,7 +1125,7 @@ export class TerminalSessionManager implements TerminalSessionService {
 					if (!currentActive) {
 						return;
 					}
-					stopWorkspaceTrustTimers(currentActive);
+					stopActiveProcessTimers(currentActive);
 					// A session ending should never lose its last output to an unlucky debounce
 					// window, so force a final snapshot write regardless of the debounce state.
 					void this.persistSnapshotNow(request.taskId).catch(() => {});
@@ -1077,6 +1182,11 @@ export class TerminalSessionManager implements TerminalSessionService {
 			awaitingCodexPromptAfterEnter: false,
 			autoConfirmedWorkspaceTrust: false,
 			workspaceTrustConfirmTimer: null,
+			// Shell sessions are never started by login recovery, so they never queue input.
+			pendingPostStartInput: null,
+			postStartInputSettleTimer: null,
+			postStartInputMaxWaitTimer: null,
+			postStartInputDeadlineAt: null,
 		};
 		entry.active = active;
 		entry.terminalStateMirror = terminalStateMirror;
@@ -1380,7 +1490,7 @@ export class TerminalSessionManager implements TerminalSessionService {
 		entry.suppressAutoRestartOnExit = true;
 		const cleanupFn = entry.active.onSessionCleanup;
 		entry.active.onSessionCleanup = null;
-		stopWorkspaceTrustTimers(entry.active);
+		stopActiveProcessTimers(entry.active);
 		entry.active.session.stop();
 		if (cleanupFn) {
 			cleanupFn().catch(() => {
@@ -1414,7 +1524,7 @@ export class TerminalSessionManager implements TerminalSessionService {
 			if (!entry.active) {
 				continue;
 			}
-			stopWorkspaceTrustTimers(entry.active);
+			stopActiveProcessTimers(entry.active);
 			entry.active.session.stop({ interrupted: true });
 		}
 		return activeEntries.map((entry) => cloneSummary(entry.summary));

@@ -4,7 +4,11 @@
 // TerminalSessionManager or Manager client; the caller (cli.ts) does the I/O
 // (validate the broken account, fetch the new account's launch dir, call
 // startTaskSession).
-import { CLAUDE_CONFIG_DIR_ENV, type ManagerDonateAccountLike, pickDefaultClaudeAccountId } from "../manager/manager-account-pin";
+import {
+	CLAUDE_CONFIG_DIR_ENV,
+	type ManagerDonateAccountLike,
+	pickDefaultClaudeAccountId,
+} from "../manager/manager-account-pin";
 import type { RestartableSessionRequest, StartTaskSessionRequest } from "./session-manager";
 
 /**
@@ -41,6 +45,34 @@ export function buildAuthFailoverRequest(
 		prompt: "",
 		resumeFromPersistence: true,
 		managerAccountId: nextAccountId,
+		env: { ...retryRequest.request.env, [CLAUDE_CONFIG_DIR_ENV]: configDir },
+	};
+}
+
+/**
+ * Rebuilds the task's last start request for a **same-seat** relaunch: the account pin is
+ * kept exactly as it was and only `CLAUDE_CONFIG_DIR` is refreshed, because the caller has
+ * just re-prepared that seat's launch dir (which is what refreshes an expired Claude Code
+ * token — `prepare_account_dir` on the Manager side). `resumeFromPersistence` makes the
+ * adapter relaunch with `--continue`, and `postStartInput` types the `continue` the user
+ * would otherwise type by hand once the TUI is up.
+ *
+ * Returns null for a shell session or a missing retry request, same as
+ * `buildAuthFailoverRequest`.
+ */
+export function buildSameSeatRecoveryRequest(
+	retryRequest: RestartableSessionRequest | null,
+	configDir: string,
+	postStartInput: string,
+): StartTaskSessionRequest | null {
+	if (retryRequest === null || retryRequest.kind !== "task") {
+		return null;
+	}
+	return {
+		...retryRequest.request,
+		prompt: "",
+		resumeFromPersistence: true,
+		postStartInput,
 		env: { ...retryRequest.request.env, [CLAUDE_CONFIG_DIR_ENV]: configDir },
 	};
 }
