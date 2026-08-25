@@ -886,6 +886,38 @@ body.kb-dependency-link-mode {
 	background: rgba(248, 81, 73, 0.25);
 }
 
+/*
+ * A row inside the run a review comment is being written against. Layered over the
+ * added/removed tints rather than replacing them, so the reviewer can still tell
+ * which side of the diff the selected lines belong to.
+ */
+.kb-diff-row-selected {
+	box-shadow: inset 2px 0 0 var(--color-accent);
+	background: rgba(0, 132, 255, 0.18);
+}
+
+.kb-diff-row-selected.kb-diff-row-added {
+	background: rgba(0, 132, 255, 0.24);
+}
+
+.kb-diff-row-selected.kb-diff-row-removed {
+	background: rgba(0, 132, 255, 0.24);
+}
+
+/* Two classes on purpose: the variant rules below are later in the cascade. */
+.kb-diff-row-selected.kb-diff-row-context {
+	background: rgba(0, 132, 255, 0.18);
+}
+
+.kb-diff-row-selected:hover {
+	background: rgba(0, 132, 255, 0.3);
+}
+
+/* Drag-to-select paints a native text selection over the diff without this. */
+.kb-diff-body-dragging {
+	user-select: none;
+}
+
 .kb-diff-row-added {
 	background: rgba(63, 185, 80, 0.15);
 }

@@ -11,6 +11,7 @@ import {
 	type ReviewAgentModelId,
 	normalizeReviewAgentModel,
 } from "@/review/review-agent-model";
+import { formatDraftLineLabel } from "@/review/review-target";
 import type { RuntimeReviewChatMessage, RuntimeReviewDraftComment, RuntimeReviewFinding } from "@/runtime/types";
 
 export { REVIEW_QUICK_PROMPTS } from "@/components/review/review-chat-composer";
@@ -183,7 +184,7 @@ export function ReviewClaudePanel({
 								>
 									<div className="truncate font-mono text-[10px] text-accent">
 										{draft.newPath}
-										{draft.newLine !== null ? `:${draft.newLine}` : draft.oldLine !== null ? `:-${draft.oldLine}` : ""}
+										{formatDraftLineLabel(draft)}
 									</div>
 									<div className="truncate text-[11px] text-text-secondary">{draft.text}</div>
 								</button>

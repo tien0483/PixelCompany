@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { describe, expect, it } from "vitest";
 
 import type { RuntimeGitlabDiffRefs } from "../../../src/core/api-contract";
@@ -12,6 +14,9 @@ const DIFF_REFS: RuntimeGitlabDiffRefs = {
 	startSha: "a1b2c3d",
 	headSha: "e5f6a7b",
 };
+
+/** Computed the same way GitLab does, so a wrong digest fails here and not at the API. */
+const SHA1_OF_PAY_PY = createHash("sha1").update("src/pay.py").digest("hex");
 
 /**
  * A realistic MR patch: one replaced line, an added block, and trailing context.
@@ -120,6 +125,168 @@ describe("buildTextPosition", () => {
 			position: { oldPath: "src/pay.py", newPath: "src/pay.py", oldLine: null, newLine: 40 },
 		});
 		expect(result.ok).toBe(false);
+	});
+
+	it("omits line_range for a single-line note", () => {
+		const result = buildTextPosition({
+			diffRefs: DIFF_REFS,
+			position: { oldPath: "src/pay.py", newPath: "src/pay.py", oldLine: null, newLine: 40 },
+		});
+		expect(result.ok).toBe(true);
+		if (!result.ok) {
+			return;
+		}
+		expect("line_range" in result.position).toBe(false);
+	});
+
+	it("builds a line_range for a dragged run of added lines", () => {
+		const result = buildTextPosition({
+			diffRefs: DIFF_REFS,
+			position: {
+				oldPath: "src/pay.py",
+				newPath: "src/pay.py",
+				oldLine: null,
+				newLine: 42,
+				lineRange: { startOldLine: null, startNewLine: 38 },
+			},
+		});
+		expect(result.ok).toBe(true);
+		if (!result.ok) {
+			return;
+		}
+		// The path SHA1 is the post-image path's, and a missing side is written as 0.
+		expect(result.position.line_range).toEqual({
+			start: { line_code: `${SHA1_OF_PAY_PY}_0_38`, type: "new", new_line: 38 },
+			end: { line_code: `${SHA1_OF_PAY_PY}_0_42`, type: "new", new_line: 42 },
+		});
+		expect(result.position.new_line).toBe(42);
+	});
+
+	it("builds an old-side line_range for a dragged run of removed lines", () => {
+		const result = buildTextPosition({
+			diffRefs: DIFF_REFS,
+			position: {
+				oldPath: "src/pay.py",
+				newPath: "src/pay.py",
+				oldLine: 38,
+				newLine: null,
+				lineRange: { startOldLine: 37, startNewLine: null },
+			},
+		});
+		expect(result.ok).toBe(true);
+		if (!result.ok) {
+			return;
+		}
+		expect(result.position.line_range).toEqual({
+			start: { line_code: `${SHA1_OF_PAY_PY}_37_0`, type: "old", old_line: 37 },
+			end: { line_code: `${SHA1_OF_PAY_PY}_38_0`, type: "old", old_line: 38 },
+		});
+	});
+
+	it("keeps both line numbers on a context-line range", () => {
+		const result = buildTextPosition({
+			diffRefs: DIFF_REFS,
+			position: {
+				oldPath: "src/pay.py",
+				newPath: "src/pay.py",
+				oldLine: 39,
+				newLine: 43,
+				lineRange: { startOldLine: 36, startNewLine: 36 },
+			},
+		});
+		expect(result.ok).toBe(true);
+		if (!result.ok) {
+			return;
+		}
+		expect(result.position.line_range).toEqual({
+			start: { line_code: `${SHA1_OF_PAY_PY}_36_36`, type: "new", old_line: 36, new_line: 36 },
+			end: { line_code: `${SHA1_OF_PAY_PY}_39_43`, type: "new", old_line: 39, new_line: 43 },
+		});
+	});
+
+	it("uses the post-image path's SHA1 for a renamed file's range", () => {
+		const result = buildTextPosition({
+			diffRefs: DIFF_REFS,
+			position: {
+				oldPath: "src/old.py",
+				newPath: "src/new.py",
+				oldLine: null,
+				newLine: 4,
+				lineRange: { startOldLine: null, startNewLine: 2 },
+			},
+		});
+		expect(result.ok).toBe(true);
+		if (!result.ok) {
+			return;
+		}
+		const digest = createHash("sha1").update("src/new.py").digest("hex");
+		expect(result.position.line_range?.start.line_code).toBe(`${digest}_0_2`);
+	});
+
+	it("degrades a one-line range to a plain single-line note", () => {
+		const result = buildTextPosition({
+			diffRefs: DIFF_REFS,
+			position: {
+				oldPath: "src/pay.py",
+				newPath: "src/pay.py",
+				oldLine: null,
+				newLine: 40,
+				lineRange: { startOldLine: null, startNewLine: 40 },
+			},
+		});
+		expect(result.ok).toBe(true);
+		if (!result.ok) {
+			return;
+		}
+		expect("line_range" in result.position).toBe(false);
+	});
+
+	it("refuses a range that spans both sides of the diff", () => {
+		const result = buildTextPosition({
+			diffRefs: DIFF_REFS,
+			position: {
+				oldPath: "src/pay.py",
+				newPath: "src/pay.py",
+				oldLine: null,
+				newLine: 40,
+				lineRange: { startOldLine: 37, startNewLine: null },
+			},
+		});
+		expect(result).toEqual({
+			ok: false,
+			error: "A multi-line diff note has to stay on one side of the diff.",
+		});
+	});
+
+	it("refuses a range that ends before it starts", () => {
+		const result = buildTextPosition({
+			diffRefs: DIFF_REFS,
+			position: {
+				oldPath: "src/pay.py",
+				newPath: "src/pay.py",
+				oldLine: null,
+				newLine: 38,
+				lineRange: { startOldLine: null, startNewLine: 42 },
+			},
+		});
+		expect(result).toEqual({
+			ok: false,
+			error: "A multi-line diff note cannot end before it starts.",
+		});
+	});
+
+	it("refuses a range with no start line", () => {
+		const result = buildTextPosition({
+			diffRefs: DIFF_REFS,
+			position: {
+				oldPath: "src/pay.py",
+				newPath: "src/pay.py",
+				oldLine: null,
+				newLine: 38,
+				lineRange: { startOldLine: null, startNewLine: null },
+			},
+		});
+		expect(result).toEqual({ ok: false, error: "A multi-line diff note needs a start line." });
 	});
 });
 
