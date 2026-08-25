@@ -17,7 +17,7 @@ import {
 	resolveReviewAgentCwd,
 } from "../review/review-agent-args";
 import { buildAuditPrompt, buildChatPrompt, buildRulesExtractPrompt } from "../review/review-prompts";
-import { readReviewRulesBundle } from "../review/review-rules";
+import { persistExtractedRules, readReviewRulesBundle } from "../review/review-rules";
 import { handleAgentStreamRoute } from "../review/review-stream-route";
 import type { ReviewTrpcContext } from "./router";
 
@@ -38,6 +38,13 @@ export async function tryHandleReviewStandaloneRoute(
 				prompt: buildRulesExtractPrompt({ sourceRoots: input.sourceRoots }),
 				model: input.model,
 				allowedTools: REVIEW_RULES_EXTRACT_ALLOWED_TOOLS,
+				onComplete: async (text) => {
+					await persistExtractedRules({
+						projectKey: input.projectKey,
+						sourceRoots: input.sourceRoots,
+						text,
+					});
+				},
 			}),
 		});
 		return true;

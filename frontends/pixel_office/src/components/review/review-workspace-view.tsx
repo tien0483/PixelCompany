@@ -1,11 +1,13 @@
-import { ArrowLeft, ExternalLink, Send, Sparkles } from "lucide-react";
+import { ArrowLeft, ExternalLink, Send, Sparkles, X } from "lucide-react";
 import { type ReactElement, useCallback, useEffect, useMemo, useState } from "react";
 
 import { showAppToast } from "@/components/app-toaster";
+import { ClaudeUsageChip } from "@/components/claude-usage-chip";
 import { ReviewClaudePanel } from "@/components/review/review-claude-panel";
 import { ReviewDiffPane, type ReviewCommentDraftInput } from "@/components/review/review-diff-pane";
 import { ReviewFilesPanel } from "@/components/review/review-files-panel";
 import { ReviewRulesPanel } from "@/components/review/review-rules-panel";
+import { ReviewSeatPicker } from "@/components/review/review-seat-picker";
 import {
 	ReviewSubmitDialog,
 	type ReviewSubmitOutcome,
@@ -27,9 +29,12 @@ import {
 	selectPendingFindings,
 	sumDiffStats,
 } from "@/review/review-target";
+import { useReviewRulesConfig } from "@/review/use-review-rules-config";
+import { useReviewSeat } from "@/review/use-review-seat";
 import { useReviewSession } from "@/review/use-review-session";
 import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
 import type {
+	RuntimeManagerAccount,
 	RuntimeReviewAuditRequest,
 	RuntimeReviewChatRequest,
 	RuntimeReviewFinding,
@@ -96,19 +101,23 @@ function parseFindingsFromStream(text: string): RuntimeReviewFinding[] {
 export function ReviewWorkspaceView({
 	target,
 	workspaceId,
-	managerAccountId,
+	managerAccounts = [],
+	managerActiveAccountId = null,
 	localRepoPath,
 	onClose,
 }: {
 	target: ReviewTarget;
 	workspaceId: string | null;
-	/** Claude seat the review agents bill, when the caller pins one. */
-	managerAccountId?: number;
+	/** Manager seats offered in the header picker. Empty in the standalone app. */
+	managerAccounts?: RuntimeManagerAccount[];
+	managerActiveAccountId?: number | null;
 	/** Local checkout path — passed as cwd to review chat so slash commands can read the repo. */
 	localRepoPath?: string;
 	onClose: () => void;
 }): ReactElement {
 	const session = useReviewSession(target, workspaceId);
+	const rulesConfig = useReviewRulesConfig(target.projectKey, workspaceId);
+	const { managerAccountId, setManagerAccountId } = useReviewSeat(target.host);
 	const [leftTab, setLeftTab] = useState<LeftTab>("files");
 	const [diffMode, setDiffMode] = useState<ReviewDiffMode>("split");
 	const [pendingCitations, setPendingCitations] = useState<string[]>([]);
@@ -119,6 +128,13 @@ export function ReviewWorkspaceView({
 	// Seeded from storage rather than defaulted-then-synced: a first render on the
 	// wrong model would let a fast reviewer fire an Opus audit before the effect ran.
 	const [agentModel, setAgentModel] = useState<ReviewAgentModelId>(() => readStoredReviewAgentModel());
+	/**
+	 * The last audit/extraction failure, kept after the stream resets. A toast alone
+	 * is not enough here: the common failure ("no rules extracted yet") is an
+	 * instruction the reviewer has to act on in another panel, and it must still be
+	 * on screen when they get there.
+	 */
+	const [agentError, setAgentError] = useState<string | null>(null);
 
 	const chat = useHtmlAgentStream<RuntimeReviewChatRequest>("/api/review/chat");
 	const audit = useHtmlAgentStream<RuntimeReviewAuditRequest>("/api/review/audit");
@@ -192,6 +208,28 @@ export function ReviewWorkspaceView({
 		rulesExtractReset();
 	}, [refreshSession, rulesExtractReset, rulesExtractStatus]);
 
+	// Both one-shot streams fail the same way — an HTTP status the fetch never got
+	// past, or an `error` frame mid-run — and neither used to be rendered anywhere,
+	// so a rejected audit looked exactly like a button that does nothing.
+	const auditError = audit.error;
+	const rulesExtractError = rulesExtract.error;
+	useEffect(() => {
+		if (auditStatus !== "error" || !auditError) {
+			return;
+		}
+		setAgentError(auditError);
+		showAppToast({ intent: "danger", message: auditError });
+		auditReset();
+	}, [auditError, auditReset, auditStatus]);
+	useEffect(() => {
+		if (rulesExtractStatus !== "error" || !rulesExtractError) {
+			return;
+		}
+		setAgentError(rulesExtractError);
+		showAppToast({ intent: "danger", message: rulesExtractError });
+		rulesExtractReset();
+	}, [rulesExtractError, rulesExtractReset, rulesExtractStatus]);
+
 	const citeRule = useCallback((ruleId: string) => {
 		setPendingCitations((current) => (current.includes(ruleId) ? current : [...current, ruleId]));
 	}, []);
@@ -211,6 +249,7 @@ export function ReviewWorkspaceView({
 		if (session.files.length === 0 || !session.mergeRequest) {
 			return;
 		}
+		setAgentError(null);
 		// Only files with a text patch: a binary or truncated file has nothing to audit
 		// and would spend prompt budget on a placeholder.
 		const files = session.files
@@ -257,31 +296,20 @@ export function ReviewWorkspaceView({
 		writeStoredReviewAgentModel(model);
 	}, []);
 
-	const extractRules = useCallback(async () => {
-		try {
-			const client = getRuntimeTrpcClient(workspaceId);
-			const config = await client.review.getRulesConfig.query({ projectKey: target.projectKey });
-			const sourceRoots = config.config?.sourceRoots ?? [];
-			if (sourceRoots.length === 0) {
-				// Extraction with no configured roots would send the agent hunting the
-				// filesystem; say what is missing instead.
-				showAppToast({
-					intent: "danger",
-					message:
-						"No rule sources configured for this project. Set the guideline paths in Review settings first.",
-				});
-				return;
-			}
-			void rulesExtract.run({
-				projectKey: target.projectKey,
-				sourceRoots,
-				model: agentModel,
-				managerAccountId,
-			});
-		} catch (error) {
-			showAppToast({ intent: "danger", message: error instanceof Error ? error.message : String(error) });
+	const extractRules = useCallback(() => {
+		// The Rules panel disables its own button while this is empty, so reaching here
+		// with no roots would mean the panel and this callback disagree.
+		if (rulesConfig.sourceRoots.length === 0) {
+			return;
 		}
-	}, [agentModel, managerAccountId, rulesExtract, target.projectKey, workspaceId]);
+		setAgentError(null);
+		void rulesExtract.run({
+			projectKey: target.projectKey,
+			sourceRoots: rulesConfig.sourceRoots,
+			model: agentModel,
+			managerAccountId,
+		});
+	}, [agentModel, managerAccountId, rulesConfig.sourceRoots, rulesExtract, target.projectKey]);
 
 	const fetchFullFile = useCallback(async (): Promise<string | null> => {
 		if (!session.activeFile || !session.mergeRequest) {
@@ -472,6 +500,7 @@ export function ReviewWorkspaceView({
 				</div>
 
 				<div className="flex shrink-0 items-center gap-3 text-xs">
+					<ClaudeUsageChip testId="review-claude-usage-chip" />
 					<span className="font-mono text-[11px]">
 						<span className="text-status-green">+{stats.additions}</span>{" "}
 						<span className="text-status-red">-{stats.deletions}</span>
@@ -480,6 +509,15 @@ export function ReviewWorkspaceView({
 					<span className="text-text-tertiary">
 						{progress.reviewed}/{progress.total} reviewed
 					</span>
+					<ReviewSeatPicker
+						accounts={managerAccounts}
+						activeAccountId={managerActiveAccountId}
+						value={managerAccountId}
+						// Switching seats mid-run would not move the running agent, and the next
+						// run would silently disagree with what the header shows.
+						disabled={audit.status === "running" || chat.status === "running" || rulesExtract.status === "running"}
+						onChange={setManagerAccountId}
+					/>
 					<Button
 						variant="default"
 						size="sm"
@@ -506,6 +544,20 @@ export function ReviewWorkspaceView({
 			{session.diffsTruncated ? (
 				<div className="shrink-0 border-b border-border bg-surface-1 px-3 py-1.5 text-[11px] text-status-orange">
 					This merge request is larger than the diff page cap, so some files are not listed.
+				</div>
+			) : null}
+
+			{agentError ? (
+				<div className="flex shrink-0 items-start justify-between gap-3 border-b border-border bg-surface-1 px-3 py-1.5 text-[11px] text-status-red">
+					<span>{agentError}</span>
+					<button
+						type="button"
+						aria-label="Dismiss error"
+						className="shrink-0 cursor-pointer text-text-tertiary hover:text-text-primary"
+						onClick={() => setAgentError(null)}
+					>
+						<X size={12} />
+					</button>
 				</div>
 			) : null}
 
@@ -555,8 +607,12 @@ export function ReviewWorkspaceView({
 							generatedAt={session.rulesGeneratedAt}
 							isExtracting={rulesExtract.status === "running"}
 							canCite={isComposerOpen}
+							sourceRoots={rulesConfig.sourceRoots}
+							isSavingSourceRoots={rulesConfig.isSaving}
+							suggestedSourceRoot={localRepoPath}
 							onCite={citeRule}
-							onRefresh={() => void extractRules()}
+							onRefresh={extractRules}
+							onSaveSourceRoots={(roots) => void rulesConfig.save(roots)}
 						/>
 					)}
 				</aside>
