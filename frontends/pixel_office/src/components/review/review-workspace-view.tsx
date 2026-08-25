@@ -27,6 +27,7 @@ import {
 	countReviewProgress,
 	type ReviewDiffMode,
 	type ReviewTarget,
+	selectNextUnreviewedPath,
 	selectPendingFindings,
 	sumDiffStats,
 } from "@/review/review-target";
@@ -286,6 +287,28 @@ export function ReviewWorkspaceView({
 		[session],
 	);
 
+	/**
+	 * Reaching the bottom of a file moves to the next one that still needs reading.
+	 * Deliberately does not mark the finished file reviewed — "reviewed" is a claim
+	 * about having checked it, and scrolling is not that claim.
+	 */
+	const advanceToNextFile = useCallback(() => {
+		const next = selectNextUnreviewedPath({
+			files: session.files,
+			reviewedPaths,
+			activePath: session.activePath,
+		});
+		if (!next) {
+			return;
+		}
+		session.setActivePath(next);
+		showAppToast({ intent: "success", message: `Next unreviewed file: ${next}` });
+	}, [reviewedPaths, session]);
+
+	// Stable identity so the diff pane's `closeComposer` memoization holds — it is a
+	// dependency of effects there, and a fresh arrow per render defeats them.
+	const clearCitations = useCallback(() => setPendingCitations([]), []);
+
 	const runAudit = useCallback(() => {
 		if (session.files.length === 0 || !session.mergeRequest) {
 			return;
@@ -468,6 +491,9 @@ export function ReviewWorkspaceView({
 							newPath: draft.newPath,
 							oldLine: draft.oldLine,
 							newLine: draft.newLine,
+							// Absent on a single-line note, and on every draft saved before ranges
+							// existed — the runtime omits `line_range` in that case.
+							...(draft.lineRange ? { lineRange: draft.lineRange } : {}),
 						},
 					});
 					if (!response.ok) {
@@ -714,9 +740,10 @@ export function ReviewWorkspaceView({
 						onAddDraft={addDraft}
 						onRemoveDraft={session.removeDraftComment}
 						onComposerOpenChange={setIsComposerOpen}
-						onClearCitations={() => setPendingCitations([])}
+						onClearCitations={clearCitations}
 						onRemoveCitation={removeCitation}
 						onFetchFullFile={fetchFullFile}
+						onReachedEnd={advanceToNextFile}
 					/>
 				)}
 
