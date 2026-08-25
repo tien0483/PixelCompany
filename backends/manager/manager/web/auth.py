@@ -746,6 +746,73 @@ async def refresh_account_token(account_id: int, db: Database) -> bool:
     return False
 
 
+async def ensure_launchable_credentials(account_id: int, db: Database) -> dict | None:
+    """Refresh the token pair a credential write is about to hand Claude Code.
+
+    Returns the re-read account row (None when the account is gone).
+
+    Every path that writes the GLOBAL credential store — seat swap, "Set
+    Active", CLI reconcile — feeds unpinned/"Auto" sessions, which copy that
+    file at launch. Writing a seat whose token already expired is what put
+    those sessions on "Login expired · Please run /login" with no way out:
+    the write itself refreshed nothing, and the seat's own refresh was
+    skipped for being the active one.
+
+    Refreshes whichever pair :func:`resolve_oauth_source` would pick, and
+    honours :func:`cc_refresh_block_reason` so a live session's single-use CC
+    token is still never rotated out from under it.
+    """
+    from manager.api.credential_helpers import (
+        OAUTH_SOURCE_CC,
+        cc_refresh_block_reason,
+        get_live_session_account_ids,
+        read_active_account_id,
+        resolve_oauth_source,
+    )
+
+    account = db.get_account(account_id)
+    if not account:
+        return None
+
+    if should_refresh(account):
+        try:
+            await refresh_account_token(account_id, db)
+        except Exception as exc:
+            logger.warning(
+                "Account %d: pre-write primary refresh failed: %s", account_id, exc,
+            )
+        account = db.get_account(account_id) or account
+
+    if should_refresh_cc(account):
+        block_reason = cc_refresh_block_reason(
+            account,
+            is_active_seat=read_active_account_id() == account_id,
+            has_live_session=account_id in get_live_session_account_ids(db),
+        )
+        if block_reason:
+            logger.info(
+                "Account %d: skipping pre-write CC refresh (%s).",
+                account_id, block_reason,
+            )
+        else:
+            try:
+                await refresh_cc_token(account_id, db)
+            except Exception as exc:
+                logger.warning(
+                    "Account %d: pre-write CC refresh failed: %s", account_id, exc,
+                )
+            account = db.get_account(account_id) or account
+
+    if resolve_oauth_source(account) != OAUTH_SOURCE_CC and not account.get("access_token"):
+        logger.warning(
+            "Account %d: no usable Claude Code credential to write — the "
+            "session will land on the login screen. Re-authorize CC for this "
+            "seat from the dashboard.",
+            account_id,
+        )
+    return account
+
+
 async def _try_refresh_on_429(
     account_id: int, db: Database, state: dict,
 ) -> str | None:
@@ -1774,8 +1841,17 @@ async def refresh_all_expiring_tokens(buffer_seconds: int = 14400) -> dict:
         # re-login. Claude Code (v2.1.81+) manages rotation for its own
         # session; jacked imports rotated tokens for the active seat via
         # reconcile_credentials_from_live_store above.
+        # The one exception is an already-expired CC pair: the holder is
+        # broken either way, and leaving it unrefreshed strands every future
+        # launch on it (cc_refresh_block_reason owns that rule).
         # See docs/architecture/oauth-and-credential-flows.md §7.1.
-        if active_id == account_id or account_id in live_session_account_ids:
+        from manager.api.credential_helpers import cc_refresh_block_reason
+
+        if cc_refresh_block_reason(
+            account,
+            is_active_seat=active_id == account_id,
+            has_live_session=account_id in live_session_account_ids,
+        ):
             continue
 
         if should_refresh_cc(account):

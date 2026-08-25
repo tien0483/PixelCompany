@@ -9,6 +9,7 @@ for both the background loop and the pre-launch path.
 
 import asyncio
 import time
+from contextlib import ExitStack
 from unittest.mock import AsyncMock, MagicMock, patch
 
 
@@ -52,6 +53,36 @@ class TestBackgroundLoopSkipsActiveCC:
         assert result["cc_refreshed"] == 1
         # Active account was checked and counted, just not CC-refreshed
         assert result["checked"] == 2
+
+    @patch("manager.web.auth.refresh_cc_token", new_callable=AsyncMock)
+    @patch("manager.web.auth.refresh_account_token", new_callable=AsyncMock)
+    @patch("manager.api.credential_helpers.read_active_account_id", return_value=1)
+    @patch("manager.web.auth.Database")
+    def test_active_account_with_expired_cc_is_refreshed(
+        self, mock_db_cls, mock_read_active, mock_refresh_primary, mock_refresh_cc,
+    ):
+        """An EXPIRED CC pair on the active seat must still be refreshed.
+
+        Skipping it strands the seat on a dead token forever: it is the seat
+        every unpinned/"Auto" launch copies, so each new session opens on
+        "Login expired · Please run /login". Nothing is protected by the skip
+        — the live session's credential is already expired.
+        """
+        from manager.web import auth
+
+        now = int(time.time())
+        active_acct = self._make_account(1, cc_expires_at=now - 100)
+
+        mock_db = MagicMock()
+        mock_db.list_accounts.return_value = [active_acct]
+        mock_db_cls.return_value = mock_db
+        mock_refresh_cc.return_value = True
+
+        with patch("manager.api.credential_helpers.reconcile_credentials_from_live_store"):
+            result = asyncio.run(auth.refresh_all_expiring_tokens())
+
+        mock_refresh_cc.assert_called_once_with(1, mock_db)
+        assert result["cc_refreshed"] == 1
 
     @patch("manager.web.auth.refresh_cc_token", new_callable=AsyncMock)
     @patch("manager.api.credential_helpers.read_active_account_id",
@@ -213,7 +244,23 @@ class TestLaunchSkipsActiveCC:
     We test the refresh-decision block in isolation by raising a sentinel
     exception from the next step after the refresh check. If refresh_cc_token
     was called vs skipped we can tell from the mock.
+
+    The sentinel hangs off ``_seed_claude_config`` — the first step after the
+    decision — and never off ``_time.time``: ``manager.launch._time`` IS the
+    stdlib module, so patching its ``time`` also breaks the decision code
+    itself and the test passes without ever reaching the branch.
     """
+
+    @staticmethod
+    def _stop_after_refresh_check(tmp_path):
+        """Patches that let the decision block run, then abort the launch."""
+        sentinel = RuntimeError("stop-after-refresh-check")
+        return (
+            patch("manager.launch.ACCOUNTS_DIR", tmp_path / "accounts"),
+            patch("manager.launch.should_refresh", return_value=False),
+            patch("manager.launch.should_refresh_cc", return_value=True),
+            patch("manager.launch._seed_claude_config", side_effect=sentinel),
+        )
 
     def _make_account(self, account_id: int, cc_expires_at: int) -> dict:
         return {
@@ -232,7 +279,7 @@ class TestLaunchSkipsActiveCC:
     @patch("manager.api.credential_helpers.read_active_account_id")
     @patch("manager.web.auth.refresh_cc_token", new_callable=AsyncMock)
     def test_skips_cc_refresh_when_account_is_active(
-        self, mock_refresh_cc, mock_read_live,
+        self, mock_refresh_cc, mock_read_live, tmp_path,
     ):
         """If live creds say account 1 is active, launching account 1 must NOT refresh."""
         from manager import launch
@@ -246,10 +293,9 @@ class TestLaunchSkipsActiveCC:
 
         # Let prepare_account_dir run through the refresh check, then bail
         # on the next step (we don't care about the rest for this test).
-        sentinel = RuntimeError("stop-after-refresh-check")
-        with patch("manager.launch.should_refresh", return_value=False), \
-             patch("manager.launch.should_refresh_cc", return_value=True), \
-             patch("manager.launch._time.time", side_effect=sentinel):
+        with ExitStack() as stack:
+            for patcher in self._stop_after_refresh_check(tmp_path):
+                stack.enter_context(patcher)
             try:
                 launch.prepare_account_dir(acct, db)
             except RuntimeError as e:
@@ -261,10 +307,44 @@ class TestLaunchSkipsActiveCC:
         # Critical assertion: refresh_cc_token must not have been called.
         mock_refresh_cc.assert_not_called()
 
+    @patch("manager.api.credential_helpers.reconcile_credentials_from_live_store")
+    @patch("manager.api.credential_helpers.read_active_account_id")
+    @patch("manager.web.auth.refresh_cc_token", new_callable=AsyncMock)
+    def test_refreshes_cc_for_active_account_when_token_already_expired(
+        self, mock_refresh_cc, mock_read_live, mock_reconcile, tmp_path,
+    ):
+        """The active seat's EXPIRED CC pair must be refreshed at launch.
+
+        Otherwise the launch writes the dead token straight back out and the
+        agent opens on "Login expired · Please run /login".
+        """
+        from manager import launch
+
+        now = int(time.time())
+        acct = self._make_account(1, cc_expires_at=now - 100)
+        mock_read_live.return_value = 1
+        mock_refresh_cc.return_value = True
+
+        db = MagicMock()
+        db.get_account.return_value = acct
+
+        with ExitStack() as stack:
+            for patcher in self._stop_after_refresh_check(tmp_path):
+                stack.enter_context(patcher)
+            try:
+                launch.prepare_account_dir(acct, db)
+            except RuntimeError as e:
+                if str(e) != "stop-after-refresh-check":
+                    raise
+            except Exception:
+                pass
+
+        mock_refresh_cc.assert_called_once_with(1, db)
+
     @patch("manager.api.credential_helpers.read_active_account_id")
     @patch("manager.web.auth.refresh_cc_token", new_callable=AsyncMock)
     def test_refreshes_cc_when_launching_different_account(
-        self, mock_refresh_cc, mock_read_live,
+        self, mock_refresh_cc, mock_read_live, tmp_path,
     ):
         """If the active account is 2 and we're launching 1, CC refresh should fire."""
         from manager import launch
@@ -277,10 +357,9 @@ class TestLaunchSkipsActiveCC:
         db = MagicMock()
         db.get_account.return_value = acct
 
-        sentinel = RuntimeError("stop-after-refresh-check")
-        with patch("manager.launch.should_refresh", return_value=False), \
-             patch("manager.launch.should_refresh_cc", return_value=True), \
-             patch("manager.launch._time.time", side_effect=sentinel):
+        with ExitStack() as stack:
+            for patcher in self._stop_after_refresh_check(tmp_path):
+                stack.enter_context(patcher)
             try:
                 launch.prepare_account_dir(acct, db)
             except RuntimeError as e:

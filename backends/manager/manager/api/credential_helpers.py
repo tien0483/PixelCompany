@@ -357,6 +357,41 @@ def read_active_account_id() -> int | None:
     return account_id
 
 
+def cc_refresh_block_reason(
+    account: dict, *, is_active_seat: bool, has_live_session: bool
+) -> str | None:
+    """Why rotating this account's CC refresh token must be skipped, or None.
+
+    The CC refresh token is single-use. Rotating it upstream while a live
+    Claude Code process holds the old value makes that process lose the race
+    and hit invalid_grant on its next refresh — a forced re-login. Both
+    jacked's global active seat and any seat a running task pinned count as
+    holders (architecture doc §7.1/§7.2, invariant I2).
+
+    Once the CC access token has actually EXPIRED there is nothing left to
+    protect: the holder's credential is already dead. Refusing to refresh it
+    then strands the seat there permanently, because every later launch copies
+    that same expired token out of the seat's dir and lands on "Login expired
+    · Please run /login". So an expired pair is always refreshable.
+
+    >>> now = int(time.time())
+    >>> cc_refresh_block_reason({"cc_expires_at": now + 600}, is_active_seat=False, has_live_session=False) is None
+    True
+    >>> cc_refresh_block_reason({"cc_expires_at": now + 600}, is_active_seat=True, has_live_session=False)
+    'account is the active Claude Code session — it manages its own token rotation'
+    >>> cc_refresh_block_reason({"cc_expires_at": now - 1}, is_active_seat=True, has_live_session=True) is None
+    True
+    """
+    if not (is_active_seat or has_live_session):
+        return None
+    cc_expires_at = account.get("cc_expires_at")
+    if cc_expires_at is not None and cc_expires_at < time.time():
+        return None
+    if has_live_session:
+        return "another running task already has this seat live"
+    return "account is the active Claude Code session — it manages its own token rotation"
+
+
 def get_live_session_account_ids(db) -> set:
     """Return account ids with a live Claude Code session right now.
 
@@ -578,11 +613,67 @@ def write_platform_credentials(data: dict) -> bool:
 # ---------------------------------------------------------------------------
 
 
+OAUTH_SOURCE_CC = "cc"
+OAUTH_SOURCE_PRIMARY = "primary"
+
+
+def _primary_token_is_live(account: dict) -> bool:
+    """True when the usage credential's access token is present and unexpired."""
+    if not account.get("access_token"):
+        return False
+    return (account.get("expires_at") or 0) > time.time()
+
+
+def resolve_oauth_source(account: dict) -> str:
+    """Decide which token pair Claude Code should be handed.
+
+    ``"cc"``      — the account's dedicated Claude Code pair. Self-refreshing
+                    when ``cc_refresh_token`` is set, so it is always preferred
+                    while it is alive.
+    ``"primary"`` — the usage credential's access token, written WITHOUT its
+                    refresh token (see :func:`build_oauth_data`). Valid until
+                    ``expires_at``, then the session must re-login.
+
+    An EXPIRED CC pair never wins over a live primary token. The credential
+    file is a snapshot the session reads at startup: writing an already-dead
+    access token drops the agent straight onto "Login expired · Please run
+    /login", which is exactly what the primary fallback exists to prevent. An
+    expired CC pair is still chosen when it holds a refresh token and we have
+    nothing fresher — Claude Code refreshing it is then the only way in.
+
+    >>> now = int(time.time())
+    >>> resolve_oauth_source({"access_token": "at", "expires_at": now + 3600})
+    'primary'
+    >>> resolve_oauth_source({"cc_access_token": "cc", "cc_expires_at": now + 3600})
+    'cc'
+    >>> resolve_oauth_source({"access_token": "at", "expires_at": now + 3600,
+    ...                       "cc_access_token": "cc", "cc_refresh_token": "rt",
+    ...                       "cc_expires_at": now - 1})
+    'primary'
+    >>> resolve_oauth_source({"access_token": "at", "expires_at": now - 1,
+    ...                       "cc_access_token": "cc", "cc_refresh_token": "rt",
+    ...                       "cc_expires_at": now - 1})
+    'cc'
+    """
+    cc_at = account.get("cc_access_token")
+    if not cc_at:
+        return OAUTH_SOURCE_PRIMARY
+
+    cc_exp = account.get("cc_expires_at")
+    cc_expired = cc_exp is not None and cc_exp < time.time()
+    if not cc_expired:
+        return OAUTH_SOURCE_CC
+
+    if account.get("cc_refresh_token") and not _primary_token_is_live(account):
+        return OAUTH_SOURCE_CC
+    return OAUTH_SOURCE_PRIMARY
+
+
 def build_oauth_data(account: dict) -> dict:
     """Build Claude Code credential format from account dict.
 
-    Prefers CC (Claude Code) tokens when present and usable.
-    Falls back to primary tokens when CC tokens don't exist yet.
+    Prefers CC (Claude Code) tokens when present and usable — see
+    :func:`resolve_oauth_source` for the exact rule.
     CRITICAL: The fallback path sets refreshToken to None to prevent
     Claude Code from consuming the primary refresh token.
 
@@ -603,25 +694,16 @@ def build_oauth_data(account: dict) -> dict:
         except (json.JSONDecodeError, TypeError):
             pass
 
-    # Prefer CC tokens when present AND usable
-    cc_at = account.get("cc_access_token")
-    cc_rt = account.get("cc_refresh_token")
-    cc_exp = account.get("cc_expires_at")
-
-    if cc_at:
-        # If CC token is expired AND no refresh token, fall through to primary
-        if cc_exp is not None and cc_exp < time.time() and not cc_rt:
-            pass  # Fall through — expired CC with no refresh is unusable
-        else:
-            return {
-                "accessToken": cc_at,
-                "refreshToken": cc_rt,  # may be None pre-CC-auth
-                "expiresAt": (cc_exp or 0) * 1000,
-                "scopes": scopes,
-                "subscriptionType": account.get("subscription_type"),
-                "rateLimitTier": account.get("rate_limit_tier"),
-                "organizationUuid": account.get("organization_uuid") or None,
-            }
+    if resolve_oauth_source(account) == OAUTH_SOURCE_CC:
+        return {
+            "accessToken": account.get("cc_access_token"),
+            "refreshToken": account.get("cc_refresh_token"),  # may be None pre-CC-auth
+            "expiresAt": (account.get("cc_expires_at") or 0) * 1000,
+            "scopes": scopes,
+            "subscriptionType": account.get("subscription_type"),
+            "rateLimitTier": account.get("rate_limit_tier"),
+            "organizationUuid": account.get("organization_uuid") or None,
+        }
 
     # Fallback: primary tokens, but NEVER expose primary refresh_token.
     # If Claude Code consumed this refresh token, it would break jacked's
