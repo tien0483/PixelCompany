@@ -1,4 +1,4 @@
-import { Check, CornerDownRight } from "lucide-react";
+import { ArrowUp, Check, CornerDownRight } from "lucide-react";
 import { type ReactElement, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -14,18 +14,27 @@ type ThreadFilter = "all" | "unresolved" | "resolved";
  */
 export function ReviewThreadsPanel({
 	discussions,
+	onCreateThread,
 	onReply,
 	onToggleResolved,
 	onJumpToThread,
 }: {
 	discussions: RuntimeGitlabDiscussion[];
+	/** Posts an unpositioned merge-request comment, i.e. a new top-level thread. */
+	onCreateThread: (body: string) => Promise<void>;
 	onReply: (discussionId: string, body: string) => Promise<void>;
 	onToggleResolved: (discussionId: string, resolved: boolean) => Promise<void>;
 	onJumpToThread: (path: string, line: number | null) => void;
 }): ReactElement {
 	const [filter, setFilter] = useState<ThreadFilter>("unresolved");
-	const [replyingTo, setReplyingTo] = useState<string | null>(null);
-	const [replyText, setReplyText] = useState("");
+	/**
+	 * One draft per discussion. A single shared buffer is what forced the old
+	 * one-box-at-a-time behaviour: with every reply box open, switching threads would
+	 * otherwise show — and on submit, post — the text typed into another one.
+	 */
+	const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({});
+	const [newThreadText, setNewThreadText] = useState("");
+	const [isCreating, setIsCreating] = useState(false);
 	const [busyId, setBusyId] = useState<string | null>(null);
 
 	// System notes ("changed the description", "added 2 commits") are noise in a
@@ -55,17 +64,34 @@ export function ReviewThreadsPanel({
 	}, [filter, humanDiscussions]);
 
 	const submitReply = async (discussionId: string): Promise<void> => {
-		const body = replyText.trim();
+		const body = (replyDrafts[discussionId] ?? "").trim();
 		if (body.length === 0) {
 			return;
 		}
 		setBusyId(discussionId);
 		try {
 			await onReply(discussionId, body);
-			setReplyText("");
-			setReplyingTo(null);
+			// Only this thread's draft is dropped; the others are still being typed.
+			setReplyDrafts((current) => ({ ...current, [discussionId]: "" }));
 		} finally {
 			setBusyId(null);
+		}
+	};
+
+	const submitNewThread = async (): Promise<void> => {
+		const body = newThreadText.trim();
+		if (body.length === 0 || isCreating) {
+			return;
+		}
+		setIsCreating(true);
+		try {
+			await onCreateThread(body);
+			setNewThreadText("");
+		} catch {
+			// The caller already surfaced the reason; keep the text so the reviewer can
+			// retry instead of retyping a comment GitLab refused.
+		} finally {
+			setIsCreating(false);
 		}
 	};
 
@@ -83,6 +109,38 @@ export function ReviewThreadsPanel({
 					active={filter === "resolved"}
 					onSelect={() => setFilter("resolved")}
 				/>
+			</div>
+
+			{/* Always open, like the Claude panel's composer: starting a thread is the most
+			    common write in this panel and should not need a click to reveal. Posts with
+			    no diff position, so it does not depend on a file being selected. */}
+			<div className="shrink-0 border-b border-border p-2">
+				<div className="relative">
+					<textarea
+						value={newThreadText}
+						onChange={(event) => setNewThreadText(event.target.value)}
+						rows={2}
+						aria-label="Start a new thread on this merge request"
+						placeholder="Start a new thread on this merge request…"
+						className="w-full resize-none rounded border border-border bg-surface-0 p-1.5 pr-8 text-[11px] text-text-primary placeholder:text-text-tertiary focus:border-border-focus focus:outline-none"
+						onKeyDown={(event) => {
+							if (event.key === "Enter" && !event.shiftKey) {
+								event.preventDefault();
+								void submitNewThread();
+							}
+						}}
+					/>
+					<button
+						type="button"
+						aria-label="Post new thread"
+						disabled={newThreadText.trim().length === 0 || isCreating}
+						onClick={() => void submitNewThread()}
+						className="absolute bottom-1.5 right-1.5 cursor-pointer rounded bg-accent p-1 text-accent-fg disabled:opacity-40"
+					>
+						<ArrowUp size={11} />
+					</button>
+				</div>
+				<div className="mt-1 px-0.5 text-[10px] text-text-tertiary">Enter posts · Shift+Enter for a newline</div>
 			</div>
 
 			<div className="min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain p-2">
@@ -122,63 +180,47 @@ export function ReviewThreadsPanel({
 								</div>
 							))}
 
-							{replyingTo === discussion.id ? (
-								<div className="space-y-1">
-									<textarea
-										value={replyText}
-										onChange={(event) => setReplyText(event.target.value)}
-										rows={2}
-										aria-label="Reply"
-										className="w-full rounded border border-border bg-surface-0 p-1.5 text-[11px] text-text-primary focus:border-border-focus focus:outline-none"
-									/>
-									<div className="flex justify-end gap-1">
-										<Button
-											variant="default"
-											size="sm"
-											onClick={() => {
-												setReplyingTo(null);
-												setReplyText("");
-											}}
-										>
-											Cancel
-										</Button>
-										<Button
-											variant="primary"
-											size="sm"
-											disabled={isBusy || replyText.trim().length === 0}
-											onClick={() => void submitReply(discussion.id)}
-										>
-											Reply
-										</Button>
-									</div>
-								</div>
-							) : (
-								<div className="flex justify-end gap-1">
+							<textarea
+								value={replyDrafts[discussion.id] ?? ""}
+								onChange={(event) =>
+									setReplyDrafts((current) => ({ ...current, [discussion.id]: event.target.value }))
+								}
+								rows={2}
+								// Every thread's box is open at once now, so a shared "Reply" label
+								// would leave N identically-named fields on the page.
+								aria-label={`Reply to ${position?.newPath ?? position?.oldPath ?? "merge request comment"}`}
+								placeholder="Reply…"
+								className="w-full resize-none rounded border border-border bg-surface-0 p-1.5 text-[11px] text-text-primary placeholder:text-text-tertiary focus:border-border-focus focus:outline-none"
+								onKeyDown={(event) => {
+									if (event.key === "Enter" && !event.shiftKey) {
+										event.preventDefault();
+										void submitReply(discussion.id);
+									}
+								}}
+							/>
+							<div className="flex justify-end gap-1">
+								<Button
+									variant="ghost"
+									size="sm"
+									icon={<CornerDownRight size={11} />}
+									disabled={isBusy || (replyDrafts[discussion.id] ?? "").trim().length === 0}
+									onClick={() => void submitReply(discussion.id)}
+								>
+									Reply
+								</Button>
+								{/* Individual notes are not resolvable in GitLab, so no toggle for them. */}
+								{!discussion.individualNote ? (
 									<Button
-										variant="ghost"
+										variant={discussion.resolved ? "default" : "primary"}
 										size="sm"
-										icon={<CornerDownRight size={11} />}
-										onClick={() => {
-											setReplyingTo(discussion.id);
-											setReplyText("");
-										}}
+										icon={<Check size={11} />}
+										disabled={isBusy}
+										onClick={() => void onToggleResolved(discussion.id, !discussion.resolved)}
 									>
-										Reply
+										{discussion.resolved ? "Unresolve" : "Resolve"}
 									</Button>
-									{/* Individual notes are not resolvable in GitLab, so no toggle for them. */}
-									{!discussion.individualNote ? (
-										<Button
-											variant={discussion.resolved ? "default" : "primary"}
-											size="sm"
-											icon={<Check size={11} />}
-											disabled={isBusy}
-											onClick={() => void onToggleResolved(discussion.id, !discussion.resolved)}
-										>
-											{discussion.resolved ? "Unresolve" : "Resolve"}
-										</Button>
-									) : null}
-								</div>
-							)}
+								) : null}
+							</div>
 						</div>
 					);
 				})}
