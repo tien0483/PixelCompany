@@ -2,6 +2,7 @@ import { ArrowLeft, ExternalLink, Send, Sparkles } from "lucide-react";
 import { type ReactElement, useCallback, useEffect, useMemo, useState } from "react";
 
 import { showAppToast } from "@/components/app-toaster";
+import { ClaudeUsageChip } from "@/components/claude-usage-chip";
 import { ReviewClaudePanel } from "@/components/review/review-claude-panel";
 import { ReviewDiffPane, type ReviewCommentDraftInput } from "@/components/review/review-diff-pane";
 import { ReviewFilesPanel } from "@/components/review/review-files-panel";
@@ -452,6 +453,7 @@ export function ReviewWorkspaceView({
 				</div>
 
 				<div className="flex shrink-0 items-center gap-3 text-xs">
+					<ClaudeUsageChip testId="review-claude-usage-chip" />
 					<span className="font-mono text-[11px]">
 						<span className="text-status-green">+{stats.additions}</span>{" "}
 						<span className="text-status-red">-{stats.deletions}</span>
