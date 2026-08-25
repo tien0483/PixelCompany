@@ -162,6 +162,29 @@ export function buildRulesBundle(input: {
 }
 
 /**
+ * Turns an extraction run's raw output into the cached bundle the audit reads.
+ *
+ * The extraction route streams the agent's JSON to the browser, but the browser
+ * only reloads the bundle afterwards — this is what actually writes it. A run that
+ * parsed to zero rules is *not* written: overwriting a good bundle with an empty
+ * one because the agent answered in prose would silently disarm every later audit.
+ */
+export async function persistExtractedRules(input: {
+	projectKey: string;
+	sourceRoots: string[];
+	text: string;
+}): Promise<{ saved: number; dropped: number }> {
+	const { rules, dropped } = parseExtractedRules(input.text);
+	if (rules.length === 0) {
+		return { saved: 0, dropped };
+	}
+	await writeReviewRulesBundle(
+		buildRulesBundle({ projectKey: input.projectKey, sourceRoots: input.sourceRoots, rules }),
+	);
+	return { saved: rules.length, dropped };
+}
+
+/**
  * Parses the audit agent's findings. Same tolerance as the rules parser, and the
  * same reason: a finding that fails to validate is one missing warning, not a
  * failed review pass.

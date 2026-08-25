@@ -25,6 +25,13 @@ export interface AgentStreamRunPlan {
 	model?: string;
 	allowedTools: readonly string[];
 	managerAccountId?: number;
+	/**
+	 * Runs once the agent has finished, with everything it streamed. This is where a
+	 * route persists its result: the SSE stream reaches the browser, but the browser
+	 * is not the store — the rules extractor's bundle has to be written server-side,
+	 * or a reload loses the whole (expensive) run.
+	 */
+	onComplete?: (text: string) => Promise<void>;
 }
 
 export type AgentStreamBuildResult = { ok: false; status: number; error: string } | ({ ok: true } & AgentStreamRunPlan);
@@ -106,7 +113,24 @@ export async function handleAgentStreamRoute<TInput>(
 	});
 
 	const abortCtl = new AbortController();
-	req.on("close", () => abortCtl.abort());
+	let aborted = false;
+	req.on("close", () => {
+		aborted = true;
+		abortCtl.abort();
+	});
+
+	const write = (event: string, data: unknown): void => {
+		if (res.writableEnded) {
+			return;
+		}
+		res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+	};
+
+	// Same accumulation the browser hook performs, kept server-side so `onComplete`
+	// sees exactly what the reviewer saw. `html` replaces rather than appends: it is
+	// a whole-document event, not a chunk.
+	let streamed = "";
+	let sawError = false;
 
 	await runAgentOneShot({
 		agentId: "claude",
@@ -118,13 +142,33 @@ export async function handleAgentStreamRoute<TInput>(
 		timeoutMs: REVIEW_AGENT_HARD_TIMEOUT_MS,
 		signal: abortCtl.signal,
 		onEvent: (event) => {
-			if (res.writableEnded) {
-				return;
+			if (event.type === "delta") {
+				streamed += event.text;
+			} else if (event.type === "html") {
+				streamed = event.text;
+			} else if (event.type === "error") {
+				sawError = true;
 			}
-			res.write(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
+			write(event.type, event);
 		},
 		...(options.buildPinInput ? { pinInput: options.buildPinInput(run.managerAccountId) } : {}),
 	});
+
+	// Skipped on a failed or cancelled run: half a stream parses to a partial result,
+	// and persisting that would replace a good bundle with the fragment of a run the
+	// reviewer already saw fail.
+	if (run.onComplete && !sawError && !aborted && streamed.length > 0) {
+		try {
+			await run.onComplete(streamed);
+		} catch (error) {
+			// The stream's headers are long gone, so this cannot become a 500 — it has to
+			// reach the reviewer as an SSE error or the run looks like it succeeded.
+			write("error", {
+				type: "error",
+				message: error instanceof Error ? error.message : String(error),
+			});
+		}
+	}
 
 	if (!res.writableEnded) {
 		res.end();
