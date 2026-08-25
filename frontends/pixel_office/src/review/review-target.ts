@@ -22,6 +22,40 @@ export interface ReviewTarget {
 
 export type ReviewDiffMode = "split" | "unified";
 
+/**
+ * The lines the reviewer has picked out in the diff, and their text.
+ *
+ * This is what "the assistant can see my screen" resolves to: the chat sends this
+ * instead of the whole file, so a question about line 46 is answered about line 46.
+ * The text travels with the range because the diff pane is the only thing that has
+ * already parsed the patch into rows — re-deriving it in the chat caller would mean
+ * parsing the same patch twice.
+ */
+export interface ReviewLineSelection {
+	path: string;
+	/** Which revision the numbers belong to. Mixing these up mispositions a note. */
+	side: "old" | "new";
+	startLine: number;
+	endLine: number;
+	text: string;
+}
+
+/** Where the reviewer is scrolled to, used when nothing is selected. */
+export interface ReviewVisibleRange {
+	path: string;
+	startLine: number;
+	endLine: number;
+}
+
+/** `src/a.ts:40-60`, or `src/a.ts:46` for a single line. For the chat's context chip. */
+export function formatSelectionLabel(selection: ReviewLineSelection): string {
+	const range =
+		selection.startLine === selection.endLine
+			? `${selection.startLine}`
+			: `${selection.startLine}-${selection.endLine}`;
+	return `${selection.path}:${range}`;
+}
+
 /** Draft comments and threads indexed by the line they hang off. */
 export interface ReviewLineAnnotations {
 	draftsByNewLine: Map<number, RuntimeReviewDraftComment[]>;

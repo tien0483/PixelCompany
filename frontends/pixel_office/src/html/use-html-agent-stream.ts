@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { describeHttpFailure, readAgentSseFrames } from "@/html/agent-sse";
+
 export type HtmlStreamStatus = "idle" | "running" | "done" | "error";
 
 export interface HtmlStreamState {
@@ -38,24 +40,6 @@ function describeMetaNotice(key: string, value: unknown): string | null {
 		return `Run ended as "${value}".`;
 	}
 	return null;
-}
-
-/**
- * These routes reject with `{"error": "..."}` before the stream opens. Showing the
- * raw body would put `HTTP 409: {"error":"No rules have been extracted…"}` in front
- * of the user, so the sentence is unwrapped when it is there and the status kept as
- * the prefix — a 413 with an empty body still has to say something.
- */
-function describeHttpFailure(status: number, body: string): string {
-	try {
-		const parsed: unknown = JSON.parse(body);
-		if (typeof parsed === "object" && parsed !== null && typeof (parsed as { error?: unknown }).error === "string") {
-			return (parsed as { error: string }).error;
-		}
-	} catch {
-		// Not JSON — fall through to the raw body.
-	}
-	return `HTTP ${status}: ${body}`;
 }
 
 const INITIAL: HtmlStreamState = {
@@ -119,9 +103,22 @@ export interface HtmlBriefRequest {
  * HTML document, `/api/html/brief` emits markdown — so they share this hook
  * rather than duplicating the frame parser and the timing bookkeeping.
  */
-export function useHtmlAgentStream<TRequest>(endpoint: string) {
+export function useHtmlAgentStream<TRequest>(
+	endpoint: string,
+	/**
+	 * Every `meta` frame, before the notice allowlist filters it. The allowlist keeps
+	 * the panel readable, but it also means a caller cannot see the frames it does not
+	 * render — and the review chat needs `session`, which is how it resumes the
+	 * conversation on the next turn. Callers that render notices only pass nothing.
+	 */
+	onMeta?: (key: string, value: unknown) => void,
+) {
 	const [state, setState] = useState<HtmlStreamState>(INITIAL);
 	const abortRef = useRef<AbortController | null>(null);
+	// Held in a ref so a caller can pass an inline closure without re-creating `run`
+	// on every render — `run` is a dependency of effects in the plan editor.
+	const onMetaRef = useRef(onMeta);
+	onMetaRef.current = onMeta;
 
 	const cancel = useCallback(() => {
 		abortRef.current?.abort();
@@ -169,81 +166,55 @@ export function useHtmlAgentStream<TRequest>(endpoint: string) {
 					throw new Error(describeHttpFailure(res.status, text));
 				}
 
-				const reader = res.body.getReader();
-				const dec = new TextDecoder();
-				let buf = "";
-				let lastEvent = "";
 				let acc = "";
 
-				while (true) {
-					const { value, done } = await reader.read();
-					if (done) break;
-					buf += dec.decode(value, { stream: true });
-					let blank: number;
-					while ((blank = buf.indexOf("\n\n")) !== -1) {
-						const block = buf.slice(0, blank);
-						buf = buf.slice(blank + 2);
-						const lines = block.split("\n");
-						let event = lastEvent;
-						const dataLines: string[] = [];
-						for (const line of lines) {
-							if (line.startsWith("event:")) event = line.slice(6).trim();
-							else if (line.startsWith("data:")) dataLines.push(line.slice(5).trim());
+				await readAgentSseFrames(res.body, ({ event, data }) => {
+					if (event === "delta" && typeof data.text === "string") {
+						acc += data.text;
+						const snapshot = acc;
+						setState((prev) => ({
+							...prev,
+							text: snapshot,
+							firstByteAt: prev.firstByteAt ?? Date.now(),
+						}));
+					} else if (event === "html" && typeof data.text === "string") {
+						acc = data.text;
+						setState((prev) => ({
+							...prev,
+							text: data.text as string,
+							firstByteAt: prev.firstByteAt ?? Date.now(),
+						}));
+					} else if (event === "error") {
+						const message = String(data.message ?? "agent error");
+						setState((prev) => ({
+							...prev,
+							status: "error",
+							error: message,
+							log: [...prev.log, message],
+							doneAt: prev.doneAt ?? Date.now(),
+						}));
+					} else if (event === "meta" && typeof data.key === "string") {
+						onMetaRef.current?.(data.key, data.value);
+						// Deliberately not folded into `error`: a pin warning accompanies a
+						// run that went on to succeed on another seat, and treating it as a
+						// failure would mark a working answer as broken.
+						const notice = describeMetaNotice(data.key, data.value);
+						if (notice !== null) {
+							setState((prev) =>
+								prev.notices.includes(notice) ? prev : { ...prev, notices: [...prev.notices, notice] },
+							);
 						}
-						lastEvent = event;
-						if (dataLines.length === 0) continue;
-						let data: Record<string, unknown>;
-						try {
-							data = JSON.parse(dataLines.join("\n")) as Record<string, unknown>;
-						} catch {
-							continue;
-						}
-						if (event === "delta" && typeof data.text === "string") {
-							acc += data.text;
-							const snapshot = acc;
-							setState((prev) => ({
-								...prev,
-								text: snapshot,
-								firstByteAt: prev.firstByteAt ?? Date.now(),
-							}));
-						} else if (event === "html" && typeof data.text === "string") {
-							acc = data.text;
-							setState((prev) => ({
-								...prev,
-								text: data.text as string,
-								firstByteAt: prev.firstByteAt ?? Date.now(),
-							}));
-						} else if (event === "error") {
-							const message = String(data.message ?? "agent error");
-							setState((prev) => ({
-								...prev,
-								status: "error",
-								error: message,
-								log: [...prev.log, message],
-								doneAt: prev.doneAt ?? Date.now(),
-							}));
-						} else if (event === "meta" && typeof data.key === "string") {
-							// Deliberately not folded into `error`: a pin warning accompanies a
-							// run that went on to succeed on another seat, and treating it as a
-							// failure would mark a working answer as broken.
-							const notice = describeMetaNotice(data.key, data.value);
-							if (notice !== null) {
-								setState((prev) =>
-									prev.notices.includes(notice) ? prev : { ...prev, notices: [...prev.notices, notice] },
-								);
-							}
-						} else if (event === "stderr" && typeof data.text === "string") {
-							setState((prev) => ({ ...prev, log: [...prev.log, data.text as string] }));
-						} else if (event === "done") {
-							setState((prev) => ({
-								...prev,
-								status: prev.error ? "error" : "done",
-								text: acc || prev.text,
-								doneAt: prev.doneAt ?? Date.now(),
-							}));
-						}
+					} else if (event === "stderr" && typeof data.text === "string") {
+						setState((prev) => ({ ...prev, log: [...prev.log, data.text as string] }));
+					} else if (event === "done") {
+						setState((prev) => ({
+							...prev,
+							status: prev.error ? "error" : "done",
+							text: acc || prev.text,
+							doneAt: prev.doneAt ?? Date.now(),
+						}));
 					}
-				}
+				});
 				setState((prev) =>
 					prev.status === "running"
 						? {

@@ -7,6 +7,7 @@ export enum LocalStorageKey {
 	AgentTipsDismissed = "kanban.agent-tips-dismissed",
 	/** Claude model the Review tab's one-shot agents run on. Defaults to Haiku. */
 	ReviewAgentModel = "kanban.review-agent-model",
+	ReviewPolishComments = "kanban.review-polish-comments",
 	TaskCreatePrimaryStartAction = "kanban.task-create-primary-start-action",
 	BottomTerminalPaneHeight = "kanban.bottom-terminal-pane-height",
 	DetailAgentPanelRatio = "kanban.detail-agent-panel-ratio",

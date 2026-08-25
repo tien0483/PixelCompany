@@ -16,6 +16,8 @@ import { ReviewThreadsPanel } from "@/components/review/review-threads-panel";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
 import { Spinner } from "@/components/ui/spinner";
+import { isReviewCommandPrompt } from "@/components/review/review-chat-composer";
+import { runAgentTextRequest } from "@/html/agent-sse";
 import { useHtmlAgentStream } from "@/html/use-html-agent-stream";
 import { autoFallbackAccount } from "@/manager/task-account-picker";
 import {
@@ -23,13 +25,19 @@ import {
 	readStoredReviewAgentModel,
 	writeStoredReviewAgentModel,
 } from "@/review/review-agent-model";
+import { parseFindingsFromStream } from "@/review/review-findings-parse";
 import {
 	countReviewProgress,
+	formatSelectionLabel,
 	type ReviewDiffMode,
+	type ReviewLineSelection,
 	type ReviewTarget,
+	type ReviewVisibleRange,
 	selectPendingFindings,
 	sumDiffStats,
 } from "@/review/review-target";
+import { readStoredPolishComments, writeStoredPolishComments } from "@/review/review-comment-polish";
+import { useReviewChat } from "@/review/use-review-chat";
 import { useReviewRulesConfig } from "@/review/use-review-rules-config";
 import { useReviewSeat } from "@/review/use-review-seat";
 import { useReviewSession } from "@/review/use-review-session";
@@ -37,67 +45,12 @@ import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
 import type {
 	RuntimeManagerAccount,
 	RuntimeReviewAuditRequest,
-	RuntimeReviewChatRequest,
-	RuntimeReviewFinding,
+	RuntimeReviewChatMessage,
 	RuntimeReviewRulesExtractRequest,
+	RuntimeReviewSuggestCommentRequest,
 } from "@/runtime/types";
 
 type LeftTab = "files" | "threads" | "rules";
-
-/**
- * Parses the audit stream's JSON array into findings, tagging each with a stable id
- * so accept/dismiss survives a reload. Lenient about a code fence and trailing
- * prose for the same reason the runtime parsers are: one stray sentence should not
- * throw away a whole review pass.
- */
-function parseFindingsFromStream(text: string): RuntimeReviewFinding[] {
-	const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/);
-	for (const body of [fenced?.[1], text]) {
-		if (typeof body !== "string") {
-			continue;
-		}
-		const start = body.indexOf("[");
-		const end = body.lastIndexOf("]");
-		if (start < 0 || end <= start) {
-			continue;
-		}
-		try {
-			const parsed: unknown = JSON.parse(body.slice(start, end + 1));
-			if (!Array.isArray(parsed)) {
-				continue;
-			}
-			const findings: RuntimeReviewFinding[] = [];
-			parsed.forEach((item, index) => {
-				if (typeof item !== "object" || item === null || Array.isArray(item)) {
-					return;
-				}
-				const record = item as Record<string, unknown>;
-				const newPath = typeof record.newPath === "string" ? record.newPath : null;
-				const message = typeof record.message === "string" ? record.message : null;
-				if (!newPath || !message) {
-					return;
-				}
-				const severityRaw = typeof record.severity === "string" ? record.severity.toUpperCase() : "MEDIUM";
-				findings.push({
-					// Derived from position and content, not the array index alone, so a
-					// re-run that finds the same problem reuses the id the reviewer already
-					// dismissed instead of resurrecting it.
-					id: `finding-${newPath}-${String(record.newLine ?? "x")}-${index}`,
-					newPath,
-					newLine: typeof record.newLine === "number" && Number.isFinite(record.newLine) ? record.newLine : null,
-					ruleId: typeof record.ruleId === "string" && record.ruleId.length > 0 ? record.ruleId : null,
-					severity:
-						severityRaw === "CRITICAL" || severityRaw === "HIGH" || severityRaw === "LOW" ? severityRaw : "MEDIUM",
-					message,
-				});
-			});
-			return findings;
-		} catch {
-			// Try the next body shape.
-		}
-	}
-	return [];
-}
 
 export function ReviewWorkspaceView({
 	target,
@@ -136,8 +89,11 @@ export function ReviewWorkspaceView({
 	 * on screen when they get there.
 	 */
 	const [agentError, setAgentError] = useState<string | null>(null);
+	/** Lines the reviewer has focused in the diff — what the chat can "see". */
+	const [selection, setSelection] = useState<ReviewLineSelection | null>(null);
+	const [visibleRange, setVisibleRange] = useState<ReviewVisibleRange | null>(null);
+	const [polishComments, setPolishComments] = useState<boolean>(() => readStoredPolishComments());
 
-	const chat = useHtmlAgentStream<RuntimeReviewChatRequest>("/api/review/chat");
 	const audit = useHtmlAgentStream<RuntimeReviewAuditRequest>("/api/review/audit");
 	const rulesExtract = useHtmlAgentStream<RuntimeReviewRulesExtractRequest>("/api/review/rules-extract");
 
@@ -170,6 +126,29 @@ export function ReviewWorkspaceView({
 
 	const draftComments = session.session?.draftComments ?? [];
 	const reviewedPaths = session.session?.reviewedPaths ?? [];
+
+	/**
+	 * The transcript persists alongside the drafts, so reopening a review resumes the
+	 * conversation rather than starting a stranger. Memoized on the stored values so a
+	 * session refetch that changed nothing does not re-hydrate the chat hook.
+	 */
+	const storedChatMessages = session.session?.chatMessages;
+	const storedChatSessionId = session.session?.chatSessionId ?? null;
+	const initialChatMessages = useMemo<RuntimeReviewChatMessage[]>(
+		() => storedChatMessages ?? [],
+		[storedChatMessages],
+	);
+	const persistChat = useCallback(
+		(update: { messages: RuntimeReviewChatMessage[]; sessionId: string | null }) => {
+			session.setChat(update);
+		},
+		[session],
+	);
+	const chat = useReviewChat({
+		initialMessages: initialChatMessages,
+		initialSessionId: storedChatSessionId,
+		onPersist: persistChat,
+	});
 
 	const progress = useMemo(
 		() => countReviewProgress({ files: session.files, reviewedPaths }),
@@ -257,10 +236,9 @@ export function ReviewWorkspaceView({
 		showAppToast({ intent: "danger", message: rulesExtractError });
 		rulesExtractReset();
 	}, [rulesExtractError, rulesExtractReset, rulesExtractStatus]);
-	// Chat gets the same banner and toast, but deliberately no `reset()`: the audit and
-	// extraction streams are consumed by a completion effect and then discarded, whereas
-	// the chat panel keeps rendering `chat.text` — resetting here would delete a partial
-	// answer the reviewer is still reading.
+	// Chat gets the same banner and toast, but no `reset()`: `useReviewChat` owns the
+	// stream's lifecycle now — it freezes each finished answer into the transcript and
+	// resets there, so resetting here would race it and drop the answer.
 	const chatStatus = chat.status;
 	const chatError = chat.error;
 	useEffect(() => {
@@ -316,21 +294,141 @@ export function ReviewWorkspaceView({
 
 	const sendChat = useCallback(
 		(prompt: string) => {
-			void chat.run({
+			setAgentError(null);
+			chat.send({
 				prompt,
-				host: target.host,
-				projectId: target.projectId,
-				iid: target.iid,
-				changedPaths: session.files.map((file) => file.newPath),
-				...(session.activeFile ? { activeDiff: session.activeFile.diff } : {}),
-				projectKey: target.projectKey,
-				model: agentModel,
-				managerAccountId: effectiveAccountId,
-				cwd: localRepoPath || undefined,
+				contextLabel: selection ? formatSelectionLabel(selection) : null,
+				request: {
+					host: target.host,
+					projectId: target.projectId,
+					iid: target.iid,
+					changedPaths: session.files.map((file) => file.newPath),
+					// The whole file only when the reviewer has not pointed at anything. A
+					// selection is the more precise answer to "what are they looking at", and
+					// the runtime drops the file diff when it gets one.
+					...(session.activeFile ? { activeDiff: session.activeFile.diff } : {}),
+					...(selection ? { screen: selection } : {}),
+					...(visibleRange && !selection ? { visible: visibleRange } : {}),
+					// The review skills are a request for findings; a plain question is not.
+					...(isReviewCommandPrompt(prompt) ? { expectSuggestions: true } : {}),
+					projectKey: target.projectKey,
+					model: agentModel,
+					managerAccountId: effectiveAccountId,
+					cwd: localRepoPath || undefined,
+				},
 			});
 		},
-		[agentModel, chat, effectiveAccountId, localRepoPath, session.activeFile, session.files, target],
+		[
+			agentModel,
+			chat,
+			effectiveAccountId,
+			localRepoPath,
+			selection,
+			session.activeFile,
+			session.files,
+			target,
+			visibleRange,
+		],
 	);
+
+	/**
+	 * The comment-rewrite pass, awaited rather than watched.
+	 *
+	 * `useHtmlAgentStream` is the wrong shape here: this runs inside a click handler
+	 * that has to know whether it got usable text before it decides what to put in the
+	 * draft, and a hook exposing live state cannot be awaited.
+	 */
+	const runSuggestCommentPass = useCallback(
+		(request: RuntimeReviewSuggestCommentRequest): Promise<string> =>
+			runAgentTextRequest("/api/review/suggest-comment", request),
+		[],
+	);
+
+	/**
+	 * Turns something the assistant said into a draft comment on the reviewer's
+	 * selected line.
+	 *
+	 * This is the whole point of the panel being an assistant: it produces text, the
+	 * reviewer decides what of it is a review comment. Nothing here talks to GitLab —
+	 * the draft joins the queue that `submitReview` publishes, so a requested change
+	 * still goes out under the reviewer's own *Request changes* verdict.
+	 */
+	const requestChange = useCallback(
+		async (rawText: string) => {
+			const anchorLine = selection?.endLine ?? null;
+			if (!selection || anchorLine === null) {
+				// A draft with no line cannot be positioned as a diff note, so it would be
+				// unpublishable — refusing up front beats a draft that fails at submit.
+				showAppToast({
+					intent: "danger",
+					message: "Select a line in the diff first — a comment needs a line to attach to.",
+				});
+				return;
+			}
+			const file = session.files.find((candidate) => candidate.newPath === selection.path);
+			const isOldSide = selection.side === "old";
+
+			const addDraftWith = (text: string): void => {
+				session.addDraftComment({
+					newPath: selection.path,
+					oldPath: file?.oldPath ?? selection.path,
+					oldLine: isOldSide ? anchorLine : null,
+					newLine: isOldSide ? null : anchorLine,
+					text,
+					ruleIds: [],
+					aiFindingId: null,
+				});
+				showAppToast({
+					intent: "success",
+					message: `Draft comment on ${selection.path}:${anchorLine}. Publish it with Submit review → Request changes.`,
+				});
+			};
+
+			if (!polishComments) {
+				addDraftWith(rawText);
+				return;
+			}
+
+			// The rewrite is a convenience, never a gate: if it fails the reviewer still
+			// gets their comment, with a note about why the wording is raw.
+			try {
+				const polished = await runSuggestCommentPass({
+					rawText,
+					newPath: selection.path,
+					line: anchorLine,
+					diffExcerpt: selection.text,
+					projectKey: target.projectKey,
+					model: agentModel,
+					managerAccountId: effectiveAccountId,
+					cwd: localRepoPath || undefined,
+				});
+				addDraftWith(polished);
+			} catch (error) {
+				addDraftWith(rawText);
+				showAppToast({
+					intent: "danger",
+					message: `Could not polish the comment, so the draft holds the original text: ${
+						error instanceof Error ? error.message : String(error)
+					}`,
+				});
+			}
+		},
+		[
+			agentModel,
+			effectiveAccountId,
+			localRepoPath,
+			polishComments,
+			runSuggestCommentPass,
+			selection,
+			session,
+			target.projectKey,
+		],
+	);
+
+	const changePolishComments = useCallback((next: boolean) => {
+		setPolishComments(next);
+		writeStoredPolishComments(next);
+	}, []);
 
 	const changeAgentModel = useCallback((model: ReviewAgentModelId) => {
 		setAgentModel(model);
@@ -717,16 +815,23 @@ export function ReviewWorkspaceView({
 						onClearCitations={() => setPendingCitations([])}
 						onRemoveCitation={removeCitation}
 						onFetchFullFile={fetchFullFile}
+						selection={selection}
+						onSelectionChange={setSelection}
+						onVisibleRangeChange={setVisibleRange}
 					/>
 				)}
 
 				<aside className="flex w-96 shrink-0 flex-col border-l border-border">
 					<ReviewClaudePanel
-						chatText={chat.text}
+						messages={chat.messages}
+						streamingText={chat.streamingText}
 						chatStatus={chat.status}
 						chatError={chat.error}
 						chatLog={chat.log}
 						chatNotices={chat.notices}
+						contextLabel={selection ? formatSelectionLabel(selection) : null}
+						canRequestChange={selection !== null}
+						polishComments={polishComments}
 						pendingFindings={pendingFindings}
 						draftComments={draftComments}
 						isAuditing={audit.status === "running"}
@@ -734,6 +839,10 @@ export function ReviewWorkspaceView({
 						onModelChange={changeAgentModel}
 						onSend={sendChat}
 						onCancel={chat.cancel}
+						onClearChat={chat.clear}
+						onClearContext={() => setSelection(null)}
+						onTogglePolish={changePolishComments}
+						onRequestChange={(text) => void requestChange(text)}
 						onAcceptFinding={session.acceptFinding}
 						onDismissFinding={session.dismissFinding}
 						onRemoveDraft={session.removeDraftComment}

@@ -1,5 +1,5 @@
 import { Clock, Columns2, FileCode, Loader2, Menu, MessageSquare, Square, SquareCheck } from "lucide-react";
-import { type ReactElement, useCallback, useMemo, useState } from "react";
+import { type ReactElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { ReviewCommentComposer } from "@/components/review/review-comment-composer";
 import {
@@ -21,8 +21,43 @@ import {
 } from "@/components/shared/split-diff-renderer";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
-import { buildLineAnnotations, type ReviewDiffMode, resolveFileStatus } from "@/review/review-target";
+import {
+	buildLineAnnotations,
+	type ReviewDiffMode,
+	type ReviewLineSelection,
+	type ReviewVisibleRange,
+	resolveFileStatus,
+} from "@/review/review-target";
 import type { RuntimeGitlabDiffFile, RuntimeGitlabDiscussion, RuntimeReviewDraftComment } from "@/runtime/types";
+
+/** Line numbers on a removed row belong to the pre-image; everything else post-image. */
+function rowSide(variant: UnifiedDiffRow["variant"]): "old" | "new" {
+	return variant === "removed" ? "old" : "new";
+}
+
+/**
+ * The text of every row whose line number falls inside the range, on one side.
+ *
+ * Sliced from the already-parsed rows rather than the raw patch: the reviewer picked
+ * lines out of what they can see, and the rendered rows are that.
+ */
+function collectSelectedText(
+	rows: UnifiedDiffRow[],
+	side: "old" | "new",
+	startLine: number,
+	endLine: number,
+): string {
+	return rows
+		.filter(
+			(row) =>
+				row.lineNumber != null &&
+				rowSide(row.variant) === side &&
+				row.lineNumber >= startLine &&
+				row.lineNumber <= endLine,
+		)
+		.map((row) => `${row.lineNumber}: ${row.text}`)
+		.join("\n");
+}
 
 export interface ReviewCommentDraftInput {
 	newPath: string;
@@ -57,6 +92,9 @@ export function ReviewDiffPane({
 	onClearCitations,
 	onRemoveCitation,
 	onFetchFullFile,
+	selection,
+	onSelectionChange,
+	onVisibleRangeChange,
 }: {
 	file: RuntimeGitlabDiffFile | null;
 	mode: ReviewDiffMode;
@@ -74,6 +112,11 @@ export function ReviewDiffPane({
 	onClearCitations: () => void;
 	onRemoveCitation: (ruleId: string) => void;
 	onFetchFullFile?: () => Promise<string | null>;
+	/** Lines the reviewer has focused, shared with the chat panel. */
+	selection: ReviewLineSelection | null;
+	onSelectionChange: (selection: ReviewLineSelection | null) => void;
+	/** Must be referentially stable — it re-arms the visibility observer. */
+	onVisibleRangeChange: (range: ReviewVisibleRange | null) => void;
 }): ReactElement {
 	const [composer, setComposer] = useState<ComposerAnchor | null>(null);
 	const [composerText, setComposerText] = useState("");
@@ -82,6 +125,10 @@ export function ReviewDiffPane({
 	const [isLoadingFullFile, setIsLoadingFullFile] = useState(false);
 	const [showFullFile, setShowFullFile] = useState(false);
 	const { expandedBlocks, expandTop, expandBottom, expandAll } = useIncrementalExpand();
+	const scrollRef = useRef<HTMLDivElement | null>(null);
+	/** Where a Shift+click extends from. Kept separate from the selection so a
+	 *  collapsed (single-line) selection still has an origin to grow out of. */
+	const anchorRef = useRef<{ side: "old" | "new"; line: number } | null>(null);
 
 	const path = file?.newPath ?? "";
 	const prismLanguage = useMemo(() => resolvePrismLanguage(path), [path]);
@@ -128,6 +175,113 @@ export function ReviewDiffPane({
 			setShowFullFile(false);
 		}
 	}, [showFullFile, fullFileContent, onFetchFullFile]);
+
+	/**
+	 * Click a line to focus it; Shift+click to extend from the last focused line;
+	 * click the focused line again to drop the focus. Selection is deliberately
+	 * non-modal and separate from the comment composer — the reviewer points at code
+	 * to ask about it far more often than to comment on it.
+	 */
+	const selectLine = useCallback(
+		(input: { side: "old" | "new"; line: number; extend: boolean }) => {
+			if (!file) {
+				return;
+			}
+			const anchor = input.extend ? anchorRef.current : null;
+			// Extending across sides has no meaning — the two numbers count different
+			// revisions — so a cross-side Shift+click restarts rather than spanning.
+			const from = anchor && anchor.side === input.side ? anchor.line : input.line;
+			const startLine = Math.min(from, input.line);
+			const endLine = Math.max(from, input.line);
+
+			const isSameSingleLine =
+				!input.extend &&
+				selection !== null &&
+				selection.side === input.side &&
+				selection.startLine === input.line &&
+				selection.endLine === input.line;
+			if (isSameSingleLine) {
+				anchorRef.current = null;
+				onSelectionChange(null);
+				return;
+			}
+
+			if (!input.extend) {
+				anchorRef.current = { side: input.side, line: input.line };
+			}
+			onSelectionChange({
+				path: file.newPath,
+				side: input.side,
+				startLine,
+				endLine,
+				text: collectSelectedText(rows, input.side, startLine, endLine),
+			});
+		},
+		[file, onSelectionChange, rows, selection],
+	);
+
+	/**
+	 * Reports the post-image line range currently on screen, so a question asked with
+	 * nothing selected is still answered about the part of the file being read. Rows
+	 * carry `data-review-line`; only new-side rows do, because an old-side number
+	 * would make the reported range refer to a different revision than its path.
+	 */
+	useEffect(() => {
+		const root = scrollRef.current;
+		if (!root || !file) {
+			return;
+		}
+		const path = file.newPath;
+		const visible = new Set<number>();
+		const report = (): void => {
+			if (visible.size === 0) {
+				onVisibleRangeChange(null);
+				return;
+			}
+			// Spread into Math.min would overflow the argument limit on a long file.
+			let startLine = Number.POSITIVE_INFINITY;
+			let endLine = 0;
+			for (const line of visible) {
+				startLine = Math.min(startLine, line);
+				endLine = Math.max(endLine, line);
+			}
+			onVisibleRangeChange({ path, startLine, endLine });
+		};
+		const observer = new IntersectionObserver(
+			(entries) => {
+				for (const entry of entries) {
+					const raw = (entry.target as HTMLElement).dataset.reviewLine;
+					const line = raw === undefined ? Number.NaN : Number.parseInt(raw, 10);
+					if (!Number.isFinite(line)) {
+						continue;
+					}
+					if (entry.isIntersecting) {
+						visible.add(line);
+					} else {
+						visible.delete(line);
+					}
+				}
+				report();
+			},
+			{ root },
+		);
+		for (const element of root.querySelectorAll<HTMLElement>("[data-review-line]")) {
+			observer.observe(element);
+		}
+		return () => {
+			observer.disconnect();
+		};
+		// `displayItems` covers expand/collapse; the mode and full-file flags re-render
+		// a different set of rows, so the observer has to be re-armed against them too.
+	}, [displayItems, file, mode, onVisibleRangeChange, showFullFile]);
+
+	// A selection belongs to the file it was made in. Leaving it attached across a file
+	// switch would send the chat lines the reviewer is no longer looking at.
+	const activePathForSelection = file?.newPath ?? null;
+	useEffect(() => {
+		anchorRef.current = null;
+		onSelectionChange(null);
+	}, [activePathForSelection, onSelectionChange]);
 
 	const closeComposer = useCallback(() => {
 		setComposer(null);
@@ -192,29 +346,44 @@ export function ReviewDiffPane({
 						? "kb-diff-row-removed"
 						: "kb-diff-row-context";
 			const isComposerHere = composer?.rowKey === row.key && composer.side === side;
+			const thisSide = rowSide(row.variant);
+			const isSelected =
+				selection !== null &&
+				selection.side === thisSide &&
+				lineNumber >= selection.startLine &&
+				lineNumber <= selection.endLine;
 
 			return (
 				<div className="flex min-w-0 flex-col">
 					<div
+						data-review-line={newLine ?? undefined}
 						className={cn(
 							"kb-diff-row",
 							variantClass,
 							hasAnnotation && "kb-diff-row-commented",
 							!commentable && "kb-diff-row-noncommentable",
+							isSelected && "ring-1 ring-inset ring-accent/70",
 						)}
-						onClick={
-							commentable
-								? () => openComposer({ rowKey: row.key, side, oldLine, newLine })
-								: undefined
-						}
+						// The row selects; the gutter icon comments. The row used to open the
+						// composer, but pointing at code to ask about it is the far more common
+						// action, so it gets the larger target.
+						onClick={(event) => selectLine({ side: thisSide, line: lineNumber, extend: event.shiftKey })}
 					>
 						<span className="kb-diff-line-number" style={{ color: "var(--color-text-tertiary)" }}>
 							<span className="kb-diff-line-number-text">{lineNumber}</span>
 							{commentable ? (
 								<span className="kb-diff-comment-gutter">
-									<span className="kb-diff-gutter-icon-comment">
+									<button
+										type="button"
+										aria-label={`Comment on line ${lineNumber}`}
+										className="kb-diff-gutter-icon-comment cursor-pointer"
+										onClick={(event) => {
+											event.stopPropagation();
+											openComposer({ rowKey: row.key, side, oldLine, newLine });
+										}}
+									>
 										<MessageSquare size={12} />
-									</span>
+									</button>
 								</span>
 							) : null}
 						</span>
@@ -308,6 +477,8 @@ export function ReviewDiffPane({
 			prismGrammar,
 			prismLanguage,
 			saveComposer,
+			selectLine,
+			selection,
 		],
 	);
 
@@ -402,7 +573,7 @@ export function ReviewDiffPane({
 				</div>
 			) : null}
 
-			<div className="min-h-0 flex-1 overflow-auto">
+			<div ref={scrollRef} className="min-h-0 flex-1 overflow-auto">
 				{showFullFile ? (
 					isLoadingFullFile ? (
 						<div className="flex items-center justify-center p-4">

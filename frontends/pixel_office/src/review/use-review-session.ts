@@ -9,6 +9,7 @@ import type {
 	RuntimeGitlabDiscussion,
 	RuntimeGitlabMergeRequestDetail,
 	RuntimeGitlabMergeRequestVersion,
+	RuntimeReviewChatMessage,
 	RuntimeReviewDraftComment,
 	RuntimeReviewFinding,
 	RuntimeReviewRule,
@@ -47,6 +48,8 @@ export interface ReviewSessionApi extends ReviewSessionState {
 	removeDraftComment: (id: string) => void;
 	clearDraftComments: () => void;
 	setFindings: (findings: RuntimeReviewFinding[]) => void;
+	/** Persists the chat transcript and the CLI session it resumes into. */
+	setChat: (update: { messages: RuntimeReviewChatMessage[]; sessionId: string | null }) => void;
 	dismissFinding: (id: string) => void;
 	acceptFinding: (finding: RuntimeReviewFinding) => void;
 	markPassComplete: () => void;
@@ -292,6 +295,17 @@ export function useReviewSession(target: ReviewTarget, workspaceId: string | nul
 		[updateSession],
 	);
 
+	const setChat = useCallback(
+		(update: { messages: RuntimeReviewChatMessage[]; sessionId: string | null }) => {
+			updateSession((session) => ({
+				...session,
+				chatMessages: update.messages,
+				chatSessionId: update.sessionId,
+			}));
+		},
+		[updateSession],
+	);
+
 	const dismissFinding = useCallback(
 		(id: string) => {
 			updateSession((session) => ({
@@ -349,6 +363,7 @@ export function useReviewSession(target: ReviewTarget, workspaceId: string | nul
 		removeDraftComment,
 		clearDraftComments,
 		setFindings,
+		setChat,
 		dismissFinding,
 		acceptFinding,
 		markPassComplete,
