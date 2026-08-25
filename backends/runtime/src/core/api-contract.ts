@@ -3586,6 +3586,18 @@ export const runtimeReviewFindingSchema = z.object({
 });
 export type RuntimeReviewFinding = z.infer<typeof runtimeReviewFindingSchema>;
 
+export const runtimeReviewChatMessageSchema = z.object({
+	id: z.string().min(1),
+	role: z.enum(["user", "assistant"]),
+	text: z.string(),
+	/** What the assistant could see for this turn, e.g. `src/a.ts:40-60`. */
+	contextLabel: z.string().nullable(),
+	/** Positionable suggestions parsed out of an assistant turn, if any. */
+	suggestions: z.array(runtimeReviewFindingSchema),
+	createdAt: z.string(),
+});
+export type RuntimeReviewChatMessage = z.infer<typeof runtimeReviewChatMessageSchema>;
+
 export const runtimeReviewSessionSchema = z.object({
 	host: z.string(),
 	projectId: z.number(),
@@ -3596,6 +3608,19 @@ export const runtimeReviewSessionSchema = z.object({
 	draftComments: z.array(runtimeReviewDraftCommentSchema),
 	findings: z.array(runtimeReviewFindingSchema),
 	dismissedFindingIds: z.array(z.string()),
+	/**
+	 * The CLI session the chat resumes into, and the transcript rendered in the panel.
+	 *
+	 * These two carry `.default(...)` rather than the `.optional()` this file uses for
+	 * every other added field, and that is deliberate: `readReviewSession` `safeParse`s
+	 * the stored document and treats a parse failure as "no session yet", so making
+	 * either of these *required* would make every session file written before this
+	 * change fail to load — silently discarding the reviewer's unpublished draft
+	 * comments, which are the most valuable thing in the file. A default is what lets
+	 * an old document still parse.
+	 */
+	chatSessionId: z.string().nullable().default(null),
+	chatMessages: z.array(runtimeReviewChatMessageSchema).default([]),
 	updatedAt: z.string(),
 });
 export type RuntimeReviewSession = z.infer<typeof runtimeReviewSessionSchema>;
@@ -3666,9 +3691,55 @@ export const runtimeReviewChatRequestSchema = z.object({
 	/** Context appended under the prompt: changed paths, active file's patch. */
 	changedPaths: z.array(z.string()),
 	activeDiff: z.string().optional(),
+	/**
+	 * Resumes the CLI session an earlier turn created. Absent on the first turn of a
+	 * conversation, which is also what tells the runtime to send the merge-request
+	 * context — on a resumed turn that context is already in the session, and
+	 * repeating it per message is what made the panel behave like a reviewer.
+	 */
+	resumeSessionId: z.string().optional(),
+	/** The lines the reviewer has selected in the diff pane. */
+	screen: z
+		.object({
+			path: z.string().min(1),
+			side: z.enum(["old", "new"]),
+			startLine: z.number().int().positive(),
+			endLine: z.number().int().positive(),
+			text: z.string(),
+		})
+		.optional(),
+	/** Where the reviewer is scrolled to, when nothing is selected. */
+	visible: z
+		.object({
+			path: z.string().min(1),
+			startLine: z.number().int().positive(),
+			endLine: z.number().int().positive(),
+		})
+		.optional(),
+	/** Ask for the machine-readable suggestions block. Set for slash commands. */
+	expectSuggestions: z.boolean().optional(),
 	projectKey: z.string().min(1),
 	cwd: z.string().optional(),
 	model: z.string().optional(),
 	managerAccountId: z.number().int().positive().optional(),
 });
 export type RuntimeReviewChatRequest = z.infer<typeof runtimeReviewChatRequestSchema>;
+
+/**
+ * Rewrites something the assistant said into a publishable review comment. Separate
+ * from the chat route because the reviewer triggers it after reading the answer, on
+ * the part of it they picked, and a failure here must fall back to the raw text
+ * without disturbing the conversation.
+ */
+export const runtimeReviewSuggestCommentRequestSchema = z.object({
+	rawText: z.string().min(1),
+	newPath: z.string().min(1),
+	line: z.number().int().positive(),
+	/** The line's own text, when the caller has it — saves the agent a Read. */
+	diffExcerpt: z.string().optional(),
+	projectKey: z.string().min(1),
+	cwd: z.string().optional(),
+	model: z.string().optional(),
+	managerAccountId: z.number().int().positive().optional(),
+});
+export type RuntimeReviewSuggestCommentRequest = z.infer<typeof runtimeReviewSuggestCommentRequestSchema>;

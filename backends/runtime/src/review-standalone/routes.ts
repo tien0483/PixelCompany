@@ -1,4 +1,4 @@
-// The three `/api/review/*` SSE routes, for the standalone Review package.
+// The `/api/review/*` SSE routes, for the standalone Review package.
 //
 // Same handler and prompts as the full app (`review-stream-route.ts`), minus the
 // Manager seat pin: this package has no Manager, so the agent bills whatever
@@ -9,14 +9,22 @@ import {
 	runtimeReviewAuditRequestSchema,
 	runtimeReviewChatRequestSchema,
 	runtimeReviewRulesExtractRequestSchema,
+	runtimeReviewSuggestCommentRequestSchema,
 } from "../core/api-contract";
 import {
 	REVIEW_AUDIT_ALLOWED_TOOLS,
 	REVIEW_CHAT_ALLOWED_TOOLS,
 	REVIEW_RULES_EXTRACT_ALLOWED_TOOLS,
+	REVIEW_SUGGEST_ALLOWED_TOOLS,
 	resolveReviewAgentCwd,
 } from "../review/review-agent-args";
-import { buildAuditPrompt, buildChatPrompt, buildRulesExtractPrompt } from "../review/review-prompts";
+import {
+	buildAuditPrompt,
+	buildChatPrompt,
+	buildRulesExtractPrompt,
+	buildSuggestionRewritePrompt,
+	REVIEW_CHAT_SYSTEM_PROMPT,
+} from "../review/review-prompts";
 import { persistExtractedRules, readReviewRulesBundle } from "../review/review-rules";
 import { handleAgentStreamRoute } from "../review/review-stream-route";
 import type { ReviewTrpcContext } from "./router";
@@ -84,11 +92,17 @@ export async function tryHandleReviewStandaloneRoute(
 		await handleAgentStreamRoute(req, res, {
 			schema: runtimeReviewChatRequestSchema,
 			buildRun: async (input) => {
-				const detail = await context.gitlabApi.getMergeRequest({
-					projectId: input.projectId,
-					iid: input.iid,
-				});
-				const mergeRequest = detail.mergeRequest;
+				const isFirstTurn = input.resumeSessionId === undefined;
+				// Skipped on a resumed turn: the merge-request context already lives in the
+				// CLI session, so fetching it again would buy nothing.
+				const mergeRequest = isFirstTurn
+					? (
+							await context.gitlabApi.getMergeRequest({
+								projectId: input.projectId,
+								iid: input.iid,
+							})
+						).mergeRequest
+					: null;
 				return {
 					ok: true,
 					prompt: buildChatPrompt({
@@ -100,14 +114,39 @@ export async function tryHandleReviewStandaloneRoute(
 						targetBranch: mergeRequest?.targetBranch ?? "unknown",
 						changedPaths: input.changedPaths,
 						activeDiff: input.activeDiff,
+						screen: input.screen,
+						visible: input.visible,
+						isFirstTurn,
+						expectSuggestions: input.expectSuggestions,
 					}),
 					// No project list here, so only an explicit cwd from the caller applies —
 					// otherwise the agent inherits the launcher's directory.
 					cwd: resolveReviewAgentCwd({ cwd: input.cwd, projectPath: null }),
 					model: input.model,
 					allowedTools: REVIEW_CHAT_ALLOWED_TOOLS,
+					appendSystemPrompt: REVIEW_CHAT_SYSTEM_PROMPT,
+					resumeSessionId: input.resumeSessionId,
 				};
 			},
+		});
+		return true;
+	}
+
+	if (pathname === "/api/review/suggest-comment" && isPost) {
+		await handleAgentStreamRoute(req, res, {
+			schema: runtimeReviewSuggestCommentRequestSchema,
+			buildRun: async (input) => ({
+				ok: true,
+				prompt: buildSuggestionRewritePrompt({
+					rawText: input.rawText,
+					newPath: input.newPath,
+					line: input.line,
+					diffExcerpt: input.diffExcerpt,
+				}),
+				cwd: resolveReviewAgentCwd({ cwd: input.cwd, projectPath: null }),
+				model: input.model,
+				allowedTools: REVIEW_SUGGEST_ALLOWED_TOOLS,
+			}),
 		});
 		return true;
 	}

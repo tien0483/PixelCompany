@@ -54,6 +54,21 @@ export interface RunAgentOneShotInput {
 	 * every line — is what notices.
 	 */
 	idleTimeoutMs?: number;
+	/**
+	 * Appended to the CLI's own system prompt. The review chat uses this to be an
+	 * assistant rather than a reviewer; nothing else passes it, so the argv every
+	 * other caller produces is unchanged.
+	 */
+	appendSystemPrompt?: string;
+	/**
+	 * Continues an earlier `-p` run instead of starting fresh. The session id comes
+	 * from the `session` meta frame of the run that created it. A one-shot process
+	 * per turn is still one process per turn — the history lives in the CLI's own
+	 * session store, which is what makes a multi-turn chat possible here without a
+	 * PTY. A stale id makes the CLI fail immediately, so callers that resume need a
+	 * fallback (see `handleAgentStreamRoute`).
+	 */
+	resumeSessionId?: string;
 	/** Extra env merged after pin + process.env. */
 	env?: Record<string, string | undefined>;
 	/** When provided, used instead of calling resolveManagerAccountPin internally. */
@@ -73,7 +88,17 @@ function resolveClaudeBinary(): string {
 	return binary;
 }
 
-function buildClaudeArgv(model?: string, allowedTools?: string[]): string[] {
+/**
+ * Every added flag is conditional on its input being present, so a caller that
+ * passes neither of the last two produces byte-identical argv to before they
+ * existed — the HTML, audit and rules-extract routes must not change behaviour
+ * because the review chat needed a system prompt.
+ */
+export function buildClaudeArgv(
+	model?: string,
+	allowedTools?: string[],
+	options?: { appendSystemPrompt?: string; resumeSessionId?: string },
+): string[] {
 	return [
 		"-p",
 		"--output-format",
@@ -84,6 +109,8 @@ function buildClaudeArgv(model?: string, allowedTools?: string[]): string[] {
 		"auto",
 		...(allowedTools && allowedTools.length > 0 ? ["--allowedTools", allowedTools.join(",")] : []),
 		...(model ? ["--model", model] : []),
+		...(options?.appendSystemPrompt ? ["--append-system-prompt", options.appendSystemPrompt] : []),
+		...(options?.resumeSessionId ? ["--resume", options.resumeSessionId] : []),
 	];
 }
 
@@ -128,7 +155,10 @@ export async function runAgentOneShot(input: RunAgentOneShotInput): Promise<{ co
 		return { code: 1 };
 	}
 
-	const argv = buildClaudeArgv(input.model, input.allowedTools);
+	const argv = buildClaudeArgv(input.model, input.allowedTools, {
+		appendSystemPrompt: input.appendSystemPrompt,
+		resumeSessionId: input.resumeSessionId,
+	});
 	// Same stack PATH as an interactive session (see buildTerminalEnvironment):
 	// a one-shot agent should have the same tooling as a long-running one.
 	const childEnv: NodeJS.ProcessEnv = withStackBinOnPath({

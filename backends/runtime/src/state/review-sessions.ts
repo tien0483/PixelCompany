@@ -6,7 +6,7 @@
 // written as one document per MR under the runtime home, and the write path is
 // whole-document — a field-level patch API would let a stale tab overwrite drafts
 // it never loaded.
-import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 import { type RuntimeReviewSession, runtimeReviewSessionSchema } from "../core/api-contract";
@@ -68,6 +68,8 @@ export function createEmptyReviewSession(host: string, projectId: number, iid: n
 		draftComments: [],
 		findings: [],
 		dismissedFindingIds: [],
+		chatSessionId: null,
+		chatMessages: [],
 		updatedAt: new Date().toISOString(),
 	};
 }

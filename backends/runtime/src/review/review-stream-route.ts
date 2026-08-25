@@ -7,7 +7,7 @@
 // must not carry a second copy of the plumbing.
 import type { IncomingMessage, ServerResponse } from "node:http";
 
-import { type RunAgentOneShotInput, runAgentOneShot } from "../terminal/agent-oneshot";
+import { type AgentOneShotEvent, type RunAgentOneShotInput, runAgentOneShot } from "../terminal/agent-oneshot";
 
 /**
  * Cancels a run that goes quiet — a stray permission prompt a one-shot `-p` process
@@ -25,6 +25,13 @@ export interface AgentStreamRunPlan {
 	model?: string;
 	allowedTools: readonly string[];
 	managerAccountId?: number;
+	/** Persona for the run. Only the review chat sets one. */
+	appendSystemPrompt?: string;
+	/**
+	 * Continues an earlier turn's CLI session. Set only by the review chat; see the
+	 * stale-session retry in `handleAgentStreamRoute` for why it cannot be trusted.
+	 */
+	resumeSessionId?: string;
 	/**
 	 * Runs once the agent has finished, with everything it streamed. This is where a
 	 * route persists its result: the SSE stream reaches the browser, but the browser
@@ -132,27 +139,71 @@ export async function handleAgentStreamRoute<TInput>(
 	let streamed = "";
 	let sawError = false;
 
-	await runAgentOneShot({
-		agentId: "claude",
-		prompt: run.prompt,
-		cwd: run.cwd,
-		model: run.model,
-		allowedTools: [...run.allowedTools],
-		idleTimeoutMs: REVIEW_AGENT_IDLE_TIMEOUT_MS,
-		timeoutMs: REVIEW_AGENT_HARD_TIMEOUT_MS,
-		signal: abortCtl.signal,
-		onEvent: (event) => {
-			if (event.type === "delta") {
-				streamed += event.text;
-			} else if (event.type === "html") {
-				streamed = event.text;
-			} else if (event.type === "error") {
-				sawError = true;
+	/**
+	 * One `claude -p` run. `holdTerminalFrames` keeps `error`/`done` out of the SSE
+	 * stream so a failed first attempt can be retried without the reviewer seeing a
+	 * failure that never really happened; everything else still streams live, since
+	 * suppressing deltas would trade the flash for a stall.
+	 */
+	const attempt = async (options2: {
+		resumeSessionId?: string;
+		holdTerminalFrames: boolean;
+	}): Promise<AgentOneShotEvent[]> => {
+		const held: AgentOneShotEvent[] = [];
+		streamed = "";
+		sawError = false;
+		await runAgentOneShot({
+			agentId: "claude",
+			prompt: run.prompt,
+			cwd: run.cwd,
+			model: run.model,
+			allowedTools: [...run.allowedTools],
+			idleTimeoutMs: REVIEW_AGENT_IDLE_TIMEOUT_MS,
+			timeoutMs: REVIEW_AGENT_HARD_TIMEOUT_MS,
+			signal: abortCtl.signal,
+			...(run.appendSystemPrompt ? { appendSystemPrompt: run.appendSystemPrompt } : {}),
+			...(options2.resumeSessionId ? { resumeSessionId: options2.resumeSessionId } : {}),
+			onEvent: (event) => {
+				if (event.type === "delta") {
+					streamed += event.text;
+				} else if (event.type === "html") {
+					streamed = event.text;
+				} else if (event.type === "error") {
+					sawError = true;
+				}
+				if (options2.holdTerminalFrames && (event.type === "error" || event.type === "done")) {
+					held.push(event);
+					return;
+				}
+				write(event.type, event);
+			},
+			...(options.buildPinInput ? { pinInput: options.buildPinInput(run.managerAccountId) } : {}),
+		});
+		return held;
+	};
+
+	if (run.resumeSessionId) {
+		const held = await attempt({ resumeSessionId: run.resumeSessionId, holdTerminalFrames: true });
+		// A session the CLI no longer has fails instantly and produces nothing. That is
+		// routine — a runtime restart or a changed cwd loses sessions — and without this
+		// the panel would be permanently broken by an id it can never satisfy. Retrying
+		// costs the conversation's history, not the turn.
+		const sessionUnusable = sawError && streamed.length === 0 && !aborted;
+		if (sessionUnusable) {
+			write("meta", {
+				type: "meta",
+				key: "pin_warning",
+				value: "The earlier chat session could not be resumed, so this answer starts without the conversation history.",
+			});
+			await attempt({ holdTerminalFrames: false });
+		} else {
+			for (const event of held) {
+				write(event.type, event);
 			}
-			write(event.type, event);
-		},
-		...(options.buildPinInput ? { pinInput: options.buildPinInput(run.managerAccountId) } : {}),
-	});
+		}
+	} else {
+		await attempt({ holdTerminalFrames: false });
+	}
 
 	// Skipped on a failed or cancelled run: half a stream parses to a partial result,
 	// and persisting that would replace a good bundle with the fragment of a run the

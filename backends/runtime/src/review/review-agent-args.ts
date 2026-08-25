@@ -28,6 +28,15 @@ export const REVIEW_AUDIT_ALLOWED_TOOLS = ["Read"] as const;
 export const REVIEW_CHAT_ALLOWED_TOOLS = ["Read", "Glob", "Grep", "Task", "Skill"] as const;
 
 /**
+ * Rewriting a note into a review comment is a text transformation on text the
+ * caller already supplied. `Read` is here only so the pass can look at the line it
+ * is commenting on when the caller sends an excerpt reference rather than the code;
+ * it needs nothing else, and a non-empty allowlist is what keeps a stray tool call
+ * from stalling a `-p` run that has no UI to answer a permission prompt.
+ */
+export const REVIEW_SUGGEST_ALLOWED_TOOLS = ["Read"] as const;
+
+/**
  * Working directory for a review agent. The reviewer's own repo checkout is the
  * useful default — that is what makes `/understand-diff` and codebase questions
  * resolve — and an explicit `cwd` from the caller always wins.

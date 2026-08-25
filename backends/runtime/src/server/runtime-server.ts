@@ -28,11 +28,8 @@ import {
 	runtimeReviewAuditRequestSchema,
 	runtimeReviewChatRequestSchema,
 	runtimeReviewRulesExtractRequestSchema,
+	runtimeReviewSuggestCommentRequestSchema,
 } from "../core/api-contract";
-import { DOC_SKILL_ALLOWED_TOOLS, resolveDocSkillAgentCwd } from "../doc-skill/doc-skill-agent-args";
-import { BUILD_REQUEST_TIMEOUT_MS, type DocSkillClient } from "../doc-skill/doc-skill-client";
-import { findDocSkillRoot } from "../doc-skill/doc-skill-process";
-import { buildDocAuditPrompt, buildDocRoundPrompt, loadDocSkillText } from "../doc-skill/doc-skill-prompts";
 import {
 	buildKanbanRuntimeUrl,
 	getKanbanRuntimeHost,
@@ -41,17 +38,12 @@ import {
 	getKanbanRuntimeTls,
 	isKanbanRemoteHost,
 } from "../core/runtime-endpoint";
+import { DOC_SKILL_ALLOWED_TOOLS, resolveDocSkillAgentCwd } from "../doc-skill/doc-skill-agent-args";
+import { BUILD_REQUEST_TIMEOUT_MS, type DocSkillClient } from "../doc-skill/doc-skill-client";
+import { findDocSkillRoot } from "../doc-skill/doc-skill-process";
+import { buildDocAuditPrompt, buildDocRoundPrompt, loadDocSkillText } from "../doc-skill/doc-skill-prompts";
 import { createGitlabClient } from "../gitlab/gitlab-client";
 import { createGitlabOauthSession } from "../gitlab/gitlab-oauth";
-import {
-	REVIEW_AUDIT_ALLOWED_TOOLS,
-	REVIEW_CHAT_ALLOWED_TOOLS,
-	REVIEW_RULES_EXTRACT_ALLOWED_TOOLS,
-	resolveReviewAgentCwd,
-} from "../review/review-agent-args";
-import { buildAuditPrompt, buildChatPrompt, buildRulesExtractPrompt } from "../review/review-prompts";
-import { handleAgentStreamRoute } from "../review/review-stream-route";
-import { persistExtractedRules, readReviewRulesBundle } from "../review/review-rules";
 import { HTML_NO_TOOLS, resolveHtmlAgentCwd, resolveHtmlAllowedTools } from "../html/html-agent-args";
 import { buildBriefPrompt, loadPromptMasterBody } from "../html/html-brief";
 import type { HtmlClient, HtmlPromptFailure } from "../html/html-client";
@@ -69,6 +61,22 @@ import {
 } from "../manager/manager-account-pin";
 import type { ManagerClient } from "../manager/manager-client";
 import type { ManagerMonitor } from "../manager/manager-monitor";
+import {
+	REVIEW_AUDIT_ALLOWED_TOOLS,
+	REVIEW_CHAT_ALLOWED_TOOLS,
+	REVIEW_RULES_EXTRACT_ALLOWED_TOOLS,
+	REVIEW_SUGGEST_ALLOWED_TOOLS,
+	resolveReviewAgentCwd,
+} from "../review/review-agent-args";
+import {
+	buildAuditPrompt,
+	buildChatPrompt,
+	buildRulesExtractPrompt,
+	buildSuggestionRewritePrompt,
+	REVIEW_CHAT_SYSTEM_PROMPT,
+} from "../review/review-prompts";
+import { persistExtractedRules, readReviewRulesBundle } from "../review/review-rules";
+import { handleAgentStreamRoute } from "../review/review-stream-route";
 import {
 	checkRateLimit,
 	clearRateLimit,
@@ -252,8 +260,7 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 					}
 					const workspaceState = await loadWorkspaceState(scope.workspacePath).catch(() => null);
 					const card =
-						workspaceState?.board.columns.flatMap((column) => column.cards).find((c) => c.id === taskId) ??
-						null;
+						workspaceState?.board.columns.flatMap((column) => column.cards).find((c) => c.id === taskId) ?? null;
 					return {
 						providerId: launchConfig.providerId,
 						seatProviderId: launchConfig.seatProviderId,
@@ -1067,8 +1074,7 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 						return;
 					}
 				}
-				const contentType =
-					typeof req.headers["content-type"] === "string" ? req.headers["content-type"] : null;
+				const contentType = typeof req.headers["content-type"] === "string" ? req.headers["content-type"] : null;
 				// Build proxies (POST .../build) can take up to ~120s server-side; give this
 				// passthrough enough headroom rather than the client's default short timeout.
 				const timeoutMs = docSkillPath.endsWith("/build") ? BUILD_REQUEST_TIMEOUT_MS : undefined;
@@ -1289,8 +1295,12 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 					buildPinInput: buildHtmlAgentPinInput,
 					schema: runtimeReviewChatRequestSchema,
 					buildRun: async (input) => {
-						const detail = await gitlabApi.getMergeRequest({ projectId: input.projectId, iid: input.iid });
-						const mergeRequest = detail.mergeRequest;
+						const isFirstTurn = input.resumeSessionId === undefined;
+						// Skipped entirely on a resumed turn: the merge-request context is already
+						// in the CLI session, so this round trip would buy nothing.
+						const mergeRequest = isFirstTurn
+							? (await gitlabApi.getMergeRequest({ projectId: input.projectId, iid: input.iid })).mergeRequest
+							: null;
 						const activeWorkspaceId = deps.workspaceRegistry.getActiveWorkspaceId();
 						return {
 							ok: true,
@@ -1303,6 +1313,10 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 								targetBranch: mergeRequest?.targetBranch ?? "unknown",
 								changedPaths: input.changedPaths,
 								activeDiff: input.activeDiff,
+								screen: input.screen,
+								visible: input.visible,
+								isFirstTurn,
+								expectSuggestions: input.expectSuggestions,
 							}),
 							cwd: resolveReviewAgentCwd({
 								cwd: input.cwd,
@@ -1314,6 +1328,36 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 							}),
 							model: input.model,
 							allowedTools: REVIEW_CHAT_ALLOWED_TOOLS,
+							managerAccountId: input.managerAccountId,
+							appendSystemPrompt: REVIEW_CHAT_SYSTEM_PROMPT,
+							resumeSessionId: input.resumeSessionId,
+						};
+					},
+				});
+				return;
+			}
+			if (pathname === "/api/review/suggest-comment" && (req.method ?? "GET").toUpperCase() === "POST") {
+				await handleAgentStreamRoute(req, res, {
+					buildPinInput: buildHtmlAgentPinInput,
+					schema: runtimeReviewSuggestCommentRequestSchema,
+					buildRun: async (input) => {
+						const activeWorkspaceId = deps.workspaceRegistry.getActiveWorkspaceId();
+						return {
+							ok: true,
+							prompt: buildSuggestionRewritePrompt({
+								rawText: input.rawText,
+								newPath: input.newPath,
+								line: input.line,
+								diffExcerpt: input.diffExcerpt,
+							}),
+							cwd: resolveReviewAgentCwd({
+								cwd: input.cwd,
+								projectPath: activeWorkspaceId
+									? deps.workspaceRegistry.getWorkspacePathById(activeWorkspaceId)
+									: null,
+							}),
+							model: input.model,
+							allowedTools: REVIEW_SUGGEST_ALLOWED_TOOLS,
 							managerAccountId: input.managerAccountId,
 						};
 					},

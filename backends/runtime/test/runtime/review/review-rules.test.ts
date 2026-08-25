@@ -5,7 +5,13 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import type { RuntimeReviewRule } from "../../../src/core/api-contract";
-import { buildChatPrompt, formatDiffsForPrompt, formatRulesForPrompt } from "../../../src/review/review-prompts";
+import {
+	buildChatPrompt,
+	buildSuggestionRewritePrompt,
+	formatDiffsForPrompt,
+	formatRulesForPrompt,
+	REVIEW_CHAT_SYSTEM_PROMPT,
+} from "../../../src/review/review-prompts";
 import {
 	buildRulesBundle,
 	getReviewRulesPath,
@@ -210,6 +216,7 @@ describe("buildChatPrompt", () => {
 			sourceBranch: "feature/x",
 			targetBranch: "main",
 			changedPaths: ["a.py"],
+			isFirstTurn: true,
 		});
 		expect(prompt.startsWith("/understand-diff what does this touch?")).toBe(true);
 		expect(prompt).toContain("a.py");
@@ -222,7 +229,112 @@ describe("buildChatPrompt", () => {
 			sourceBranch: "s",
 			targetBranch: "m",
 			changedPaths: [],
+			isFirstTurn: true,
 		});
 		expect(prompt).not.toContain("```diff");
+	});
+
+	it("sends the merge-request context only on the first turn", () => {
+		const args = {
+			prompt: "hello",
+			title: "Refactor payments",
+			sourceBranch: "feature/x",
+			targetBranch: "main",
+			changedPaths: ["a.py"],
+			activeDiff: "@@ -1 +1 @@\n+a\n",
+		};
+		const first = buildChatPrompt({ ...args, isFirstTurn: true });
+		expect(first).toContain("Refactor payments");
+		expect(first).toContain("```diff");
+
+		// The whole point of the resumed path: a follow-up costs the message, not the
+		// diff. Re-sending it per turn is what made a greeting read as "review this".
+		const resumed = buildChatPrompt({ ...args, isFirstTurn: false });
+		expect(resumed).toBe("hello");
+	});
+
+	it("prefers the reviewer's selection over the whole active file", () => {
+		const prompt = buildChatPrompt({
+			prompt: "what does this do?",
+			title: "t",
+			sourceBranch: "s",
+			targetBranch: "m",
+			changedPaths: ["a.py"],
+			activeDiff: "@@ -1 +1 @@\n+whole file\n",
+			screen: {
+				path: "a.py",
+				side: "new",
+				startLine: 40,
+				endLine: 60,
+				text: "selected lines",
+			},
+			isFirstTurn: true,
+		});
+		expect(prompt).toContain("a.py:40-60");
+		expect(prompt).toContain("selected lines");
+		// Sending both would waste the budget the selection exists to save.
+		expect(prompt).not.toContain("whole file");
+	});
+
+	it("carries the selection on a resumed turn, without the merge-request context", () => {
+		const prompt = buildChatPrompt({
+			prompt: "and this one?",
+			title: "Refactor payments",
+			sourceBranch: "s",
+			targetBranch: "m",
+			changedPaths: ["a.py"],
+			screen: { path: "a.py", side: "new", startLine: 7, endLine: 7, text: "one line" },
+			isFirstTurn: false,
+		});
+		expect(prompt.startsWith("and this one?")).toBe(true);
+		expect(prompt).toContain("a.py:7");
+		expect(prompt).not.toContain("Refactor payments");
+	});
+
+	it("falls back to the scrolled-to range when nothing is selected", () => {
+		const prompt = buildChatPrompt({
+			prompt: "explain",
+			title: "t",
+			sourceBranch: "s",
+			targetBranch: "m",
+			changedPaths: [],
+			visible: { path: "a.py", startLine: 10, endLine: 30 },
+			isFirstTurn: false,
+		});
+		expect(prompt).toContain("a.py:10-30");
+	});
+
+	it("asks for the suggestions block only when the caller expects it", () => {
+		const base = {
+			prompt: "/code-review",
+			title: "t",
+			sourceBranch: "s",
+			targetBranch: "m",
+			changedPaths: [],
+			isFirstTurn: true,
+		};
+		expect(buildChatPrompt({ ...base, expectSuggestions: true })).toContain("```suggestions");
+		expect(buildChatPrompt(base)).not.toContain("```suggestions");
+	});
+});
+
+describe("REVIEW_CHAT_SYSTEM_PROMPT", () => {
+	it("tells the agent to stay an assistant rather than review unprompted", () => {
+		// The regression this whole change exists to prevent: `hello` producing a review.
+		expect(REVIEW_CHAT_SYSTEM_PROMPT).toContain("Never volunteer findings");
+		expect(REVIEW_CHAT_SYSTEM_PROMPT).toContain("Never produce a review unless you were asked");
+	});
+});
+
+describe("buildSuggestionRewritePrompt", () => {
+	it("anchors the rewrite to the file and line, and forbids a preamble", () => {
+		const prompt = buildSuggestionRewritePrompt({
+			rawText: "this could overflow if count is negative",
+			newPath: "src/buf.ts",
+			line: 46,
+		});
+		expect(prompt).toContain("src/buf.ts:46");
+		expect(prompt).toContain("this could overflow if count is negative");
+		expect(prompt).toContain("Output the comment text and nothing else");
 	});
 });
