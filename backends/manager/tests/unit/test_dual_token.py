@@ -185,12 +185,35 @@ class TestBuildOauthData:
         assert result["accessToken"] == "primary_at"
         assert result["refreshToken"] is None
 
-    def test_expired_cc_with_refresh_still_returns_cc(self):
-        """Expired CC token WITH refresh token is still returned (can be refreshed)."""
+    def test_expired_cc_loses_to_a_live_primary(self):
+        """Expired CC token is never written while the primary is still alive.
+
+        The credential file is a snapshot the session reads at startup, so an
+        expired accessToken means the agent opens on "Login expired · Please
+        run /login" and betting on Claude Code's own refresh is the difference
+        between a working session and no session at all.
+        """
         account = {
             "access_token": "primary_at",
             "refresh_token": "primary_rt",
             "expires_at": int(time.time()) + 3600,
+            "cc_access_token": "expired_cc_at",
+            "cc_refresh_token": "cc_rt",
+            "cc_expires_at": int(time.time()) - 100,  # expired
+            "scopes": None,
+            "subscription_type": "max",
+            "rate_limit_tier": "t1",
+        }
+        result = build_oauth_data(account)
+        assert result["accessToken"] == "primary_at"
+        assert result["refreshToken"] is None
+
+    def test_expired_cc_with_refresh_wins_when_primary_is_dead_too(self):
+        """With nothing fresher to offer, the refreshable CC pair is the only way in."""
+        account = {
+            "access_token": "primary_at",
+            "refresh_token": "primary_rt",
+            "expires_at": int(time.time()) - 100,  # expired too
             "cc_access_token": "expired_cc_at",
             "cc_refresh_token": "cc_rt",
             "cc_expires_at": int(time.time()) - 100,  # expired
@@ -1326,7 +1349,7 @@ class TestPrepareAccountDirCCRefresh:
             1,
             cc_access_token="cc_at",
             cc_refresh_token="cc_rt",
-            cc_expires_at=int(time.time()) - 100,
+            cc_expires_at=int(time.time()) + 60,  # near-expiry, still alive
         )
 
         mock_active_id.return_value = 1  # THIS account holds the active CC session
@@ -1341,6 +1364,40 @@ class TestPrepareAccountDirCCRefresh:
             pass
 
         mock_cc_refresh.assert_not_called()
+
+    @patch("manager.api.credential_helpers.read_active_account_id")
+    @patch("manager.launch.should_refresh_cc")
+    @patch("manager.launch.should_refresh")
+    @patch("manager.web.auth.refresh_cc_token", new_callable=AsyncMock)
+    def test_cc_refresh_runs_for_active_session_once_the_token_expired(
+        self, mock_cc_refresh, mock_should_primary, mock_should_cc, mock_active_id, tmp_path
+    ):
+        """An EXPIRED pair on the active seat is refreshed — the skip protects a
+        live token, and there is none left to protect. Skipping it froze the seat
+        every unpinned/"Auto" launch copies on a dead token, so each new session
+        opened on "Login expired · Please run /login"."""
+        from manager.launch import prepare_account_dir
+
+        db = _make_db(tmp_path)
+        db.update_account(
+            1,
+            cc_access_token="cc_at",
+            cc_refresh_token="cc_rt",
+            cc_expires_at=int(time.time()) - 100,
+        )
+
+        mock_active_id.return_value = 1
+        mock_should_primary.return_value = False
+        mock_should_cc.return_value = True
+
+        account = db.get_account(1)
+
+        try:
+            prepare_account_dir(account, db)
+        except Exception:
+            pass
+
+        mock_cc_refresh.assert_called_once()
 
 
 # ---------------------------------------------------------------------------

@@ -1841,6 +1841,20 @@ async def use_account(account_id: int, request: Request):
     # credential file changes gracefully.  Do NOT copy this pattern into
     # refresh_account_token() or any background loop.
     from manager.api.credential_helpers import sync_credential_to_all_stores
+    from manager.web.auth import ensure_launchable_credentials
+
+    # Refresh before writing: this file is what every unpinned/"Auto" session
+    # copies at launch, and an expired token here means an instant
+    # "Login expired · Please run /login" in the agent.
+    try:
+        refreshed = await ensure_launchable_credentials(account_id, db)
+        if refreshed:
+            account = refreshed
+    except Exception:
+        logger.exception(
+            "Pre-write refresh failed for account %d — writing the credential "
+            "we already have", account_id,
+        )
 
     sync_credential_to_all_stores(
         account_id,
@@ -2164,6 +2178,20 @@ async def reconcile_active_credential(request: Request):
 
     if live and live != target_id:
         reconcile_credentials_from_live_store(live, db)
+
+    # Same rule as use_account: never install an expired token as the seat
+    # unpinned/"Auto" sessions inherit.
+    from manager.web.auth import ensure_launchable_credentials
+
+    try:
+        refreshed = await ensure_launchable_credentials(target_id, db)
+        if refreshed:
+            account = refreshed
+    except Exception:
+        logger.exception(
+            "Pre-write refresh failed for account %d — writing the credential "
+            "we already have", target_id,
+        )
 
     # SAFETY: user-initiated one-shot credential write (same contract as
     # use_account) — NOT a background loop. Do not copy into refresh loops.

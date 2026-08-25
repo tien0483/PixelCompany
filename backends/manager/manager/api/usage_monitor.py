@@ -760,7 +760,24 @@ async def _execute_swap(
         residency_seconds=residency_seconds,
     )
 
-    # 3. Credential write OFF the event loop — acquire_claude_lock sleeps
+    # 3. Refresh the incoming seat BEFORE writing it as the global
+    # credential. Without this the swap can install an already-expired token
+    # as the seat every unpinned/"Auto" session copies at launch, and nothing
+    # downstream ever refreshes it (the seat is the active one from here on,
+    # so its own refresh is skipped) — a permanent "Login expired" for Auto.
+    from manager.web.auth import ensure_launchable_credentials
+
+    try:
+        refreshed_target = await ensure_launchable_credentials(target["id"], db)
+        if refreshed_target:
+            target = refreshed_target
+    except Exception:
+        logger.exception(
+            "Swap: pre-write refresh failed for account %d — writing the "
+            "credential we already have", target["id"],
+        )
+
+    # Credential write OFF the event loop — acquire_claude_lock sleeps
     # and the stores spawn keychain subprocesses (~7.5s worst case).
     credential_ok = await asyncio.to_thread(
         _write_swap_credentials, active_acct_id, target, db,
