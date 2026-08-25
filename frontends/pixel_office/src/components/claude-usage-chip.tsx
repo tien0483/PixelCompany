@@ -42,11 +42,12 @@ function UsageRow({
 }
 
 /**
- * Compact 5h / 7d meter for the plan editor toolbar, sitting beside the Claude
- * connection dot. Same windows and the same formatters as Manager → Seats
- * (`UsageWindowBar` in `manager-accounts-view.tsx`), shrunk to toolbar height.
+ * Compact 5h / 7d meter for toolbars (plan editor, Review), sitting beside the
+ * Claude actions that spend the quota. Same windows and the same formatters as
+ * Manager → Seats (`UsageWindowBar` in `manager-accounts-view.tsx`), shrunk to
+ * toolbar height. Self-fetching: hosts mount it with no data props.
  */
-export function PlanClaudeUsageChip(): ReactElement {
+export function ClaudeUsageChip({ testId = "claude-usage-chip" }: { testId?: string } = {}): ReactElement {
 	const usage = useClaudeUsage();
 
 	if (!usage.available) {
@@ -54,7 +55,7 @@ export function PlanClaudeUsageChip(): ReactElement {
 			<div
 				className="hidden h-7 w-[74px] shrink-0 flex-col justify-center gap-0.5 rounded-md border border-border bg-surface-3 px-1.5 py-0.5 text-[9px] leading-none text-text-tertiary lg:flex"
 				title={unavailableHint(usage.reason)}
-				data-testid="plan-claude-usage-chip"
+				data-testid={testId}
 			>
 				<div className="flex items-center justify-between gap-1.5">
 					<span>5h</span>
@@ -72,7 +73,7 @@ export function PlanClaudeUsageChip(): ReactElement {
 		<div
 			className="hidden h-7 w-[74px] shrink-0 flex-col justify-center gap-0.5 rounded-md border border-border bg-surface-3 px-1.5 py-0.5 lg:flex"
 			title={`Claude usage · updated ${formatUsageCacheAge(usage.fetchedAt)}`}
-			data-testid="plan-claude-usage-chip"
+			data-testid={testId}
 		>
 			<UsageRow label="5h" percent={usage.fiveHourPercent} resetsAt={usage.fiveHourResetsAt} />
 			<UsageRow label="7d" percent={usage.sevenDayPercent} resetsAt={usage.sevenDayResetsAt} />

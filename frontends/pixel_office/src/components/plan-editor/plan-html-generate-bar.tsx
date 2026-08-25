@@ -1,7 +1,7 @@
 import { ListChecks, Rocket, Sparkles, Wand2, Zap } from "lucide-react";
 import { type ReactElement, useMemo } from "react";
 
-import { PlanClaudeUsageChip } from "@/components/plan-editor/plan-claude-usage-chip";
+import { ClaudeUsageChip } from "@/components/claude-usage-chip";
 import { PlanHtmlRunMetrics } from "@/components/plan-editor/plan-html-run-metrics";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
@@ -97,7 +97,7 @@ export function PlanHtmlGenerateBar({
 				title={online ? HTML_LABELS.online : HTML_LABELS.offlineHint}
 				aria-label={online ? HTML_LABELS.online : HTML_LABELS.offlineShort}
 			/>
-			<PlanClaudeUsageChip />
+			<ClaudeUsageChip testId="plan-claude-usage-chip" />
 			{selectedTemplate ? (
 				<span className="hidden max-w-[160px] truncate text-[11px] text-text-secondary lg:inline">
 					{selectedTemplate.emoji ? `${selectedTemplate.emoji} ` : ""}
