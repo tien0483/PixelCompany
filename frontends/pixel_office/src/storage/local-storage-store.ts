@@ -5,6 +5,8 @@ export enum LocalStorageKey {
 	/** Whether the native Cline chat panel renders model reasoning ("thinking") text. Defaults to visible. */
 	ClineShowReasoning = "kanban.cline-show-reasoning",
 	AgentTipsDismissed = "kanban.agent-tips-dismissed",
+	/** Claude model the Review tab's one-shot agents run on. Defaults to Haiku. */
+	ReviewAgentModel = "kanban.review-agent-model",
 	TaskCreatePrimaryStartAction = "kanban.task-create-primary-start-action",
 	BottomTerminalPaneHeight = "kanban.bottom-terminal-pane-height",
 	DetailAgentPanelRatio = "kanban.detail-agent-panel-ratio",

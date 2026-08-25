@@ -16,6 +16,11 @@ import { cn } from "@/components/ui/cn";
 import { Spinner } from "@/components/ui/spinner";
 import { useHtmlAgentStream } from "@/html/use-html-agent-stream";
 import {
+	type ReviewAgentModelId,
+	readStoredReviewAgentModel,
+	writeStoredReviewAgentModel,
+} from "@/review/review-agent-model";
+import {
 	countReviewProgress,
 	type ReviewDiffMode,
 	type ReviewTarget,
@@ -111,6 +116,9 @@ export function ReviewWorkspaceView({
 	const [isSubmitOpen, setIsSubmitOpen] = useState(false);
 	const [isSubmitting, setIsSubmitting] = useState(false);
 	const [submitError, setSubmitError] = useState<string | null>(null);
+	// Seeded from storage rather than defaulted-then-synced: a first render on the
+	// wrong model would let a fast reviewer fire an Opus audit before the effect ran.
+	const [agentModel, setAgentModel] = useState<ReviewAgentModelId>(() => readStoredReviewAgentModel());
 
 	const chat = useHtmlAgentStream<RuntimeReviewChatRequest>("/api/review/chat");
 	const audit = useHtmlAgentStream<RuntimeReviewAuditRequest>("/api/review/audit");
@@ -221,9 +229,10 @@ export function ReviewWorkspaceView({
 			targetBranch: session.mergeRequest.targetBranch,
 			files,
 			projectKey: target.projectKey,
+			model: agentModel,
 			managerAccountId,
 		});
-	}, [audit, managerAccountId, session.files, session.mergeRequest, target]);
+	}, [agentModel, audit, managerAccountId, session.files, session.mergeRequest, target]);
 
 	const sendChat = useCallback(
 		(prompt: string) => {
@@ -235,12 +244,18 @@ export function ReviewWorkspaceView({
 				changedPaths: session.files.map((file) => file.newPath),
 				...(session.activeFile ? { activeDiff: session.activeFile.diff } : {}),
 				projectKey: target.projectKey,
+				model: agentModel,
 				managerAccountId,
 				cwd: localRepoPath || undefined,
 			});
 		},
-		[chat, localRepoPath, managerAccountId, session.activeFile, session.files, target],
+		[agentModel, chat, localRepoPath, managerAccountId, session.activeFile, session.files, target],
 	);
+
+	const changeAgentModel = useCallback((model: ReviewAgentModelId) => {
+		setAgentModel(model);
+		writeStoredReviewAgentModel(model);
+	}, []);
 
 	const extractRules = useCallback(async () => {
 		try {
@@ -257,11 +272,16 @@ export function ReviewWorkspaceView({
 				});
 				return;
 			}
-			void rulesExtract.run({ projectKey: target.projectKey, sourceRoots, managerAccountId });
+			void rulesExtract.run({
+				projectKey: target.projectKey,
+				sourceRoots,
+				model: agentModel,
+				managerAccountId,
+			});
 		} catch (error) {
 			showAppToast({ intent: "danger", message: error instanceof Error ? error.message : String(error) });
 		}
-	}, [managerAccountId, rulesExtract, target.projectKey, workspaceId]);
+	}, [agentModel, managerAccountId, rulesExtract, target.projectKey, workspaceId]);
 
 	const fetchFullFile = useCallback(async (): Promise<string | null> => {
 		if (!session.activeFile || !session.mergeRequest) {
@@ -584,6 +604,8 @@ export function ReviewWorkspaceView({
 						pendingFindings={pendingFindings}
 						draftComments={draftComments}
 						isAuditing={audit.status === "running"}
+						model={agentModel}
+						onModelChange={changeAgentModel}
 						onSend={sendChat}
 						onCancel={chat.cancel}
 						onAcceptFinding={session.acceptFinding}
