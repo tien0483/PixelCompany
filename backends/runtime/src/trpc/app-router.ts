@@ -235,6 +235,10 @@ import {
 	type RuntimeGitlabConnectStatusRequest,
 	runtimeGitlabConnectStatusRequestSchema,
 	runtimeGitlabConnectStatusSchema,
+	type RuntimeGitlabConnectTokenRequest,
+	runtimeGitlabConnectTokenRequestSchema,
+	type RuntimeGitlabConnectTokenResponse,
+	runtimeGitlabConnectTokenResponseSchema,
 	type RuntimeGitlabConnection,
 	runtimeGitlabConnectionSchema,
 	type RuntimeGitlabCreateDiffNoteRequest,
@@ -889,6 +893,7 @@ export interface RuntimeTrpcContext {
 	gitlabApi: {
 		status: () => Promise<RuntimeGitlabConnection>;
 		connect: (input: RuntimeGitlabConnectStartRequest) => Promise<RuntimeGitlabConnectStartResponse>;
+		connectToken: (input: RuntimeGitlabConnectTokenRequest) => Promise<RuntimeGitlabConnectTokenResponse>;
 		connectStatus: (input: RuntimeGitlabConnectStatusRequest) => Promise<RuntimeGitlabConnectStatus>;
 		cancelConnect: (input: RuntimeGitlabConnectStatusRequest) => Promise<RuntimeGitlabMutationResponse>;
 		disconnect: () => Promise<RuntimeGitlabMutationResponse>;
@@ -1903,6 +1908,12 @@ export const runtimeAppRouter = t.router({
 			.output(runtimeGitlabConnectStartResponseSchema)
 			.mutation(async ({ ctx, input }) => {
 				return await ctx.gitlabApi.connect(input);
+			}),
+		connectToken: t.procedure
+			.input(runtimeGitlabConnectTokenRequestSchema)
+			.output(runtimeGitlabConnectTokenResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.gitlabApi.connectToken(input);
 			}),
 		connectStatus: t.procedure
 			.input(runtimeGitlabConnectStatusRequestSchema)

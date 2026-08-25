@@ -3183,6 +3183,8 @@ export type RuntimeHookIngestResponse = z.infer<typeof runtimeHookIngestResponse
 export const runtimeGitlabConnectionSchema = z.object({
 	connected: z.boolean(),
 	host: z.string().nullable(),
+	/** How the stored token was obtained; null when nothing is stored. */
+	authKind: z.enum(["oauth", "pat"]).nullable(),
 	username: z.string().nullable(),
 	name: z.string().nullable(),
 	userId: z.number().nullable(),
@@ -3207,6 +3209,22 @@ export const runtimeGitlabConnectStartResponseSchema = z.object({
 	error: z.string().optional(),
 });
 export type RuntimeGitlabConnectStartResponse = z.infer<typeof runtimeGitlabConnectStartResponseSchema>;
+
+export const runtimeGitlabConnectTokenRequestSchema = z.object({
+	/** A GitLab personal access token carrying the `api` scope. */
+	token: z.string().min(1),
+	/** Defaults to the akselos instance the MCP config points at. */
+	host: z.string().min(1).optional(),
+});
+export type RuntimeGitlabConnectTokenRequest = z.infer<typeof runtimeGitlabConnectTokenRequestSchema>;
+
+export const runtimeGitlabConnectTokenResponseSchema = z.object({
+	ok: z.boolean(),
+	/** Present only on success; the caller renders it without a second status round-trip. */
+	connection: runtimeGitlabConnectionSchema.nullable(),
+	error: z.string().optional(),
+});
+export type RuntimeGitlabConnectTokenResponse = z.infer<typeof runtimeGitlabConnectTokenResponseSchema>;
 
 export const runtimeGitlabConnectStatusRequestSchema = z.object({
 	flowId: z.string().min(1),

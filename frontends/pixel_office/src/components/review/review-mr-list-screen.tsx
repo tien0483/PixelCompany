@@ -1,23 +1,17 @@
-import { GitPullRequest, LogIn, RefreshCw, Search, X } from "lucide-react";
+import { GitPullRequest, RefreshCw, Search } from "lucide-react";
 import { type ReactElement, useCallback, useEffect, useMemo, useState } from "react";
 
-import { showAppToast } from "@/components/app-toaster";
+import { GitlabConnectForm } from "@/components/review/gitlab-connect-form";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
 import { Spinner } from "@/components/ui/spinner";
 import type { ReviewTarget } from "@/review/review-target";
+import { useGitlabConnect } from "@/review/use-gitlab-connect";
 import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
-import type {
-	RuntimeGitlabConnection,
-	RuntimeGitlabMergeRequestSummary,
-	RuntimeGitlabProject,
-} from "@/runtime/types";
+import type { RuntimeGitlabMergeRequestSummary, RuntimeGitlabProject } from "@/runtime/types";
 
 type ScopeFilter = "created_by_me" | "assigned_to_me" | "all";
 type StateFilter = "opened" | "merged" | "all";
-
-/** How often the connect flow is polled while the browser tab is open. */
-const CONNECT_POLL_INTERVAL_MS = 1500;
 
 const PIPELINE_TONE: Record<string, string> = {
 	success: "bg-status-green/20 text-status-green",
@@ -41,10 +35,10 @@ export function ReviewMergeRequestListScreen({
 	projectKey: string;
 	onOpenMergeRequest: (target: ReviewTarget) => void;
 }): ReactElement {
-	const [connection, setConnection] = useState<RuntimeGitlabConnection | null>(null);
-	const [connectFlowId, setConnectFlowId] = useState<string | null>(null);
-	const [connectAuthorizeUrl, setConnectAuthorizeUrl] = useState<string | null>(null);
-	const [isConnecting, setIsConnecting] = useState(false);
+	// Connection state — including both connect paths — lives in the hook so this
+	// screen and the sidebar panel cannot drift apart on what "connected" means.
+	const connect = useGitlabConnect(workspaceId);
+	const { connection, isConnected, error, setError } = connect;
 	const [projects, setProjects] = useState<RuntimeGitlabProject[]>([]);
 	const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
 	const [mergeRequests, setMergeRequests] = useState<RuntimeGitlabMergeRequestSummary[]>([]);
@@ -52,93 +46,6 @@ export function ReviewMergeRequestListScreen({
 	const [stateFilter, setStateFilter] = useState<StateFilter>("opened");
 	const [search, setSearch] = useState("");
 	const [isLoading, setIsLoading] = useState(false);
-	const [error, setError] = useState<string | null>(null);
-
-	const loadConnection = useCallback(async () => {
-		try {
-			const client = getRuntimeTrpcClient(workspaceId);
-			setConnection(await client.gitlab.status.query());
-		} catch (loadError) {
-			setError(loadError instanceof Error ? loadError.message : String(loadError));
-		}
-	}, [workspaceId]);
-
-	useEffect(() => {
-		void loadConnection();
-	}, [loadConnection]);
-
-	// Poll only while a flow is outstanding. The browser round-trip finishes out of
-	// band, so there is nothing else to tell this screen the token has landed.
-	useEffect(() => {
-		if (!connectFlowId) {
-			return;
-		}
-		let cancelled = false;
-		const timer = setInterval(async () => {
-			try {
-				const client = getRuntimeTrpcClient(workspaceId);
-				const status = await client.gitlab.connectStatus.query({ flowId: connectFlowId });
-				if (cancelled || status.state === "pending") {
-					return;
-				}
-				setConnectFlowId(null);
-				setIsConnecting(false);
-				setConnectAuthorizeUrl(null);
-				if (status.state === "connected") {
-					setConnection(status.connection);
-					showAppToast({
-						intent: "success",
-						message: `Connected to GitLab as ${status.connection?.username ?? "your account"}.`,
-					});
-				} else {
-					setError(status.error ?? "GitLab authorization failed.");
-				}
-			} catch {
-				// A transient poll failure is not worth surfacing; the next tick retries.
-			}
-		}, CONNECT_POLL_INTERVAL_MS);
-		return () => {
-			cancelled = true;
-			clearInterval(timer);
-		};
-	}, [connectFlowId, workspaceId]);
-
-	const connect = useCallback(async () => {
-		setIsConnecting(true);
-		setError(null);
-		try {
-			const client = getRuntimeTrpcClient(workspaceId);
-			const response = await client.gitlab.connect.mutate({});
-			if (!response.ok || !response.flowId) {
-				setIsConnecting(false);
-				setError(response.error ?? "Could not start the GitLab authorization.");
-				return;
-			}
-			setConnectFlowId(response.flowId);
-			setConnectAuthorizeUrl(response.authorizeUrl ?? null);
-		} catch (connectError) {
-			setIsConnecting(false);
-			setError(connectError instanceof Error ? connectError.message : String(connectError));
-		}
-	}, [workspaceId]);
-
-	const cancelConnect = useCallback(async () => {
-		const flowId = connectFlowId;
-		setConnectFlowId(null);
-		setIsConnecting(false);
-		setConnectAuthorizeUrl(null);
-		if (!flowId) {
-			return;
-		}
-		try {
-			const client = getRuntimeTrpcClient(workspaceId);
-			await client.gitlab.cancelConnect.mutate({ flowId });
-		} catch {
-			// Best-effort: the UI has already reset regardless of whether the port freed cleanly.
-		}
-	}, [connectFlowId, workspaceId]);
-
-	const isConnected = connection?.connected === true;
 
 	const loadProjects = useCallback(async () => {
 		if (!isConnected) {
@@ -211,44 +118,7 @@ export function ReviewMergeRequestListScreen({
 				<div className="max-w-md space-y-3 text-center">
 					<GitPullRequest size={28} className="mx-auto text-text-tertiary" />
 					<h2 className="text-sm font-semibold text-text-primary">Connect GitLab to review merge requests</h2>
-					<p className="text-xs text-text-secondary">
-						Authorization opens in your browser and uses the GitLab account you already sign in with. One
-						account serves every project here.
-					</p>
-					{connection?.reauthRequired ? (
-						<p className="text-xs text-status-orange">
-							The stored token for {connection.username} was rejected. Authorize again to continue.
-						</p>
-					) : null}
-					{error ? <p className="text-xs text-status-red">{error}</p> : null}
-					<div className="flex items-center justify-center gap-2">
-						<Button
-							variant="primary"
-							icon={isConnecting ? <Spinner size={13} /> : <LogIn size={13} />}
-							disabled={isConnecting}
-							onClick={() => void connect()}
-						>
-							{isConnecting ? "Waiting for your browser…" : "Connect GitLab"}
-						</Button>
-						{isConnecting ? (
-							<Button variant="default" icon={<X size={13} />} onClick={() => void cancelConnect()}>
-								Cancel
-							</Button>
-						) : null}
-					</div>
-					{isConnecting && connectAuthorizeUrl ? (
-						<p className="text-xs text-text-tertiary">
-							Browser did not open?{" "}
-							<a
-								href={connectAuthorizeUrl}
-								target="_blank"
-								rel="noopener noreferrer"
-								className="text-accent underline"
-							>
-								Open authorization page
-							</a>
-						</p>
-					) : null}
+					<GitlabConnectForm controller={connect} />
 				</div>
 			</div>
 		);
