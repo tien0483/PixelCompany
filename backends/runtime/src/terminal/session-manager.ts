@@ -57,7 +57,10 @@ import { TerminalStateMirror } from "./terminal-state-mirror";
 const MAX_WORKSPACE_TRUST_BUFFER_CHARS = 16_384;
 const MAX_RECENT_OUTPUT_CHARS = 12_288;
 const AUTO_RESTART_WINDOW_MS = 5_000;
-const MAX_AUTO_RESTARTS_PER_WINDOW = 3;
+// Flap guard, not a retry budget: an agent that dies instantly a few times in a row is
+// usually still coming up (config dir prepared late, a slow CLI self-update), so the cap is
+// generous enough to ride that out and only stops a process that can never stay alive.
+const MAX_AUTO_RESTARTS_PER_WINDOW = 10;
 // Safety cap so stopTaskSession() can't hang forever if a process ignores SIGTERM.
 const STOP_TASK_SESSION_EXIT_TIMEOUT_MS = 5_000;
 // Terminal scrollback snapshot persistence: trailing debounce so a bursty session doesn't

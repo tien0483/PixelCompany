@@ -79,6 +79,7 @@ describe("ReviewDiffPane", () => {
 		overrides: {
 			onAddDraft?: (draft: ReviewCommentDraftInput) => void;
 			onReachedEnd?: () => void;
+			onReachedStart?: () => void;
 		} = {},
 	): Promise<void> {
 		await act(async () => {
@@ -99,6 +100,7 @@ describe("ReviewDiffPane", () => {
 					onClearCitations={() => {}}
 					onRemoveCitation={() => {}}
 					{...(overrides.onReachedEnd ? { onReachedEnd: overrides.onReachedEnd } : {})}
+					{...(overrides.onReachedStart ? { onReachedStart: overrides.onReachedStart } : {})}
 				/>,
 			);
 		});
@@ -118,6 +120,29 @@ describe("ReviewDiffPane", () => {
 			throw new Error("No diff scroll container.");
 		}
 		return element;
+	}
+
+	/** jsdom never lays anything out, so the scroll geometry has to be asserted onto the node. */
+	function setScrollMetrics(
+		element: HTMLElement,
+		metrics: { scrollHeight: number; clientHeight: number; scrollTop: number },
+	): void {
+		Object.defineProperty(element, "scrollHeight", { configurable: true, value: metrics.scrollHeight });
+		Object.defineProperty(element, "clientHeight", { configurable: true, value: metrics.clientHeight });
+		Object.defineProperty(element, "scrollTop", {
+			configurable: true,
+			writable: true,
+			value: metrics.scrollTop,
+		});
+	}
+
+	/** One deliberate push past an edge: enough ticks to clear `DEEP_SCROLL_DELTA_PX`. */
+	function deepScroll(element: HTMLElement, deltaY: number, ticks = 3): void {
+		act(() => {
+			for (let index = 0; index < ticks; index += 1) {
+				element.dispatchEvent(new WheelEvent("wheel", { deltaY, deltaMode: 0, bubbles: true }));
+			}
+		});
 	}
 
 	/**
@@ -252,21 +277,76 @@ describe("ReviewDiffPane", () => {
 		expect(onReachedEnd).toHaveBeenCalledTimes(1);
 	});
 
-	it("does not advance from a file that is shorter than the viewport", async () => {
+	it("does not advance from a file shorter than the viewport on plain scrolling", async () => {
 		vi.useFakeTimers();
 		const onReachedEnd = vi.fn();
 		await renderPane({ onReachedEnd });
 
 		const scroller = scrollContainer();
-		Object.defineProperty(scroller, "scrollHeight", { configurable: true, value: 300 });
-		Object.defineProperty(scroller, "clientHeight", { configurable: true, value: 300 });
-		Object.defineProperty(scroller, "scrollTop", { configurable: true, writable: true, value: 0 });
+		setScrollMetrics(scroller, { scrollHeight: 300, clientHeight: 300, scrollTop: 0 });
 
 		act(() => {
 			scroller.dispatchEvent(new Event("scroll", { bubbles: true }));
 			vi.advanceTimersByTime(400);
 		});
 		expect(onReachedEnd).not.toHaveBeenCalled();
+	});
+
+	it("advances from a file with no scroll room after a deep scroll down", async () => {
+		const onReachedEnd = vi.fn();
+		await renderPane({ onReachedEnd });
+
+		const scroller = scrollContainer();
+		setScrollMetrics(scroller, { scrollHeight: 300, clientHeight: 300, scrollTop: 0 });
+
+		deepScroll(scroller, 120);
+		expect(onReachedEnd).toHaveBeenCalledTimes(1);
+	});
+
+	it("goes back a file on a deep scroll up at the top", async () => {
+		const onReachedEnd = vi.fn();
+		const onReachedStart = vi.fn();
+		await renderPane({ onReachedEnd, onReachedStart });
+
+		const scroller = scrollContainer();
+		setScrollMetrics(scroller, { scrollHeight: 900, clientHeight: 300, scrollTop: 0 });
+
+		deepScroll(scroller, -120);
+		expect(onReachedStart).toHaveBeenCalledTimes(1);
+		expect(onReachedEnd).not.toHaveBeenCalled();
+	});
+
+	it("does not navigate on a single wheel tick at an edge", async () => {
+		const onReachedEnd = vi.fn();
+		const onReachedStart = vi.fn();
+		await renderPane({ onReachedEnd, onReachedStart });
+
+		const scroller = scrollContainer();
+		setScrollMetrics(scroller, { scrollHeight: 300, clientHeight: 300, scrollTop: 0 });
+
+		deepScroll(scroller, 120, 1);
+		deepScroll(scroller, -120, 1);
+		expect(onReachedEnd).not.toHaveBeenCalled();
+		expect(onReachedStart).not.toHaveBeenCalled();
+	});
+
+	it("does not deep-scroll away while a comment is being written", async () => {
+		const onReachedEnd = vi.fn();
+		const onReachedStart = vi.fn();
+		await renderPane({ onReachedEnd, onReachedStart });
+
+		await act(async () => {
+			row("n-2", "right").dispatchEvent(mouseEvent("mousedown"));
+			window.dispatchEvent(mouseEvent("mouseup"));
+		});
+
+		const scroller = scrollContainer();
+		setScrollMetrics(scroller, { scrollHeight: 300, clientHeight: 300, scrollTop: 0 });
+
+		deepScroll(scroller, 120);
+		deepScroll(scroller, -120);
+		expect(onReachedEnd).not.toHaveBeenCalled();
+		expect(onReachedStart).not.toHaveBeenCalled();
 	});
 
 	it("does not advance while a comment is being written", async () => {

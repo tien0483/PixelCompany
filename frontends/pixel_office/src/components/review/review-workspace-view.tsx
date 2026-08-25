@@ -32,8 +32,9 @@ import {
 	type ReviewDiffMode,
 	type ReviewLineSelection,
 	type ReviewTarget,
+	type ReviewNavDirection,
 	type ReviewVisibleRange,
-	selectNextUnreviewedPath,
+	selectAdjacentUnreviewedPath,
 	selectPendingFindings,
 	sumDiffStats,
 } from "@/review/review-target";
@@ -266,22 +267,32 @@ export function ReviewWorkspaceView({
 	);
 
 	/**
-	 * Reaching the bottom of a file moves to the next one that still needs reading.
+	 * Leaving either end of a file moves to the adjacent one that still needs reading.
 	 * Deliberately does not mark the finished file reviewed — "reviewed" is a claim
 	 * about having checked it, and scrolling is not that claim.
 	 */
-	const advanceToNextFile = useCallback(() => {
-		const next = selectNextUnreviewedPath({
-			files: session.files,
-			reviewedPaths,
-			activePath: session.activePath,
-		});
-		if (!next) {
-			return;
-		}
-		session.setActivePath(next);
-		showAppToast({ intent: "success", message: `Next unreviewed file: ${next}` });
-	}, [reviewedPaths, session]);
+	const navigateUnreviewed = useCallback(
+		(direction: ReviewNavDirection) => {
+			const target = selectAdjacentUnreviewedPath({
+				files: session.files,
+				reviewedPaths,
+				activePath: session.activePath,
+				direction,
+			});
+			if (!target) {
+				return;
+			}
+			session.setActivePath(target);
+			showAppToast({
+				intent: "success",
+				message: `${direction === "next" ? "Next" : "Previous"} unreviewed file: ${target}`,
+			});
+		},
+		[reviewedPaths, session],
+	);
+
+	const advanceToNextFile = useCallback(() => navigateUnreviewed("next"), [navigateUnreviewed]);
+	const returnToPreviousFile = useCallback(() => navigateUnreviewed("previous"), [navigateUnreviewed]);
 
 	// Stable identity so the diff pane's `closeComposer` memoization holds — it is a
 	// dependency of effects there, and a fresh arrow per render defeats them.
@@ -845,6 +856,7 @@ export function ReviewWorkspaceView({
 						onSelectionChange={setSelection}
 						onVisibleRangeChange={setVisibleRange}
 						onReachedEnd={advanceToNextFile}
+						onReachedStart={returnToPreviousFile}
 					/>
 				)}
 
