@@ -4,6 +4,11 @@ import { type ReactElement, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
 import { Spinner } from "@/components/ui/spinner";
+import {
+	REVIEW_AGENT_MODEL_OPTIONS,
+	type ReviewAgentModelId,
+	normalizeReviewAgentModel,
+} from "@/review/review-agent-model";
 import type { RuntimeReviewDraftComment, RuntimeReviewFinding, RuntimeReviewRuleSeverity } from "@/runtime/types";
 
 /**
@@ -33,6 +38,8 @@ export function ReviewClaudePanel({
 	pendingFindings,
 	draftComments,
 	isAuditing,
+	model,
+	onModelChange,
 	onSend,
 	onCancel,
 	onAcceptFinding,
@@ -46,6 +53,9 @@ export function ReviewClaudePanel({
 	pendingFindings: RuntimeReviewFinding[];
 	draftComments: RuntimeReviewDraftComment[];
 	isAuditing: boolean;
+	/** Model every review pass runs on — chat, audit and rules extraction alike. */
+	model: ReviewAgentModelId;
+	onModelChange: (model: ReviewAgentModelId) => void;
 	onSend: (prompt: string) => void;
 	onCancel: () => void;
 	onAcceptFinding: (finding: RuntimeReviewFinding) => void;
@@ -82,11 +92,29 @@ export function ReviewClaudePanel({
 					<span>Claude</span>
 					{chatStatus === "running" || isAuditing ? <Spinner size={11} /> : null}
 				</div>
-				{chatStatus === "running" ? (
-					<Button variant="default" size="sm" onClick={onCancel}>
-						Stop
-					</Button>
-				) : null}
+				<div className="flex items-center gap-2">
+					{/* Switching mid-run would not move the running process, so the control is
+					    locked while one is in flight rather than silently lying about it. */}
+					<select
+						value={model}
+						aria-label="Review model"
+						title={REVIEW_AGENT_MODEL_OPTIONS.find((option) => option.id === model)?.hint}
+						disabled={chatStatus === "running" || isAuditing}
+						onChange={(event) => onModelChange(normalizeReviewAgentModel(event.target.value))}
+						className="cursor-pointer rounded border border-border bg-surface-2 px-1.5 py-0.5 text-[10px] text-text-secondary focus:border-border-focus focus:outline-none disabled:cursor-not-allowed disabled:opacity-40"
+					>
+						{REVIEW_AGENT_MODEL_OPTIONS.map((option) => (
+							<option key={option.id} value={option.id}>
+								{option.label}
+							</option>
+						))}
+					</select>
+					{chatStatus === "running" ? (
+						<Button variant="default" size="sm" onClick={onCancel}>
+							Stop
+						</Button>
+					) : null}
+				</div>
 			</div>
 
 			<div className="flex shrink-0 flex-wrap gap-1 border-b border-border p-2">
