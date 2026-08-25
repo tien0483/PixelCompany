@@ -5,22 +5,24 @@ import { createLoginExpiredTracker } from "../../../src/terminal/login-expired-t
 const REPORT = { taskId: "task-1", accountId: 7, canReplayRequest: true };
 
 describe("createLoginExpiredTracker", () => {
-	it("self-recovers the first pop and hands the second to failover", () => {
+	it("self-recovers up to MAX_SAME_SEAT_ATTEMPTS times before handing to failover", () => {
 		const tracker = createLoginExpiredTracker();
 
-		const first = tracker.record(REPORT, 1_000);
-		expect(first.action).toBe("self_recover");
-		expect(first.record.popCount).toBe(1);
-		expect(first.failoverReason).toBeNull();
+		// Attempts 1–3: each pop self-recovers.
+		for (let i = 1; i <= 3; i++) {
+			const decision = tracker.record(REPORT, i * 1_000);
+			expect(decision.action).toBe("self_recover");
+			expect(decision.record.popCount).toBe(i);
+			expect(decision.failoverReason).toBeNull();
+			tracker.markAttempt("task-1", i * 1_000 + 100);
+		}
 
-		// The daemon records its attempt before restarting, which spends the single allowance.
-		tracker.markAttempt("task-1", 1_100);
-
-		const second = tracker.record(REPORT, 2_000);
-		expect(second.action).toBe("failover");
-		expect(second.failoverReason).toBe("attempt_spent");
-		expect(second.record.popCount).toBe(2);
-		expect(second.record.sameSeatAttempts).toBe(1);
+		// Attempt 4: allowance exhausted → failover.
+		const fourth = tracker.record(REPORT, 4_000);
+		expect(fourth.action).toBe("failover");
+		expect(fourth.failoverReason).toBe("attempt_spent");
+		expect(fourth.record.popCount).toBe(4);
+		expect(fourth.record.sameSeatAttempts).toBe(3);
 	});
 
 	it("keeps self-recovering while no attempt has been spent", () => {
@@ -55,9 +57,12 @@ describe("createLoginExpiredTracker", () => {
 
 	it("clear() makes a much later pop count as the first again", () => {
 		const tracker = createLoginExpiredTracker();
-		tracker.record(REPORT, 1_000);
-		tracker.markAttempt("task-1", 1_000);
-		expect(tracker.record(REPORT, 2_000).action).toBe("failover");
+		// Exhaust all attempts.
+		for (let i = 1; i <= 3; i++) {
+			tracker.record(REPORT, i * 1_000);
+			tracker.markAttempt("task-1", i * 1_000 + 100);
+		}
+		expect(tracker.record(REPORT, 4_000).action).toBe("failover");
 
 		tracker.clear("task-1");
 		const afterClear = tracker.record(REPORT, 9_000);

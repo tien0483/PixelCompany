@@ -56,6 +56,10 @@ export interface LoginExpiredTracker {
 	clear: (taskId: string) => void;
 }
 
+// Re-preparing the seat refreshes the CC token; allow several tries for transient failures
+// before handing the card to the cross-seat failover.
+const MAX_SAME_SEAT_ATTEMPTS = 3;
+
 export function createLoginExpiredTracker(): LoginExpiredTracker {
 	const records = new Map<string, LoginExpiredRecord>();
 
@@ -82,16 +86,13 @@ export function createLoginExpiredTracker(): LoginExpiredTracker {
 					};
 			records.set(report.taskId, record);
 
-			// One same-seat attempt per card, then hand over. Re-preparing the seat either
-			// refreshed a stale token (in which case the relaunch works) or the seat really
-			// does need an interactive /login — repeating it would only restart the PTY.
 			if (record.accountId === null) {
 				return { action: "failover", record, failoverReason: "no_account" };
 			}
 			if (!report.canReplayRequest) {
 				return { action: "failover", record, failoverReason: "no_replayable_request" };
 			}
-			if (record.sameSeatAttempts > 0) {
+			if (record.sameSeatAttempts >= MAX_SAME_SEAT_ATTEMPTS) {
 				return { action: "failover", record, failoverReason: "attempt_spent" };
 			}
 			return { action: "self_recover", record, failoverReason: null };
