@@ -112,6 +112,26 @@ function readNestedString(source: Record<string, unknown>, key: string, nested: 
 	return isRecord(value) ? readString(value, nested) : null;
 }
 
+/**
+ * Usernames out of a GitLab user array (`reviewers`, `assignees`). Older
+ * instances omit the key entirely, which reads the same as "nobody" here — the
+ * caller only ever asks whether the list is empty.
+ */
+function readUsernames(source: Record<string, unknown>, key: string): string[] {
+	const value = source[key];
+	if (!Array.isArray(value)) {
+		return [];
+	}
+	const usernames: string[] = [];
+	for (const entry of value) {
+		const username = isRecord(entry) ? readString(entry, "username") : null;
+		if (username !== null && username.length > 0) {
+			usernames.push(username);
+		}
+	}
+	return usernames;
+}
+
 function normalizeHost(host: string): string {
 	return host.replace(/\/+$/, "");
 }
@@ -168,6 +188,7 @@ export function parseMergeRequestSummary(raw: unknown): RuntimeGitlabMergeReques
 		// GitLab renamed `work_in_progress` to `draft`; older instances send only the former.
 		draft: readBoolean(raw, "draft") || readBoolean(raw, "work_in_progress"),
 		authorUsername: readNestedString(raw, "author", "username"),
+		reviewers: readUsernames(raw, "reviewers"),
 		sourceBranch,
 		targetBranch,
 		webUrl: readString(raw, "web_url") ?? "",
@@ -306,6 +327,8 @@ export interface GitlabClient {
 		projectId?: number;
 		state?: string;
 		scope?: string;
+		/** GitLab `reviewer_id` — merge requests this user was asked to review. */
+		reviewerId?: number;
 		search?: string;
 		limit?: number;
 	}) => Promise<GitlabResult<RuntimeGitlabMergeRequestSummary[]>>;
@@ -553,7 +576,14 @@ export function createGitlabClient(deps?: CreateGitlabClientDependencies): Gitla
 			return await requestArray("GET", `/projects?${params.toString()}`, parseProject);
 		},
 
-		listMergeRequests: async ({ projectId, state = "opened", scope, search, limit = DEFAULT_PAGE_SIZE }) => {
+		listMergeRequests: async ({
+			projectId,
+			state = "opened",
+			scope,
+			reviewerId,
+			search,
+			limit = DEFAULT_PAGE_SIZE,
+		}) => {
 			const params = new URLSearchParams({
 				state,
 				per_page: String(Math.min(limit, 100)),
@@ -565,8 +595,14 @@ export function createGitlabClient(deps?: CreateGitlabClientDependencies): Gitla
 			if (search) {
 				params.set("search", search);
 			}
+			if (reviewerId !== undefined) {
+				params.set("reviewer_id", String(reviewerId));
+			}
 			if (projectId === undefined) {
-				params.set("scope", scope ?? "created_by_me");
+				// `reviewer_id` already narrows to one person, and GitLab does not list you
+				// as a reviewer of your own merge request — so leaving the `created_by_me`
+				// default in place would intersect the two filters and return nothing.
+				params.set("scope", scope ?? (reviewerId === undefined ? "created_by_me" : "all"));
 			} else if (scope) {
 				params.set("scope", scope);
 			}
