@@ -22,6 +22,11 @@ import {
 import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
 import {
+	accumulateDeepScroll,
+	createDeepScrollState,
+	normalizeWheelDeltaPx,
+} from "@/review/review-deep-scroll";
+import {
 	buildLineAnnotations,
 	type ReviewDiffMode,
 	type ReviewLineSelection,
@@ -148,6 +153,7 @@ export function ReviewDiffPane({
 	onSelectionChange,
 	onVisibleRangeChange,
 	onReachedEnd,
+	onReachedStart,
 }: {
 	file: RuntimeGitlabDiffFile | null;
 	mode: ReviewDiffMode;
@@ -174,8 +180,14 @@ export function ReviewDiffPane({
 	onSelectionChange?: (selection: ReviewLineSelection | null) => void;
 	/** Must be referentially stable — it re-arms the visibility observer. */
 	onVisibleRangeChange?: (range: ReviewVisibleRange | null) => void;
-	/** Called once the reviewer has dwelt at the bottom of this file's diff. */
+	/** Called once the reviewer has dwelt at, or deep-scrolled past, the bottom of this file's diff. */
 	onReachedEnd?: () => void;
+	/**
+	 * Called when the reviewer deep-scrolls past the top of this file — deliberately
+	 * gesture-only. Every file opens scrolled to the top, so dwelling there is not a
+	 * request to go anywhere.
+	 */
+	onReachedStart?: () => void;
 }): ReactElement {
 	const [composer, setComposer] = useState<ComposerAnchor | null>(null);
 	const [composerText, setComposerText] = useState("");
@@ -527,16 +539,88 @@ export function ReviewDiffPane({
 		}, END_DWELL_MS);
 	}, [clearAdvanceTimer, onReachedEnd]);
 
+	/**
+	 * A file with no scroll room at all — a short diff, a binary file, a collapsed large
+	 * diff — never reaches the branch above, because a non-overflowing container emits no
+	 * `scroll` event. Wheel events still arrive, so a deliberate push past either edge is
+	 * the one signal those files can offer. Read from refs and attached once per file so
+	 * the parent's fresh callback identities do not re-arm the listener every render.
+	 */
+	const deepScrollRef = useRef(createDeepScrollState());
+	const onReachedEndRef = useRef(onReachedEnd);
+	onReachedEndRef.current = onReachedEnd;
+	const onReachedStartRef = useRef(onReachedStart);
+	onReachedStartRef.current = onReachedStart;
+
+	useEffect(() => {
+		const element = scrollRef.current;
+		if (!element) {
+			return;
+		}
+		const handleWheel = (event: WheelEvent) => {
+			// Same rule as the dwell path: a note in progress must not be teleported away.
+			if (suppressAdvanceRef.current) {
+				deepScrollRef.current = createDeepScrollState();
+				return;
+			}
+			const atTop = element.scrollTop <= END_THRESHOLD_PX;
+			const atBottom =
+				element.scrollTop + element.clientHeight >= element.scrollHeight - END_THRESHOLD_PX;
+			const { state, triggered } = accumulateDeepScroll(deepScrollRef.current, {
+				deltaPx: normalizeWheelDeltaPx({
+					deltaY: event.deltaY,
+					deltaMode: event.deltaMode,
+					viewportPx: element.clientHeight,
+				}),
+				atTop,
+				atBottom,
+				nowMs: performance.now(),
+			});
+			deepScrollRef.current = state;
+			if (triggered === null) {
+				return;
+			}
+			if (triggered === "previous") {
+				onReachedStartRef.current?.();
+				return;
+			}
+			// Shares the dwell latch so a deep scroll and a dwell at the same bottom
+			// cannot both fire and skip a file.
+			if (hasAdvancedRef.current) {
+				return;
+			}
+			hasAdvancedRef.current = true;
+			clearAdvanceTimer();
+			onReachedEndRef.current?.();
+		};
+		element.addEventListener("wheel", handleWheel, { passive: true });
+		return () => element.removeEventListener("wheel", handleWheel);
+	}, [clearAdvanceTimer, path]);
+
 	// Held in a ref because the parent passes fresh callback identities every render,
 	// so depending on `closeComposer` directly would close the composer as fast as it
 	// opens.
 	const closeComposerRef = useRef(closeComposer);
 	closeComposerRef.current = closeComposer;
 
+	// A suppressed dwell returns without latching and without re-arming, and a reviewer
+	// parked at the bottom produces no further `scroll` event — so closing the composer
+	// has to re-check the position, or the advance is lost until they scroll up and back.
+	const handleScrollRef = useRef(handleScroll);
+	handleScrollRef.current = handleScroll;
+	const isSuppressed = composer !== null || drag !== null;
+	useEffect(() => {
+		if (isSuppressed) {
+			return;
+		}
+		handleScrollRef.current();
+	}, [isSuppressed]);
+
 	// A new file starts at the top, un-advanced, with nothing carried over from the
 	// last one — a composer anchored to a row key of the previous file cannot resolve.
 	useEffect(() => {
 		hasAdvancedRef.current = false;
+		deepScrollRef.current = createDeepScrollState();
 		clearAdvanceTimer();
 		setDrag(null);
 		closeComposerRef.current();
@@ -816,7 +900,9 @@ export function ReviewDiffPane({
 				onScroll={handleScroll}
 				data-testid="review-diff-scroll"
 				className={cn(
-					"min-h-0 flex-1 overflow-auto",
+					// `overscroll-contain`: a wheel past either edge is a navigation gesture here,
+					// so it must not chain into the surrounding layout as well.
+					"min-h-0 flex-1 overflow-auto overscroll-contain",
 					// Only once the drag spans rows: a press inside one row is still a text
 					// selection, and locking `user-select` would break copying that line.
 					drag && drag.headKey !== drag.anchorKey && "kb-diff-body-dragging",

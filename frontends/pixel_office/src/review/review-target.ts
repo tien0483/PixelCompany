@@ -142,31 +142,38 @@ export function countReviewProgress(input: {
 	};
 }
 
+/** Which way the reviewer is moving through the file list. */
+export type ReviewNavDirection = "next" | "previous";
+
 /**
- * The file to open after the reviewer finishes reading the current one.
+ * The file to open when the reviewer leaves the current one, in either direction.
  *
- * Walks forward from the active file and wraps once, so a reviewer who jumped
- * back to file 2 still reaches the unreviewed file 9 instead of dead-ending. The
- * active path is never returned — reaching the bottom of a file must not
- * "advance" onto itself — and neither is any file already marked reviewed.
- * Returns null when there is nowhere left to go, which the caller reads as
- * "stay put".
+ * Walks from the active file and wraps once, so a reviewer who jumped back to
+ * file 2 still reaches the unreviewed file 9 instead of dead-ending. The active
+ * path is never returned — leaving a file must not land on itself — and neither
+ * is any file already marked reviewed. Returns null when there is nowhere left
+ * to go, which the caller reads as "stay put".
  */
-export function selectNextUnreviewedPath(input: {
+export function selectAdjacentUnreviewedPath(input: {
 	files: RuntimeGitlabDiffFile[];
 	reviewedPaths: string[];
 	activePath: string | null;
+	direction: ReviewNavDirection;
 }): string | null {
-	if (input.files.length === 0) {
+	const total = input.files.length;
+	if (total === 0) {
 		return null;
 	}
 	const reviewed = new Set(input.reviewedPaths);
+	const step = input.direction === "next" ? 1 : -1;
 	const activeIndex = input.files.findIndex((file) => file.newPath === input.activePath);
-	// An unknown active path (a file dropped by a refresh) starts the walk at the top.
-	const start = activeIndex < 0 ? -1 : activeIndex;
+	// An unknown active path (a file dropped by a refresh) starts the walk at the
+	// nearer end of the list: the top going forwards, the bottom going backwards.
+	const start = activeIndex >= 0 ? activeIndex : input.direction === "next" ? -1 : total;
 
-	for (let offset = 1; offset <= input.files.length; offset += 1) {
-		const candidate = input.files[(start + offset + input.files.length) % input.files.length];
+	for (let offset = 1; offset <= total; offset += 1) {
+		// Double modulo: a backwards walk goes negative, and `%` keeps the sign in JS.
+		const candidate = input.files[(((start + step * offset) % total) + total) % total];
 		if (!candidate || candidate.newPath === input.activePath) {
 			continue;
 		}
@@ -175,6 +182,22 @@ export function selectNextUnreviewedPath(input: {
 		}
 	}
 	return null;
+}
+
+export function selectNextUnreviewedPath(input: {
+	files: RuntimeGitlabDiffFile[];
+	reviewedPaths: string[];
+	activePath: string | null;
+}): string | null {
+	return selectAdjacentUnreviewedPath({ ...input, direction: "next" });
+}
+
+export function selectPreviousUnreviewedPath(input: {
+	files: RuntimeGitlabDiffFile[];
+	reviewedPaths: string[];
+	activePath: string | null;
+}): string | null {
+	return selectAdjacentUnreviewedPath({ ...input, direction: "previous" });
 }
 
 export function sumDiffStats(files: RuntimeGitlabDiffFile[]): { additions: number; deletions: number } {
