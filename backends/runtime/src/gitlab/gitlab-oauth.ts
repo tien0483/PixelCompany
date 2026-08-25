@@ -215,11 +215,25 @@ interface GitlabIdentity {
 }
 
 async function fetchIdentity(host: string, accessToken: string): Promise<GitlabIdentity> {
-	const parsed = await fetchJson(
-		`${normalizeHost(host)}/api/v4/user`,
-		{ method: "GET", headers: { Authorization: `Bearer ${accessToken}` } },
-		METADATA_TIMEOUT_MS,
-	);
+	let parsed: unknown;
+	try {
+		parsed = await fetchJson(
+			`${normalizeHost(host)}/api/v4/user`,
+			{ method: "GET", headers: { Authorization: `Bearer ${accessToken}` } },
+			METADATA_TIMEOUT_MS,
+		);
+	} catch (error) {
+		// The expected failure on an `mcp`-scoped grant, and the one users actually
+		// hit. A raw `403 {"error":"insufficient_scope",…}` reads as a bug in this
+		// flow; it is really the instance saying this OAuth client can never do REST.
+		const message = error instanceof Error ? error.message : String(error);
+		if (message.includes("insufficient_scope")) {
+			throw new Error(
+				"This GitLab application can only be granted the `mcp` scope, which does not authorize the REST API the Review surface uses. Paste a personal access token with the `api` scope instead.",
+			);
+		}
+		throw error;
+	}
 	if (!isRecord(parsed)) {
 		throw new Error("GitLab /user returned an unexpected response.");
 	}
@@ -346,6 +360,7 @@ export function createGitlabOauthSession(): GitlabOauthSession {
 					const identity = await fetchIdentity(host, token.accessToken);
 					const credential: GitlabCredential = {
 						host,
+						authKind: "oauth",
 						accessToken: token.accessToken,
 						refreshToken: token.refreshToken,
 						expiresAt: token.expiresAt,

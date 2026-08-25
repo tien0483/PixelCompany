@@ -12,6 +12,8 @@ import {
 	runtimeGitlabConnectStartResponseSchema,
 	runtimeGitlabConnectStatusRequestSchema,
 	runtimeGitlabConnectStatusSchema,
+	runtimeGitlabConnectTokenRequestSchema,
+	runtimeGitlabConnectTokenResponseSchema,
 	runtimeGitlabCreateDiffNoteRequestSchema,
 	runtimeGitlabCreateNoteRequestSchema,
 	runtimeGitlabDiffsResponseSchema,
@@ -63,6 +65,12 @@ export const reviewStandaloneRouter = t.router({
 			.output(runtimeGitlabConnectStartResponseSchema)
 			.mutation(async ({ ctx, input }) => {
 				return await ctx.gitlabApi.connect(input);
+			}),
+		connectToken: t.procedure
+			.input(runtimeGitlabConnectTokenRequestSchema)
+			.output(runtimeGitlabConnectTokenResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.gitlabApi.connectToken(input);
 			}),
 		connectStatus: t.procedure
 			.input(runtimeGitlabConnectStatusRequestSchema)

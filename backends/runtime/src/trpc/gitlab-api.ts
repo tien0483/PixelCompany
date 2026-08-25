@@ -3,6 +3,8 @@ import type {
 	RuntimeGitlabConnectStartRequest,
 	RuntimeGitlabConnectStartResponse,
 	RuntimeGitlabConnectStatus,
+	RuntimeGitlabConnectTokenRequest,
+	RuntimeGitlabConnectTokenResponse,
 	RuntimeGitlabCreateDiffNoteRequest,
 	RuntimeGitlabCreateNoteRequest,
 	RuntimeGitlabDiffsResponse,
@@ -22,11 +24,13 @@ import type {
 import { describeGitlabFailure, type GitlabClient } from "../gitlab/gitlab-client";
 import { clearGitlabCredential, type GitlabCredential } from "../gitlab/gitlab-credentials";
 import type { GitlabOauthSession } from "../gitlab/gitlab-oauth";
+import { connectGitlabWithToken } from "../gitlab/gitlab-pat";
 import type { RuntimeTrpcContext } from "./app-router";
 
 const DISCONNECTED: RuntimeGitlabConnection = {
 	connected: false,
 	host: null,
+	authKind: null,
 	username: null,
 	name: null,
 	userId: null,
@@ -43,6 +47,7 @@ export function toConnection(credential: GitlabCredential | null): RuntimeGitlab
 		// token is the worst of the three states to show.
 		connected: credential.reauthRequired !== true,
 		host: credential.host,
+		authKind: credential.authKind,
 		username: credential.username,
 		name: credential.name,
 		userId: credential.userId,
@@ -86,6 +91,23 @@ export function createGitlabApi(deps: CreateGitlabApiDependencies): RuntimeTrpcC
 			}
 		},
 
+		connectToken: async (input: RuntimeGitlabConnectTokenRequest): Promise<RuntimeGitlabConnectTokenResponse> => {
+			try {
+				const result = await connectGitlabWithToken(input);
+				if (!result.ok) {
+					return { ok: false, connection: null, error: result.error };
+				}
+				// The client cached whatever was stored before this paste — usually a dead
+				// OAuth credential, which would keep being sent on every call below.
+				client.invalidateCredential();
+				return { ok: true, connection: toConnection(result.credential) };
+			} catch (error) {
+				const message = fail(error);
+				deps.warn(`GitLab token connect failed: ${message}`);
+				return { ok: false, connection: null, error: message };
+			}
+		},
+
 		connectStatus: async (input: { flowId: string }): Promise<RuntimeGitlabConnectStatus> => {
 			const state = oauth.getState(input.flowId);
 			if (state.state === "connected") {
@@ -104,6 +126,7 @@ export function createGitlabApi(deps: CreateGitlabApiDependencies): RuntimeTrpcC
 		disconnect: async (): Promise<RuntimeGitlabMutationResponse> => {
 			try {
 				await clearGitlabCredential();
+				client.invalidateCredential();
 				return { ok: true };
 			} catch (error) {
 				return { ok: false, error: fail(error) };

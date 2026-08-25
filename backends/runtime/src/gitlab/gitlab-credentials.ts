@@ -14,8 +14,15 @@ import { getRuntimeHomePath } from "../state/workspace-state";
 export const GITLAB_CREDENTIAL_DIR_NAME = "gitlab";
 export const GITLAB_CREDENTIAL_FILE_NAME = "credential.json";
 
+/**
+ * How the stored token was obtained. It changes what a 401 means: an OAuth token
+ * can be refreshed, a personal access token can only be replaced by the user.
+ */
+export type GitlabAuthKind = "oauth" | "pat";
+
 export interface GitlabCredential {
 	host: string;
+	authKind: GitlabAuthKind;
 	accessToken: string;
 	refreshToken: string | null;
 	/** Epoch ms, or null when the token endpoint reported no expiry. */
@@ -58,6 +65,9 @@ export function parseGitlabCredential(raw: unknown): GitlabCredential | null {
 	}
 	return {
 		host,
+		// Files written before the token path existed carry no `authKind`; they can
+		// only have come from the OAuth flow, so that is the safe reading.
+		authKind: raw.authKind === "pat" ? "pat" : "oauth",
 		accessToken,
 		refreshToken: readString(raw, "refreshToken"),
 		expiresAt: readFiniteNumber(raw, "expiresAt"),

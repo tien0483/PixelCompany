@@ -36,6 +36,7 @@ const TOKEN_REFRESH_SKEW_MS = 60_000;
 export type GitlabFailure =
 	| { kind: "disconnected" }
 	| { kind: "reauth"; message: string }
+	| { kind: "scope"; accepted: string[] }
 	| { kind: "unreachable"; host: string; message: string }
 	| { kind: "timeout"; host: string; timeoutMs: number }
 	| { kind: "http"; status: number; body: string }
@@ -49,6 +50,10 @@ export function describeGitlabFailure(failure: GitlabFailure): string {
 			return "No GitLab account is connected.";
 		case "reauth":
 			return failure.message;
+		case "scope":
+			return `The connected GitLab token lacks the scope this needs${
+				failure.accepted.length > 0 ? ` (GitLab accepts: ${failure.accepted.join(", ")})` : ""
+			}. Reconnect with a personal access token carrying the \`api\` scope.`;
 		case "unreachable":
 			return `GitLab at ${failure.host} is unreachable: ${failure.message}`;
 		case "timeout":
@@ -58,6 +63,30 @@ export function describeGitlabFailure(failure: GitlabFailure): string {
 		case "malformed":
 			return `GitLab returned an unexpected response: ${failure.body}`;
 	}
+}
+
+/**
+ * A 403 carrying `insufficient_scope` is not a permission problem with the
+ * project — it is the token being categorically unable to reach the REST API,
+ * and the recovery is a different credential rather than a retry. GitLab names
+ * the scopes it would have accepted in the body, which is the one useful thing
+ * in it, so that is what gets carried forward.
+ */
+export function toHttpFailure(status: number, body: string): GitlabFailure {
+	if (status === 403 && body.includes("insufficient_scope")) {
+		let accepted: string[] = [];
+		try {
+			const parsed: unknown = JSON.parse(body);
+			if (isRecord(parsed) && typeof parsed.scope === "string") {
+				accepted = parsed.scope.split(/\s+/).filter((scope) => scope.length > 0);
+			}
+		} catch {
+			// A non-JSON body still identified itself as insufficient_scope above; the
+			// scope list is a nicety, not the signal.
+		}
+		return { kind: "scope", accepted };
+	}
+	return { kind: "http", status, body: body.slice(0, 500) };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -261,6 +290,13 @@ export function parseVersion(raw: unknown): RuntimeGitlabMergeRequestVersion | n
 
 export interface GitlabClient {
 	getCredential: () => Promise<GitlabCredential | null>;
+	/**
+	 * Drops the in-process credential cache. Anything that writes or deletes the
+	 * credential file behind this client's back has to call it, or the client keeps
+	 * serving the credential it read first — a disconnect that still reports
+	 * "connected", or a freshly pasted token that never gets used.
+	 */
+	invalidateCredential: () => void;
 	listProjects: (input: {
 		search?: string;
 		membership?: boolean;
@@ -343,7 +379,13 @@ export function createGitlabClient(deps?: CreateGitlabClientDependencies): Gitla
 		if (!cached) {
 			return null;
 		}
-		if (cached.expiresAt !== null && cached.expiresAt - Date.now() < TOKEN_REFRESH_SKEW_MS) {
+		// A personal access token has no refresh grant; its expiry is the user's to
+		// renew in GitLab, so probing for one here is a guaranteed wasted round-trip.
+		if (
+			cached.authKind === "oauth" &&
+			cached.expiresAt !== null &&
+			cached.expiresAt - Date.now() < TOKEN_REFRESH_SKEW_MS
+		) {
 			const refreshed = await refreshCredential(cached);
 			if (refreshed) {
 				cached = refreshed;
@@ -405,13 +447,21 @@ export function createGitlabClient(deps?: CreateGitlabClientDependencies): Gitla
 		}
 		let outcome = await rawRequest(credential, method, path, body);
 		if (outcome.ok && outcome.response.status === 401) {
-			const refreshed = await refreshCredential(credential);
+			// Only an OAuth credential has anything to refresh with; a rejected PAT is
+			// final on the first 401, and the recovery names pasting a new one.
+			const refreshed = credential.authKind === "oauth" ? await refreshCredential(credential) : null;
 			if (!refreshed) {
 				cached = { ...credential, reauthRequired: true };
 				await markReauth();
 				return {
 					ok: false,
-					failure: { kind: "reauth", message: "GitLab rejected the stored token. Connect GitLab again." },
+					failure: {
+						kind: "reauth",
+						message:
+							credential.authKind === "pat"
+								? "GitLab rejected the stored personal access token. It was probably revoked or has expired — paste a new one."
+								: "GitLab rejected the stored token. Connect GitLab again.",
+					},
 				};
 			}
 			cached = refreshed;
@@ -435,7 +485,7 @@ export function createGitlabClient(deps?: CreateGitlabClientDependencies): Gitla
 		}
 		const { status, body: text } = outcome.response;
 		if (status < 200 || status >= 300) {
-			return { ok: false, failure: { kind: "http", status, body: text.slice(0, 500) } };
+			return { ok: false, failure: toHttpFailure(status, text) };
 		}
 		if (text.length === 0) {
 			return { ok: true, value: null };
@@ -476,13 +526,17 @@ export function createGitlabClient(deps?: CreateGitlabClientDependencies): Gitla
 		}
 		const { status, body: text } = outcome.response;
 		if (status < 200 || status >= 300) {
-			return { ok: false, failure: { kind: "http", status, body: text.slice(0, 500) } };
+			return { ok: false, failure: toHttpFailure(status, text) };
 		}
 		return { ok: true, value: true };
 	};
 
 	return {
 		getCredential: resolveCredential,
+
+		invalidateCredential: () => {
+			cached = null;
+		},
 
 		listProjects: async ({ search, membership = true, limit = DEFAULT_PAGE_SIZE }) => {
 			const params = new URLSearchParams({
@@ -571,7 +625,7 @@ export function createGitlabClient(deps?: CreateGitlabClientDependencies): Gitla
 				}
 				const { status, body, headers } = outcome.response;
 				if (status < 200 || status >= 300) {
-					return { ok: false, failure: { kind: "http", status, body: body.slice(0, 500) } };
+					return { ok: false, failure: toHttpFailure(status, body) };
 				}
 				let parsed: unknown;
 				try {
@@ -620,7 +674,7 @@ export function createGitlabClient(deps?: CreateGitlabClientDependencies): Gitla
 			}
 			const { status, body } = outcome.response;
 			if (status < 200 || status >= 300) {
-				return { ok: false, failure: { kind: "http", status, body: body.slice(0, 500) } };
+				return { ok: false, failure: toHttpFailure(status, body) };
 			}
 			return { ok: true, value: body };
 		},

@@ -11,6 +11,7 @@ import type { GitlabCredential } from "../../../src/gitlab/gitlab-credentials";
 
 const CREDENTIAL: GitlabCredential = {
 	host: "https://code.example.com/repo",
+	authKind: "oauth",
 	accessToken: "token-1",
 	refreshToken: "refresh-1",
 	expiresAt: null,
@@ -121,6 +122,74 @@ describe("createGitlabClient", () => {
 		expect(markReauthRequired).toHaveBeenCalledOnce();
 		// No retry without a fresh token — a second identical 401 teaches nothing.
 		expect(calls).toHaveLength(1);
+	});
+
+	it("never tries to refresh a personal access token, and says so on a 401", async () => {
+		const refreshCredential = vi.fn(async () => null);
+		const markReauthRequired = vi.fn(async () => {});
+		const { client, calls } = createHarness([() => jsonResponse({ message: "401 Unauthorized" }, { status: 401 })], {
+			loadCredential: async () => ({ ...CREDENTIAL, authKind: "pat", refreshToken: null }),
+			refreshCredential,
+			markReauthRequired,
+		});
+
+		const result = await client.listProjects({});
+		expect(result.ok).toBe(false);
+		if (result.ok) {
+			return;
+		}
+		expect(result.failure.kind).toBe("reauth");
+		expect(refreshCredential).not.toHaveBeenCalled();
+		expect(markReauthRequired).toHaveBeenCalledOnce();
+		expect(calls).toHaveLength(1);
+	});
+
+	it("reports an insufficient_scope 403 as a scope failure carrying the accepted scopes", async () => {
+		const { client } = createHarness([
+			() =>
+				jsonResponse(
+					{
+						error: "insufficient_scope",
+						error_description: "The request requires higher privileges than provided by the access token.",
+						scope: "read_user ai_workflows api read_api",
+					},
+					{ status: 403 },
+				),
+		]);
+
+		const result = await client.listProjects({});
+		expect(result.ok).toBe(false);
+		if (result.ok) {
+			return;
+		}
+		expect(result.failure).toEqual({
+			kind: "scope",
+			accepted: ["read_user", "ai_workflows", "api", "read_api"],
+		});
+		expect(describeGitlabFailure(result.failure)).toContain("api");
+	});
+
+	it("leaves an ordinary 403 as an http failure", async () => {
+		const { client } = createHarness([() => jsonResponse({ message: "403 Forbidden" }, { status: 403 })]);
+		const result = await client.listProjects({});
+		expect(result.ok).toBe(false);
+		if (result.ok) {
+			return;
+		}
+		expect(result.failure.kind).toBe("http");
+	});
+
+	it("re-reads the credential file after it is invalidated", async () => {
+		const loadCredential = vi.fn(async () => CREDENTIAL);
+		const { client } = createHarness([() => jsonResponse([])], { loadCredential });
+
+		await client.listProjects({});
+		await client.listProjects({});
+		expect(loadCredential).toHaveBeenCalledOnce();
+
+		client.invalidateCredential();
+		await client.listProjects({});
+		expect(loadCredential).toHaveBeenCalledTimes(2);
 	});
 
 	it("reports disconnected rather than calling out when no credential exists", async () => {
