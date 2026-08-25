@@ -33,6 +33,13 @@ import {
 import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
 import {
+	accumulateDeepScroll,
+	createDeepScrollState,
+	createLockedDeepScrollState,
+	DEEP_SCROLL_EDGE_EPSILON_PX,
+	normalizeWheelDeltaPx,
+} from "@/review/review-deep-scroll";
+import {
 	buildLineAnnotations,
 	type ReviewDiffMode,
 	type ReviewLineSelection,
@@ -180,10 +187,13 @@ export function ReviewDiffPane({
 	/** Must be referentially stable — it re-arms the visibility observer. */
 	onVisibleRangeChange?: (range: ReviewVisibleRange | null) => void;
 	/**
-	 * Moves to the adjacent file that still needs reading. Explicit only: reaching either
-	 * edge of the diff used to navigate on its own, which made ordinary wheeling on a
-	 * short file — a container that is at the top and the bottom at once — teleport the
-	 * reviewer away mid-read. Scrolling now only ever scrolls.
+	 * Moves to the adjacent file that still needs reading. Called by the header buttons, by
+	 * the workspace's `]` / `[` keys, and by a wheel gesture that *begins* at an edge of the
+	 * diff and pushes past it. Only the gesture's first event decides: wheeling from the
+	 * middle of a long diff down to its bottom never navigates, however far the momentum
+	 * carries, and one that does navigate is locked until the wheel goes quiet — so a flick
+	 * moves exactly one file. A short diff sits at its top and its bottom at once, which is
+	 * how it gets both directions rather than teleporting the reviewer away mid-read.
 	 */
 	onNavigate?: (direction: ReviewNavDirection) => void;
 	/** Whether a target exists each way, so the buttons disable instead of no-op. */
@@ -510,6 +520,59 @@ export function ReviewDiffPane({
 		if (scrollRef.current) {
 			scrollRef.current.scrollTop = 0;
 		}
+	}, [path]);
+
+	/**
+	 * Wheel navigation. Deliberately *not* reset when `path` changes: the lock a fired
+	 * gesture leaves behind is what absorbs the momentum still arriving after the jump, and
+	 * the new file is at its top — on a short one, at both edges — so a reset ref would let
+	 * that momentum walk straight on to a third file.
+	 *
+	 * Everything the handler needs comes from refs, so the parent's fresh callback
+	 * identities do not re-arm the listener on every render.
+	 */
+	const deepScrollRef = useRef(createDeepScrollState());
+	const onNavigateRef = useRef(onNavigate);
+	onNavigateRef.current = onNavigate;
+	// A note in progress must never have the file moved out from under it.
+	const isNavSuppressedRef = useRef(false);
+	isNavSuppressedRef.current = composer !== null || drag !== null;
+
+	useEffect(() => {
+		const element = scrollRef.current;
+		if (!element) {
+			return;
+		}
+		const handleWheel = (event: WheelEvent) => {
+			const nowMs = Date.now();
+			if (isNavSuppressedRef.current) {
+				// Locked rather than fresh: closing the composer mid-flick must not hand the
+				// rest of that same gesture a navigation.
+				deepScrollRef.current = createLockedDeepScrollState(nowMs);
+				return;
+			}
+			const maxScrollTop = element.scrollHeight - element.clientHeight;
+			const { state, triggered } = accumulateDeepScroll(deepScrollRef.current, {
+				deltaPx: normalizeWheelDeltaPx({
+					deltaY: event.deltaY,
+					deltaMode: event.deltaMode,
+					viewportPx: element.clientHeight,
+				}),
+				atTop: element.scrollTop <= DEEP_SCROLL_EDGE_EPSILON_PX,
+				atBottom: maxScrollTop - element.scrollTop <= DEEP_SCROLL_EDGE_EPSILON_PX,
+				nowMs,
+			});
+			deepScrollRef.current = state;
+			if (triggered) {
+				onNavigateRef.current?.(triggered);
+			}
+		};
+		// Passive: at an edge the browser has nothing left to scroll, and `overscroll-contain`
+		// on the container already stops the wheel chaining into the board behind it.
+		element.addEventListener("wheel", handleWheel, { passive: true });
+		return () => element.removeEventListener("wheel", handleWheel);
+		// Keyed on `path` only because the scroller does not exist until a file does; the
+		// state ref survives the re-attach, which is the whole point of it living outside.
 	}, [path]);
 
 	const renderSide = useCallback(

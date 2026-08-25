@@ -6,6 +6,7 @@ import {
 	type ReviewCommentDraftInput,
 	ReviewDiffPane,
 } from "@/components/review/review-diff-pane";
+import { DEEP_SCROLL_IDLE_RESET_MS } from "@/review/review-deep-scroll";
 import type { ReviewNavDirection } from "@/review/review-target";
 import { LocalStorageKey } from "@/storage/local-storage-store";
 import type { RuntimeGitlabDiffFile } from "@/runtime/types";
@@ -137,7 +138,7 @@ describe("ReviewDiffPane", () => {
 		});
 	}
 
-	/** A hard flick at an edge — what used to be read as "take me to another file". */
+	/** A hard flick: ticks close enough together to be one gesture, and well past the threshold. */
 	function wheelBurst(element: HTMLElement, deltaY: number, ticks = 8): void {
 		act(() => {
 			for (let index = 0; index < ticks; index += 1) {
@@ -260,37 +261,74 @@ describe("ReviewDiffPane", () => {
 		expect(container.textContent).toContain("-2");
 	});
 
-	it("never navigates from a file with no scroll room, however hard it is wheeled", async () => {
+	it("never navigates from a gesture that started mid-file, however far its momentum runs", async () => {
 		vi.useFakeTimers();
 		const onNavigate = vi.fn();
 		await renderPane({ onNavigate });
 
-		// Both edges at once: the shape that used to jump away on the first flick.
+		// The inertia cascade: one flick from the middle of a long diff that reaches the
+		// bottom and keeps delivering deltas. The gesture was disqualified at its first tick.
 		const scroller = scrollContainer();
-		setScrollMetrics(scroller, { scrollHeight: 300, clientHeight: 300, scrollTop: 0 });
+		setScrollMetrics(scroller, { scrollHeight: 900, clientHeight: 300, scrollTop: 400 });
+		wheelBurst(scroller, 120, 1);
+		scroller.scrollTop = 600;
+		wheelBurst(scroller, 120, 20);
 
-		wheelBurst(scroller, 120);
-		wheelBurst(scroller, -120);
+		expect(onNavigate).not.toHaveBeenCalled();
+	});
+
+	it("never navigates from being parked at the bottom of a long diff", async () => {
+		vi.useFakeTimers();
+		const onNavigate = vi.fn();
+		await renderPane({ onNavigate });
+
+		// No wheel at all: position plus time used to be enough, via a dwell timer.
+		const scroller = scrollContainer();
+		setScrollMetrics(scroller, { scrollHeight: 900, clientHeight: 300, scrollTop: 600 });
 		act(() => {
 			scroller.dispatchEvent(new Event("scroll", { bubbles: true }));
-			vi.advanceTimersByTime(2_000);
+			vi.advanceTimersByTime(5_000);
 		});
 
 		expect(onNavigate).not.toHaveBeenCalled();
 	});
 
-	it("never navigates from the bottom of a long diff, however long it is parked there", async () => {
+	it("navigates once, not once per tick, from a fresh gesture at the bottom", async () => {
 		vi.useFakeTimers();
 		const onNavigate = vi.fn();
 		await renderPane({ onNavigate });
 
 		const scroller = scrollContainer();
 		setScrollMetrics(scroller, { scrollHeight: 900, clientHeight: 300, scrollTop: 600 });
+		wheelBurst(scroller, 120);
 
+		expect(onNavigate.mock.calls).toEqual([["next"]]);
+	});
+
+	it("navigates both ways on a file with no scroll room", async () => {
+		vi.useFakeTimers();
+		const onNavigate = vi.fn();
+		await renderPane({ onNavigate });
+
+		// Both edges at once — the only navigation signal a non-overflowing diff can give.
+		const scroller = scrollContainer();
+		setScrollMetrics(scroller, { scrollHeight: 300, clientHeight: 300, scrollTop: 0 });
+		wheelBurst(scroller, 120);
 		act(() => {
-			scroller.dispatchEvent(new Event("scroll", { bubbles: true }));
-			vi.advanceTimersByTime(5_000);
+			vi.advanceTimersByTime(DEEP_SCROLL_IDLE_RESET_MS + 50);
 		});
+		wheelBurst(scroller, -120);
+
+		expect(onNavigate.mock.calls).toEqual([["next"], ["previous"]]);
+	});
+
+	it("does not navigate while a comment composer is open", async () => {
+		const onNavigate = vi.fn();
+		await renderPane({ onNavigate });
+
+		await drag(row("o-2", "left"), []);
+		const scroller = scrollContainer();
+		setScrollMetrics(scroller, { scrollHeight: 900, clientHeight: 300, scrollTop: 600 });
 		wheelBurst(scroller, 120);
 
 		expect(onNavigate).not.toHaveBeenCalled();
