@@ -84,6 +84,21 @@ describe("createGitlabClient", () => {
 		expect(calls[0]?.url).toContain("scope=created_by_me");
 	});
 
+	it("widens the scope to `all` when filtering by reviewer, so the two filters do not cancel out", async () => {
+		const { client, calls } = createHarness([() => jsonResponse([])]);
+		await client.listMergeRequests({ reviewerId: 7 });
+		expect(calls[0]?.url).toContain("reviewer_id=7");
+		expect(calls[0]?.url).toContain("scope=all");
+		expect(calls[0]?.url).not.toContain("scope=created_by_me");
+	});
+
+	it("keeps an explicit scope alongside a reviewer filter", async () => {
+		const { client, calls } = createHarness([() => jsonResponse([])]);
+		await client.listMergeRequests({ reviewerId: 7, scope: "assigned_to_me" });
+		expect(calls[0]?.url).toContain("reviewer_id=7");
+		expect(calls[0]?.url).toContain("scope=assigned_to_me");
+	});
+
 	it("scopes to a project endpoint when a project id is given", async () => {
 		const { client, calls } = createHarness([() => jsonResponse([])]);
 		await client.listMergeRequests({ projectId: 102, state: "all" });
@@ -274,6 +289,20 @@ describe("gitlab parsers", () => {
 			work_in_progress: true,
 		});
 		expect(summary?.draft).toBe(true);
+	});
+
+	it("reads requested reviewers, and reports none when the instance omits the field", () => {
+		const withReviewers = parseMergeRequestSummary({
+			project_id: 1,
+			iid: 2,
+			source_branch: "s",
+			target_branch: "t",
+			reviewers: [{ username: "dev_alex" }, { id: 9 }, { username: "" }, { username: "dev_bo" }],
+		});
+		expect(withReviewers?.reviewers).toEqual(["dev_alex", "dev_bo"]);
+
+		const without = parseMergeRequestSummary({ project_id: 1, iid: 3, source_branch: "s", target_branch: "t" });
+		expect(without?.reviewers).toEqual([]);
 	});
 
 	it("counts patch lines into the file summary", () => {

@@ -5,6 +5,13 @@ import { GitlabConnectForm } from "@/components/review/gitlab-connect-form";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
 import { Spinner } from "@/components/ui/spinner";
+import {
+	buildReviewInboxQuery,
+	describeReviewers,
+	REVIEW_INBOX_TABS,
+	type ReviewInboxTab,
+	splitByReviewerRequested,
+} from "@/review/review-inbox";
 import type { ReviewTarget } from "@/review/review-target";
 import { useGitlabConnect } from "@/review/use-gitlab-connect";
 import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
@@ -42,10 +49,13 @@ export function ReviewMergeRequestListScreen({
 	const [projects, setProjects] = useState<RuntimeGitlabProject[]>([]);
 	const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
 	const [mergeRequests, setMergeRequests] = useState<RuntimeGitlabMergeRequestSummary[]>([]);
-	const [scope, setScope] = useState<ScopeFilter>("created_by_me");
+	const [tab, setTab] = useState<ReviewInboxTab>("requested");
+	const [scope, setScope] = useState<ScopeFilter>("all");
 	const [stateFilter, setStateFilter] = useState<StateFilter>("opened");
 	const [search, setSearch] = useState("");
 	const [isLoading, setIsLoading] = useState(false);
+
+	const userId = connection?.userId ?? null;
 
 	const loadProjects = useCallback(async () => {
 		if (!isConnected) {
@@ -68,20 +78,30 @@ export function ReviewMergeRequestListScreen({
 		void loadProjects();
 	}, [loadProjects]);
 
+	const query = useMemo(
+		() =>
+			buildReviewInboxQuery({
+				tab,
+				userId,
+				projectId: selectedProjectId,
+				state: stateFilter,
+				scope,
+				limit: 50,
+			}),
+		[scope, selectedProjectId, stateFilter, tab, userId],
+	);
+
 	const loadMergeRequests = useCallback(async () => {
-		if (!isConnected) {
+		// A null query means the connection has not reported its user id yet, so the
+		// reviewer filter cannot be built; the effect re-runs when it lands.
+		if (!isConnected || query === null) {
 			return;
 		}
 		setIsLoading(true);
 		setError(null);
 		try {
 			const client = getRuntimeTrpcClient(workspaceId);
-			const response = await client.gitlab.listMergeRequests.query({
-				...(selectedProjectId !== null ? { projectId: selectedProjectId } : {}),
-				state: stateFilter,
-				scope,
-				limit: 50,
-			});
+			const response = await client.gitlab.listMergeRequests.query(query);
 			if (!response.ok) {
 				setError(response.error ?? "Could not load merge requests.");
 				setMergeRequests([]);
@@ -93,7 +113,7 @@ export function ReviewMergeRequestListScreen({
 		} finally {
 			setIsLoading(false);
 		}
-	}, [isConnected, scope, selectedProjectId, stateFilter, workspaceId]);
+	}, [isConnected, query, workspaceId]);
 
 	useEffect(() => {
 		void loadMergeRequests();
@@ -112,6 +132,21 @@ export function ReviewMergeRequestListScreen({
 		);
 	}, [mergeRequests, search]);
 
+	const split = useMemo(() => splitByReviewerRequested(visible), [visible]);
+
+	const openTarget = useCallback(
+		(mergeRequest: RuntimeGitlabMergeRequestSummary) => {
+			onOpenMergeRequest({
+				host: connection?.host ?? "",
+				projectId: mergeRequest.projectId,
+				iid: mergeRequest.iid,
+				title: mergeRequest.title,
+				projectKey,
+			});
+		},
+		[connection?.host, onOpenMergeRequest, projectKey],
+	);
+
 	if (!isConnected) {
 		return (
 			<div className="flex min-h-0 flex-1 items-center justify-center bg-surface-0 p-6">
@@ -126,6 +161,26 @@ export function ReviewMergeRequestListScreen({
 
 	return (
 		<div className="flex min-h-0 flex-1 flex-col bg-surface-0" data-testid="review-mr-list">
+			<div className="flex shrink-0 items-center gap-1 border-b border-border bg-surface-1 px-3 pt-2 text-xs">
+				{REVIEW_INBOX_TABS.map((entry) => (
+					<button
+						key={entry.id}
+						type="button"
+						data-testid={`review-mr-tab-${entry.id}`}
+						aria-pressed={tab === entry.id}
+						onClick={() => setTab(entry.id)}
+						className={cn(
+							"cursor-pointer border-b-2 px-2 pb-1.5",
+							tab === entry.id
+								? "border-accent text-text-primary"
+								: "border-transparent text-text-secondary hover:text-text-primary",
+						)}
+					>
+						{entry.label}
+					</button>
+				))}
+			</div>
+
 			<div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border bg-surface-1 px-3 py-2 text-xs">
 				<select
 					value={selectedProjectId ?? ""}
@@ -133,7 +188,7 @@ export function ReviewMergeRequestListScreen({
 					onChange={(event) => setSelectedProjectId(event.target.value === "" ? null : Number(event.target.value))}
 					className="max-w-64 rounded border border-border bg-surface-2 px-2 py-1 text-xs text-text-primary"
 				>
-					<option value="">All my merge requests</option>
+					<option value="">All projects</option>
 					{projects.map((project) => (
 						<option key={project.id} value={project.id}>
 							{project.pathWithNamespace}
@@ -141,16 +196,20 @@ export function ReviewMergeRequestListScreen({
 					))}
 				</select>
 
-				<select
-					value={scope}
-					aria-label="Scope"
-					onChange={(event) => setScope(event.target.value as ScopeFilter)}
-					className="rounded border border-border bg-surface-2 px-2 py-1 text-xs text-text-primary"
-				>
-					<option value="created_by_me">Created by me</option>
-					<option value="assigned_to_me">Assigned to me</option>
-					<option value="all">Everyone</option>
-				</select>
+				{/* The other two tabs pin their own scope — showing a control that cannot
+				    change anything would read as a broken filter. */}
+				{tab === "browse" ? (
+					<select
+						value={scope}
+						aria-label="Scope"
+						onChange={(event) => setScope(event.target.value as ScopeFilter)}
+						className="rounded border border-border bg-surface-2 px-2 py-1 text-xs text-text-primary"
+					>
+						<option value="created_by_me">Created by me</option>
+						<option value="assigned_to_me">Assigned to me</option>
+						<option value="all">Everyone</option>
+					</select>
+				) : null}
 
 				<select
 					value={stateFilter}
@@ -190,68 +249,124 @@ export function ReviewMergeRequestListScreen({
 			<div className="min-h-0 flex-1 overflow-y-auto p-2">
 				{error ? <p className="px-1 py-2 text-xs text-status-red">{error}</p> : null}
 				{!isLoading && visible.length === 0 && !error ? (
-					<p className="px-1 py-3 text-xs text-text-tertiary">No merge requests match those filters.</p>
+					<p className="px-1 py-3 text-xs text-text-tertiary">{emptyMessageForTab(tab)}</p>
 				) : null}
 
-				{visible.map((mergeRequest) => (
-					<div
-						key={`${mergeRequest.projectId}-${mergeRequest.iid}`}
-						role="button"
-						tabIndex={0}
-						className="flex cursor-pointer items-center gap-3 rounded-md px-2 py-2 hover:bg-surface-2"
-						onClick={() =>
-							onOpenMergeRequest({
-								host: connection?.host ?? "",
-								projectId: mergeRequest.projectId,
-								iid: mergeRequest.iid,
-								title: mergeRequest.title,
-								projectKey,
-							})
-						}
-						onKeyDown={(event) => {
-							if (event.key === "Enter") {
-								onOpenMergeRequest({
-									host: connection?.host ?? "",
-									projectId: mergeRequest.projectId,
-									iid: mergeRequest.iid,
-									title: mergeRequest.title,
-									projectKey,
-								});
-							}
-						}}
-					>
-						<span className="shrink-0 rounded bg-surface-3 px-1.5 py-0.5 font-mono text-[11px] text-text-secondary">
-							!{mergeRequest.iid}
-						</span>
-						<div className="min-w-0 flex-1">
-							<div className="truncate text-sm text-text-primary">
-								{mergeRequest.draft ? <span className="text-text-tertiary">Draft: </span> : null}
-								{mergeRequest.title}
-							</div>
-							<div className="truncate text-[10px] text-text-tertiary">
-								{mergeRequest.sourceBranch} → {mergeRequest.targetBranch}
-								{mergeRequest.authorUsername ? ` · @${mergeRequest.authorUsername}` : ""}
-								{mergeRequest.changesCount ? ` · ${mergeRequest.changesCount} files` : ""}
-							</div>
-						</div>
-						{mergeRequest.pipelineStatus ? (
-							<span
-								className={cn(
-									"shrink-0 rounded px-1.5 py-0.5 text-[10px]",
-									PIPELINE_TONE[mergeRequest.pipelineStatus] ?? "bg-surface-4 text-text-secondary",
-								)}
-							>
-								{mergeRequest.pipelineStatus}
-							</span>
-						) : null}
-						{mergeRequest.userNotesCount ? (
-							<span className="shrink-0 text-[10px] text-text-tertiary">
-								{mergeRequest.userNotesCount} notes
-							</span>
-						) : null}
-					</div>
-				))}
+				{tab === "mine" ? (
+					<>
+						<MergeRequestGroup
+							label={`Reviewer requested (${split.awaitingReview.length})`}
+							mergeRequests={split.awaitingReview}
+							onOpen={openTarget}
+						/>
+						{/* Named for what they usually are rather than "no reviewer": these are
+						    the merge requests opened to read a diff or run a pipeline, and the
+						    whole point of the split is that they stop crowding the list above. */}
+						<MergeRequestGroup
+							label={`No reviewer yet · diff or pipeline only (${split.noReviewer.length})`}
+							mergeRequests={split.noReviewer}
+							onOpen={openTarget}
+						/>
+					</>
+				) : (
+					visible.map((mergeRequest) => (
+						<MergeRequestRow
+							key={`${mergeRequest.projectId}-${mergeRequest.iid}`}
+							mergeRequest={mergeRequest}
+							onOpen={openTarget}
+						/>
+					))
+				)}
 			</div>
+		</div>
+	);
+}
+
+function emptyMessageForTab(tab: ReviewInboxTab): string {
+	switch (tab) {
+		case "requested":
+			return "Nobody has requested your review.";
+		case "mine":
+			return "You have no merge requests matching those filters.";
+		case "browse":
+			return "No merge requests match those filters.";
+	}
+}
+
+function MergeRequestGroup({
+	label,
+	mergeRequests,
+	onOpen,
+}: {
+	label: string;
+	mergeRequests: RuntimeGitlabMergeRequestSummary[];
+	onOpen: (mergeRequest: RuntimeGitlabMergeRequestSummary) => void;
+}): ReactElement | null {
+	if (mergeRequests.length === 0) {
+		return null;
+	}
+	return (
+		<div className="mb-2">
+			<div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-text-tertiary">{label}</div>
+			{mergeRequests.map((mergeRequest) => (
+				<MergeRequestRow
+					key={`${mergeRequest.projectId}-${mergeRequest.iid}`}
+					mergeRequest={mergeRequest}
+					onOpen={onOpen}
+				/>
+			))}
+		</div>
+	);
+}
+
+function MergeRequestRow({
+	mergeRequest,
+	onOpen,
+}: {
+	mergeRequest: RuntimeGitlabMergeRequestSummary;
+	onOpen: (mergeRequest: RuntimeGitlabMergeRequestSummary) => void;
+}): ReactElement {
+	const reviewers = describeReviewers(mergeRequest);
+	return (
+		<div
+			role="button"
+			tabIndex={0}
+			className="flex cursor-pointer items-center gap-3 rounded-md px-2 py-2 hover:bg-surface-2"
+			onClick={() => onOpen(mergeRequest)}
+			onKeyDown={(event) => {
+				if (event.key === "Enter") {
+					onOpen(mergeRequest);
+				}
+			}}
+		>
+			<span className="shrink-0 rounded bg-surface-3 px-1.5 py-0.5 font-mono text-[11px] text-text-secondary">
+				!{mergeRequest.iid}
+			</span>
+			<div className="min-w-0 flex-1">
+				<div className="truncate text-sm text-text-primary">
+					{mergeRequest.draft ? <span className="text-text-tertiary">Draft: </span> : null}
+					{mergeRequest.title}
+				</div>
+				<div className="truncate text-[10px] text-text-tertiary">
+					{mergeRequest.sourceBranch} → {mergeRequest.targetBranch}
+					{mergeRequest.authorUsername ? ` · @${mergeRequest.authorUsername}` : ""}
+					{mergeRequest.changesCount ? ` · ${mergeRequest.changesCount} files` : ""}
+					{reviewers ? ` · review: ${reviewers}` : ""}
+				</div>
+			</div>
+			{mergeRequest.pipelineStatus ? (
+				<span
+					className={cn(
+						"shrink-0 rounded px-1.5 py-0.5 text-[10px]",
+						PIPELINE_TONE[mergeRequest.pipelineStatus] ?? "bg-surface-4 text-text-secondary",
+					)}
+				>
+					{mergeRequest.pipelineStatus}
+				</span>
+			) : null}
+			{mergeRequest.userNotesCount ? (
+				<span className="shrink-0 text-[10px] text-text-tertiary">{mergeRequest.userNotesCount} notes</span>
+			) : null}
 		</div>
 	);
 }
