@@ -16,6 +16,19 @@ describe("detectAgentAuthFailure", () => {
 		expect(message).toMatch(/Claude Code needs login/i);
 	});
 
+	it("detects the expired-credential banner", () => {
+		const message = detectAgentAuthFailure("claude", "hello\n\n Login expired · Please run /login\n\n Worked for 0s");
+		expect(message).toMatch(/Claude Code needs login/i);
+	});
+
+	it("detects the status-line form, which has no 'please' and no trailing 'to'", () => {
+		const message = detectAgentAuthFailure(
+			"claude",
+			"plan mode on (shift+tab to cycle)   Not logged in · Run /login",
+		);
+		expect(message).toMatch(/Claude Code needs login/i);
+	});
+
 	it("returns null for unrelated agent output", () => {
 		expect(detectAgentAuthFailure("claude", "Reading files...\nDone.")).toBeNull();
 		expect(detectAgentAuthFailure("cursor", "Planning next steps")).toBeNull();

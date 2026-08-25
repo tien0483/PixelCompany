@@ -37,7 +37,13 @@ import { terminateProcessForTimeout } from "./server/process-termination";
 import type { RuntimeStateHub } from "./server/runtime-state-hub";
 import { captureNodeException, flushNodeTelemetry } from "./telemetry/sentry-node.js";
 import { buildAuthFailoverRequest, createAuthFailoverGuard, pickAuthFailoverAccountId } from "./terminal/auth-failover";
-import type { AgentAuthFailureReporter, TerminalSessionManager } from "./terminal/session-manager";
+import { createLoginExpiredTracker } from "./terminal/login-expired-tracker";
+import { createLoginRecoveryDaemon } from "./terminal/login-recovery-daemon";
+import type {
+	AgentAuthFailureReport,
+	AgentAuthFailureReporter,
+	TerminalSessionManager,
+} from "./terminal/session-manager";
 import { resolveHostPath } from "./terminal/task-launch-settings";
 import { runOnDemandUpdate } from "./update/update";
 
@@ -463,9 +469,14 @@ async function startServer(): Promise<{
 	// and the holder is filled in once ManagerClient is available below.
 	let authFailureReporter: AgentAuthFailureReporter | null = null;
 	const attachAuthFailureReporter = (manager: TerminalSessionManager) => {
-		manager.setAgentAuthFailureReporter((report, reportingManager) => authFailureReporter?.(report, reportingManager));
+		manager.setAgentAuthFailureReporter((report, reportingManager) =>
+			authFailureReporter?.(report, reportingManager),
+		);
 	};
 	const authFailoverGuard = createAuthFailoverGuard();
+	// Per-card history of the "Login expired · Please run /login" screen, and the policy that
+	// decides between a same-seat restart and cross-seat failover for each pop.
+	const loginExpiredTracker = createLoginExpiredTracker();
 
 	let runtimeStateHub: RuntimeStateHub | undefined;
 	const workspaceRegistry = await createWorkspaceRegistry({
@@ -508,16 +519,30 @@ async function startServer(): Promise<{
 			runtimeStateHub?.broadcastManagerStateUpdated(state);
 		},
 	});
-	authFailureReporter = async (report, manager) => {
-		if (report.agentId !== "claude") {
-			return;
-		}
-		const brokenAccountId = report.managerAccountId ?? ManagerMonitor.getState()?.activeAccountId ?? null;
-		if (brokenAccountId !== null) {
-			await ManagerClient.validateAccount(brokenAccountId);
-		}
-		// Auto-failover: restart this task on the least-used healthy seat and resume
-		// the conversation, rather than leaving the card sitting at a login screen.
+	// Same-seat login recovery, tried before cross-seat failover: re-prepare the card's own
+	// seat (which refreshes an expired Claude Code token) and relaunch it with --continue.
+	const loginRecoveryDaemon = createLoginRecoveryDaemon({
+		prepareSeat: async (accountId) => {
+			const launchDir = await ManagerClient.fetchAccountLaunchDir(accountId).catch(() => null);
+			if (!launchDir || launchDir.configDir.trim().length === 0) {
+				return null;
+			}
+			return resolveHostPath(launchDir.configDir);
+		},
+		log: (message) => {
+			console.log(`[kanban] ${message}`);
+		},
+	});
+	loginRecoveryDaemon.start();
+
+	// Cross-seat failover: restart this task on the least-used healthy seat and resume the
+	// conversation, rather than leaving the card sitting at a login screen. Reached either
+	// because same-seat recovery already had its one attempt, or because it couldn't run.
+	const runCrossSeatFailover = async (
+		report: AgentAuthFailureReport,
+		manager: TerminalSessionManager,
+		brokenAccountId: number | null,
+	): Promise<void> => {
 		if (report.retryRequest === null || report.retryRequest.kind !== "task") {
 			return;
 		}
@@ -537,7 +562,11 @@ async function startServer(): Promise<{
 			manager.markAuthFailoverOutcome(report.taskId, "seat_prep_failed");
 			return;
 		}
-		const rebuilt = buildAuthFailoverRequest(report.retryRequest, nextAccountId, resolveHostPath(launchDir.configDir));
+		const rebuilt = buildAuthFailoverRequest(
+			report.retryRequest,
+			nextAccountId,
+			resolveHostPath(launchDir.configDir),
+		);
 		if (rebuilt === null) {
 			manager.markAuthFailoverOutcome(report.taskId, "seat_prep_failed");
 			return;
@@ -549,6 +578,54 @@ async function startServer(): Promise<{
 			console.warn(`[kanban] Auth failover restart failed for task ${report.taskId}: ${String(error)}`);
 			manager.markAuthFailoverOutcome(report.taskId, "restart_failed", String(error).slice(0, 300));
 		}
+	};
+
+	authFailureReporter = async (report, manager) => {
+		if (report.agentId !== "claude") {
+			return;
+		}
+		const brokenAccountId = report.managerAccountId ?? ManagerMonitor.getState()?.activeAccountId ?? null;
+		if (brokenAccountId !== null) {
+			await ManagerClient.validateAccount(brokenAccountId);
+		}
+		const retryRequest = report.retryRequest;
+		const decision = loginExpiredTracker.record(
+			{
+				taskId: report.taskId,
+				accountId: brokenAccountId,
+				canReplayRequest: retryRequest !== null && retryRequest.kind === "task",
+			},
+			Date.now(),
+		);
+		console.log(
+			`[kanban] login-expired task=${report.taskId} account=${brokenAccountId ?? "none"} pop=${
+				decision.record.popCount
+			} -> ${decision.action}${decision.failoverReason ? ` (${decision.failoverReason})` : ""}`,
+		);
+		if (decision.action === "failover" || brokenAccountId === null || retryRequest === null) {
+			loginExpiredTracker.markOutcome(report.taskId, "handed_to_failover");
+			await runCrossSeatFailover(report, manager, brokenAccountId);
+			return;
+		}
+		loginExpiredTracker.markAttempt(report.taskId, Date.now());
+		loginRecoveryDaemon.enqueue({
+			taskId: report.taskId,
+			accountId: brokenAccountId,
+			retryRequest,
+			stopSession: async () => await manager.stopTaskSession(report.taskId),
+			startSession: async (request) => await manager.startTaskSession(request),
+			markOutcome: (outcome, detail) => {
+				manager.markAuthFailoverOutcome(report.taskId, outcome, detail);
+				loginExpiredTracker.markOutcome(
+					report.taskId,
+					outcome === "login_recovery_restarted" ? "restarted" : "failed",
+				);
+			},
+			handoff: async () => {
+				loginExpiredTracker.markOutcome(report.taskId, "handed_to_failover");
+				await runCrossSeatFailover(report, manager, brokenAccountId);
+			},
+		});
 	};
 	// Stating the expected template-skills dir keeps this launch off a sidecar belonging to
 	// another install (e.g. the standalone Plan Editor package), which would otherwise be
@@ -697,6 +774,7 @@ async function startServer(): Promise<{
 	});
 
 	const close = async () => {
+		loginRecoveryDaemon.stop();
 		await runtimeServer.close();
 		// Only stops a Manager we spawned; an externally managed service is left alone.
 		await ManagerProcess.close();
