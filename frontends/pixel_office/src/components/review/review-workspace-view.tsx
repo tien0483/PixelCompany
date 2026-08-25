@@ -1,5 +1,5 @@
 import { ArrowLeft, ExternalLink, Send, Sparkles, X } from "lucide-react";
-import { type ReactElement, useCallback, useEffect, useMemo, useState } from "react";
+import { type ReactElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { showAppToast } from "@/components/app-toaster";
 import { ClaudeUsageChip } from "@/components/claude-usage-chip";
@@ -26,6 +26,7 @@ import {
 	writeStoredReviewAgentModel,
 } from "@/review/review-agent-model";
 import { parseFindingsFromStream } from "@/review/review-findings-parse";
+import { isTypingTarget, resolveNavKey } from "@/review/review-nav-keys";
 import {
 	countReviewProgress,
 	formatSelectionLabel,
@@ -267,9 +268,9 @@ export function ReviewWorkspaceView({
 	);
 
 	/**
-	 * Leaving either end of a file moves to the adjacent one that still needs reading.
-	 * Deliberately does not mark the finished file reviewed — "reviewed" is a claim
-	 * about having checked it, and scrolling is not that claim.
+	 * Moves to the adjacent file that still needs reading. Deliberately does not mark the
+	 * file being left reviewed — "reviewed" is a claim about having checked it, and asking
+	 * for the next file is not that claim.
 	 */
 	const navigateUnreviewed = useCallback(
 		(direction: ReviewNavDirection) => {
@@ -291,8 +292,56 @@ export function ReviewWorkspaceView({
 		[reviewedPaths, session],
 	);
 
-	const advanceToNextFile = useCallback(() => navigateUnreviewed("next"), [navigateUnreviewed]);
-	const returnToPreviousFile = useCallback(() => navigateUnreviewed("previous"), [navigateUnreviewed]);
+	/** Drives the header buttons' disabled state — the same walk the navigation itself does. */
+	const navTargets = useMemo(
+		() => ({
+			previous:
+				selectAdjacentUnreviewedPath({
+					files: session.files,
+					reviewedPaths,
+					activePath: session.activePath,
+					direction: "previous",
+				}) !== null,
+			next:
+				selectAdjacentUnreviewedPath({
+					files: session.files,
+					reviewedPaths,
+					activePath: session.activePath,
+					direction: "next",
+				}) !== null,
+		}),
+		[reviewedPaths, session.activePath, session.files],
+	);
+
+	// Window-level so the shortcut works from whichever of the three columns has focus.
+	// The typing-target guard is what keeps `]` a literal character inside the comment
+	// composer, the chat box and the rules search.
+	const navigateRef = useRef(navigateUnreviewed);
+	navigateRef.current = navigateUnreviewed;
+	// The submit dialog covers the diff, so a keystroke there is not about file order.
+	const isSubmitOpenRef = useRef(isSubmitOpen);
+	isSubmitOpenRef.current = isSubmitOpen;
+	useEffect(() => {
+		const handleKeyDown = (event: KeyboardEvent) => {
+			if (isSubmitOpenRef.current) {
+				return;
+			}
+			const direction = resolveNavKey({
+				key: event.key,
+				ctrlKey: event.ctrlKey,
+				metaKey: event.metaKey,
+				altKey: event.altKey,
+				isTypingTarget: isTypingTarget(event.target),
+			});
+			if (!direction) {
+				return;
+			}
+			event.preventDefault();
+			navigateRef.current(direction);
+		};
+		window.addEventListener("keydown", handleKeyDown);
+		return () => window.removeEventListener("keydown", handleKeyDown);
+	}, []);
 
 	// Stable identity so the diff pane's `closeComposer` memoization holds — it is a
 	// dependency of effects there, and a fresh arrow per render defeats them.
@@ -855,8 +904,8 @@ export function ReviewWorkspaceView({
 						selection={selection}
 						onSelectionChange={setSelection}
 						onVisibleRangeChange={setVisibleRange}
-						onReachedEnd={advanceToNextFile}
-						onReachedStart={returnToPreviousFile}
+						onNavigate={navigateUnreviewed}
+						navTargets={navTargets}
 					/>
 				)}
 

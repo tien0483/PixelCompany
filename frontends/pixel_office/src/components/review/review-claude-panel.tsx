@@ -73,8 +73,11 @@ export function ReviewClaudePanel({
 	onRemoveDraft: (id: string) => void;
 	onJumpToDraft: (draft: RuntimeReviewDraftComment) => void;
 }): ReactElement {
+	// `flex-1` like every sibling panel: without it the panel is content-height, so the
+	// transcript's own `min-h-0 flex-1 overflow-y-auto` has nothing to resolve against and a
+	// long chat is clipped by the column instead of scrolling.
 	return (
-		<div className="flex min-h-0 flex-col bg-surface-1" data-testid="review-claude-panel">
+		<div className="flex min-h-0 flex-1 flex-col bg-surface-1" data-testid="review-claude-panel">
 			<div className="flex h-9 shrink-0 items-center justify-between border-b border-border px-3">
 				<div className="flex items-center gap-2 text-xs font-semibold text-text-primary">
 					<Bot size={13} className="text-accent" />

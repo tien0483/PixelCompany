@@ -6,6 +6,7 @@ import {
 	type ReviewCommentDraftInput,
 	ReviewDiffPane,
 } from "@/components/review/review-diff-pane";
+import type { ReviewNavDirection } from "@/review/review-target";
 import { LocalStorageKey } from "@/storage/local-storage-store";
 import type { RuntimeGitlabDiffFile } from "@/runtime/types";
 
@@ -78,8 +79,8 @@ describe("ReviewDiffPane", () => {
 	async function renderPane(
 		overrides: {
 			onAddDraft?: (draft: ReviewCommentDraftInput) => void;
-			onReachedEnd?: () => void;
-			onReachedStart?: () => void;
+			onNavigate?: (direction: ReviewNavDirection) => void;
+			navTargets?: { previous: boolean; next: boolean };
 		} = {},
 	): Promise<void> {
 		await act(async () => {
@@ -99,8 +100,8 @@ describe("ReviewDiffPane", () => {
 					onComposerOpenChange={() => {}}
 					onClearCitations={() => {}}
 					onRemoveCitation={() => {}}
-					{...(overrides.onReachedEnd ? { onReachedEnd: overrides.onReachedEnd } : {})}
-					{...(overrides.onReachedStart ? { onReachedStart: overrides.onReachedStart } : {})}
+					{...(overrides.onNavigate ? { onNavigate: overrides.onNavigate } : {})}
+					{...(overrides.navTargets ? { navTargets: overrides.navTargets } : {})}
 				/>,
 			);
 		});
@@ -136,13 +137,23 @@ describe("ReviewDiffPane", () => {
 		});
 	}
 
-	/** One deliberate push past an edge: enough ticks to clear `DEEP_SCROLL_DELTA_PX`. */
-	function deepScroll(element: HTMLElement, deltaY: number, ticks = 3): void {
+	/** A hard flick at an edge — what used to be read as "take me to another file". */
+	function wheelBurst(element: HTMLElement, deltaY: number, ticks = 8): void {
 		act(() => {
 			for (let index = 0; index < ticks; index += 1) {
 				element.dispatchEvent(new WheelEvent("wheel", { deltaY, deltaMode: 0, bubbles: true }));
 			}
 		});
+	}
+
+	function navButton(label: "Prev" | "Next"): HTMLButtonElement {
+		const button = Array.from(container.querySelectorAll("button")).find(
+			(candidate) => candidate.textContent === label,
+		);
+		if (!button) {
+			throw new Error(`No ${label} button in the header.`);
+		}
+		return button;
 	}
 
 	/**
@@ -249,125 +260,68 @@ describe("ReviewDiffPane", () => {
 		expect(container.textContent).toContain("-2");
 	});
 
-	it("advances once after dwelling at the bottom of the diff", async () => {
+	it("never navigates from a file with no scroll room, however hard it is wheeled", async () => {
 		vi.useFakeTimers();
-		const onReachedEnd = vi.fn();
-		await renderPane({ onReachedEnd });
+		const onNavigate = vi.fn();
+		await renderPane({ onNavigate });
 
+		// Both edges at once: the shape that used to jump away on the first flick.
 		const scroller = scrollContainer();
-		Object.defineProperty(scroller, "scrollHeight", { configurable: true, value: 900 });
-		Object.defineProperty(scroller, "clientHeight", { configurable: true, value: 300 });
-		Object.defineProperty(scroller, "scrollTop", { configurable: true, writable: true, value: 600 });
+		setScrollMetrics(scroller, { scrollHeight: 300, clientHeight: 300, scrollTop: 0 });
 
+		wheelBurst(scroller, 120);
+		wheelBurst(scroller, -120);
 		act(() => {
 			scroller.dispatchEvent(new Event("scroll", { bubbles: true }));
+			vi.advanceTimersByTime(2_000);
 		});
-		expect(onReachedEnd).not.toHaveBeenCalled();
 
-		act(() => {
-			vi.advanceTimersByTime(400);
-		});
-		expect(onReachedEnd).toHaveBeenCalledTimes(1);
-
-		// Still at the bottom: further scroll events must not advance again.
-		act(() => {
-			scroller.dispatchEvent(new Event("scroll", { bubbles: true }));
-			vi.advanceTimersByTime(400);
-		});
-		expect(onReachedEnd).toHaveBeenCalledTimes(1);
+		expect(onNavigate).not.toHaveBeenCalled();
 	});
 
-	it("does not advance from a file shorter than the viewport on plain scrolling", async () => {
+	it("never navigates from the bottom of a long diff, however long it is parked there", async () => {
 		vi.useFakeTimers();
-		const onReachedEnd = vi.fn();
-		await renderPane({ onReachedEnd });
+		const onNavigate = vi.fn();
+		await renderPane({ onNavigate });
 
 		const scroller = scrollContainer();
-		setScrollMetrics(scroller, { scrollHeight: 300, clientHeight: 300, scrollTop: 0 });
+		setScrollMetrics(scroller, { scrollHeight: 900, clientHeight: 300, scrollTop: 600 });
 
 		act(() => {
 			scroller.dispatchEvent(new Event("scroll", { bubbles: true }));
-			vi.advanceTimersByTime(400);
+			vi.advanceTimersByTime(5_000);
 		});
-		expect(onReachedEnd).not.toHaveBeenCalled();
+		wheelBurst(scroller, 120);
+
+		expect(onNavigate).not.toHaveBeenCalled();
 	});
 
-	it("advances from a file with no scroll room after a deep scroll down", async () => {
-		const onReachedEnd = vi.fn();
-		await renderPane({ onReachedEnd });
-
-		const scroller = scrollContainer();
-		setScrollMetrics(scroller, { scrollHeight: 300, clientHeight: 300, scrollTop: 0 });
-
-		deepScroll(scroller, 120);
-		expect(onReachedEnd).toHaveBeenCalledTimes(1);
-	});
-
-	it("goes back a file on a deep scroll up at the top", async () => {
-		const onReachedEnd = vi.fn();
-		const onReachedStart = vi.fn();
-		await renderPane({ onReachedEnd, onReachedStart });
-
-		const scroller = scrollContainer();
-		setScrollMetrics(scroller, { scrollHeight: 900, clientHeight: 300, scrollTop: 0 });
-
-		deepScroll(scroller, -120);
-		expect(onReachedStart).toHaveBeenCalledTimes(1);
-		expect(onReachedEnd).not.toHaveBeenCalled();
-	});
-
-	it("does not navigate on a single wheel tick at an edge", async () => {
-		const onReachedEnd = vi.fn();
-		const onReachedStart = vi.fn();
-		await renderPane({ onReachedEnd, onReachedStart });
-
-		const scroller = scrollContainer();
-		setScrollMetrics(scroller, { scrollHeight: 300, clientHeight: 300, scrollTop: 0 });
-
-		deepScroll(scroller, 120, 1);
-		deepScroll(scroller, -120, 1);
-		expect(onReachedEnd).not.toHaveBeenCalled();
-		expect(onReachedStart).not.toHaveBeenCalled();
-	});
-
-	it("does not deep-scroll away while a comment is being written", async () => {
-		const onReachedEnd = vi.fn();
-		const onReachedStart = vi.fn();
-		await renderPane({ onReachedEnd, onReachedStart });
+	it("navigates each way from the header buttons", async () => {
+		const onNavigate = vi.fn();
+		await renderPane({ onNavigate });
 
 		await act(async () => {
-			row("n-2", "right").dispatchEvent(mouseEvent("mousedown"));
-			window.dispatchEvent(mouseEvent("mouseup"));
+			navButton("Next").dispatchEvent(mouseEvent("click"));
+		});
+		await act(async () => {
+			navButton("Prev").dispatchEvent(mouseEvent("click"));
 		});
 
-		const scroller = scrollContainer();
-		setScrollMetrics(scroller, { scrollHeight: 300, clientHeight: 300, scrollTop: 0 });
-
-		deepScroll(scroller, 120);
-		deepScroll(scroller, -120);
-		expect(onReachedEnd).not.toHaveBeenCalled();
-		expect(onReachedStart).not.toHaveBeenCalled();
+		expect(onNavigate.mock.calls).toEqual([["next"], ["previous"]]);
 	});
 
-	it("does not advance while a comment is being written", async () => {
-		vi.useFakeTimers();
-		const onReachedEnd = vi.fn();
-		await renderPane({ onReachedEnd });
+	it("disables the button for a direction with nothing left to read", async () => {
+		await renderPane({ onNavigate: () => {}, navTargets: { previous: false, next: true } });
 
-		await act(async () => {
-			row("n-2", "right").dispatchEvent(mouseEvent("mousedown"));
-			window.dispatchEvent(mouseEvent("mouseup"));
-		});
+		expect(navButton("Prev").disabled).toBe(true);
+		expect(navButton("Next").disabled).toBe(false);
+	});
 
-		const scroller = scrollContainer();
-		Object.defineProperty(scroller, "scrollHeight", { configurable: true, value: 900 });
-		Object.defineProperty(scroller, "clientHeight", { configurable: true, value: 300 });
-		Object.defineProperty(scroller, "scrollTop", { configurable: true, writable: true, value: 600 });
+	it("omits the navigation buttons when the host does not handle navigation", async () => {
+		await renderPane();
 
-		act(() => {
-			scroller.dispatchEvent(new Event("scroll", { bubbles: true }));
-			vi.advanceTimersByTime(400);
-		});
-		expect(onReachedEnd).not.toHaveBeenCalled();
+		expect(
+			Array.from(container.querySelectorAll("button")).map((button) => button.textContent),
+		).not.toContain("Next");
 	});
 });
