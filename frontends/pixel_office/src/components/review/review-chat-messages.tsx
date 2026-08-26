@@ -19,6 +19,7 @@ export function ReviewChatMessages({
 	log,
 	notices,
 	canRequestChange,
+	triagedFindingIds,
 	onRequestChange,
 	onAcceptSuggestion,
 	onDismissSuggestion,
@@ -33,6 +34,12 @@ export function ReviewChatMessages({
 	notices: string[];
 	/** False when nothing in the diff is selected, so a comment could not be anchored. */
 	canRequestChange: boolean;
+	/**
+	 * Suggestions the reviewer has already accepted or dismissed. A transcript message
+	 * is immutable, so its suggestions cannot be removed from it — they are filtered
+	 * here instead, which is what makes Accept/Dismiss close the card.
+	 */
+	triagedFindingIds: ReadonlySet<string>;
 	onRequestChange: (text: string) => void;
 	onAcceptSuggestion: (finding: RuntimeReviewFinding) => void;
 	onDismissSuggestion: (id: string) => void;
@@ -72,6 +79,9 @@ export function ReviewChatMessages({
 				{messages.map((message) => {
 					const isUser = message.role === "user";
 					const highlighted = highlight?.messageId === message.id ? highlight.text : null;
+					const pendingSuggestions = message.suggestions.filter(
+						(suggestion) => !triagedFindingIds.has(suggestion.id),
+					);
 					return (
 						<div key={message.id} className={cn("flex flex-col gap-1", isUser ? "items-end" : "items-start")}>
 							{message.contextLabel ? (
@@ -104,13 +114,13 @@ export function ReviewChatMessages({
 								</button>
 							) : null}
 
-							{message.suggestions.length > 0 ? (
+							{pendingSuggestions.length > 0 ? (
 								<div className="w-full space-y-1.5 pt-1">
 									<div className="text-[10px] font-semibold text-text-secondary">
-										{message.suggestions.length} suggestion
-										{message.suggestions.length === 1 ? "" : "s"} to triage
+										{pendingSuggestions.length} suggestion
+										{pendingSuggestions.length === 1 ? "" : "s"} to triage
 									</div>
-									{message.suggestions.map((suggestion) => (
+									{pendingSuggestions.map((suggestion) => (
 										<ReviewFindingRow
 											key={suggestion.id}
 											finding={suggestion}

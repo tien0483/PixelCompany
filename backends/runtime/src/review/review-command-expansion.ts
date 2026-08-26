@@ -121,22 +121,30 @@ const CODE_REVIEW_DIFF: ExpansionSpec = {
 			? `Use the "Knowledge-graph impact" section for blast radius: it names what depends on the changed code, which is how you judge whether a signature change or a behaviour change is safe. Cite the dependent by path when it changes your severity. It is not evidence on its own — a dependent you have not read cannot be reported as broken.`
 			: `No knowledge-graph brief is in your context, so you cannot see what depends on this code. Judge severity from the patches alone and say so where it matters.`;
 
-		return `Review this merge request as a senior code reviewer and give the human reviewer a verdict they can act on. Read every patch below; this pass is the whole merge request.
+		return `Review this merge request as a senior code reviewer and give the human reviewer a verdict they can act on. Read every patch below; this pass is the whole merge request, and it is also *only* the diff.
 
 ${NO_CHECKOUT_RULE}
+
+Scope. This is the substance of the request, not preamble — a review that widens is how a diff-scoped request turns into a whole-file audit reporting problems the author never touched:
+
+- Read the patches below and nothing else. Do not read a changed file at its full content, do not go exploring unchanged files, and do not follow an import to see what is on the other side.
+- Report problems only on lines this merge request added or modified. A pre-existing problem on an untouched line is out of scope even when a hunk puts it on screen — mention it in one line if it is severe, but do not raise it as a finding against this change.
+- When a hunk cannot be judged without context the patches do not contain, say so and name what you would need. Do not guess, and do not fetch it.
 
 ${rulesClause}
 
 ${graphClause}
 
-What to check:
+What to check, in this order:
 
+- **Correctness** — logic that does not match the surrounding code's contract, boundary and off-by-one handling, error and null/None paths, resource lifetimes, concurrency assumptions, a broken invariant, a leaked resource.
+- **Security** — untrusted input reaching a query, command, path or template; a secret in the diff; an authorization check the change moves, weakens or skips. Keep it short; the real security pass is its own command.
+- **Contract breaks** — a signature, return shape, raised error or default the diff changes without updating what depends on it. Name the dependents you can see in the patches or in the graph section; do not sweep the repository for more.
 - **Intent** — does the change do what its title says, and is anything half-done or left inconsistent between files?
-- **Correctness** — logic that does not match the surrounding code's contract, boundary and off-by-one handling, error and null/None paths, resource lifetimes, concurrency assumptions.
-- **Design** — separation of concerns, error handling, type safety, duplication that is now worth extracting (and abstraction that is not yet earned).
-- **Compatibility** — behaviour changes for existing callers, migrations, defaults that change silently for data already in flight.
-- **Tests** — does the diff cover the behaviour it changes, and do the tests assert real behaviour rather than restating the implementation?
-- **Security** — anything reachable from untrusted input. Keep it brief here; a real security pass is its own command.
+- **Design** — separation of concerns, error handling, type safety, duplication now worth extracting (and abstraction not yet earned).
+- **Tests** — where the diff changes behaviour and touches tests, do those tests assert real behaviour rather than restate the implementation? Do not report missing coverage as a finding.
+
+Skip: formatting, naming preferences, anything a linter or typechecker would catch, and speculative "this could be refactored" notes.
 
 Output, in this order:
 

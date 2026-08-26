@@ -3,13 +3,7 @@ import { type ReactElement, useCallback, useEffect, useMemo, useRef, useState } 
 
 import { showAppToast } from "@/components/app-toaster";
 import { ClaudeUsageChip } from "@/components/claude-usage-chip";
-import {
-	hasRunReviewCommand,
-	isMergeRequestScopedPrompt,
-	isReviewCommandPrompt,
-	REVIEW_CODE_REVIEW_DIFF_COMMAND,
-	REVIEW_UNDERSTAND_CHANGES_COMMAND,
-} from "@/components/review/review-chat-composer";
+import { isMergeRequestScopedPrompt, isReviewCommandPrompt } from "@/components/review/review-chat-composer";
 import { ReviewClaudePanel } from "@/components/review/review-claude-panel";
 import { ReviewDiffPane, type ReviewCommentDraftInput } from "@/components/review/review-diff-pane";
 import { ReviewFilesPanel } from "@/components/review/review-files-panel";
@@ -45,6 +39,7 @@ import {
 	type ReviewVisibleRange,
 	selectAdjacentUnreviewedPath,
 	selectPendingFindings,
+	selectTriagedFindingIds,
 	sumDiffStats,
 } from "@/review/review-target";
 import { readStoredPolishComments, writeStoredPolishComments } from "@/review/review-comment-polish";
@@ -277,6 +272,17 @@ export function ReviewWorkspaceView({
 				draftComments,
 			}),
 		[draftComments, session.session?.dismissedFindingIds, session.session?.findings],
+	);
+
+	// Chat suggestions live inside immutable transcript messages, so triage cannot be
+	// applied by removing them — the panel filters on this set instead.
+	const triagedFindingIds = useMemo(
+		() =>
+			selectTriagedFindingIds({
+				dismissedFindingIds: session.session?.dismissedFindingIds ?? [],
+				draftComments,
+			}),
+		[draftComments, session.session?.dismissedFindingIds],
 	);
 
 	const draftCountByPath = useMemo(() => {
@@ -516,8 +522,13 @@ export function ReviewWorkspaceView({
 	}, [agentModel, audit, effectiveAccountId, session.files, session.mergeRequest, target]);
 
 	const sendChat = useCallback(
-		(prompt: string) => {
+		(prompt: string, options?: { expectSuggestions?: boolean }) => {
 			setAgentError(null);
+			// An inline prompt button states its own answer shape; a typed prompt is judged
+			// by its leading slash. Neither can turn the block off once the other asked for
+			// it, because both reasons for wanting it are still true.
+			const expectSuggestions =
+				(options?.expectSuggestions ?? false) || isReviewCommandPrompt(prompt, projectCommands);
 			chat.send({
 				prompt,
 				contextLabel: selection ? formatSelectionLabel(selection) : null,
@@ -544,9 +555,7 @@ export function ReviewWorkspaceView({
 						: {}),
 					...(selection ? { screen: selection } : {}),
 					...(visibleRange && !selection ? { visible: visibleRange } : {}),
-					// Any slash command — a stack skill or one of this project's own — is a
-					// request for findings; a plain question is not.
-					...(isReviewCommandPrompt(prompt, projectCommands) ? { expectSuggestions: true } : {}),
+					...(expectSuggestions ? { expectSuggestions: true } : {}),
 					projectKey: target.projectKey,
 					model: agentModel,
 					managerAccountId: effectiveAccountId,
@@ -1158,11 +1167,10 @@ export function ReviewWorkspaceView({
 						chatNotices={chat.notices}
 						contextLabel={selection ? formatSelectionLabel(selection) : null}
 						canRequestChange={selection !== null}
-						hasRunUnderstandChanges={hasRunReviewCommand(chat.messages, REVIEW_UNDERSTAND_CHANGES_COMMAND)}
-						hasRunCodeReviewDiff={hasRunReviewCommand(chat.messages, REVIEW_CODE_REVIEW_DIFF_COMMAND)}
 						projectCommands={projectCommands}
 						polishComments={polishComments}
 						pendingFindings={pendingFindings}
+						triagedFindingIds={triagedFindingIds}
 						draftComments={draftComments}
 						isAuditing={audit.status === "running"}
 						model={agentModel}

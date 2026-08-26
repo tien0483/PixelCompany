@@ -1,14 +1,10 @@
-import { Bot, ClipboardCheck, Eraser, Network, Trash2 } from "lucide-react";
-import type { ReactElement, ReactNode } from "react";
+import { Bot, Eraser, Trash2 } from "lucide-react";
+import type { ReactElement } from "react";
 
-import {
-	REVIEW_CODE_REVIEW_DIFF_COMMAND,
-	REVIEW_UNDERSTAND_CHANGES_COMMAND,
-	ReviewChatComposer,
-} from "@/components/review/review-chat-composer";
-import { ReviewRunDot } from "@/components/review/review-run-dot";
+import { hasRunReviewCommand, ReviewChatComposer } from "@/components/review/review-chat-composer";
 import { ReviewChatMessages } from "@/components/review/review-chat-messages";
 import { ReviewFindingRow } from "@/components/review/review-finding-row";
+import { ReviewRunDot } from "@/components/review/review-run-dot";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import {
@@ -16,50 +12,12 @@ import {
 	type ReviewAgentModelId,
 	normalizeReviewAgentModel,
 } from "@/review/review-agent-model";
+import { REVIEW_INLINE_PROMPTS } from "@/review/review-inline-prompts";
 import { formatDraftLineLabel } from "@/review/review-target";
 import type { ReviewProjectCommand } from "@/review/use-review-project-commands";
 import type { RuntimeReviewChatMessage, RuntimeReviewDraftComment, RuntimeReviewFinding } from "@/runtime/types";
 
 export { REVIEW_QUICK_PROMPTS } from "@/components/review/review-chat-composer";
-
-/**
- * One whole-merge-request pass, with its run indicator. Not a wrapper for its own
- * sake: the dot, its label and the disabled-while-running rule are the same for both
- * buttons, and the next one added should not have to remember all three.
- */
-function ReviewPassButton({
-	icon,
-	label,
-	title,
-	hasRun,
-	ranLabel,
-	disabled,
-	onClick,
-}: {
-	icon: ReactNode;
-	label: string;
-	title: string;
-	hasRun: boolean;
-	ranLabel: string;
-	disabled: boolean;
-	onClick: () => void;
-}): ReactElement {
-	return (
-		<button
-			type="button"
-			// The dot's own label is separate, so the tooltip here stays about what the pass
-			// does rather than becoming a sentence about state.
-			title={title}
-			disabled={disabled}
-			onClick={onClick}
-			className="flex cursor-pointer items-center gap-1.5 rounded border border-border bg-surface-2 px-1.5 py-0.5 text-[10px] text-text-secondary hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-40"
-		>
-			<ReviewRunDot state={hasRun ? "done" : "unrun"} label={hasRun ? ranLabel : `${label} — not run yet`} />
-			{icon}
-			{label}
-		</button>
-	);
-}
 
 export function ReviewClaudePanel({
 	messages,
@@ -70,11 +28,10 @@ export function ReviewClaudePanel({
 	chatNotices,
 	contextLabel,
 	canRequestChange,
-	hasRunUnderstandChanges,
-	hasRunCodeReviewDiff,
 	projectCommands,
 	polishComments,
 	pendingFindings,
+	triagedFindingIds,
 	draftComments,
 	isAuditing,
 	model,
@@ -103,22 +60,22 @@ export function ReviewClaudePanel({
 	contextLabel: string | null;
 	/** False when no diff line is selected, so a comment could not be anchored. */
 	canRequestChange: boolean;
-	/**
-	 * Whether each whole-merge-request pass has already run in this conversation. Read
-	 * off the transcript by the caller, so clearing the chat resets both.
-	 */
-	hasRunUnderstandChanges: boolean;
-	hasRunCodeReviewDiff: boolean;
 	/** Slash commands the selected checkout ships in `.claude/commands`. */
 	projectCommands: readonly ReviewProjectCommand[];
 	polishComments: boolean;
 	pendingFindings: RuntimeReviewFinding[];
+	/** Accepted or dismissed ids, so a triaged suggestion leaves the transcript too. */
+	triagedFindingIds: ReadonlySet<string>;
 	draftComments: RuntimeReviewDraftComment[];
 	isAuditing: boolean;
 	/** Model every review pass runs on — chat, audit and rules extraction alike. */
 	model: ReviewAgentModelId;
 	onModelChange: (model: ReviewAgentModelId) => void;
-	onSend: (prompt: string) => void;
+	/**
+	 * `expectSuggestions` is an override for the inline prompt buttons, whose text has
+	 * no leading slash for the caller to recognise. Omitted, the caller decides.
+	 */
+	onSend: (prompt: string, options?: { expectSuggestions?: boolean }) => void;
 	onCancel: () => void;
 	onClearChat: () => void;
 	onClearContext: () => void;
@@ -176,28 +133,35 @@ export function ReviewClaudePanel({
 				</div>
 			</div>
 
-			{/* The two whole-merge-request passes. They are buttons rather than chips because
-			    they read every patch and cost accordingly, and each carries a dot saying
-			    whether this conversation has already paid for it. */}
+			{/* The whole-merge-request passes. Buttons rather than chips because they read
+			    every patch and cost accordingly, and each carries a dot saying whether this
+			    conversation has already paid for it. */}
 			<div className="flex shrink-0 flex-wrap items-center gap-1 border-b border-border p-2">
-				<ReviewPassButton
-					icon={<Network size={10} />}
-					label="Understand changes"
-					title="What this merge request touches and what may break, across every changed file. Answers from the project's knowledge graph and only searches for the paths the graph has no node for."
-					hasRun={hasRunUnderstandChanges}
-					ranLabel="Already run in this conversation — clear the chat to reset"
-					disabled={chatStatus === "running"}
-					onClick={() => onSend(REVIEW_UNDERSTAND_CHANGES_COMMAND)}
-				/>
-				<ReviewPassButton
-					icon={<ClipboardCheck size={10} />}
-					label="Code Review Diff"
-					title="Senior-reviewer pass over every patch in the merge request: the project's extracted rules where they apply, correctness, compatibility and tests, ending in a merge verdict."
-					hasRun={hasRunCodeReviewDiff}
-					ranLabel="Already run in this conversation — clear the chat to reset"
-					disabled={chatStatus === "running"}
-					onClick={() => onSend(REVIEW_CODE_REVIEW_DIFF_COMMAND)}
-				/>
+				{REVIEW_INLINE_PROMPTS.map((entry) => {
+					const Icon = entry.icon;
+					const hasRun = hasRunReviewCommand(messages, entry.prompt);
+					return (
+						<button
+							key={entry.id}
+							type="button"
+							title={entry.hint}
+							disabled={chatStatus === "running"}
+							onClick={() => onSend(entry.prompt, { expectSuggestions: entry.expectSuggestions })}
+							className="flex cursor-pointer items-center gap-1.5 rounded border border-border bg-surface-2 px-1.5 py-0.5 text-[10px] text-text-secondary hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-40"
+						>
+							<ReviewRunDot
+								state={hasRun ? "done" : "unrun"}
+								label={
+									hasRun
+										? `${entry.label} — already run in this conversation, clear the chat to reset`
+										: `${entry.label} — not run yet`
+								}
+							/>
+							<Icon size={10} />
+							{entry.label}
+						</button>
+					);
+				})}
 			</div>
 
 			{pendingFindings.length > 0 ? (
@@ -229,6 +193,7 @@ export function ReviewClaudePanel({
 				log={chatLog}
 				notices={chatNotices}
 				canRequestChange={canRequestChange}
+				triagedFindingIds={triagedFindingIds}
 				onRequestChange={onRequestChange}
 				onAcceptSuggestion={onAcceptFinding}
 				onDismissSuggestion={onDismissFinding}

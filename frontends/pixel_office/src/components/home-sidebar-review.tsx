@@ -1,4 +1,4 @@
-import { GitPullRequest, RefreshCw } from "lucide-react";
+import { Check, GitPullRequest, RefreshCw } from "lucide-react";
 import { type ReactElement, useCallback, useEffect, useMemo, useState } from "react";
 
 import { showAppToast } from "@/components/app-toaster";
@@ -6,7 +6,12 @@ import { GitlabConnectForm } from "@/components/review/gitlab-connect-form";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
 import { Spinner } from "@/components/ui/spinner";
-import { buildReviewInboxQuery, describeReviewers, splitByReviewerRequested } from "@/review/review-inbox";
+import {
+	buildReviewInboxQuery,
+	describeApprovalState,
+	describeReviewers,
+	splitByReviewerRequested,
+} from "@/review/review-inbox";
 import type { ReviewTarget } from "@/review/review-target";
 import { useGitlabConnect } from "@/review/use-gitlab-connect";
 import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
@@ -343,6 +348,7 @@ function SidebarMergeRequestRow({
 	subtitle: string;
 	onOpen: (mergeRequest: RuntimeGitlabMergeRequestSummary) => void;
 }): ReactElement {
+	const approval = describeApprovalState(mergeRequest);
 	return (
 		<button
 			type="button"
@@ -354,6 +360,12 @@ function SidebarMergeRequestRow({
 				<span className="block truncate text-sm">{mergeRequest.title}</span>
 				<span className="block truncate text-[10px] text-text-tertiary">{subtitle}</span>
 			</span>
+			{/* Approved rows stay in the list rather than moving to a subtab this narrow
+			    can't fit — the marker is what stops a signed-off review from reading as
+			    still-waiting work. */}
+			{approval?.tone === "approved" ? (
+				<Check size={12} className="mt-0.5 shrink-0 text-status-green" aria-label={approval.label} />
+			) : null}
 		</button>
 	);
 }

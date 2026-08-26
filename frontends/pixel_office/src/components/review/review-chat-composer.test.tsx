@@ -8,6 +8,7 @@ import {
 	REVIEW_QUICK_PROMPTS,
 	REVIEW_UNDERSTAND_CHANGES_COMMAND,
 } from "@/components/review/review-chat-composer";
+import { REVIEW_INLINE_PROMPTS } from "@/review/review-inline-prompts";
 
 function userMessage(text: string): { role: "user"; text: string } {
 	return { role: "user", text };
@@ -21,6 +22,17 @@ describe("REVIEW_QUICK_PROMPTS", () => {
 			"/code-review",
 			"/simplify",
 		]);
+	});
+});
+
+describe("REVIEW_INLINE_PROMPTS", () => {
+	it("sends commands the runtime expands, and every one is merge-request scoped", () => {
+		// The invariant that keeps the two lists honest: a button whose prompt is not in
+		// the scoped list is sent none of the patches it is told to read.
+		for (const entry of REVIEW_INLINE_PROMPTS) {
+			expect(isMergeRequestScopedPrompt(entry.prompt)).toBe(true);
+			expect(entry.prompt.startsWith("/")).toBe(true);
+		}
 	});
 });
 
