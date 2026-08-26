@@ -26,6 +26,7 @@ import {
 	RuntimeHtmlDraftRequestSchema,
 	RuntimeHtmlGenerateRequestSchema,
 	runtimeReviewAuditRequestSchema,
+	runtimeReviewGraphRebuildRequestSchema,
 	runtimeReviewChatRequestSchema,
 	runtimeReviewRulesExtractRequestSchema,
 	runtimeReviewSuggestCommentRequestSchema,
@@ -69,6 +70,11 @@ import {
 	resolveReviewAgentCwd,
 } from "../review/review-agent-args";
 import { buildReviewGraphPromptSection } from "../review/review-graph-brief";
+import {
+	GRAPH_REBUILD_IDLE_TIMEOUT_MS,
+	GRAPH_REBUILD_TIMEOUT_MS,
+	resolveGraphRebuildPrompt,
+} from "../review/review-graph-rebuild";
 import {
 	buildAuditPrompt,
 	buildChatPrompt,
@@ -1366,6 +1372,39 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 							managerAccountId: input.managerAccountId,
 							appendSystemPrompt: REVIEW_CHAT_SYSTEM_PROMPT,
 							resumeSessionId: input.resumeSessionId,
+						};
+					},
+				});
+				return;
+			}
+			if (pathname === "/api/review/graph-rebuild" && (req.method ?? "GET").toUpperCase() === "POST") {
+				await handleAgentStreamRoute(req, res, {
+					buildPinInput: buildHtmlAgentPinInput,
+					schema: runtimeReviewGraphRebuildRequestSchema,
+					buildRun: async (input) => {
+						const resolved = await resolveGraphRebuildPrompt({ projectPath: input.projectPath });
+						if (!resolved.ok) {
+							// Before any agent is spawned, and deliberately so: a rebuild whose
+							// instructions could not be read would otherwise become an agent
+							// improvising a knowledge graph, and every later review prompt would
+							// quote that invention as fact.
+							return { ok: false, status: 409, error: resolved.error };
+						}
+						return {
+							ok: true,
+							agentId: "gemini",
+							prompt: resolved.prompt,
+							cwd: input.projectPath,
+							model: input.model,
+							// agy's tool set is its own; `--allowedTools` is a Claude flag and is
+							// not passed for this engine.
+							allowedTools: [],
+							...(input.effort === undefined ? {} : { effort: input.effort }),
+							// The analysis writes the graph and shells out to the skill's scripts.
+							skipPermissions: true,
+							idleTimeoutMs: GRAPH_REBUILD_IDLE_TIMEOUT_MS,
+							timeoutMs: GRAPH_REBUILD_TIMEOUT_MS,
+							managerAccountId: input.managerAccountId,
 						};
 					},
 				});

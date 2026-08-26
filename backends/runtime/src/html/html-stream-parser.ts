@@ -15,6 +15,92 @@ export type ParseState = {
 };
 
 /**
+ * Antigravity's `agy` speaks its own stream, not Claude's.
+ *
+ * Every field below was read off a live run rather than a document: `-p=` with
+ * `--input-format=stream-json` emits `{"event":"init",…}` once, then one
+ * `{"event":"step_update",…}` per step (`agent_response` steps carry
+ * `text_delta`), then a single `{"event":"result",…}`. Nothing in it matches
+ * Claude's `type`-keyed frames, which is why `makeParser` needs to dispatch at
+ * all — it took its agent argument and ignored it until there was a second engine.
+ */
+export function parseAgyLine(line: string, state: ParseState): AgentParse[] {
+	const trimmed = line.trim();
+	if (!trimmed) return [];
+
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(trimmed);
+	} catch {
+		return [{ kind: "noise" }];
+	}
+	if (!parsed || typeof parsed !== "object") return [];
+	const obj = parsed as Record<string, unknown>;
+	const out: AgentParse[] = [];
+
+	if (obj.event === "init") {
+		const init = (obj.init ?? {}) as { cwd?: unknown };
+		// `conversation_id` is agy's session handle. Reported under the same key as
+		// Claude's `session_id` so a caller that persists it needs no second branch.
+		if (typeof obj.conversation_id === "string") {
+			out.push({ kind: "meta", key: "session", value: obj.conversation_id });
+		}
+		if (typeof init.cwd === "string") {
+			out.push({ kind: "meta", key: "cwd", value: init.cwd });
+		}
+	}
+
+	if (obj.event === "step_update") {
+		const step = (obj.step_update ?? {}) as {
+			step_type?: unknown;
+			state?: unknown;
+			text_delta?: unknown;
+			usage?: unknown;
+		};
+		if (typeof step.text_delta === "string" && step.text_delta.length > 0) {
+			state.sawStreamEventText = true;
+			out.push({ kind: "delta", text: step.text_delta });
+		}
+		// Tool and thinking steps carry no text, and for a long run they are the only
+		// progress signal there is — a graph rebuild is minutes of `run_command`
+		// steps before any prose appears.
+		if (typeof step.step_type === "string" && typeof step.text_delta !== "string") {
+			out.push({ kind: "meta", key: "step", value: { stepType: step.step_type, state: step.state } });
+		}
+		if (step.usage) {
+			out.push({ kind: "meta", key: "usage_partial", value: step.usage });
+		}
+	}
+
+	if (obj.event === "result") {
+		const result = (obj.result ?? {}) as {
+			status?: unknown;
+			response?: unknown;
+			duration_seconds?: unknown;
+			usage?: unknown;
+		};
+		// Same rescue as the Claude branch: a run that streamed nothing still has its
+		// whole answer here, and dropping it would render as an empty result.
+		if (!state.sawStreamEventText && typeof result.response === "string" && result.response.length > 0) {
+			out.push({ kind: "delta", text: result.response });
+		}
+		if (result.usage) {
+			out.push({ kind: "meta", key: "usage", value: result.usage });
+		}
+		if (typeof result.duration_seconds === "number") {
+			out.push({ kind: "meta", key: "duration_ms", value: Math.round(result.duration_seconds * 1000) });
+		}
+		if (typeof result.status === "string") {
+			// Lowercased to match Claude's `subtype` ("success"), which is what consumers
+			// of the `result` meta key already compare against.
+			out.push({ kind: "meta", key: "result", value: result.status.toLowerCase() });
+		}
+	}
+
+	return out;
+}
+
+/**
  * Some agents ignore the "stream HTML inline" prompt and dump the document via
  * Write. Rescue the HTML from the tool_use input so the preview still gets the
  * real content.
@@ -54,8 +140,12 @@ export function rescueHtmlFromToolUse(
 	return parts.join("");
 }
 
-export function makeParser(_agent = "claude"): (line: string) => AgentParse[] {
+export function makeParser(agent = "claude"): (line: string) => AgentParse[] {
 	const state: ParseState = {};
+	// `gemini` is the catalog id for the Antigravity CLI; `agy` is its binary.
+	if (agent === "gemini" || agent === "agy" || agent === "antigravity") {
+		return (line: string) => parseAgyLine(line, state);
+	}
 	return (line: string) => parseLineWithState(line, state);
 }
 

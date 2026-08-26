@@ -77,6 +77,24 @@ export interface RunAgentOneShotInput {
 	pinInput?: Omit<ResolveManagerAccountPinInput, "agentId"> & {
 		managerAccountId?: number;
 	};
+	/**
+	 * Antigravity only: reasoning effort, and permission to act without asking.
+	 *
+	 * `agy` starts in `request-review` permission mode, and a `-p` run has no UI to
+	 * answer a review request with — the same stall the idle watchdog exists for.
+	 * Anything that has to write files (a knowledge-graph rebuild runs scripts and
+	 * writes into `.ua/`) must opt in explicitly rather than get it by default.
+	 */
+	effort?: "low" | "medium" | "high";
+	skipPermissions?: boolean;
+}
+
+/** Engines this module can drive. Anything else is refused up front. */
+export const AGENT_ONE_SHOT_SUPPORTED_AGENT_IDS = ["claude", "gemini"] as const;
+export type AgentOneShotAgentId = (typeof AGENT_ONE_SHOT_SUPPORTED_AGENT_IDS)[number];
+
+function isAgyAgentId(agentId: string): agentId is "gemini" {
+	return agentId === "gemini";
 }
 
 function resolveClaudeBinary(): string {
@@ -86,6 +104,63 @@ function resolveClaudeBinary(): string {
 		throw new Error(`Claude Code binary "${binary}" is not available on PATH. Install Claude Code to generate HTML.`);
 	}
 	return binary;
+}
+
+/**
+ * The Antigravity CLI ships under more than one name, and the catalog records
+ * both: `binary` plus `binaryAliases: ["gemini", "antigravity"]`. Probing the
+ * aliases matters because the alias that is actually installed decides the flags —
+ * `agy` and Google's `gemini` are different programs.
+ */
+function resolveAgyBinary(): string {
+	const entry = RUNTIME_AGENT_CATALOG.find((agent) => agent.id === "gemini");
+	const candidates = [entry?.binary, ...(entry?.binaryAliases ?? [])].filter(
+		(candidate): candidate is string => typeof candidate === "string" && candidate.length > 0,
+	);
+	for (const candidate of candidates) {
+		if (isBinaryAvailableOnPath(candidate)) {
+			return candidate;
+		}
+	}
+	throw new Error(
+		`The Antigravity CLI is not available on PATH (tried ${candidates.join(", ") || "agy"}). Install it from https://antigravity.google.`,
+	);
+}
+
+/**
+ * `agy`'s flags share almost nothing with `claude -p`, and the mismatches are the
+ * kind that fail silently:
+ *
+ * - `-p` is a Go *value* flag, so it must be written `-p=` (empty, because the
+ *   prompt arrives on stdin). A bare `-p` swallows the next flag as its value.
+ * - Stdin only carries a prompt with `--input-format=stream-json`, which in turn
+ *   requires `--output-format=stream-json`. This is not optional plumbing: argv has
+ *   a 128 KB single-argument cap, and these prompts run well past it.
+ * - `--print-timeout` defaults to 5 minutes and is a wall-clock kill, so anything
+ *   longer than a chat turn has to raise it or get cut off mid-run.
+ */
+export function buildAgyArgv(options: {
+	model?: string;
+	effort?: "low" | "medium" | "high";
+	printTimeoutMs?: number;
+	skipPermissions?: boolean;
+}): string[] {
+	const seconds = options.printTimeoutMs === undefined ? null : Math.max(1, Math.round(options.printTimeoutMs / 1000));
+	return [
+		"--input-format=stream-json",
+		"--output-format=stream-json",
+		...(seconds === null ? [] : [`--print-timeout=${String(seconds)}s`]),
+		...(options.model ? [`--model=${options.model}`] : []),
+		...(options.effort ? [`--effort=${options.effort}`] : []),
+		...(options.skipPermissions ? ["--dangerously-skip-permissions"] : []),
+		// Last, and empty: the prompt is a stdin NDJSON message.
+		"-p=",
+	];
+}
+
+/** The one NDJSON shape agy accepts; any other `event` prints a warning and exits. */
+export function buildAgyStdinPayload(prompt: string): string {
+	return `${JSON.stringify({ event: "user", message: { role: "user", content: prompt } })}\n`;
 }
 
 /**
@@ -119,24 +194,29 @@ export async function runAgentOneShot(input: RunAgentOneShotInput): Promise<{ co
 	// only learns a run is over from `done` — the SSE hook in the browser — sees a
 	// stream that just stops otherwise, which is indistinguishable from a dropped
 	// connection and is why a refused pin looked like an empty answer area.
-	if (input.agentId !== "claude") {
+	const isAgy = isAgyAgentId(input.agentId);
+	if (input.agentId !== "claude" && !isAgy) {
 		input.onEvent({
 			type: "error",
-			message: `HTML generation only supports Claude Code (got ${input.agentId}).`,
+			message: `One-shot runs support ${AGENT_ONE_SHOT_SUPPORTED_AGENT_IDS.join(" and ")} (got ${input.agentId}).`,
 		});
 		input.onEvent({ type: "done", code: 1 });
 		return { code: 1 };
 	}
 
+	// Narrowed from the `string` field so the pin resolver gets a catalog id: the
+	// gate above has already established it is one of exactly these two.
+	const agentId: AgentOneShotAgentId = isAgy ? "gemini" : "claude";
+
 	let pin: ManagerAccountPin = input.accountPin ?? { env: {}, accountId: null, warning: null };
 	if (!input.accountPin && input.pinInput) {
 		pin = await resolveManagerAccountPin({
 			...input.pinInput,
-			agentId: "claude",
+			agentId,
 		});
 	}
 	if (pin.blocked) {
-		const message = pin.warning ?? "Pinned Claude account is over its donate cap.";
+		const message = pin.warning ?? `Pinned ${input.agentId} account is over its donate cap.`;
 		input.onEvent({ type: "error", message });
 		input.onEvent({ type: "done", code: 1 });
 		return { code: 1 };
@@ -147,7 +227,7 @@ export async function runAgentOneShot(input: RunAgentOneShotInput): Promise<{ co
 
 	let binary: string;
 	try {
-		binary = resolveClaudeBinary();
+		binary = isAgy ? resolveAgyBinary() : resolveClaudeBinary();
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
 		input.onEvent({ type: "error", message });
@@ -155,10 +235,19 @@ export async function runAgentOneShot(input: RunAgentOneShotInput): Promise<{ co
 		return { code: 1 };
 	}
 
-	const argv = buildClaudeArgv(input.model, input.allowedTools, {
-		appendSystemPrompt: input.appendSystemPrompt,
-		resumeSessionId: input.resumeSessionId,
-	});
+	const argv = isAgy
+		? buildAgyArgv({
+				...(input.model === undefined ? {} : { model: input.model }),
+				...(input.effort === undefined ? {} : { effort: input.effort }),
+				// agy kills its own run at `--print-timeout`, so it has to know about the
+				// caller's ceiling or it would cut a long job short at its 5-minute default.
+				...(input.timeoutMs === undefined ? {} : { printTimeoutMs: input.timeoutMs }),
+				...(input.skipPermissions === undefined ? {} : { skipPermissions: input.skipPermissions }),
+			})
+		: buildClaudeArgv(input.model, input.allowedTools, {
+				appendSystemPrompt: input.appendSystemPrompt,
+				resumeSessionId: input.resumeSessionId,
+			});
 	// Same stack PATH as an interactive session (see buildTerminalEnvironment):
 	// a one-shot agent should have the same tooling as a long-running one.
 	const childEnv: NodeJS.ProcessEnv = withStackBinOnPath({
@@ -195,7 +284,7 @@ export async function runAgentOneShot(input: RunAgentOneShotInput): Promise<{ co
 		return { code: 1 };
 	}
 
-	input.onEvent({ type: "start", agent: "claude", model: input.model });
+	input.onEvent({ type: "start", agent: input.agentId, model: input.model });
 
 	const onAbort = () => {
 		try {
@@ -263,10 +352,12 @@ export async function runAgentOneShot(input: RunAgentOneShotInput): Promise<{ co
 		}, input.timeoutMs);
 	}
 
-	child.stdin?.write(input.prompt);
+	// agy reads one NDJSON message per line and runs a turn for each; Claude takes
+	// the prompt as raw text.
+	child.stdin?.write(isAgy ? buildAgyStdinPayload(input.prompt) : input.prompt);
 	child.stdin?.end();
 
-	const parse = makeParser("claude");
+	const parse = makeParser(input.agentId);
 	if (child.stdout) {
 		const rl = createInterface({ input: child.stdout });
 		rl.on("line", (line) => {
@@ -309,7 +400,7 @@ export async function runAgentOneShot(input: RunAgentOneShotInput): Promise<{ co
 		input.signal.removeEventListener("abort", onAbort);
 	}
 	if (code !== 0 && !errorEmitted) {
-		input.onEvent({ type: "error", message: `Claude exited with code ${code}` });
+		input.onEvent({ type: "error", message: `${binary} exited with code ${code}` });
 	}
 	input.onEvent({ type: "done", code });
 	return { code };

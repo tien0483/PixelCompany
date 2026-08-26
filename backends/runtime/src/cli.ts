@@ -32,6 +32,7 @@ import {
 	setKanbanRuntimeTls,
 } from "./core/runtime-endpoint";
 import { toManagerDonateAccount } from "./manager/manager-account-pin";
+import { closeAllReviewGraphDashboards } from "./review/review-dashboard-process";
 import { disablePasscode, generateInternalToken, generatePasscode } from "./security/passcode-manager";
 import { terminateProcessForTimeout } from "./server/process-termination";
 import type { RuntimeStateHub } from "./server/runtime-state-hub";
@@ -778,6 +779,9 @@ async function startServer(): Promise<{
 		await runtimeServer.close();
 		// Only stops a Manager we spawned; an externally managed service is left alone.
 		await ManagerProcess.close();
+		// Graph dashboards are started on demand from the review tab and spawned
+		// detached, so nothing else would reap them.
+		await closeAllReviewGraphDashboards();
 		await OmniRouteProcess.close();
 		await HtmlProcess.close();
 		// Same rule for the switchboard: a shell that sourced activate-stack.sh owns
