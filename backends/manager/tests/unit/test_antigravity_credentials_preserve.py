@@ -83,8 +83,11 @@ def test_antigravity_pool_uses_antigravity_plugin_type():
     from manager.antigravity.usage import _POOLS
 
     by_name = {pool["name"]: pool for pool in _POOLS}
-    assert by_name["antigravity"]["pluginType"] == "ANTIGRAVITY"
+    assert by_name["antigravity"]["ideType"] == "ANTIGRAVITY"
+    assert by_name["gemini_cli"]["ideType"] == "GEMINI_CLI"
     assert by_name["gemini_cli"]["pluginType"] == "GEMINI"
+    # ANTIGRAVITY is an ideType, not a valid PluginType enum in Google's Cloud Code API
+    assert by_name["antigravity"].get("pluginType") != "ANTIGRAVITY"
 
 
 @pytest.mark.anyio

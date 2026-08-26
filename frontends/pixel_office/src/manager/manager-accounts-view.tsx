@@ -394,15 +394,15 @@ function AccountRow({
 						data-testid={`manager-account-usage-${account.id}`}
 					>
 						{/* Cursor Plan & Usage uses Cursor Models / Other Models pools (monthly).
-						    Antigravity uses Pro (5h) / Flash (7d). Claude keeps 5h/7d. */}
+						    Claude and Antigravity use 5h / 7d (weekly) pools. */}
 						<UsageWindowBar
-							label={isCursorAccount ? "Cursor" : isAntigravityAccount ? "Pro" : "5h"}
+							label={isCursorAccount ? "Cursor" : "5h"}
 							percent={account.fiveHourPercent}
 							resetsAt={account.fiveHourResetsAt}
 							canAutoSwap={account.canAutoSwap}
 						/>
 						<UsageWindowBar
-							label={isCursorAccount ? "Other" : isAntigravityAccount ? "Flash" : "7d"}
+							label={isCursorAccount ? "Other" : "7d"}
 							percent={account.sevenDayPercent}
 							resetsAt={account.sevenDayResetsAt}
 							canAutoSwap={account.canAutoSwap}

@@ -137,7 +137,7 @@ export interface TaskAccountPickerProps {
 
 function accountLabel(account: RuntimeManagerAccount): string {
 	const name = account.displayName ?? account.email;
-	const usageLabel = account.provider === "antigravity" ? "Pro" : "5h";
+	const usageLabel = account.provider === "cursor" ? "Cursor" : "5h";
 	const usage = account.canTrackUsage ? ` · ${usageLabel} ${formatPercent(account.fiveHourPercent)}` : "";
 	const deactivated = account.isActive ? "" : " · deactivated";
 	const needsReauth = isAuthBroken(account) ? " · needs re-auth" : "";

@@ -30,9 +30,19 @@ from .switching import mint_live_token
 logger = logging.getLogger(__name__)
 
 _CODE_ASSIST = "https://cloudcode-pa.googleapis.com/v1internal"
+_USER_AGENT = "antigravity/1.1.21 (linux; x86_64)"
 _POOLS = (
-    {"ideType": "ANTIGRAVITY", "pluginType": "ANTIGRAVITY", "name": "antigravity"},
-    {"ideType": "GEMINI_CLI", "pluginType": "GEMINI", "name": "gemini_cli"},
+    {
+        "name": "antigravity",
+        "ideType": "ANTIGRAVITY",
+        "ideName": "antigravity",
+        "ideVersion": "1.1.21",
+    },
+    {
+        "name": "gemini_cli",
+        "ideType": "GEMINI_CLI",
+        "pluginType": "GEMINI",
+    },
 )
 
 
@@ -72,12 +82,46 @@ def _bucket_used_percent(bucket: dict) -> Optional[float]:
 
 
 def _parse_buckets(payload: dict) -> list[dict]:
+    # 1. QuotaSummaryGroup format from retrieveUserQuotaSummary
+    groups = payload.get("groups")
+    if isinstance(groups, list):
+        parsed: list[dict] = []
+        for grp in groups:
+            if not isinstance(grp, dict):
+                continue
+            grp_name = grp.get("displayName") or ""
+            for bucket in grp.get("buckets") or []:
+                if not isinstance(bucket, dict):
+                    continue
+                used = _bucket_used_percent(bucket)
+                if used is None:
+                    continue
+                window = bucket.get("window") or ""
+                bucket_id = bucket.get("bucketId") or ""
+                reset = bucket.get("resetTime") or bucket.get("resetsAt")
+                parsed.append({
+                    "model_id": f"{grp_name}:{bucket_id}" if grp_name else bucket_id,
+                    "used_percent": used,
+                    "reset_time": reset if isinstance(reset, str) else None,
+                    "window": window,
+                    "is_5h": window == "5h" or "5h" in bucket_id.lower(),
+                    "is_weekly": (
+                        window in ("weekly", "7d")
+                        or "weekly" in bucket_id.lower()
+                        or "7d" in bucket_id.lower()
+                    ),
+                    "is_pro": "pro" in bucket_id.lower(),
+                    "is_flash": "flash" in bucket_id.lower(),
+                })
+        return parsed
+
+    # 2. Flat buckets format from retrieveUserQuota or legacy mocks
     buckets = payload.get("buckets") or payload.get("quota") or []
     if isinstance(payload.get("quotas"), list):
         buckets = payload["quotas"]
     if not isinstance(buckets, list):
         return []
-    parsed: list[dict] = []
+    parsed = []
     for bucket in buckets:
         if not isinstance(bucket, dict):
             continue
@@ -88,10 +132,14 @@ def _parse_buckets(payload: dict) -> list[dict]:
         if used is None:
             continue
         reset = bucket.get("resetTime") or bucket.get("resetsAt")
+        window = bucket.get("window") or ""
         parsed.append({
             "model_id": model_id,
             "used_percent": used,
             "reset_time": reset if isinstance(reset, str) else None,
+            "window": window,
+            "is_5h": window == "5h" or "5h" in window.lower(),
+            "is_weekly": window in ("weekly", "7d"),
             "is_pro": _is_pro_model(model_id),
             "is_flash": _is_flash_model(model_id),
         })
@@ -106,6 +154,7 @@ async def _post_json(
         headers={
             "Authorization": f"Bearer {token}",
             "Content-Type": "application/json",
+            "User-Agent": _USER_AGENT,
         },
         json=body,
     )
@@ -120,29 +169,37 @@ async def _fetch_pool(
     client: httpx.AsyncClient, token: str, pool: dict
 ) -> dict:
     """Return ``{name, project_id, tier, buckets}`` for one Code Assist pool."""
+    meta = {k: v for k, v in pool.items() if k != "name"}
     load = await _post_json(
         client,
         f"{_CODE_ASSIST}:loadCodeAssist",
         token,
-        {"metadata": {"ideType": pool["ideType"], "pluginType": pool["pluginType"]}},
+        {"metadata": meta},
     )
     project_id = None
     tier = None
     if load is not None:
         if isinstance(load.get("cloudaicompanionProject"), str):
             project_id = load["cloudaicompanionProject"]
-        current = load.get("currentTier")
-        if isinstance(current, dict):
-            tier = current.get("id") or current.get("name")
         paid = load.get("paidTier")
-        if tier is None and isinstance(paid, dict):
-            tier = paid.get("name")
+        if isinstance(paid, dict):
+            tier = paid.get("name") or paid.get("id")
+        if tier is None:
+            current = load.get("currentTier")
+            if isinstance(current, dict):
+                tier = current.get("name") or current.get("id")
     body: dict = {}
     if isinstance(project_id, str) and len(project_id) > 0:
         body["project"] = project_id
+
+    # retrieveUserQuotaSummary includes 5h & weekly quota groups
     quota = await _post_json(
-        client, f"{_CODE_ASSIST}:retrieveUserQuota", token, body
+        client, f"{_CODE_ASSIST}:retrieveUserQuotaSummary", token, body
     )
+    if quota is None or not (quota.get("groups") or quota.get("buckets")):
+        quota = await _post_json(
+            client, f"{_CODE_ASSIST}:retrieveUserQuota", token, body
+        )
     buckets = _parse_buckets(quota or {})
     return {
         "name": pool["name"],
@@ -157,17 +214,26 @@ def normalize_pools(pools: list[dict]) -> dict:
     all_buckets: list[dict] = []
     for pool in pools:
         all_buckets.extend(pool.get("buckets") or [])
-    pro = [b for b in all_buckets if b.get("is_pro")]
-    flash = [b for b in all_buckets if b.get("is_flash")]
-    other = [b for b in all_buckets if not b.get("is_pro") and not b.get("is_flash")]
 
     def worst(group: list[dict]) -> Optional[dict]:
         if len(group) == 0:
             return None
         return max(group, key=lambda b: b["used_percent"])
 
-    five = worst(pro) or worst(other)
-    seven = worst(flash)
+    five_candidates = [b for b in all_buckets if b.get("is_5h")]
+    weekly_candidates = [b for b in all_buckets if b.get("is_weekly")]
+
+    if five_candidates or weekly_candidates:
+        five = worst(five_candidates)
+        seven = worst(weekly_candidates)
+    else:
+        # Fallback to model-id heuristics (for legacy mocks)
+        pro = [b for b in all_buckets if b.get("is_pro")]
+        flash = [b for b in all_buckets if b.get("is_flash")]
+        other = [b for b in all_buckets if not b.get("is_pro") and not b.get("is_flash")]
+        five = worst(pro) or worst(other)
+        seven = worst(flash)
+
     if five is None and seven is not None:
         five = seven
         seven = None
