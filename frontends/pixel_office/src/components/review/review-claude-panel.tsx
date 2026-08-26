@@ -1,9 +1,10 @@
 import { Bot, Eraser, Trash2 } from "lucide-react";
 import type { ReactElement } from "react";
 
-import { ReviewChatComposer } from "@/components/review/review-chat-composer";
+import { hasRunReviewCommand, ReviewChatComposer } from "@/components/review/review-chat-composer";
 import { ReviewChatMessages } from "@/components/review/review-chat-messages";
 import { ReviewFindingRow } from "@/components/review/review-finding-row";
+import { ReviewRunDot } from "@/components/review/review-run-dot";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import {
@@ -132,9 +133,13 @@ export function ReviewClaudePanel({
 				</div>
 			</div>
 
-			<div className="flex shrink-0 flex-wrap gap-1 border-b border-border p-2">
+			{/* The whole-merge-request passes. Buttons rather than chips because they read
+			    every patch and cost accordingly, and each carries a dot saying whether this
+			    conversation has already paid for it. */}
+			<div className="flex shrink-0 flex-wrap items-center gap-1 border-b border-border p-2">
 				{REVIEW_INLINE_PROMPTS.map((entry) => {
 					const Icon = entry.icon;
+					const hasRun = hasRunReviewCommand(messages, entry.prompt);
 					return (
 						<button
 							key={entry.id}
@@ -142,8 +147,16 @@ export function ReviewClaudePanel({
 							title={entry.hint}
 							disabled={chatStatus === "running"}
 							onClick={() => onSend(entry.prompt, { expectSuggestions: entry.expectSuggestions })}
-							className="flex cursor-pointer items-center gap-1 rounded border border-border bg-surface-2 px-1.5 py-0.5 text-[10px] text-text-secondary hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-40"
+							className="flex cursor-pointer items-center gap-1.5 rounded border border-border bg-surface-2 px-1.5 py-0.5 text-[10px] text-text-secondary hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-40"
 						>
+							<ReviewRunDot
+								state={hasRun ? "done" : "unrun"}
+								label={
+									hasRun
+										? `${entry.label} — already run in this conversation, clear the chat to reset`
+										: `${entry.label} — not run yet`
+								}
+							/>
 							<Icon size={10} />
 							{entry.label}
 						</button>

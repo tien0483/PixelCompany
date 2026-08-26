@@ -5,6 +5,7 @@
 // parsers in `review-rules.ts` are tolerant of a code fence and trailing prose
 // anyway, but asking for clean output is what keeps the common case cheap.
 import type { RuntimeReviewRule } from "../core/api-contract";
+import { expandReviewCommand } from "./review-command-expansion";
 import type { ReviewGraphFreshness, ReviewGraphImpact, ReviewGraphImpactComponent } from "./review-graph";
 
 /** Budget for the rules text pasted into an audit prompt, in characters. */
@@ -262,8 +263,9 @@ How to answer:
 
 - Answer exactly what was asked, at the length the question deserves. A greeting gets a greeting. A yes/no question gets a yes or no and one sentence. Do not open with a summary of the merge request.
 - Never volunteer findings. Do not list issues, do not rate the change, do not append "a few things I noticed" to an answer about something else. If you see something alarming while answering, you may mention it in one short sentence — once, not as a list.
-- Never produce a review unless you were asked for one. A slash command — /code-review, /security-review, /simplify, /understand-diff, or one of the project's own commands from its \`.claude/commands\` — IS being asked for one; a question is not.
-- When the reviewer runs a project command, follow that command's instructions, not these. They were written for this repository and they outrank the restraint rules above; only the "never modify a file" rule still holds.
+- Never produce a review unless you were asked for one. A slash command — /simplify, or one of the project's own commands from its \`.claude/commands\` — IS being asked for one; a question is not. So is a request that arrives already spelled out as a scoped review instruction: the panel expands its own /understand-diff, /security-review and /code-review into one before sending, because those three resolve against a working tree that does not have this branch checked out.
+- When the reviewer runs a project command, or the panel sends an expanded one, follow that instruction's scope, not these. It was written for this repository or this diff and it outranks the restraint rules above; only the "never modify a file" rule still holds.
+- The merge request branch is not checked out. Never run git to discover what changed — the diff you are given is the change — and never tell the reviewer to check a branch out to proceed.
 - You are given the lines the reviewer is currently looking at. Prefer them. When a question is clearly about the selected lines, do not widen the answer to the whole file.
 - Say when you do not know or cannot see the relevant code, rather than inferring from the diff alone.
 - You are reading, not editing. Never modify, create or delete a file in the repository, and never run a command that would.
@@ -339,6 +341,18 @@ export function buildChatPrompt(input: {
 	targetBranch: string;
 	changedPaths: string[];
 	activeDiff?: string;
+	/**
+	 * Every changed file's patch. Only the merge-request-scoped commands get this, and
+	 * when they do it replaces `activeDiff` and the selection — a pass told to read the
+	 * whole change should not also be handed "but look here first".
+	 */
+	allDiffs?: Array<{ newPath: string; diff: string }>;
+	/**
+	 * The project's extracted rules, for the whole-merge-request review. Empty or
+	 * absent has to read as "this project has no rules bundle", which the expansion
+	 * turns into "do not invent a house style" rather than silence.
+	 */
+	rules?: RuntimeReviewRule[];
 	screen?: ReviewScreenContext;
 	visible?: ReviewVisibleRange;
 	/**
@@ -351,31 +365,65 @@ export function buildChatPrompt(input: {
 	/** Ask for the machine-readable suggestions block (slash commands only). */
 	expectSuggestions?: boolean;
 	/**
-	 * Pre-computed blast radius from the project's knowledge graph. First turn only,
-	 * for the same reason the diff is: on a resumed turn it is already in the session.
+	 * Pre-computed blast radius from the project's knowledge graph. First turn for the
+	 * same reason the diff is — on a resumed turn it is already in the session — plus
+	 * any turn running a command that is meant to answer *from* it, since by then the
+	 * session's copy was walked for whichever file was on screen at the start. Its
+	 * absence also changes the wording of an expanded command, so that a command is
+	 * never told to read a section it was not given.
 	 */
 	graphImpact?: string;
 }): string {
 	const screenBlock = formatScreenContext(input);
 
-	// The reviewer's text goes first and verbatim: a leading `/understand-diff` or
-	// `/security-review` has to be the start of the prompt to register as a slash
-	// command, so context is appended below it rather than prepended.
-	const parts: string[] = [input.prompt];
+	// `/understand-diff`, `/security-review` and `/code-review` are expanded here
+	// rather than sent for the CLI to expand — see `review-command-expansion.ts` for
+	// why all three had to be. Everything else (a question, `/simplify`, a command
+	// from the project's own `.claude/commands`) still goes first and verbatim,
+	// because a slash command has to open the prompt to register as one, which is why
+	// context is appended below the reviewer's text rather than prepended.
+	const expansion = expandReviewCommand(input.prompt, {
+		hasGraphImpact: input.graphImpact !== undefined,
+		hasRules: (input.rules?.length ?? 0) > 0,
+	});
+	const parts: string[] = [expansion?.text ?? input.prompt];
 
-	if (input.isFirstTurn) {
+	// An expanded command re-sends the context even mid-conversation. Its whole
+	// instruction is "answer from what is below", and on a resumed turn the diff and
+	// the brief in the session belong to whichever file was on screen when the
+	// conversation started — not the one the reviewer is now looking at.
+	if (input.isFirstTurn || expansion !== null) {
+		// The two whole-merge-request passes read every patch, and deliberately drop the
+		// selection with it: handing "read all of this" a pointer at twenty lines is how
+		// a full review quietly turns into a review of one hunk.
+		const isMergeRequestScope = expansion?.scope === "merge-request" && (input.allDiffs?.length ?? 0) > 0;
+		const allDiffs = isMergeRequestScope ? formatDiffsForPrompt(input.allDiffs ?? []) : null;
+
 		const context = [
 			`Merge request under review: ${input.title} (${input.sourceBranch} → ${input.targetBranch})`,
 			input.changedPaths.length > 0
 				? `Changed files:\n${input.changedPaths.map((path) => `- ${path}`).join("\n")}`
 				: null,
+			// Rules only where the expansion asked for them, and only when the project has
+			// some: an empty "Team rules" heading reads as "this project has no standards"
+			// rather than "nobody has extracted them yet".
+			isMergeRequestScope && expansion?.needsRules && (input.rules?.length ?? 0) > 0
+				? `## Team rules\n\n${formatRulesForPrompt(input.rules ?? [])}`
+				: null,
+			allDiffs
+				? `## Changed files (every patch in this merge request)\n\n${allDiffs.text}${
+						allDiffs.omittedPaths.length > 0
+							? `\n\nNot included for length, so do not report findings on these: ${allDiffs.omittedPaths.join(", ")}`
+							: ""
+					}`
+				: null,
 			// Only when nothing is selected: a selection is the more precise answer to
 			// "what is the reviewer looking at", and sending both wastes the budget the
 			// selection exists to save.
-			input.activeDiff && !input.screen
+			!isMergeRequestScope && input.activeDiff && !input.screen
 				? `Diff of the file the reviewer is looking at:\n\n\`\`\`diff\n${input.activeDiff}\n\`\`\``
 				: null,
-			screenBlock,
+			isMergeRequestScope ? null : screenBlock,
 			input.graphImpact ?? null,
 		]
 			.filter((part): part is string => part !== null)

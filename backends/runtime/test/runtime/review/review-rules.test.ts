@@ -209,17 +209,77 @@ describe("prompt budgeting", () => {
 });
 
 describe("buildChatPrompt", () => {
-	it("keeps the reviewer's text first so a slash command still registers", () => {
+	it("keeps a pass-through command first so it still registers as a slash command", () => {
 		const prompt = buildChatPrompt({
-			prompt: "/understand-diff what does this touch?",
+			prompt: "/simplify this helper",
 			title: "Refactor payments",
 			sourceBranch: "feature/x",
 			targetBranch: "main",
 			changedPaths: ["a.py"],
 			isFirstTurn: true,
 		});
-		expect(prompt.startsWith("/understand-diff what does this touch?")).toBe(true);
+		expect(prompt.startsWith("/simplify this helper")).toBe(true);
 		expect(prompt).toContain("a.py");
+	});
+
+	it("expands the built-in review commands instead of leaving them to the CLI", () => {
+		// `/understand-diff` is not installed in the reviewed checkout, and the other two
+		// resolve against a working tree that does not have this branch — so a prompt
+		// that still starts with a slash is the bug, not the feature.
+		for (const command of ["/understand-diff", "/security-review", "/code-review"]) {
+			const prompt = buildChatPrompt({
+				prompt: `${command} focus on the parser`,
+				title: "Refactor payments",
+				sourceBranch: "feature/x",
+				targetBranch: "main",
+				changedPaths: ["a.py"],
+				isFirstTurn: true,
+			});
+			expect(prompt.startsWith("/")).toBe(false);
+			expect(prompt).toContain("focus on the parser");
+			expect(prompt).toContain("NOT checked out");
+		}
+	});
+
+	it("sends every patch for a whole-merge-request command, and drops the selection", () => {
+		const prompt = buildChatPrompt({
+			prompt: "/code-review-diff",
+			title: "Refactor payments",
+			sourceBranch: "feature/x",
+			targetBranch: "main",
+			changedPaths: ["a.py", "b.py"],
+			activeDiff: "@@ -1 +1 @@\n+active file only\n",
+			allDiffs: [
+				{ newPath: "a.py", diff: "@@ -1 +1 @@\n+first patch\n" },
+				{ newPath: "b.py", diff: "@@ -1 +1 @@\n+second patch\n" },
+			],
+			rules: [VALID_RULE as RuntimeReviewRule],
+			screen: { path: "a.py", side: "new", startLine: 4, endLine: 9, text: "twenty lines" },
+			isFirstTurn: true,
+		});
+		expect(prompt).toContain("first patch");
+		expect(prompt).toContain("second patch");
+		expect(prompt).toContain("## Team rules");
+		expect(prompt).toContain(VALID_RULE.id);
+		// Pointing a whole-merge-request pass at one selection is how it quietly becomes
+		// a review of one hunk.
+		expect(prompt).not.toContain("twenty lines");
+		expect(prompt).not.toContain("active file only");
+	});
+
+	it("keeps a screen-scoped command on the selection even when every patch is offered", () => {
+		const prompt = buildChatPrompt({
+			prompt: "/code-review",
+			title: "t",
+			sourceBranch: "s",
+			targetBranch: "m",
+			changedPaths: ["a.py"],
+			allDiffs: [{ newPath: "b.py", diff: "@@ -1 +1 @@\n+other file\n" }],
+			screen: { path: "a.py", side: "new", startLine: 4, endLine: 9, text: "these lines" },
+			isFirstTurn: true,
+		});
+		expect(prompt).toContain("these lines");
+		expect(prompt).not.toContain("other file");
 	});
 
 	it("omits the active diff section when none is given", () => {

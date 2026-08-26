@@ -3,11 +3,13 @@ import { type ReactElement, useCallback, useEffect, useMemo, useRef, useState } 
 
 import { showAppToast } from "@/components/app-toaster";
 import { ClaudeUsageChip } from "@/components/claude-usage-chip";
+import { isMergeRequestScopedPrompt, isReviewCommandPrompt } from "@/components/review/review-chat-composer";
 import { ReviewClaudePanel } from "@/components/review/review-claude-panel";
 import { ReviewDiffPane, type ReviewCommentDraftInput } from "@/components/review/review-diff-pane";
 import { ReviewFilesPanel } from "@/components/review/review-files-panel";
 import { ReviewImpactPanel } from "@/components/review/review-impact-panel";
 import { ReviewRulesPanel } from "@/components/review/review-rules-panel";
+import { ReviewRunDot, type ReviewRunState } from "@/components/review/review-run-dot";
 import { ReviewSeatPicker } from "@/components/review/review-seat-picker";
 import {
 	ReviewSubmitDialog,
@@ -17,7 +19,6 @@ import { ReviewThreadsPanel } from "@/components/review/review-threads-panel";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
 import { Spinner } from "@/components/ui/spinner";
-import { isReviewCommandPrompt } from "@/components/review/review-chat-composer";
 import { runAgentTextRequest } from "@/html/agent-sse";
 import { useHtmlAgentStream } from "@/html/use-html-agent-stream";
 import { autoFallbackAccount } from "@/manager/task-account-picker";
@@ -60,6 +61,17 @@ import type {
 } from "@/runtime/types";
 
 type LeftTab = "files" | "impact" | "threads" | "rules";
+
+/**
+ * What the dot on "Run Claude review" means. Spelled out rather than left to colour:
+ * this is the panel's widest-scope pass, and the difference between "already paid
+ * for" and "paid for, three commits ago" is the whole reason the indicator exists.
+ */
+const AUDIT_RUN_LABELS: Record<ReviewRunState, string> = {
+	unrun: "Not run for this merge request yet",
+	done: "Already run against the current head",
+	stale: "Ran against an earlier head — new commits have landed since",
+};
 
 export function ReviewWorkspaceView({
 	target,
@@ -294,12 +306,16 @@ export function ReviewWorkspaceView({
 	const auditText = audit.text;
 	const auditReset = audit.reset;
 	const setFindings = session.setFindings;
+	const markPassRun = session.markPassRun;
 	useEffect(() => {
 		if (auditStatus !== "done" || auditText.length === 0) {
 			return;
 		}
 		const findings = parseFindingsFromStream(auditText);
 		setFindings(findings);
+		// Recorded even when nothing was flagged: "ran and found nothing" is the answer
+		// the reviewer paid for, and an empty findings list must not read as "not run".
+		markPassRun("audit");
 		showAppToast({
 			intent: "success",
 			message:
@@ -308,7 +324,7 @@ export function ReviewWorkspaceView({
 					: `Claude flagged ${findings.length} item${findings.length === 1 ? "" : "s"} to triage.`,
 		});
 		auditReset();
-	}, [auditReset, auditStatus, auditText, setFindings]);
+	}, [auditReset, auditStatus, auditText, markPassRun, setFindings]);
 
 	const rulesExtractStatus = rulesExtract.status;
 	const rulesExtractReset = rulesExtract.reset;
@@ -525,6 +541,18 @@ export function ReviewWorkspaceView({
 					// selection is the more precise answer to "what are they looking at", and
 					// the runtime drops the file diff when it gets one.
 					...(session.activeFile ? { activeDiff: session.activeFile.diff } : {}),
+					// Every patch, and only for the passes that read every patch: this is the
+					// most expensive field on the request, and the runtime budgets it to 60 000
+					// characters and reports whatever did not fit. Binary and over-size files
+					// are dropped for the same reason the audit drops them — a placeholder
+					// spends prompt budget and cannot be reviewed.
+					...(isMergeRequestScopedPrompt(prompt)
+						? {
+								allDiffs: session.files
+									.filter((file) => file.diff.length > 0 && !file.binary && !file.tooLarge)
+									.map((file) => ({ newPath: file.newPath, diff: file.diff })),
+							}
+						: {}),
 					...(selection ? { screen: selection } : {}),
 					...(visibleRange && !selection ? { visible: visibleRange } : {}),
 					...(expectSuggestions ? { expectSuggestions: true } : {}),
@@ -859,6 +887,7 @@ export function ReviewWorkspaceView({
 	);
 
 	const mergeRequest = session.mergeRequest;
+	const auditRunState = session.passRunState("audit");
 
 	return (
 		<div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-surface-0">
@@ -958,6 +987,9 @@ export function ReviewWorkspaceView({
 						disabled={audit.status === "running" || chat.status === "running" || rulesExtract.status === "running"}
 						onChange={setSeatChoice}
 					/>
+					{/* The widest-scope pass in the panel: every patch against the whole rules
+					    bundle. The dot is here because nothing else said whether it had already
+					    been paid for, and it goes amber once new commits land on the branch. */}
 					<Button
 						variant="default"
 						size="sm"
@@ -965,7 +997,10 @@ export function ReviewWorkspaceView({
 						disabled={audit.status === "running" || session.files.length === 0}
 						onClick={runAudit}
 					>
-						{audit.status === "running" ? "Reviewing…" : "Run Claude review"}
+						<span className="flex items-center gap-1.5">
+							<ReviewRunDot state={auditRunState} label={AUDIT_RUN_LABELS[auditRunState]} />
+							{audit.status === "running" ? "Reviewing…" : "Run Claude review"}
+						</span>
 					</Button>
 					<Button
 						variant="primary"
