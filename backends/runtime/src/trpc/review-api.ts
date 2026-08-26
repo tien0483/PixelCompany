@@ -1,4 +1,8 @@
 import type {
+	RuntimeReviewGraphDashboardRequest,
+	RuntimeReviewGraphDashboardResponse,
+	RuntimeReviewGraphImpactRequest,
+	RuntimeReviewGraphImpactResponse,
 	RuntimeReviewRulesConfig,
 	RuntimeReviewRulesConfigResponse,
 	RuntimeReviewRulesReadRequest,
@@ -8,6 +12,9 @@ import type {
 	RuntimeReviewSessionResponse,
 	RuntimeReviewSessionWriteRequest,
 } from "../core/api-contract";
+import { startReviewGraphDashboard } from "../review/review-dashboard-process";
+import { loadReviewGraphIndex, readReviewGraphFreshness } from "../review/review-graph";
+import { buildReviewGraphBrief } from "../review/review-graph-brief";
 import { readReviewRulesBundle, readReviewRulesConfig, writeReviewRulesConfig } from "../review/review-rules";
 import {
 	createEmptyReviewSession,
@@ -72,6 +79,91 @@ export function createReviewApi(): RuntimeTrpcContext["reviewApi"] {
 				return { ok: true, config: input };
 			} catch (error) {
 				return { ok: false, config: null, error: fail(error) };
+			}
+		},
+
+		getGraphImpact: async (input: RuntimeReviewGraphImpactRequest): Promise<RuntimeReviewGraphImpactResponse> => {
+			try {
+				// Asked separately from the brief because the two disagree on what an
+				// empty result means. The brief returns nothing when there is nothing
+				// worth sending an agent; the panel still has to say *why* — no graph,
+				// versus a graph that has never heard of these paths.
+				const loaded = await loadReviewGraphIndex(input.projectPath);
+				if (loaded.index === null) {
+					return {
+						ok: loaded.error === undefined,
+						hasGraph: false,
+						...(loaded.error === undefined ? {} : { error: loaded.error }),
+					};
+				}
+				const index = loaded.index;
+				if (input.changedPaths.length === 0) {
+					// A graph with nothing to compare it against: report the graph itself so
+					// the panel can still show what it would be reading.
+					const freshness = await readReviewGraphFreshness(input.projectPath, index.project, {
+						dataDir: index.dataDir,
+					});
+					return {
+						ok: true,
+						hasGraph: true,
+						dataDir: index.dataDir,
+						project: index.project,
+						nodeCount: index.nodeCount,
+						edgeCount: index.edgeCount,
+						freshness,
+						changed: [],
+						affected: [],
+						affectedOmitted: 0,
+						dependencies: [],
+						dependenciesOmitted: 0,
+						layers: [],
+						unmatchedPaths: [],
+					};
+				}
+				const brief = await buildReviewGraphBrief({
+					projectPath: input.projectPath,
+					changedPaths: input.changedPaths,
+					...(input.baseBranch === undefined ? {} : { baseBranch: input.baseBranch }),
+				});
+				if (brief === null) {
+					return { ok: false, hasGraph: true, error: "The knowledge graph could not be read." };
+				}
+				return {
+					ok: true,
+					hasGraph: true,
+					dataDir: brief.impact.dataDir,
+					project: brief.impact.project,
+					nodeCount: index.nodeCount,
+					edgeCount: index.edgeCount,
+					freshness: brief.freshness,
+					changed: brief.impact.changed,
+					affected: brief.impact.affected,
+					affectedOmitted: brief.impact.affectedOmitted,
+					dependencies: brief.impact.dependencies,
+					dependenciesOmitted: brief.impact.dependenciesOmitted,
+					layers: brief.impact.layers,
+					unmatchedPaths: brief.impact.unmatchedPaths,
+				};
+			} catch (error) {
+				return { ok: false, hasGraph: false, error: fail(error) };
+			}
+		},
+
+		openGraphDashboard: async (
+			input: RuntimeReviewGraphDashboardRequest,
+		): Promise<RuntimeReviewGraphDashboardResponse> => {
+			try {
+				// No `warn`/`log` callbacks: nothing else in this layer writes to the
+				// console, and a failure here has somewhere better to go — the error
+				// travels back in the response and is rendered in the Impact panel, where
+				// the person who pressed the button will actually read it.
+				const started = await startReviewGraphDashboard({ projectPath: input.projectPath });
+				if (!started.ok) {
+					return { ok: false, error: started.error };
+				}
+				return { ok: true, url: started.dashboard.url, port: started.dashboard.port };
+			} catch (error) {
+				return { ok: false, error: fail(error) };
 			}
 		},
 	};

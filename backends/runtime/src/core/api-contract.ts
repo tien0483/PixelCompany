@@ -3689,6 +3689,116 @@ export const runtimeReviewSessionWriteRequestSchema = z.object({
 });
 export type RuntimeReviewSessionWriteRequest = z.infer<typeof runtimeReviewSessionWriteRequestSchema>;
 
+/*
+ * Knowledge-graph impact
+ *
+ * The same walk the review agents are handed as prose, exposed to the UI as data.
+ * It costs no tokens, which is the point: the Impact tab is how a reviewer checks
+ * what the agents were told, and a blast radius is useful to a human whether or
+ * not anyone runs an agent over it.
+ */
+
+export const runtimeReviewGraphImpactDirectionSchema = z.enum(["dependent", "dependency", "related"]);
+export type RuntimeReviewGraphImpactDirection = z.infer<typeof runtimeReviewGraphImpactDirectionSchema>;
+
+export const runtimeReviewGraphComponentSchema = z.object({
+	nodeId: z.string(),
+	type: z.string(),
+	name: z.string(),
+	filePath: z.string().optional(),
+	summary: z.string().optional(),
+	complexity: z.union([z.number(), z.string()]).optional(),
+	/** The edge type this was reached by, e.g. `imports`. Absent on changed components. */
+	via: z.string().optional(),
+	direction: runtimeReviewGraphImpactDirectionSchema.optional(),
+	fromNodeId: z.string().optional(),
+});
+export type RuntimeReviewGraphComponent = z.infer<typeof runtimeReviewGraphComponentSchema>;
+
+export const runtimeReviewGraphFreshnessSchema = z.object({
+	graphCommit: z.string().nullable(),
+	headCommit: z.string().nullable(),
+	/** A sample of the drifted paths, for a tooltip. Not the whole list. */
+	changedSinceGraph: z.array(z.string()),
+	changedSinceGraphCount: z.number().int().nonnegative(),
+	isStale: z.boolean(),
+	error: z.string().optional(),
+});
+export type RuntimeReviewGraphFreshness = z.infer<typeof runtimeReviewGraphFreshnessSchema>;
+
+export const runtimeReviewGraphImpactRequestSchema = z.object({
+	/** The reviewer's local checkout; the graph is looked for under it. */
+	projectPath: z.string().min(1),
+	changedPaths: z.array(z.string()),
+	/** Recorded in the dashboard overlay when one is written. */
+	baseBranch: z.string().optional(),
+});
+export type RuntimeReviewGraphImpactRequest = z.infer<typeof runtimeReviewGraphImpactRequestSchema>;
+
+export const runtimeReviewGraphImpactResponseSchema = z.object({
+	ok: z.boolean(),
+	/**
+	 * False when the project has no `.ua`/`.understand-anything` graph at all. The UI
+	 * shows an offer to build one rather than an error: never having run
+	 * `/understand` is the normal state of a new project, not a failure.
+	 */
+	hasGraph: z.boolean(),
+	/** Absolute path to the data directory, so the UI can name what it is reading. */
+	dataDir: z.string().optional(),
+	project: z
+		.object({
+			name: z.string().optional(),
+			languages: z.array(z.string()).optional(),
+			frameworks: z.array(z.string()).optional(),
+			analyzedAt: z.string().optional(),
+			gitCommitHash: z.string().optional(),
+		})
+		.optional(),
+	nodeCount: z.number().int().nonnegative().optional(),
+	edgeCount: z.number().int().nonnegative().optional(),
+	freshness: runtimeReviewGraphFreshnessSchema.optional(),
+	changed: z.array(runtimeReviewGraphComponentSchema).optional(),
+	affected: z.array(runtimeReviewGraphComponentSchema).optional(),
+	affectedOmitted: z.number().int().nonnegative().optional(),
+	dependencies: z.array(runtimeReviewGraphComponentSchema).optional(),
+	dependenciesOmitted: z.number().int().nonnegative().optional(),
+	layers: z.array(z.object({ id: z.string(), name: z.string(), description: z.string().optional() })).optional(),
+	unmatchedPaths: z.array(z.string()).optional(),
+	error: z.string().optional(),
+});
+export type RuntimeReviewGraphImpactResponse = z.infer<typeof runtimeReviewGraphImpactResponseSchema>;
+
+export const runtimeReviewGraphRebuildRequestSchema = z.object({
+	/** The checkout to analyze. The graph is written into its data directory. */
+	projectPath: z.string().min(1),
+	/** An `agy models` id, effort suffix included. Omitted means agy's own default. */
+	model: z.string().optional(),
+	effort: z.enum(["low", "medium", "high"]).optional(),
+	/**
+	 * The Antigravity seat to bill. Honoured for its refusals — an over-cap seat
+	 * blocks the run — while the credential itself is machine-wide in `~/.gemini`.
+	 */
+	managerAccountId: z.number().int().positive().optional(),
+});
+export type RuntimeReviewGraphRebuildRequest = z.infer<typeof runtimeReviewGraphRebuildRequestSchema>;
+
+export const runtimeReviewGraphDashboardRequestSchema = z.object({
+	projectPath: z.string().min(1),
+});
+export type RuntimeReviewGraphDashboardRequest = z.infer<typeof runtimeReviewGraphDashboardRequestSchema>;
+
+export const runtimeReviewGraphDashboardResponseSchema = z.object({
+	ok: z.boolean(),
+	/**
+	 * Carries the viewer's one-time `?token=`, without which every data endpoint
+	 * 403s. It is only ever handed to the local UI, which opens it in a browser tab.
+	 */
+	url: z.string().optional(),
+	port: z.number().int().positive().optional(),
+	error: z.string().optional(),
+});
+export type RuntimeReviewGraphDashboardResponse = z.infer<typeof runtimeReviewGraphDashboardResponseSchema>;
+
 export const runtimeReviewRulesExtractRequestSchema = z.object({
 	projectKey: z.string().min(1),
 	sourceRoots: z.array(z.string()).min(1),
@@ -3714,6 +3824,12 @@ export const runtimeReviewAuditRequestSchema = z.object({
 		)
 		.min(1),
 	projectKey: z.string().min(1),
+	/**
+	 * The reviewer's local checkout. The audit needs no repository access for the
+	 * patches — they travel inline — but it is where the knowledge graph lives, so
+	 * without this the pass cannot see what the change affects.
+	 */
+	cwd: z.string().optional(),
 	model: z.string().optional(),
 	managerAccountId: z.number().int().positive().optional(),
 });

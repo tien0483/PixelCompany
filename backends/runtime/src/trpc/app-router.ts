@@ -271,6 +271,14 @@ import {
 	runtimeGitlabRawFileResponseSchema,
 	type RuntimeGitlabResolveDiscussionRequest,
 	runtimeGitlabResolveDiscussionRequestSchema,
+	type RuntimeReviewGraphDashboardRequest,
+	runtimeReviewGraphDashboardRequestSchema,
+	type RuntimeReviewGraphDashboardResponse,
+	runtimeReviewGraphDashboardResponseSchema,
+	type RuntimeReviewGraphImpactRequest,
+	runtimeReviewGraphImpactRequestSchema,
+	type RuntimeReviewGraphImpactResponse,
+	runtimeReviewGraphImpactResponseSchema,
 	type RuntimeReviewRulesConfig,
 	runtimeReviewRulesConfigSchema,
 	type RuntimeReviewRulesConfigResponse,
@@ -920,6 +928,8 @@ export interface RuntimeTrpcContext {
 		getRules: (input: RuntimeReviewRulesReadRequest) => Promise<RuntimeReviewRulesReadResponse>;
 		getRulesConfig: (input: RuntimeReviewRulesReadRequest) => Promise<RuntimeReviewRulesConfigResponse>;
 		setRulesConfig: (input: RuntimeReviewRulesConfig) => Promise<RuntimeReviewRulesConfigResponse>;
+		getGraphImpact: (input: RuntimeReviewGraphImpactRequest) => Promise<RuntimeReviewGraphImpactResponse>;
+		openGraphDashboard: (input: RuntimeReviewGraphDashboardRequest) => Promise<RuntimeReviewGraphDashboardResponse>;
 	};
 }
 
@@ -2033,6 +2043,18 @@ export const runtimeAppRouter = t.router({
 			.output(runtimeReviewRulesConfigResponseSchema)
 			.mutation(async ({ ctx, input }) => {
 				return await ctx.reviewApi.setRulesConfig(input);
+			}),
+		getGraphImpact: t.procedure
+			.input(runtimeReviewGraphImpactRequestSchema)
+			.output(runtimeReviewGraphImpactResponseSchema)
+			.query(async ({ ctx, input }) => {
+				return await ctx.reviewApi.getGraphImpact(input);
+			}),
+		openGraphDashboard: t.procedure
+			.input(runtimeReviewGraphDashboardRequestSchema)
+			.output(runtimeReviewGraphDashboardResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.reviewApi.openGraphDashboard(input);
 			}),
 	}),
 });

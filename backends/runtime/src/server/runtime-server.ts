@@ -27,6 +27,7 @@ import {
 	RuntimeHtmlGenerateRequestSchema,
 	runtimeReviewAuditRequestSchema,
 	runtimeReviewChatRequestSchema,
+	runtimeReviewGraphRebuildRequestSchema,
 	runtimeReviewRulesExtractRequestSchema,
 	runtimeReviewSuggestCommentRequestSchema,
 } from "../core/api-contract";
@@ -68,6 +69,12 @@ import {
 	REVIEW_SUGGEST_ALLOWED_TOOLS,
 	resolveReviewAgentCwd,
 } from "../review/review-agent-args";
+import { buildReviewGraphPromptSection } from "../review/review-graph-brief";
+import {
+	GRAPH_REBUILD_IDLE_TIMEOUT_MS,
+	GRAPH_REBUILD_TIMEOUT_MS,
+	resolveGraphRebuildPrompt,
+} from "../review/review-graph-rebuild";
 import {
 	buildAuditPrompt,
 	buildChatPrompt,
@@ -1273,6 +1280,25 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 								error: "No rules have been extracted for this project yet. Refresh the rules first.",
 							};
 						}
+						const activeWorkspaceId = deps.workspaceRegistry.getActiveWorkspaceId();
+						// The audit used to run with no cwd at all — the rules were inline and the
+						// patches were inline, so there was nothing to anchor to. The knowledge
+						// graph is the thing that changed that: it lives in the checkout, so the
+						// pass needs to know which checkout.
+						const cwd = resolveReviewAgentCwd({
+							cwd: input.cwd,
+							projectPath: activeWorkspaceId
+								? deps.workspaceRegistry.getWorkspacePathById(activeWorkspaceId)
+								: null,
+						});
+						// The audit is the reviewer pressing a button on a specific merge request,
+						// so it is also the right moment to refresh the dashboard's overlay.
+						const graphImpact = await buildReviewGraphPromptSection({
+							projectPath: cwd,
+							changedPaths: input.files.map((file) => file.newPath),
+							baseBranch: input.targetBranch,
+							writeDiffOverlay: true,
+						});
 						return {
 							ok: true,
 							prompt: buildAuditPrompt({
@@ -1281,7 +1307,9 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 								targetBranch: input.targetBranch,
 								rules: bundle.rules,
 								files: input.files,
+								...(graphImpact === undefined ? {} : { graphImpact }),
 							}),
+							...(cwd === undefined ? {} : { cwd }),
 							model: input.model,
 							allowedTools: REVIEW_AUDIT_ALLOWED_TOOLS,
 							managerAccountId: input.managerAccountId,
@@ -1302,6 +1330,25 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 							? (await gitlabApi.getMergeRequest({ projectId: input.projectId, iid: input.iid })).mergeRequest
 							: null;
 						const activeWorkspaceId = deps.workspaceRegistry.getActiveWorkspaceId();
+						const cwd = resolveReviewAgentCwd({
+							cwd: input.cwd,
+							// The active project's checkout, so `/understand-diff` and codebase
+							// questions resolve against the repo the reviewer is looking at.
+							projectPath: activeWorkspaceId
+								? deps.workspaceRegistry.getWorkspacePathById(activeWorkspaceId)
+								: null,
+						});
+						// First turn only, like the diff below it: a resumed turn already has the
+						// brief in the CLI session, and re-sending it per message is what made
+						// this panel expensive in the first place. The chat never writes the
+						// overlay — the reviewer did not ask for a file to change.
+						const graphImpact = isFirstTurn
+							? await buildReviewGraphPromptSection({
+									projectPath: cwd,
+									changedPaths: input.changedPaths,
+									baseBranch: mergeRequest?.targetBranch ?? "unknown",
+								})
+							: undefined;
 						return {
 							ok: true,
 							prompt: buildChatPrompt({
@@ -1317,20 +1364,47 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 								visible: input.visible,
 								isFirstTurn,
 								expectSuggestions: input.expectSuggestions,
+								...(graphImpact === undefined ? {} : { graphImpact }),
 							}),
-							cwd: resolveReviewAgentCwd({
-								cwd: input.cwd,
-								// The active project's checkout, so `/understand-diff` and codebase
-								// questions resolve against the repo the reviewer is looking at.
-								projectPath: activeWorkspaceId
-									? deps.workspaceRegistry.getWorkspacePathById(activeWorkspaceId)
-									: null,
-							}),
+							...(cwd === undefined ? {} : { cwd }),
 							model: input.model,
 							allowedTools: REVIEW_CHAT_ALLOWED_TOOLS,
 							managerAccountId: input.managerAccountId,
 							appendSystemPrompt: REVIEW_CHAT_SYSTEM_PROMPT,
 							resumeSessionId: input.resumeSessionId,
+						};
+					},
+				});
+				return;
+			}
+			if (pathname === "/api/review/graph-rebuild" && (req.method ?? "GET").toUpperCase() === "POST") {
+				await handleAgentStreamRoute(req, res, {
+					buildPinInput: buildHtmlAgentPinInput,
+					schema: runtimeReviewGraphRebuildRequestSchema,
+					buildRun: async (input) => {
+						const resolved = await resolveGraphRebuildPrompt({ projectPath: input.projectPath });
+						if (!resolved.ok) {
+							// Before any agent is spawned, and deliberately so: a rebuild whose
+							// instructions could not be read would otherwise become an agent
+							// improvising a knowledge graph, and every later review prompt would
+							// quote that invention as fact.
+							return { ok: false, status: 409, error: resolved.error };
+						}
+						return {
+							ok: true,
+							agentId: "gemini",
+							prompt: resolved.prompt,
+							cwd: input.projectPath,
+							model: input.model,
+							// agy's tool set is its own; `--allowedTools` is a Claude flag and is
+							// not passed for this engine.
+							allowedTools: [],
+							...(input.effort === undefined ? {} : { effort: input.effort }),
+							// The analysis writes the graph and shells out to the skill's scripts.
+							skipPermissions: true,
+							idleTimeoutMs: GRAPH_REBUILD_IDLE_TIMEOUT_MS,
+							timeoutMs: GRAPH_REBUILD_TIMEOUT_MS,
+							managerAccountId: input.managerAccountId,
 						};
 					},
 				});

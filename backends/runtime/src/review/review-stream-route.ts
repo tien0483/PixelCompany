@@ -25,6 +25,22 @@ export interface AgentStreamRunPlan {
 	model?: string;
 	allowedTools: readonly string[];
 	managerAccountId?: number;
+	/**
+	 * Defaults to Claude, which is what every review pass uses. The knowledge-graph
+	 * rebuild is the exception: it runs on `gemini` so a whole-repository analysis
+	 * comes out of the Antigravity quota pool instead of the reviewer's Claude seat.
+	 */
+	agentId?: "claude" | "gemini";
+	/** Antigravity only. */
+	effort?: "low" | "medium" | "high";
+	/**
+	 * Antigravity only. `agy` starts in `request-review` permission mode, so a run
+	 * that has to write files needs this or it stalls until the idle watchdog fires.
+	 */
+	skipPermissions?: boolean;
+	/** Overrides the route defaults, for a run that is minutes rather than seconds. */
+	idleTimeoutMs?: number;
+	timeoutMs?: number;
 	/** Persona for the run. Only the review chat sets one. */
 	appendSystemPrompt?: string;
 	/**
@@ -153,14 +169,16 @@ export async function handleAgentStreamRoute<TInput>(
 		streamed = "";
 		sawError = false;
 		await runAgentOneShot({
-			agentId: "claude",
+			agentId: run.agentId ?? "claude",
 			prompt: run.prompt,
 			cwd: run.cwd,
 			model: run.model,
 			allowedTools: [...run.allowedTools],
-			idleTimeoutMs: REVIEW_AGENT_IDLE_TIMEOUT_MS,
-			timeoutMs: REVIEW_AGENT_HARD_TIMEOUT_MS,
+			idleTimeoutMs: run.idleTimeoutMs ?? REVIEW_AGENT_IDLE_TIMEOUT_MS,
+			timeoutMs: run.timeoutMs ?? REVIEW_AGENT_HARD_TIMEOUT_MS,
 			signal: abortCtl.signal,
+			...(run.effort ? { effort: run.effort } : {}),
+			...(run.skipPermissions ? { skipPermissions: run.skipPermissions } : {}),
 			...(run.appendSystemPrompt ? { appendSystemPrompt: run.appendSystemPrompt } : {}),
 			...(options2.resumeSessionId ? { resumeSessionId: options2.resumeSessionId } : {}),
 			onEvent: (event) => {

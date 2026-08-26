@@ -29,6 +29,10 @@ import {
 	runtimeGitlabRawFileRequestSchema,
 	runtimeGitlabRawFileResponseSchema,
 	runtimeGitlabResolveDiscussionRequestSchema,
+	runtimeReviewGraphDashboardRequestSchema,
+	runtimeReviewGraphDashboardResponseSchema,
+	runtimeReviewGraphImpactRequestSchema,
+	runtimeReviewGraphImpactResponseSchema,
 	runtimeReviewRulesConfigResponseSchema,
 	runtimeReviewRulesConfigSchema,
 	runtimeReviewRulesReadRequestSchema,
@@ -184,6 +188,18 @@ export const reviewStandaloneRouter = t.router({
 			.output(runtimeReviewRulesConfigResponseSchema)
 			.mutation(async ({ ctx, input }) => {
 				return await ctx.reviewApi.setRulesConfig(input);
+			}),
+		getGraphImpact: t.procedure
+			.input(runtimeReviewGraphImpactRequestSchema)
+			.output(runtimeReviewGraphImpactResponseSchema)
+			.query(async ({ ctx, input }) => {
+				return await ctx.reviewApi.getGraphImpact(input);
+			}),
+		openGraphDashboard: t.procedure
+			.input(runtimeReviewGraphDashboardRequestSchema)
+			.output(runtimeReviewGraphDashboardResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.reviewApi.openGraphDashboard(input);
 			}),
 	}),
 	claude: t.router({
