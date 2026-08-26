@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 
 _CODE_ASSIST = "https://cloudcode-pa.googleapis.com/v1internal"
 _POOLS = (
-    {"ideType": "ANTIGRAVITY", "pluginType": "GEMINI", "name": "antigravity"},
+    {"ideType": "ANTIGRAVITY", "pluginType": "ANTIGRAVITY", "name": "antigravity"},
     {"ideType": "GEMINI_CLI", "pluginType": "GEMINI", "name": "gemini_cli"},
 )
 

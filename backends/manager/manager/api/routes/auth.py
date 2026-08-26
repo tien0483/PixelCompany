@@ -1558,11 +1558,11 @@ async def reimport_account(account_id: int, request: Request, provider: str = "c
     if provider == "antigravity":
         from manager.antigravity.accounts import (
             AntigravityImportError,
-            import_antigravity_account,
+            reimport_antigravity_account,
         )
 
         try:
-            updated = await asyncio.to_thread(import_antigravity_account, db)
+            updated = await asyncio.to_thread(reimport_antigravity_account, account_id, db)
         except AntigravityImportError as exc:
             return JSONResponse(
                 status_code=status.HTTP_400_BAD_REQUEST,
