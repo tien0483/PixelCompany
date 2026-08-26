@@ -7,7 +7,9 @@ import { cn } from "@/components/ui/cn";
 import { Spinner } from "@/components/ui/spinner";
 import {
 	buildReviewInboxQuery,
+	describeApprovalState,
 	describeReviewers,
+	filterMergeRequestsForTab,
 	REVIEW_INBOX_TABS,
 	type ReviewInboxTab,
 	splitByReviewerRequested,
@@ -120,17 +122,18 @@ export function ReviewMergeRequestListScreen({
 	}, [loadMergeRequests]);
 
 	const visible = useMemo(() => {
+		const forTab = filterMergeRequestsForTab(tab, mergeRequests);
 		const needle = search.trim().toLowerCase();
 		if (needle.length === 0) {
-			return mergeRequests;
+			return forTab;
 		}
-		return mergeRequests.filter(
+		return forTab.filter(
 			(mergeRequest) =>
 				mergeRequest.title.toLowerCase().includes(needle) ||
 				String(mergeRequest.iid).includes(needle) ||
 				mergeRequest.sourceBranch.toLowerCase().includes(needle),
 		);
-	}, [mergeRequests, search]);
+	}, [mergeRequests, search, tab]);
 
 	const split = useMemo(() => splitByReviewerRequested(visible), [visible]);
 
@@ -285,9 +288,13 @@ export function ReviewMergeRequestListScreen({
 function emptyMessageForTab(tab: ReviewInboxTab): string {
 	switch (tab) {
 		case "requested":
-			return "Nobody has requested your review.";
+			return "Nobody is waiting on your review.";
+		case "approvedByMe":
+			return "You have not approved any of the merge requests on this page.";
 		case "mine":
 			return "You have no merge requests matching those filters.";
+		case "mineApproved":
+			return "None of your merge requests have been approved yet.";
 		case "browse":
 			return "No merge requests match those filters.";
 	}
@@ -327,6 +334,7 @@ function MergeRequestRow({
 	onOpen: (mergeRequest: RuntimeGitlabMergeRequestSummary) => void;
 }): ReactElement {
 	const reviewers = describeReviewers(mergeRequest);
+	const approval = describeApprovalState(mergeRequest);
 	return (
 		<div
 			role="button"
@@ -354,6 +362,19 @@ function MergeRequestRow({
 					{reviewers ? ` · review: ${reviewers}` : ""}
 				</div>
 			</div>
+			{approval ? (
+				<span
+					data-testid="review-mr-approval-badge"
+					className={cn(
+						"shrink-0 rounded px-1.5 py-0.5 text-[10px]",
+						approval.tone === "approved"
+							? "bg-status-green/20 text-status-green"
+							: "bg-surface-4 text-text-secondary",
+					)}
+				>
+					{approval.label}
+				</span>
+			) : null}
 			{mergeRequest.pipelineStatus ? (
 				<span
 					className={cn(

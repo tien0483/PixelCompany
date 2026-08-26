@@ -3337,6 +3337,18 @@ export const runtimeGitlabMergeRequestSummarySchema = z.object({
 	/** GitLab omits these on list endpoints unless asked; null means "unknown". */
 	changesCount: z.string().nullable(),
 	userNotesCount: z.number().nullable(),
+	/**
+	 * Approval state, and the reason every one of these is nullable: GitLab's list
+	 * endpoints carry no approval data at all, so filling them in costs one extra
+	 * request per row and only happens when the caller sets `withApprovals`.
+	 *
+	 * Null therefore means "never looked up", which is a different thing from "not
+	 * approved" and must render as no badge rather than as a green or red one.
+	 */
+	approvedByMe: z.boolean().nullable(),
+	approvedByCount: z.number().nullable(),
+	approvalsRequired: z.number().nullable(),
+	approvalsLeft: z.number().nullable(),
 });
 export type RuntimeGitlabMergeRequestSummary = z.infer<typeof runtimeGitlabMergeRequestSummarySchema>;
 
@@ -3353,6 +3365,13 @@ export const runtimeGitlabMergeRequestListRequestSchema = z.object({
 	reviewerId: z.number().int().positive().optional(),
 	search: z.string().optional(),
 	limit: z.number().int().positive().max(100).optional(),
+	/**
+	 * Fill in the approval fields on every row. Off by default because it is one
+	 * extra request per merge request — GitLab exposes approvals nowhere on the
+	 * list endpoint, and `approved_by_ids` is a paid-tier filter this instance
+	 * cannot be assumed to have.
+	 */
+	withApprovals: z.boolean().optional(),
 });
 export type RuntimeGitlabMergeRequestListRequest = z.infer<typeof runtimeGitlabMergeRequestListRequestSchema>;
 
