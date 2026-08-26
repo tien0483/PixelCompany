@@ -258,6 +258,19 @@ function parseAccount(raw: unknown): RuntimeManagerAccount | null {
 	const canAutoSwap = typeof raw.can_auto_swap === "boolean" ? raw.can_auto_swap : fallback.canAutoSwap;
 	const canTrackUsage = typeof raw.can_track_usage === "boolean" ? raw.can_track_usage : fallback.canTrackUsage;
 
+	const rawTiers = Array.isArray(usage?.tiers) ? usage.tiers : null;
+	const usageTiers = rawTiers
+		? rawTiers.filter(isRecord).map((t) => ({
+				name: String(t.name || ""),
+				label: String(t.label || ""),
+				description: t.description ? String(t.description) : null,
+				fiveHourPercent: typeof t.five_hour === "number" ? t.five_hour : null,
+				sevenDayPercent: typeof t.seven_day === "number" ? t.seven_day : null,
+				fiveHourResetsAt: t.five_hour_resets_at ? String(t.five_hour_resets_at) : null,
+				sevenDayResetsAt: t.seven_day_resets_at ? String(t.seven_day_resets_at) : null,
+			}))
+		: null;
+
 	return {
 		id,
 		provider,
@@ -282,6 +295,7 @@ function parseAccount(raw: unknown): RuntimeManagerAccount | null {
 		isActiveForProvider: readBoolean(raw, "is_active_for_provider"),
 		validationStatus: readString(raw, "validation_status"),
 		lastError: readString(raw, "last_error"),
+		usageTiers,
 	};
 }
 

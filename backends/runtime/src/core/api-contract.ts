@@ -830,7 +830,31 @@ export const RuntimeManagerAccountSchema = z.object({
 	validationStatus: z.string().nullable(),
 	/** Last credential/usage error from jacked, when the seat needs attention. */
 	lastError: z.string().nullable(),
+	/** Distinct quota tiers/pools (e.g. Antigravity Gemini vs Claude/GPT-OSS). */
+	usageTiers: z
+		.array(
+			z.object({
+				name: z.string(),
+				label: z.string(),
+				description: z.string().nullable().optional(),
+				fiveHourPercent: z.number().nullable(),
+				sevenDayPercent: z.number().nullable(),
+				fiveHourResetsAt: z.string().nullable(),
+				sevenDayResetsAt: z.string().nullable(),
+			}),
+		)
+		.nullable()
+		.optional(),
 });
+export type RuntimeManagerUsageTier = {
+	name: string;
+	label: string;
+	description?: string | null;
+	fiveHourPercent: number | null;
+	sevenDayPercent: number | null;
+	fiveHourResetsAt: string | null;
+	sevenDayResetsAt: string | null;
+};
 export type RuntimeManagerAccount = z.infer<typeof RuntimeManagerAccountSchema>;
 
 export const RuntimeManagerFeatureCategorySchema = z.enum(["agents", "commands", "hooks", "knowledge"]);
