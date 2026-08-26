@@ -3690,6 +3690,12 @@ export const runtimeReviewAuditRequestSchema = z.object({
 		)
 		.min(1),
 	projectKey: z.string().min(1),
+	/**
+	 * The reviewer's local checkout. The audit needs no repository access for the
+	 * patches — they travel inline — but it is where the knowledge graph lives, so
+	 * without this the pass cannot see what the change affects.
+	 */
+	cwd: z.string().optional(),
 	model: z.string().optional(),
 	managerAccountId: z.number().int().positive().optional(),
 });

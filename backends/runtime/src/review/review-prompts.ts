@@ -5,11 +5,114 @@
 // parsers in `review-rules.ts` are tolerant of a code fence and trailing prose
 // anyway, but asking for clean output is what keeps the common case cheap.
 import type { RuntimeReviewRule } from "../core/api-contract";
+import type { ReviewGraphFreshness, ReviewGraphImpact, ReviewGraphImpactComponent } from "./review-graph";
 
 /** Budget for the rules text pasted into an audit prompt, in characters. */
 const RULES_PROMPT_BUDGET = 24_000;
 /** Budget for the patches pasted into an audit prompt, in characters. */
 const DIFF_PROMPT_BUDGET = 60_000;
+
+/**
+ * The knowledge-graph brief, rendered for a prompt.
+ *
+ * The point of handing this to the agent pre-computed is that the alternative —
+ * letting it grep `.ua/knowledge-graph.json` — costs a search budget against a
+ * 24 MB file for an answer that is a deterministic graph walk. So the brief has to
+ * be *complete enough to be trusted*: it says what it looked at, what it could not
+ * match, and how much it dropped, because an agent that suspects the list is
+ * partial will go and grep anyway.
+ */
+function formatImpactComponent(component: ReviewGraphImpactComponent): string {
+	const location = component.filePath ?? "(no file)";
+	const label = component.name === location ? location : `${location} · ${component.name}`;
+	const via = component.via ? ` — reached via \`${component.via}\`` : "";
+	const summary = component.summary ? `\n  ${component.summary}` : "";
+	// `related` is the one direction worth naming inline: it is in the dependents list
+	// but the graph never said which way round it runs, so it deserves less weight.
+	const uncertain = component.direction === "related" ? " (direction unknown)" : "";
+	return `- [${component.type}] ${label}${via}${uncertain}${summary}`;
+}
+
+export function formatGraphImpactForPrompt(input: {
+	impact: ReviewGraphImpact;
+	freshness?: ReviewGraphFreshness | null;
+}): string {
+	const { impact, freshness } = input;
+	const lines: string[] = [
+		"## Knowledge-graph impact",
+		"",
+		`Derived from this project's Understand Anything knowledge graph (\`${impact.dataDir}\`) by walking one hop out from the changed files. It is already complete for one hop — do not search the repository or read the graph file to reproduce it.`,
+		"",
+	];
+
+	if (impact.changed.length > 0) {
+		lines.push("### Changed components", "", impact.changed.map(formatImpactComponent).join("\n"), "");
+	}
+
+	if (impact.affected.length > 0) {
+		lines.push(
+			"### Dependents (one hop out — these depend on the changed code, so these are what may break)",
+			"",
+			impact.affected.map(formatImpactComponent).join("\n"),
+			"",
+		);
+		if (impact.affectedOmitted > 0) {
+			lines.push(
+				`(${impact.affectedOmitted} further dependents omitted, ranked lower by edge weight and complexity.)`,
+				"",
+			);
+		}
+	} else {
+		lines.push("### Dependents", "", "None: nothing in the graph depends on the changed nodes.", "");
+	}
+
+	// Kept separate and shorter on purpose. A dependency is what the change relies
+	// on, so it is background for reading the diff — listing it under "affected"
+	// would put the change's own import list in the list of things to go and check.
+	if (impact.dependencies.length > 0) {
+		lines.push(
+			"### Dependencies (what the changed code relies on — context, not blast radius)",
+			"",
+			impact.dependencies.map(formatImpactComponent).join("\n"),
+			"",
+		);
+		if (impact.dependenciesOmitted > 0) {
+			lines.push(`(${impact.dependenciesOmitted} further dependencies omitted.)`, "");
+		}
+	}
+
+	if (impact.layers.length > 0) {
+		lines.push(
+			`### Layers touched`,
+			"",
+			impact.layers.map((layer) => `- ${layer.name}${layer.description ? ` — ${layer.description}` : ""}`).join("\n"),
+			"",
+		);
+	}
+
+	const caveats: string[] = [];
+	if (impact.unmatchedPaths.length > 0) {
+		caveats.push(
+			`The graph has no node for ${impact.unmatchedPaths.length} changed path(s), so nothing above covers them: ${impact.unmatchedPaths
+				.slice(0, 12)
+				.join(", ")}${impact.unmatchedPaths.length > 12 ? ", …" : ""}. New files are the usual reason.`,
+		);
+	}
+	if (freshness?.isStale) {
+		caveats.push(
+			`The graph was built at ${freshness.graphCommit?.slice(0, 8) ?? "an unknown commit"} and ${
+				freshness.changedSinceGraphCount
+			} project file(s) have changed since, so the impact above may be incomplete.`,
+		);
+	} else if (freshness?.error) {
+		caveats.push(`Graph freshness could not be checked: ${freshness.error}`);
+	}
+	if (caveats.length > 0) {
+		lines.push("### Caveats", "", caveats.map((caveat) => `- ${caveat}`).join("\n"), "");
+	}
+
+	return lines.join("\n").trimEnd();
+}
 
 export function buildRulesExtractPrompt(input: { sourceRoots: string[] }): string {
 	return `Read the team's engineering guidelines and lint configuration at these paths, then extract every enforceable rule you find.
@@ -91,12 +194,20 @@ export function buildAuditPrompt(input: {
 	targetBranch: string;
 	rules: RuntimeReviewRule[];
 	files: Array<{ newPath: string; diff: string }>;
+	/**
+	 * Pre-computed blast radius from the project's knowledge graph. Absent when the
+	 * project has never been analyzed, which must read as "no graph", not "no impact".
+	 */
+	graphImpact?: string;
 }): string {
 	const { text: diffText, omittedPaths } = formatDiffsForPrompt(input.files);
 	const omittedNote =
 		omittedPaths.length > 0
 			? `\n\nNot included for length (do not report findings on these): ${omittedPaths.join(", ")}`
 			: "";
+	// Placed after the patches and before the output contract: the diff is still the
+	// evidence, and the graph is context for judging how much a violation costs.
+	const graphSection = input.graphImpact ? `\n\n${input.graphImpact}` : "";
 
 	return `You are reviewing a merge request against the team's own rules. Report only what the diff actually shows.
 
@@ -109,7 +220,7 @@ ${formatRulesForPrompt(input.rules)}
 
 ## Changed files
 
-${diffText}${omittedNote}
+${diffText}${omittedNote}${graphSection}
 
 ## Output
 
@@ -129,7 +240,8 @@ Rules for the review itself:
 - \`ruleId\` must be an id from the rules list, or null when the problem is real but no listed rule covers it. Never invent an id.
 - Report a rule violation only when the diff demonstrates it. Do not guess about code you were not shown, and do not report the absence of something outside these files.
 - Correctness and security problems outrank style. If the diff is clean, return an empty array — a padded review is worse than a short one.
-- One finding per problem. Do not restate the same issue per line of a block.`;
+- One finding per problem. Do not restate the same issue per line of a block.
+- The knowledge-graph section, when present, tells you what depends on the changed code. Use it to judge severity and to say *what* a change breaks, and cite the dependent by path in the message. It is not evidence of a defect on its own: a finding must still be anchored to a line in the diff above, never to an affected file you were not shown.`;
 }
 
 /**
@@ -151,7 +263,14 @@ How to answer:
 - Never produce a review unless you were asked for one. A slash command (/code-review, /security-review, /simplify, /understand-diff) IS being asked for one; a question is not.
 - You are given the lines the reviewer is currently looking at. Prefer them. When a question is clearly about the selected lines, do not widen the answer to the whole file.
 - Say when you do not know or cannot see the relevant code, rather than inferring from the diff alone.
-- You are reading, not editing. Never modify, create or delete a file in the repository, and never run a command that would.`;
+- You are reading, not editing. Never modify, create or delete a file in the repository, and never run a command that would.
+
+On "what else does this affect":
+
+- When a knowledge-graph impact section is in your context, it is the answer. It was produced by walking the project's graph one hop out from the changed files, it is complete for that hop, and it names its own gaps. Answer from it directly.
+- Do not grep or read the knowledge graph file yourself. It is tens of megabytes, the walk has already been done, and a search over it is the most expensive thing you can do in this panel.
+- Do not fall back to a repository-wide search for callers either. If the graph section is absent or does not cover the path in question, say that the graph has no entry for it and offer to look at a specific file the reviewer names — one targeted read, not a sweep.
+- Never present a graph-derived dependency as a confirmed defect. "\`x.py\` imports this and passes two arguments" needs a look at \`x.py\` before it becomes "this breaks \`x.py\`".`;
 
 /** Fence the chat asks for structured suggestions in. Distinct from \`json\` so a
  * code sample in the prose can never be mistaken for the payload. */
@@ -228,6 +347,11 @@ export function buildChatPrompt(input: {
 	isFirstTurn: boolean;
 	/** Ask for the machine-readable suggestions block (slash commands only). */
 	expectSuggestions?: boolean;
+	/**
+	 * Pre-computed blast radius from the project's knowledge graph. First turn only,
+	 * for the same reason the diff is: on a resumed turn it is already in the session.
+	 */
+	graphImpact?: string;
 }): string {
 	const screenBlock = formatScreenContext(input);
 
@@ -249,6 +373,7 @@ export function buildChatPrompt(input: {
 				? `Diff of the file the reviewer is looking at:\n\n\`\`\`diff\n${input.activeDiff}\n\`\`\``
 				: null,
 			screenBlock,
+			input.graphImpact ?? null,
 		]
 			.filter((part): part is string => part !== null)
 			.join("\n\n");

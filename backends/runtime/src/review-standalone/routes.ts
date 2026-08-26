@@ -18,6 +18,7 @@ import {
 	REVIEW_SUGGEST_ALLOWED_TOOLS,
 	resolveReviewAgentCwd,
 } from "../review/review-agent-args";
+import { buildReviewGraphPromptSection } from "../review/review-graph-brief";
 import {
 	buildAuditPrompt,
 	buildChatPrompt,
@@ -71,6 +72,15 @@ export async function tryHandleReviewStandaloneRoute(
 						error: "No rules have been extracted for this project yet. Refresh the rules first.",
 					};
 				}
+				// No project list here, so only an explicit cwd from the caller can point at
+				// a checkout — and therefore at a knowledge graph.
+				const cwd = resolveReviewAgentCwd({ cwd: input.cwd, projectPath: null });
+				const graphImpact = await buildReviewGraphPromptSection({
+					projectPath: cwd,
+					changedPaths: input.files.map((file) => file.newPath),
+					baseBranch: input.targetBranch,
+					writeDiffOverlay: true,
+				});
 				return {
 					ok: true,
 					prompt: buildAuditPrompt({
@@ -79,7 +89,9 @@ export async function tryHandleReviewStandaloneRoute(
 						targetBranch: input.targetBranch,
 						rules: bundle.rules,
 						files: input.files,
+						...(graphImpact === undefined ? {} : { graphImpact }),
 					}),
+					...(cwd === undefined ? {} : { cwd }),
 					model: input.model,
 					allowedTools: REVIEW_AUDIT_ALLOWED_TOOLS,
 				};
@@ -103,6 +115,16 @@ export async function tryHandleReviewStandaloneRoute(
 							})
 						).mergeRequest
 					: null;
+				// No project list here, so only an explicit cwd from the caller applies —
+				// otherwise the agent inherits the launcher's directory.
+				const cwd = resolveReviewAgentCwd({ cwd: input.cwd, projectPath: null });
+				const graphImpact = isFirstTurn
+					? await buildReviewGraphPromptSection({
+							projectPath: cwd,
+							changedPaths: input.changedPaths,
+							baseBranch: mergeRequest?.targetBranch ?? "unknown",
+						})
+					: undefined;
 				return {
 					ok: true,
 					prompt: buildChatPrompt({
@@ -118,10 +140,9 @@ export async function tryHandleReviewStandaloneRoute(
 						visible: input.visible,
 						isFirstTurn,
 						expectSuggestions: input.expectSuggestions,
+						...(graphImpact === undefined ? {} : { graphImpact }),
 					}),
-					// No project list here, so only an explicit cwd from the caller applies —
-					// otherwise the agent inherits the launcher's directory.
-					cwd: resolveReviewAgentCwd({ cwd: input.cwd, projectPath: null }),
+					...(cwd === undefined ? {} : { cwd }),
 					model: input.model,
 					allowedTools: REVIEW_CHAT_ALLOWED_TOOLS,
 					appendSystemPrompt: REVIEW_CHAT_SYSTEM_PROMPT,
