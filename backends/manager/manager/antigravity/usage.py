@@ -90,6 +90,7 @@ def _parse_buckets(payload: dict) -> list[dict]:
             if not isinstance(grp, dict):
                 continue
             grp_name = grp.get("displayName") or ""
+            grp_desc = grp.get("description") or ""
             for bucket in grp.get("buckets") or []:
                 if not isinstance(bucket, dict):
                     continue
@@ -99,11 +100,15 @@ def _parse_buckets(payload: dict) -> list[dict]:
                 window = bucket.get("window") or ""
                 bucket_id = bucket.get("bucketId") or ""
                 reset = bucket.get("resetTime") or bucket.get("resetsAt")
+                is_gemini = "gemini" in grp_name.lower() or "gemini" in bucket_id.lower()
                 parsed.append({
                     "model_id": f"{grp_name}:{bucket_id}" if grp_name else bucket_id,
                     "used_percent": used,
                     "reset_time": reset if isinstance(reset, str) else None,
                     "window": window,
+                    "group": "gemini" if is_gemini else "claude_gpt",
+                    "group_display": grp_name or ("Gemini Models" if is_gemini else "Claude & GPT-OSS"),
+                    "group_description": grp_desc,
                     "is_5h": window == "5h" or "5h" in bucket_id.lower(),
                     "is_weekly": (
                         window in ("weekly", "7d")
@@ -133,11 +138,14 @@ def _parse_buckets(payload: dict) -> list[dict]:
             continue
         reset = bucket.get("resetTime") or bucket.get("resetsAt")
         window = bucket.get("window") or ""
+        is_gemini = "gemini" in model_id.lower()
         parsed.append({
             "model_id": model_id,
             "used_percent": used,
             "reset_time": reset if isinstance(reset, str) else None,
             "window": window,
+            "group": "gemini" if is_gemini else "claude_gpt",
+            "group_display": "Gemini Models" if is_gemini else "Claude & GPT-OSS",
             "is_5h": window == "5h" or "5h" in window.lower(),
             "is_weekly": window in ("weekly", "7d"),
             "is_pro": _is_pro_model(model_id),
@@ -210,7 +218,7 @@ async def _fetch_pool(
 
 
 def normalize_pools(pools: list[dict]) -> dict:
-    """Collapse dual-pool bucket lists into five_hour / seven_day slots."""
+    """Collapse dual-pool bucket lists into five_hour / seven_day slots and tiers."""
     all_buckets: list[dict] = []
     for pool in pools:
         all_buckets.extend(pool.get("buckets") or [])
@@ -219,6 +227,44 @@ def normalize_pools(pools: list[dict]) -> dict:
         if len(group) == 0:
             return None
         return max(group, key=lambda b: b["used_percent"])
+
+    gemini_buckets = [
+        b for b in all_buckets
+        if b.get("group") == "gemini" or "gemini" in b.get("model_id", "").lower()
+    ]
+    other_buckets = [
+        b for b in all_buckets
+        if b.get("group") == "claude_gpt"
+        or any(k in b.get("model_id", "").lower() for k in ("claude", "gpt", "3p"))
+    ]
+
+    tiers: list[dict] = []
+    if gemini_buckets:
+        g_5h = worst([b for b in gemini_buckets if b.get("is_5h")])
+        g_7d = worst([b for b in gemini_buckets if b.get("is_weekly")])
+        if g_5h or g_7d:
+            tiers.append({
+                "name": "gemini",
+                "label": "Gemini Models",
+                "description": "Gemini Flash, Gemini Pro",
+                "five_hour": g_5h["used_percent"] if g_5h else None,
+                "seven_day": g_7d["used_percent"] if g_7d else None,
+                "five_hour_resets_at": g_5h.get("reset_time") if g_5h else None,
+                "seven_day_resets_at": g_7d.get("reset_time") if g_7d else None,
+            })
+    if other_buckets:
+        o_5h = worst([b for b in other_buckets if b.get("is_5h")])
+        o_7d = worst([b for b in other_buckets if b.get("is_weekly")])
+        if o_5h or o_7d:
+            tiers.append({
+                "name": "claude_gpt",
+                "label": "Claude & GPT-OSS",
+                "description": "Claude Opus, Claude Sonnet, GPT-OSS",
+                "five_hour": o_5h["used_percent"] if o_5h else None,
+                "seven_day": o_7d["used_percent"] if o_7d else None,
+                "five_hour_resets_at": o_5h.get("reset_time") if o_5h else None,
+                "seven_day_resets_at": o_7d.get("reset_time") if o_7d else None,
+            })
 
     five_candidates = [b for b in all_buckets if b.get("is_5h")]
     weekly_candidates = [b for b in all_buckets if b.get("is_weekly")]
@@ -248,6 +294,7 @@ def normalize_pools(pools: list[dict]) -> dict:
             "resets_at": seven.get("reset_time") if seven else None,
             "reported": seven is not None,
         },
+        "tiers": tiers,
         "pools": pools,
     }
 
@@ -322,7 +369,11 @@ async def fetch_antigravity_usage(
         ),
         clear_five_hour=not five["reported"],
         clear_seven_day=not seven["reported"],
-        raw={"pools": pools, "fetched_at": int(time.time())},
+        raw={
+            "pools": pools,
+            "tiers": norm.get("tiers", []),
+            "fetched_at": int(time.time()),
+        },
     )
     # Surface a tier label when loadCodeAssist reported one.
     for pool in pools:

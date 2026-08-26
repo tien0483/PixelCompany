@@ -390,23 +390,54 @@ function AccountRow({
 						) : null}
 						{account.canTrackUsage ? (
 					<div
-						className="mt-2 flex flex-col gap-1.5"
+						className="mt-2 flex flex-col gap-2"
 						data-testid={`manager-account-usage-${account.id}`}
 					>
-						{/* Cursor Plan & Usage uses Cursor Models / Other Models pools (monthly).
-						    Claude and Antigravity use 5h / 7d (weekly) pools. */}
-						<UsageWindowBar
-							label={isCursorAccount ? "Cursor" : "5h"}
-							percent={account.fiveHourPercent}
-							resetsAt={account.fiveHourResetsAt}
-							canAutoSwap={account.canAutoSwap}
-						/>
-						<UsageWindowBar
-							label={isCursorAccount ? "Other" : "7d"}
-							percent={account.sevenDayPercent}
-							resetsAt={account.sevenDayResetsAt}
-							canAutoSwap={account.canAutoSwap}
-						/>
+						{account.usageTiers && account.usageTiers.length > 0 ? (
+							account.usageTiers.map((tier) => (
+								<div key={tier.name} className="flex flex-col gap-1">
+									<div className="flex items-center justify-between">
+										<span className="text-[10px] font-medium text-text-secondary">
+											{tier.label}
+										</span>
+										{tier.description ? (
+											<span className="text-[9px] text-text-tertiary">
+												{tier.description}
+											</span>
+										) : null}
+									</div>
+									<UsageWindowBar
+										label="5h"
+										percent={tier.fiveHourPercent}
+										resetsAt={tier.fiveHourResetsAt}
+										canAutoSwap={account.canAutoSwap}
+									/>
+									<UsageWindowBar
+										label="7d"
+										percent={tier.sevenDayPercent}
+										resetsAt={tier.sevenDayResetsAt}
+										canAutoSwap={account.canAutoSwap}
+									/>
+								</div>
+							))
+						) : (
+							<div className="flex flex-col gap-1.5">
+								{/* Cursor Plan & Usage uses Cursor Models / Other Models pools (monthly).
+								    Claude and Antigravity use 5h / 7d (weekly) pools. */}
+								<UsageWindowBar
+									label={isCursorAccount ? "Cursor" : "5h"}
+									percent={account.fiveHourPercent}
+									resetsAt={account.fiveHourResetsAt}
+									canAutoSwap={account.canAutoSwap}
+								/>
+								<UsageWindowBar
+									label={isCursorAccount ? "Other" : "7d"}
+									percent={account.sevenDayPercent}
+									resetsAt={account.sevenDayResetsAt}
+									canAutoSwap={account.canAutoSwap}
+								/>
+							</div>
+						)}
 						<p className="text-[10px] text-text-tertiary">
 							Usage updated {formatUsageCacheAge(account.usageCachedAt)}
 						</p>

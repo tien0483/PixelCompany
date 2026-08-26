@@ -118,6 +118,18 @@ def test_normalize_pools_groups_worst_windows():
     assert norm["seven_day"]["resets_at"] == "2026-08-28T08:46:37Z"
     assert norm["seven_day"]["reported"] is True
 
+    # tiers breakdown
+    assert len(norm["tiers"]) == 2
+    gemini_tier = next(t for t in norm["tiers"] if t["name"] == "gemini")
+    assert gemini_tier["five_hour"] == 40.0
+    assert gemini_tier["seven_day"] == 85.0
+    assert gemini_tier["label"] == "Gemini Models"
+
+    claude_tier = next(t for t in norm["tiers"] if t["name"] == "claude_gpt")
+    assert claude_tier["five_hour"] == 0.0
+    assert claude_tier["seven_day"] == 60.0
+    assert claude_tier["label"] == "Claude & GPT-OSS"
+
 
 def test_normalize_pools_legacy_fallback():
     """Verify fallback to pro/flash model heuristic when windows are absent."""

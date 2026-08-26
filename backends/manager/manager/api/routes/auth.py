@@ -133,13 +133,26 @@ class ExtraUsage(BaseModel):
     utilization: Optional[float] = None
 
 
+class UsageTier(BaseModel):
+    """A distinct quota tier/pool for an account (e.g. Gemini vs Claude/GPT-OSS)."""
+
+    name: str
+    label: str
+    description: Optional[str] = None
+    five_hour: Optional[float] = None
+    seven_day: Optional[float] = None
+    five_hour_resets_at: Optional[str] = None
+    seven_day_resets_at: Optional[str] = None
+
+
 class AccountUsage(BaseModel):
-    """Usage statistics for an account with per-model breakdowns."""
+    """Usage statistics for an account with per-model breakdowns and tiers."""
 
     five_hour: float = 0
     seven_day: float = 0
     five_hour_resets_at: Optional[str] = None
     seven_day_resets_at: Optional[str] = None
+    tiers: Optional[list[UsageTier]] = None
     per_model: Optional[dict[str, ModelUsage]] = None
     # The per-model cap to surface inline (under the 5h/7d bars), shown for every
     # account that reports one at any level: the model the provider flags
@@ -393,11 +406,36 @@ def _build_account_usage(row: dict) -> Optional[AccountUsage]:
         return None
     per_model, binding_key, extra_usage = _parse_usage_details(row.get("cached_usage_raw"))
     binding = per_model.get(binding_key) if (per_model and binding_key) else None
+
+    raw_json = row.get("cached_usage_raw")
+    tiers: Optional[list[UsageTier]] = None
+    if raw_json:
+        try:
+            raw_data = json.loads(raw_json) if isinstance(raw_json, str) else raw_json
+            raw_tiers = raw_data.get("tiers") if isinstance(raw_data, dict) else None
+            if isinstance(raw_tiers, list) and len(raw_tiers) > 0:
+                tiers = [
+                    UsageTier(
+                        name=t.get("name", ""),
+                        label=t.get("label", ""),
+                        description=t.get("description"),
+                        five_hour=t.get("five_hour"),
+                        seven_day=t.get("seven_day"),
+                        five_hour_resets_at=t.get("five_hour_resets_at"),
+                        seven_day_resets_at=t.get("seven_day_resets_at"),
+                    )
+                    for t in raw_tiers
+                    if isinstance(t, dict)
+                ]
+        except Exception:
+            pass
+
     return AccountUsage(
         five_hour=row.get("cached_usage_5h", 0) or 0,
         seven_day=row.get("cached_usage_7d", 0) or 0,
         five_hour_resets_at=row.get("cached_5h_resets_at"),
         seven_day_resets_at=row.get("cached_7d_resets_at"),
+        tiers=tiers,
         per_model=per_model,
         binding_model=binding,
         extra_usage=extra_usage,
