@@ -16,9 +16,11 @@ import { ReviewCommentComposer } from "@/components/review/review-comment-compos
 import {
 	buildDisplayItems,
 	CollapsedBlockControls,
+	type DiffDisplayItem,
 	DiffRowText,
 	getHighlightedLineHtml,
 	isLargeFileDiff,
+	LARGE_FILE_DIFF_LINE_THRESHOLD,
 	parsePatchToRows,
 	resolvePrismGrammar,
 	resolvePrismLanguage,
@@ -39,6 +41,7 @@ import {
 	DEEP_SCROLL_EDGE_EPSILON_PX,
 	normalizeWheelDeltaPx,
 } from "@/review/review-deep-scroll";
+import { buildFullFileRows } from "@/review/review-full-file-rows";
 import {
 	buildLineAnnotations,
 	type ReviewDiffMode,
@@ -47,6 +50,7 @@ import {
 	type ReviewVisibleRange,
 	resolveFileStatus,
 } from "@/review/review-target";
+import { type FullFileFetchResult, useFullFileContent } from "@/review/use-full-file-content";
 import type {
 	RuntimeGitlabDiffFile,
 	RuntimeGitlabDiscussion,
@@ -129,9 +133,16 @@ function resolveRowLines(row: UnifiedDiffRow): { oldLine: number | null; newLine
 	if (row.lineNumber == null) {
 		return { oldLine: null, newLine: null };
 	}
-	return row.variant === "removed"
-		? { oldLine: row.lineNumber, newLine: null }
-		: { oldLine: null, newLine: row.lineNumber };
+	if (row.variant === "removed") {
+		return { oldLine: row.lineNumber, newLine: null };
+	}
+	if (row.variant === "added") {
+		return { oldLine: null, newLine: row.lineNumber };
+	}
+	// An unchanged line exists in both revisions, and GitLab wants both numbers to
+	// anchor a note to it. Outside a hunk that is not optional: the post-image number
+	// alone does not locate the line in the pre-image. See `gitlab-position.ts`.
+	return { oldLine: row.oldLineNumber ?? null, newLine: row.lineNumber };
 }
 
 /** `+33` / `-12` — how GitLab labels the ends of a commented range. */
@@ -176,7 +187,8 @@ export function ReviewDiffPane({
 	onComposerOpenChange: (open: boolean) => void;
 	onClearCitations: () => void;
 	onRemoveCitation: (ruleId: string) => void;
-	onFetchFullFile?: () => Promise<string | null>;
+	/** Fetches the active file's post-image. Absent when no source can supply one. */
+	onFetchFullFile?: () => Promise<FullFileFetchResult>;
 	/**
 	 * Lines the reviewer has focused, shared with the chat panel. Optional because the
 	 * pane is a usable diff viewer without a chat beside it — the standalone Review
@@ -203,8 +215,6 @@ export function ReviewDiffPane({
 	const [composerText, setComposerText] = useState("");
 	const [drag, setDrag] = useState<DragState | null>(null);
 	const [forceRenderLargeDiff, setForceRenderLargeDiff] = useState(false);
-	const [fullFileContent, setFullFileContent] = useState<string | null>(null);
-	const [isLoadingFullFile, setIsLoadingFullFile] = useState(false);
 	const [showFullFile, setShowFullFile] = useState(false);
 	const { expandedBlocks, expandTop, expandBottom, expandAll } = useIncrementalExpand();
 	const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -213,8 +223,51 @@ export function ReviewDiffPane({
 	const prismLanguage = useMemo(() => resolvePrismLanguage(path), [path]);
 	const prismGrammar = useMemo(() => resolvePrismGrammar(prismLanguage), [prismLanguage]);
 
-	const rows = useMemo(() => (file ? parsePatchToRows(file.diff) : []), [file]);
-	const displayItems = useMemo(() => buildDisplayItems(rows, expandedBlocks), [expandedBlocks, rows]);
+	/**
+	 * Whether a post-image exists to fetch at all. A deleted file has none, and a binary
+	 * or diff-truncated file has nothing this pane could render line by line.
+	 */
+	const canShowFullFile =
+		onFetchFullFile !== undefined &&
+		file !== null &&
+		!file.binary &&
+		!file.tooLarge &&
+		!file.deletedFile;
+
+	const fullFile = useFullFileContent({
+		path: file?.newPath ?? null,
+		enabled: canShowFullFile && showFullFile,
+		fetchFile: onFetchFullFile,
+	});
+
+	const patchRows = useMemo(() => (file ? parsePatchToRows(file.diff) : []), [file]);
+
+	/**
+	 * The whole file as rows, or null when it has not been fetched — or when it cannot
+	 * be reconciled with the patch, which means the two are different revisions and
+	 * splicing them would anchor notes to lines nobody reviewed.
+	 */
+	const fullFileRows = useMemo(
+		() =>
+			file && fullFile.content !== null
+				? buildFullFileRows({ patch: file.diff, content: fullFile.content })
+				: null,
+		[file, fullFile.content],
+	);
+	const fullFileUnusable = fullFile.content !== null && fullFileRows === null;
+
+	// The whole pane is expressed over `rows`: selection, drag ranges, the composer's
+	// anchors and the annotation lookup all read them. Swapping the source here is what
+	// gives the full-file view every one of those without a second implementation.
+	const rows = showFullFile && fullFileRows !== null ? fullFileRows : patchRows;
+	const displayItems = useMemo<DiffDisplayItem[]>(
+		() =>
+			// Nothing is elided in the full file, so there is no context to collapse.
+			showFullFile && fullFileRows !== null
+				? rows.map((row) => ({ type: "row", row }))
+				: buildDisplayItems(rows, expandedBlocks),
+		[expandedBlocks, fullFileRows, rows, showFullFile],
+	);
 
 	/** Patch order by row key — a drag has to be orderable regardless of its direction. */
 	const rowIndexByKey = useMemo(() => {
@@ -291,33 +344,11 @@ export function ReviewDiffPane({
 		[discussions, draftComments, file?.oldPath, path],
 	);
 
-	/** New-file line numbers that are added in this diff (used to highlight in full-file view). */
-	const changedLineNumbers = useMemo(() => {
-		const added = new Set<number>();
-		for (const row of rows) {
-			if (row.variant === "added" && row.lineNumber != null) {
-				added.add(row.lineNumber);
-			}
-		}
-		return { added };
-	}, [rows]);
-
-	const handleToggleFullFile = useCallback(async () => {
-		if (!showFullFile) {
-			setShowFullFile(true);
-			if (fullFileContent === null && onFetchFullFile) {
-				setIsLoadingFullFile(true);
-				try {
-					const content = await onFetchFullFile();
-					setFullFileContent(content);
-				} finally {
-					setIsLoadingFullFile(false);
-				}
-			}
-		} else {
-			setShowFullFile(false);
-		}
-	}, [showFullFile, fullFileContent, onFetchFullFile]);
+	// The hook owns fetching and its per-file invalidation; this only records intent, so
+	// the toggle survives moving between files instead of silently reverting to the diff.
+	const toggleFullFile = useCallback(() => {
+		setShowFullFile((current) => !current);
+	}, []);
 
 	/**
 	 * Reports the post-image line range currently on screen, so a question asked with
@@ -516,6 +547,8 @@ export function ReviewDiffPane({
 	// composer anchored to a row key of the previous file cannot resolve.
 	useEffect(() => {
 		setDrag(null);
+		// "Render it anyway" was a judgement about the previous file's size, not this one's.
+		setForceRenderLargeDiff(false);
 		closeComposerRef.current();
 		if (scrollRef.current) {
 			scrollRef.current.scrollTop = 0;
@@ -757,9 +790,14 @@ export function ReviewDiffPane({
 	}
 
 	const status = resolveFileStatus(file);
+	const isShowingFullFile = showFullFile && fullFileRows !== null;
 	// Split rendering doubles the DOM per row, so the shared large-diff guard matters
-	// more here than in the unified viewer, not less.
-	const isLarge = isLargeFileDiff(file.additions, file.deletions);
+	// more here than in the unified viewer, not less. Filling the elided context makes
+	// the row count, not the change count, the thing that has to be capped — every row
+	// carries drag handlers and is watched by the visibility observer.
+	const isRenderBlocked = isShowingFullFile
+		? rows.length > LARGE_FILE_DIFF_LINE_THRESHOLD
+		: isLargeFileDiff(file.additions, file.deletions);
 
 	return (
 		<div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-surface-0">
@@ -812,30 +850,34 @@ export function ReviewDiffPane({
 					<div className="flex items-center rounded border border-border bg-surface-2 p-0.5">
 						<button
 							type="button"
-							onClick={() => { setShowFullFile(false); onModeChange("split"); }}
+							onClick={() => onModeChange("split")}
 							className={cn(
 								"flex cursor-pointer items-center gap-1 rounded-sm px-2 py-0.5 text-[11px]",
-								!showFullFile && mode === "split" ? "bg-surface-4 text-text-primary" : "text-text-secondary hover:text-text-primary",
+								mode === "split" ? "bg-surface-4 text-text-primary" : "text-text-secondary hover:text-text-primary",
 							)}
 						>
 							<Columns2 size={11} /> Side-by-side
 						</button>
 						<button
 							type="button"
-							onClick={() => { setShowFullFile(false); onModeChange("unified"); }}
+							onClick={() => onModeChange("unified")}
 							className={cn(
 								"flex cursor-pointer items-center gap-1 rounded-sm px-2 py-0.5 text-[11px]",
-								!showFullFile && mode === "unified"
+								mode === "unified"
 									? "bg-surface-4 text-text-primary"
 									: "text-text-secondary hover:text-text-primary",
 							)}
 						>
 							<Menu size={11} /> Unified
 						</button>
-						{onFetchFullFile ? (
+						{/* Not a third mode: it fills the context the patch elided, and either
+						    mode renders the result. */}
+						{canShowFullFile ? (
 							<button
 								type="button"
-								onClick={() => { void handleToggleFullFile(); }}
+								aria-pressed={showFullFile}
+								onClick={toggleFullFile}
+								title="Show every line of the file, not only the changed hunks"
 								className={cn(
 									"flex cursor-pointer items-center gap-1 rounded-sm px-2 py-0.5 text-[11px]",
 									showFullFile ? "bg-surface-4 text-text-primary" : "text-text-secondary hover:text-text-primary",
@@ -856,10 +898,17 @@ export function ReviewDiffPane({
 				</div>
 			</div>
 
-			{!showFullFile && mode === "split" ? (
+			{mode === "split" ? (
 				<div className="grid shrink-0 grid-cols-2 divide-x divide-border border-b border-border bg-surface-0 px-0 font-mono text-[11px] text-text-tertiary">
 					<div className="px-3 py-1">Base — {file.oldPath}</div>
 					<div className="px-3 py-1">Merge request — {file.newPath}</div>
+				</div>
+			) : null}
+
+			{showFullFile && fullFileUnusable ? (
+				<div className="shrink-0 border-b border-border bg-surface-1 px-3 py-1.5 text-[11px] text-status-orange">
+					The file GitLab returned does not line up with this diff — it has probably moved on
+					since the merge request was loaded. Showing the diff instead; refresh to try again.
 				</div>
 			) : null}
 
@@ -875,55 +924,29 @@ export function ReviewDiffPane({
 					drag && drag.headKey !== drag.anchorKey && "kb-diff-body-dragging",
 				)}
 			>
-				{showFullFile ? (
-					isLoadingFullFile ? (
-						<div className="flex items-center justify-center p-4">
-							<Loader2 size={16} className="animate-spin text-text-tertiary" />
-						</div>
-					) : fullFileContent === null ? (
-						<p className="p-4 text-xs text-text-tertiary">Could not load file content.</p>
-					) : (
-						<div>
-							{fullFileContent.split("\n").map((line, index) => {
-								const lineNum = index + 1;
-								const isAdded = changedLineNumbers.added.has(lineNum);
-								const highlightedHtml = getHighlightedLineHtml(line, prismGrammar, prismLanguage);
-								return (
-									<div
-										key={lineNum}
-										className={cn(
-											"kb-diff-row",
-											isAdded ? "kb-diff-row-added" : "kb-diff-row-context",
-										)}
-									>
-										<span className="kb-diff-line-number" style={{ color: "var(--color-text-tertiary)" }}>
-											<span className="kb-diff-line-number-text">{lineNum}</span>
-										</span>
-										{highlightedHtml != null ? (
-											<span
-												className="font-mono kb-diff-text"
-												// biome-ignore lint/security/noDangerouslySetInnerHtml: trusted Prism output
-												dangerouslySetInnerHTML={{ __html: highlightedHtml }}
-											/>
-										) : (
-											<span className="font-mono kb-diff-text">{line || " "}</span>
-										)}
-									</div>
-								);
-							})}
-						</div>
-					)
-				) : file.binary ? (
+				{file.binary ? (
 					<p className="p-4 text-xs text-text-tertiary">Binary file — no text diff to show.</p>
 				) : file.tooLarge ? (
 					<p className="p-4 text-xs text-text-tertiary">
 						GitLab truncated this file's diff because it is too large to send.
 					</p>
-				) : isLarge && !forceRenderLargeDiff ? (
+				) : showFullFile && fullFile.isLoading ? (
+					<div className="flex items-center justify-center p-4">
+						<Loader2 size={16} className="animate-spin text-text-tertiary" />
+					</div>
+				) : showFullFile && fullFile.error !== null ? (
+					<div className="space-y-2 p-4">
+						<p className="text-xs text-status-red">{fullFile.error}</p>
+						<Button variant="default" size="sm" onClick={fullFile.retry}>
+							Try again
+						</Button>
+					</div>
+				) : isRenderBlocked && !forceRenderLargeDiff ? (
 					<div className="space-y-2 p-4">
 						<p className="text-xs text-text-secondary">
-							{file.additions + file.deletions} changed lines. Rendering this side by side is slow enough to
-							hang the tab, so it is collapsed by default.
+							{isShowingFullFile
+								? `${rows.length} lines. Rendering the whole file is slow enough to hang the tab, so it is collapsed by default.`
+								: `${file.additions + file.deletions} changed lines. Rendering this side by side is slow enough to hang the tab, so it is collapsed by default.`}
 						</p>
 						<Button variant="default" size="sm" onClick={() => setForceRenderLargeDiff(true)}>
 							Render it anyway
