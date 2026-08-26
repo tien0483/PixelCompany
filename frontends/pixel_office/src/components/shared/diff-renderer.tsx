@@ -57,6 +57,16 @@ export interface UnifiedDiffRow {
 	variant: "context" | "added" | "removed";
 	text: string;
 	segments?: InlineDiffSegment[];
+	/**
+	 * The pre-image line number of an unchanged row, whose `lineNumber` is its
+	 * post-image twin. GitLab anchors a note on an unchanged line with *both*
+	 * numbers (see `gitlab-position.ts`), and a row filled in from the full file
+	 * rather than from a hunk has no other way to recover the old side.
+	 *
+	 * Only meaningful on `context` rows: an added row has no old line and a
+	 * removed row's `lineNumber` already is one.
+	 */
+	oldLineNumber?: number;
 }
 
 export interface CollapsedContextBlock {
@@ -411,6 +421,7 @@ export function parsePatchToRows(patch: string): UnifiedDiffRow[] {
 			rows.push({
 				key: `c-${oldLine}-${newLine}`,
 				lineNumber: newLine,
+				oldLineNumber: oldLine,
 				variant: "context",
 				text: raw.slice(1),
 			});

@@ -40,6 +40,7 @@ import {
 	sumDiffStats,
 } from "@/review/review-target";
 import { readStoredPolishComments, writeStoredPolishComments } from "@/review/review-comment-polish";
+import type { FullFileFetchResult } from "@/review/use-full-file-content";
 import { useReviewChat } from "@/review/use-review-chat";
 import { useReviewRulesConfig } from "@/review/use-review-rules-config";
 import { useReviewSeat } from "@/review/use-review-seat";
@@ -533,9 +534,17 @@ export function ReviewWorkspaceView({
 		});
 	}, [agentModel, effectiveAccountId, rulesConfig.sourceRoots, rulesExtract, target.projectKey]);
 
-	const fetchFullFile = useCallback(async (): Promise<string | null> => {
+	/**
+	 * The active file's post-image, at the revision the diff's new side belongs to.
+	 *
+	 * The failure reason is carried rather than collapsed to null: GitLab distinguishes
+	 * a path that does not exist at that ref from a rejected token from an unreachable
+	 * host, `describeGitlabFailure` has already put that in words, and "Could not load
+	 * file content." for all three tells the reviewer nothing they can act on.
+	 */
+	const fetchFullFile = useCallback(async (): Promise<FullFileFetchResult> => {
 		if (!session.activeFile || !session.mergeRequest) {
-			return null;
+			return { content: null, error: "No file is open." };
 		}
 		try {
 			const client = getRuntimeTrpcClient(workspaceId);
@@ -546,9 +555,11 @@ export function ReviewWorkspaceView({
 				ref: headSha,
 				path: session.activeFile.newPath,
 			});
-			return result.ok ? (result.content ?? null) : null;
-		} catch {
-			return null;
+			return result.ok
+				? { content: result.content ?? null, error: null }
+				: { content: null, error: result.error ?? null };
+		} catch (cause) {
+			return { content: null, error: cause instanceof Error ? cause.message : String(cause) };
 		}
 	}, [session.activeFile, session.mergeRequest, target.projectId, workspaceId]);
 
