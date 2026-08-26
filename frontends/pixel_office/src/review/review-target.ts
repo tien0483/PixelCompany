@@ -241,15 +241,34 @@ export function resolveFileStatus(file: RuntimeGitlabDiffFile): ReviewFileStatus
 	return "modified";
 }
 
+/**
+ * Findings the reviewer has already acted on: dismissed outright, or accepted into a
+ * draft comment (which is what an accept *is* — the draft's `aiFindingId` is the only
+ * record of it).
+ *
+ * Returned as a set rather than folded into `selectPendingFindings` because the audit
+ * panel and the chat transcript hold two different lists of findings that share one
+ * triage namespace, and both have to hide a row the moment it is triaged.
+ */
+export function selectTriagedFindingIds(input: {
+	dismissedFindingIds: string[];
+	draftComments: RuntimeReviewDraftComment[];
+}): Set<string> {
+	const triaged = new Set(input.dismissedFindingIds);
+	for (const draft of input.draftComments) {
+		if (draft.aiFindingId !== null) {
+			triaged.add(draft.aiFindingId);
+		}
+	}
+	return triaged;
+}
+
 /** Findings the reviewer has neither accepted nor dismissed yet. */
 export function selectPendingFindings(input: {
 	findings: RuntimeReviewFinding[];
 	dismissedFindingIds: string[];
 	draftComments: RuntimeReviewDraftComment[];
 }): RuntimeReviewFinding[] {
-	const dismissed = new Set(input.dismissedFindingIds);
-	const accepted = new Set(
-		input.draftComments.map((draft) => draft.aiFindingId).filter((id): id is string => id !== null),
-	);
-	return input.findings.filter((finding) => !dismissed.has(finding.id) && !accepted.has(finding.id));
+	const triaged = selectTriagedFindingIds(input);
+	return input.findings.filter((finding) => !triaged.has(finding.id));
 }
