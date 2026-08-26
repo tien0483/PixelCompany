@@ -79,6 +79,14 @@ def test_refresh_access_token_merges_unknown_fields(monkeypatch):
 import pytest
 
 
+def test_antigravity_pool_uses_antigravity_plugin_type():
+    from manager.antigravity.usage import _POOLS
+
+    by_name = {pool["name"]: pool for pool in _POOLS}
+    assert by_name["antigravity"]["pluginType"] == "ANTIGRAVITY"
+    assert by_name["gemini_cli"]["pluginType"] == "GEMINI"
+
+
 @pytest.mark.anyio
 async def test_fetch_antigravity_usage_loads_account_slot(tmp_path: Path, monkeypatch):
     from manager.antigravity.switching import seed_antigravity_slot
