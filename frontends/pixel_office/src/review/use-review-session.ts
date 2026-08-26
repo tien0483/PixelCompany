@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { showAppToast } from "@/components/app-toaster";
+import type { ReviewRunState } from "@/components/review/review-run-dot";
 import type { ReviewTarget } from "@/review/review-target";
 import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
 import type {
@@ -10,6 +11,7 @@ import type {
 	RuntimeGitlabMergeRequestDetail,
 	RuntimeGitlabMergeRequestVersion,
 	RuntimeReviewChatMessage,
+	RuntimeReviewCompletedPass,
 	RuntimeReviewDraftComment,
 	RuntimeReviewFinding,
 	RuntimeReviewRule,
@@ -53,6 +55,14 @@ export interface ReviewSessionApi extends ReviewSessionState {
 	dismissFinding: (id: string) => void;
 	acceptFinding: (finding: RuntimeReviewFinding) => void;
 	markPassComplete: () => void;
+	/**
+	 * Records that a whole-merge-request pass ran, against the head it saw. Only for
+	 * the passes whose run state cannot be read off something cheaper — the chat
+	 * buttons are answered by their own message in the transcript.
+	 */
+	markPassRun: (pass: RuntimeReviewCompletedPass["pass"]) => void;
+	/** What the run indicator on such a pass should show. */
+	passRunState: (pass: RuntimeReviewCompletedPass["pass"]) => ReviewRunState;
 }
 
 function nextDraftId(): string {
@@ -350,6 +360,40 @@ export function useReviewSession(target: ReviewTarget, workspaceId: string | nul
 		updateSession((session) => ({ ...session, lastReviewedHeadSha: headSha }));
 	}, [state.diffRefs?.headSha, state.versions, updateSession]);
 
+	const currentHeadSha = state.versions[0]?.headSha ?? state.diffRefs?.headSha ?? null;
+
+	const markPassRun = useCallback(
+		(pass: RuntimeReviewCompletedPass["pass"]) => {
+			updateSession((session) => ({
+				...session,
+				// One row per pass: the reviewer wants to know whether the *latest* run covers
+				// what is on screen, and a history of every run would only be re-derived into
+				// that same answer.
+				completedPasses: [
+					...session.completedPasses.filter((entry) => entry.pass !== pass),
+					{ pass, headSha: currentHeadSha, at: new Date().toISOString() },
+				],
+			}));
+		},
+		[currentHeadSha, updateSession],
+	);
+
+	const passRunState = useCallback(
+		(pass: RuntimeReviewCompletedPass["pass"]): ReviewRunState => {
+			const entry = state.session?.completedPasses.find((candidate) => candidate.pass === pass);
+			if (!entry) {
+				return "unrun";
+			}
+			// An unknown head on either side cannot prove staleness, so it does not claim
+			// any: a false "stale" costs a re-run, which is the thing being avoided.
+			if (entry.headSha && currentHeadSha && entry.headSha !== currentHeadSha) {
+				return "stale";
+			}
+			return "done";
+		},
+		[currentHeadSha, state.session?.completedPasses],
+	);
+
 	return {
 		...state,
 		activePath,
@@ -367,5 +411,7 @@ export function useReviewSession(target: ReviewTarget, workspaceId: string | nul
 		dismissFinding,
 		acceptFinding,
 		markPassComplete,
+		markPassRun,
+		passRunState,
 	};
 }

@@ -18,6 +18,7 @@ import {
 	REVIEW_SUGGEST_ALLOWED_TOOLS,
 	resolveReviewAgentCwd,
 } from "../review/review-agent-args";
+import { reviewCommandNeedsGraphImpact, reviewCommandNeedsRules } from "../review/review-command-expansion";
 import { buildReviewGraphPromptSection } from "../review/review-graph-brief";
 import {
 	buildAuditPrompt,
@@ -118,12 +119,21 @@ export async function tryHandleReviewStandaloneRoute(
 				// No project list here, so only an explicit cwd from the caller applies —
 				// otherwise the agent inherits the launcher's directory.
 				const cwd = resolveReviewAgentCwd({ cwd: input.cwd, projectPath: null });
-				const graphImpact = isFirstTurn
-					? await buildReviewGraphPromptSection({
-							projectPath: cwd,
-							changedPaths: input.changedPaths,
-							baseBranch: mergeRequest?.targetBranch ?? "unknown",
-						})
+				// First turn, plus any later turn running a command whose answer is meant to
+				// be read off the brief — a resumed session's brief was walked for whatever
+				// file was on screen when it started. The walk costs no model tokens.
+				const graphImpact =
+					isFirstTurn || reviewCommandNeedsGraphImpact(input.prompt)
+						? await buildReviewGraphPromptSection({
+								projectPath: cwd,
+								changedPaths: input.changedPaths,
+								baseBranch: mergeRequest?.targetBranch ?? "unknown",
+							})
+						: undefined;
+				// Only the whole-merge-request review asks for these, and a missing bundle is
+				// not an error — the expansion then tells the pass not to invent a style.
+				const rules = reviewCommandNeedsRules(input.prompt)
+					? ((await readReviewRulesBundle(input.projectKey))?.rules ?? undefined)
 					: undefined;
 				return {
 					ok: true,
@@ -136,11 +146,13 @@ export async function tryHandleReviewStandaloneRoute(
 						targetBranch: mergeRequest?.targetBranch ?? "unknown",
 						changedPaths: input.changedPaths,
 						activeDiff: input.activeDiff,
+						allDiffs: input.allDiffs,
 						screen: input.screen,
 						visible: input.visible,
 						isFirstTurn,
 						expectSuggestions: input.expectSuggestions,
 						...(graphImpact === undefined ? {} : { graphImpact }),
+						...(rules === undefined ? {} : { rules }),
 					}),
 					...(cwd === undefined ? {} : { cwd }),
 					model: input.model,

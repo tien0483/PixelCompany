@@ -3638,6 +3638,20 @@ export const runtimeReviewChatMessageSchema = z.object({
 });
 export type RuntimeReviewChatMessage = z.infer<typeof runtimeReviewChatMessageSchema>;
 
+/**
+ * A whole-merge-request pass the reviewer has already spent tokens on.
+ *
+ * `headSha` is what makes the record useful rather than a bare "done": a pass that
+ * ran three commits ago is not the same as one that ran against what is on screen,
+ * and the panel's indicator has to be able to say which.
+ */
+export const runtimeReviewCompletedPassSchema = z.object({
+	pass: z.enum(["audit"]),
+	headSha: z.string().nullable(),
+	at: z.string(),
+});
+export type RuntimeReviewCompletedPass = z.infer<typeof runtimeReviewCompletedPassSchema>;
+
 export const runtimeReviewSessionSchema = z.object({
 	host: z.string(),
 	projectId: z.number(),
@@ -3661,6 +3675,17 @@ export const runtimeReviewSessionSchema = z.object({
 	 */
 	chatSessionId: z.string().nullable().default(null),
 	chatMessages: z.array(runtimeReviewChatMessageSchema).default([]),
+	/**
+	 * Whole-merge-request passes that have already run, and the head they ran against.
+	 * Only the passes whose run state cannot be read off something else live here: the
+	 * two chat buttons are answered by looking for their own message in the transcript,
+	 * which is what makes "Clear conversation" reset them.
+	 *
+	 * `.default([])` for the same reason `chatMessages` has one — a stored document
+	 * written before this field existed must still parse, or the reviewer's unpublished
+	 * draft comments are silently discarded.
+	 */
+	completedPasses: z.array(runtimeReviewCompletedPassSchema).default([]),
 	updatedAt: z.string(),
 });
 export type RuntimeReviewSession = z.infer<typeof runtimeReviewSessionSchema>;
@@ -3864,8 +3889,10 @@ export type RuntimeReviewAuditRequest = z.infer<typeof runtimeReviewAuditRequest
 
 export const runtimeReviewChatRequestSchema = z.object({
 	/**
-	 * Sent to the CLI verbatim, so a leading `/understand-diff` or
-	 * `/security-review` reaches Claude Code as the slash command it is.
+	 * The reviewer's text. A command the CLI owns (`/simplify`, one of the project's
+	 * own) is passed to it verbatim, so it has to stay first in the built prompt; the
+	 * panel's own review commands are expanded by the runtime instead — see
+	 * `review/review-command-expansion.ts`.
 	 */
 	prompt: z.string().min(1),
 	host: z.string().min(1),
@@ -3874,6 +3901,20 @@ export const runtimeReviewChatRequestSchema = z.object({
 	/** Context appended under the prompt: changed paths, active file's patch. */
 	changedPaths: z.array(z.string()),
 	activeDiff: z.string().optional(),
+	/**
+	 * Every changed file's patch. Sent only for the whole-merge-request passes — the
+	 * two panel buttons and `/security-review` — because it is the single most
+	 * expensive field on this request and every other turn is deliberately scoped to
+	 * the file or the lines on screen.
+	 */
+	allDiffs: z
+		.array(
+			z.object({
+				newPath: z.string(),
+				diff: z.string(),
+			}),
+		)
+		.optional(),
 	/**
 	 * Resumes the CLI session an earlier turn created. Absent on the first turn of a
 	 * conversation, which is also what tells the runtime to send the merge-request

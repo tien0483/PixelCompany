@@ -1,7 +1,12 @@
-import { Bot, Eraser, Network, Trash2 } from "lucide-react";
-import type { ReactElement } from "react";
+import { Bot, ClipboardCheck, Eraser, Network, Trash2 } from "lucide-react";
+import type { ReactElement, ReactNode } from "react";
 
-import { ReviewChatComposer } from "@/components/review/review-chat-composer";
+import {
+	REVIEW_CODE_REVIEW_DIFF_COMMAND,
+	REVIEW_UNDERSTAND_CHANGES_COMMAND,
+	ReviewChatComposer,
+} from "@/components/review/review-chat-composer";
+import { ReviewRunDot } from "@/components/review/review-run-dot";
 import { ReviewChatMessages } from "@/components/review/review-chat-messages";
 import { ReviewFindingRow } from "@/components/review/review-finding-row";
 import { Button } from "@/components/ui/button";
@@ -17,6 +22,45 @@ import type { RuntimeReviewChatMessage, RuntimeReviewDraftComment, RuntimeReview
 
 export { REVIEW_QUICK_PROMPTS } from "@/components/review/review-chat-composer";
 
+/**
+ * One whole-merge-request pass, with its run indicator. Not a wrapper for its own
+ * sake: the dot, its label and the disabled-while-running rule are the same for both
+ * buttons, and the next one added should not have to remember all three.
+ */
+function ReviewPassButton({
+	icon,
+	label,
+	title,
+	hasRun,
+	ranLabel,
+	disabled,
+	onClick,
+}: {
+	icon: ReactNode;
+	label: string;
+	title: string;
+	hasRun: boolean;
+	ranLabel: string;
+	disabled: boolean;
+	onClick: () => void;
+}): ReactElement {
+	return (
+		<button
+			type="button"
+			// The dot's own label is separate, so the tooltip here stays about what the pass
+			// does rather than becoming a sentence about state.
+			title={title}
+			disabled={disabled}
+			onClick={onClick}
+			className="flex cursor-pointer items-center gap-1.5 rounded border border-border bg-surface-2 px-1.5 py-0.5 text-[10px] text-text-secondary hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-40"
+		>
+			<ReviewRunDot state={hasRun ? "done" : "unrun"} label={hasRun ? ranLabel : `${label} — not run yet`} />
+			{icon}
+			{label}
+		</button>
+	);
+}
+
 export function ReviewClaudePanel({
 	messages,
 	streamingText,
@@ -26,6 +70,8 @@ export function ReviewClaudePanel({
 	chatNotices,
 	contextLabel,
 	canRequestChange,
+	hasRunUnderstandChanges,
+	hasRunCodeReviewDiff,
 	projectCommands,
 	polishComments,
 	pendingFindings,
@@ -57,6 +103,12 @@ export function ReviewClaudePanel({
 	contextLabel: string | null;
 	/** False when no diff line is selected, so a comment could not be anchored. */
 	canRequestChange: boolean;
+	/**
+	 * Whether each whole-merge-request pass has already run in this conversation. Read
+	 * off the transcript by the caller, so clearing the chat resets both.
+	 */
+	hasRunUnderstandChanges: boolean;
+	hasRunCodeReviewDiff: boolean;
 	/** Slash commands the selected checkout ships in `.claude/commands`. */
 	projectCommands: readonly ReviewProjectCommand[];
 	polishComments: boolean;
@@ -124,21 +176,28 @@ export function ReviewClaudePanel({
 				</div>
 			</div>
 
-			<div className="flex shrink-0 flex-wrap gap-1 border-b border-border p-2">
-				<button
-					type="button"
-					title="Explain how these changes affect the broader codebase"
+			{/* The two whole-merge-request passes. They are buttons rather than chips because
+			    they read every patch and cost accordingly, and each carries a dot saying
+			    whether this conversation has already paid for it. */}
+			<div className="flex shrink-0 flex-wrap items-center gap-1 border-b border-border p-2">
+				<ReviewPassButton
+					icon={<Network size={10} />}
+					label="Understand changes"
+					title="What this merge request touches and what may break, across every changed file. Answers from the project's knowledge graph and only searches for the paths the graph has no node for."
+					hasRun={hasRunUnderstandChanges}
+					ranLabel="Already run in this conversation — clear the chat to reset"
 					disabled={chatStatus === "running"}
-					onClick={() =>
-						onSend(
-							`Analyze how the changes in this merge request affect the broader codebase — without relying on any pre-built knowledge graph.\n\nFor each changed file:\n1. Use Grep to find all files that import or require it (search for the filename and any exported symbols that were modified).\n2. Use Grep to find callers of any functions or classes that were changed.\n3. Note which modules are downstream consumers and whether the changes are breaking, additive, or purely internal.\n\nSummarize: which parts of the codebase are affected, what the risk surface is, and whether any callers need updates.`,
-						)
-					}
-					className="flex cursor-pointer items-center gap-1 rounded border border-border bg-surface-2 px-1.5 py-0.5 text-[10px] text-text-secondary hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-40"
-				>
-					<Network size={10} />
-					Understand changes
-				</button>
+					onClick={() => onSend(REVIEW_UNDERSTAND_CHANGES_COMMAND)}
+				/>
+				<ReviewPassButton
+					icon={<ClipboardCheck size={10} />}
+					label="Code Review Diff"
+					title="Senior-reviewer pass over every patch in the merge request: the project's extracted rules where they apply, correctness, compatibility and tests, ending in a merge verdict."
+					hasRun={hasRunCodeReviewDiff}
+					ranLabel="Already run in this conversation — clear the chat to reset"
+					disabled={chatStatus === "running"}
+					onClick={() => onSend(REVIEW_CODE_REVIEW_DIFF_COMMAND)}
+				/>
 			</div>
 
 			{pendingFindings.length > 0 ? (

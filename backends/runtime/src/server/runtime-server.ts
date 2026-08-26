@@ -69,6 +69,7 @@ import {
 	REVIEW_SUGGEST_ALLOWED_TOOLS,
 	resolveReviewAgentCwd,
 } from "../review/review-agent-args";
+import { reviewCommandNeedsGraphImpact, reviewCommandNeedsRules } from "../review/review-command-expansion";
 import { buildReviewGraphPromptSection } from "../review/review-graph-brief";
 import {
 	GRAPH_REBUILD_IDLE_TIMEOUT_MS,
@@ -1332,22 +1333,34 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 						const activeWorkspaceId = deps.workspaceRegistry.getActiveWorkspaceId();
 						const cwd = resolveReviewAgentCwd({
 							cwd: input.cwd,
-							// The active project's checkout, so `/understand-diff` and codebase
-							// questions resolve against the repo the reviewer is looking at.
+							// The active project's checkout, so the project's own `.claude/commands`
+							// and codebase questions resolve against the repo the reviewer is
+							// looking at. It is *not* where the branch under review lives — that is
+							// only in the prompt, which is why the built-in review commands are
+							// expanded locally instead (`review-command-expansion.ts`).
 							projectPath: activeWorkspaceId
 								? deps.workspaceRegistry.getWorkspacePathById(activeWorkspaceId)
 								: null,
 						});
-						// First turn only, like the diff below it: a resumed turn already has the
-						// brief in the CLI session, and re-sending it per message is what made
-						// this panel expensive in the first place. The chat never writes the
-						// overlay — the reviewer did not ask for a file to change.
-						const graphImpact = isFirstTurn
-							? await buildReviewGraphPromptSection({
-									projectPath: cwd,
-									changedPaths: input.changedPaths,
-									baseBranch: mergeRequest?.targetBranch ?? "unknown",
-								})
+						// First turn, like the diff below it — re-sending it per message is what
+						// made this panel expensive in the first place — plus any turn running a
+						// command whose answer is meant to be read off the brief. The walk itself
+						// is deterministic TypeScript, so the only cost is prompt characters. The
+						// chat never writes the overlay: the reviewer did not ask for a file to
+						// change.
+						const graphImpact =
+							isFirstTurn || reviewCommandNeedsGraphImpact(input.prompt)
+								? await buildReviewGraphPromptSection({
+										projectPath: cwd,
+										changedPaths: input.changedPaths,
+										baseBranch: mergeRequest?.targetBranch ?? "unknown",
+									})
+								: undefined;
+						// Only the whole-merge-request review asks for these. A missing bundle is
+						// not an error: the expansion says "no house style to check against"
+						// instead, which is the honest instruction.
+						const rules = reviewCommandNeedsRules(input.prompt)
+							? ((await readReviewRulesBundle(input.projectKey))?.rules ?? undefined)
 							: undefined;
 						return {
 							ok: true,
@@ -1360,11 +1373,13 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 								targetBranch: mergeRequest?.targetBranch ?? "unknown",
 								changedPaths: input.changedPaths,
 								activeDiff: input.activeDiff,
+								allDiffs: input.allDiffs,
 								screen: input.screen,
 								visible: input.visible,
 								isFirstTurn,
 								expectSuggestions: input.expectSuggestions,
 								...(graphImpact === undefined ? {} : { graphImpact }),
+								...(rules === undefined ? {} : { rules }),
 							}),
 							...(cwd === undefined ? {} : { cwd }),
 							model: input.model,

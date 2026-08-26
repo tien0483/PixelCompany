@@ -4,21 +4,55 @@ import { type ReactElement, useState } from "react";
 import type { ReviewProjectCommand } from "@/review/use-review-project-commands";
 
 /**
- * Slash commands that exist as real skills in this stack. They are prefilled into
- * the input rather than sent immediately, so the reviewer can add a target before
- * spending a turn — a bare `/security-review` on a 40-file MR is rarely what they
- * meant.
+ * The chips: review commands scoped to what the reviewer has on screen. Prefilled
+ * into the input rather than sent immediately, so a target can be added before a turn
+ * is spent — a bare `/security-review` on a 40-file MR is rarely what they meant.
+ *
+ * All of these are expanded by the runtime into a scoped instruction and never reach
+ * the CLI as slash commands (`review-command-expansion.ts` explains why each had to
+ * be: one was not installed in the reviewed checkout, the others went to `git` for a
+ * branch that is not checked out). `/simplify` is the exception in the other
+ * direction — a real built-in skill, passed through, because it already scopes itself
+ * to the code it is shown.
+ *
+ * `/understand-diff` is deliberately not a chip any more: it asked the same question
+ * as the "Understand changes" button at a narrower scope, and two answers to one
+ * question is worse than one. The runtime still accepts it as an alias of the button.
  *
  * Stack-wide only. A project's own commands are discovered from its checkout and
  * arrive as `projectCommands` — hardcoding those here is what made a repo's `/review`
  * look unavailable when the CLI could expand it all along.
  */
 export const REVIEW_QUICK_PROMPTS = [
-	{ command: "/understand-diff", hint: "What does this change touch?" },
-	{ command: "/security-review", hint: "Security pass over the diff" },
-	{ command: "/code-review", hint: "General correctness review" },
-	{ command: "/simplify", hint: "Simplification opportunities" },
+	{ command: "/security-review", hint: "Security pass over every patch in the MR — reads the whole change" },
+	{ command: "/code-review", hint: "Correctness review of the selected lines or the file on screen only" },
+	{ command: "/simplify", hint: "Simplification opportunities in what is on screen" },
 ] as const;
+
+/**
+ * The commands the panel's buttons send, and the one chip that shares their scope.
+ *
+ * This is the frontend's copy of the merge-request-scoped set, because the decision
+ * it drives is made here: whether to put every patch in the merge request on the
+ * request body. It must stay in step with `reviewCommandScope` in
+ * `backends/runtime/src/review/review-command-expansion.ts`, which is where the
+ * matching prompt scope lives. A name in one list and not the other means either a
+ * pass reading "every patch below" was sent none, or a screen-scoped turn is paying
+ * for the whole merge request.
+ */
+export const REVIEW_UNDERSTAND_CHANGES_COMMAND = "/understand-changes";
+export const REVIEW_CODE_REVIEW_DIFF_COMMAND = "/code-review-diff";
+const REVIEW_MERGE_REQUEST_SCOPED_COMMANDS = [
+	REVIEW_UNDERSTAND_CHANGES_COMMAND,
+	REVIEW_CODE_REVIEW_DIFF_COMMAND,
+	"/understand-diff",
+	"/security-review",
+] as const;
+
+function matchesCommand(prompt: string, name: string): boolean {
+	const trimmed = prompt.trimStart();
+	return trimmed === name || trimmed.startsWith(`${name} `);
+}
 
 /**
  * True when a prompt is a slash command, which is a request for findings rather than
@@ -27,12 +61,32 @@ export const REVIEW_QUICK_PROMPTS = [
  * the project's command answering in prose nobody can turn into a comment.
  */
 export function isReviewCommandPrompt(prompt: string, projectCommands: readonly ReviewProjectCommand[] = []): boolean {
-	const trimmed = prompt.trimStart();
 	const names = [
 		...REVIEW_QUICK_PROMPTS.map((entry) => entry.command),
+		...REVIEW_MERGE_REQUEST_SCOPED_COMMANDS,
 		...projectCommands.map((entry) => entry.command),
 	];
-	return names.some((name) => trimmed === name || trimmed.startsWith(`${name} `));
+	return names.some((name) => matchesCommand(prompt, name));
+}
+
+/** Whether this turn needs every patch in the merge request attached to it. */
+export function isMergeRequestScopedPrompt(prompt: string): boolean {
+	return REVIEW_MERGE_REQUEST_SCOPED_COMMANDS.some((name) => matchesCommand(prompt, name));
+}
+
+/**
+ * Whether one of the button commands has already been run in this conversation.
+ *
+ * Derived from the transcript rather than stored: it costs no schema, it survives a
+ * reload for free, and "Clear conversation" resets it — which is exactly the scope
+ * the indicator claims, since a cleared chat is a new CLI session that has never
+ * seen the answer.
+ */
+export function hasRunReviewCommand(
+	messages: readonly { role: "user" | "assistant"; text: string }[],
+	command: string,
+): boolean {
+	return messages.some((message) => message.role === "user" && matchesCommand(message.text, command));
 }
 
 export function ReviewChatComposer({

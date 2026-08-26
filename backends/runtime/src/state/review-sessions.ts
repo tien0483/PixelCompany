@@ -70,6 +70,7 @@ export function createEmptyReviewSession(host: string, projectId: number, iid: n
 		dismissedFindingIds: [],
 		chatSessionId: null,
 		chatMessages: [],
+		completedPasses: [],
 		updatedAt: new Date().toISOString(),
 	};
 }
