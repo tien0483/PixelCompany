@@ -26,8 +26,8 @@ import {
 	RuntimeHtmlDraftRequestSchema,
 	RuntimeHtmlGenerateRequestSchema,
 	runtimeReviewAuditRequestSchema,
-	runtimeReviewGraphRebuildRequestSchema,
 	runtimeReviewChatRequestSchema,
+	runtimeReviewGraphRebuildRequestSchema,
 	runtimeReviewRulesExtractRequestSchema,
 	runtimeReviewSuggestCommentRequestSchema,
 } from "../core/api-contract";

@@ -13,8 +13,8 @@ import type {
 	RuntimeReviewSessionWriteRequest,
 } from "../core/api-contract";
 import { startReviewGraphDashboard } from "../review/review-dashboard-process";
-import { buildReviewGraphBrief } from "../review/review-graph-brief";
 import { loadReviewGraphIndex, readReviewGraphFreshness } from "../review/review-graph";
+import { buildReviewGraphBrief } from "../review/review-graph-brief";
 import { readReviewRulesBundle, readReviewRulesConfig, writeReviewRulesConfig } from "../review/review-rules";
 import {
 	createEmptyReviewSession,
@@ -153,15 +153,11 @@ export function createReviewApi(): RuntimeTrpcContext["reviewApi"] {
 			input: RuntimeReviewGraphDashboardRequest,
 		): Promise<RuntimeReviewGraphDashboardResponse> => {
 			try {
-				const started = await startReviewGraphDashboard({
-					projectPath: input.projectPath,
-					warn: (message) => {
-						console.warn(`[kanban] ${message}`);
-					},
-					log: (message) => {
-						console.log(`[kanban] ${message}`);
-					},
-				});
+				// No `warn`/`log` callbacks: nothing else in this layer writes to the
+				// console, and a failure here has somewhere better to go — the error
+				// travels back in the response and is rendered in the Impact panel, where
+				// the person who pressed the button will actually read it.
+				const started = await startReviewGraphDashboard({ projectPath: input.projectPath });
 				if (!started.ok) {
 					return { ok: false, error: started.error };
 				}

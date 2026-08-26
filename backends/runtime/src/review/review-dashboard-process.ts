@@ -50,7 +50,9 @@ export interface ReviewGraphDashboard {
 	pid: number | null;
 }
 
-export type StartReviewGraphDashboardResult = { ok: true; dashboard: ReviewGraphDashboard } | { ok: false; error: string };
+export type StartReviewGraphDashboardResult =
+	| { ok: true; dashboard: ReviewGraphDashboard }
+	| { ok: false; error: string };
 
 interface RegistryEntry extends ReviewGraphDashboard {
 	child: ChildProcess;
@@ -82,11 +84,7 @@ export function findUnderstandPluginRoot(): string | null {
 		// tsc output: backends/runtime/dist/review → …
 		resolve(here, "../../../../agent_stack/src-understand-anything/understand-anything-plugin"),
 	];
-	const candidates = [
-		...(configured ? [configured] : []),
-		join(homedir(), ".understand-anything-plugin"),
-		...inRepo,
-	];
+	const candidates = [...(configured ? [configured] : []), join(homedir(), ".understand-anything-plugin"), ...inRepo];
 	for (const candidate of candidates) {
 		if (existsSync(join(candidate, "packages", "viewer", "bin", "viewer.mjs"))) {
 			return candidate;
@@ -106,7 +104,9 @@ export interface ResolvedViewerEntry {
  * exits with a message about it, but that message would arrive as "the dashboard
  * did not start", so it is checked here where the fix can be named.
  */
-export function resolveViewerEntry(pluginRoot: string): { ok: true; entry: ResolvedViewerEntry } | { ok: false; error: string } {
+export function resolveViewerEntry(
+	pluginRoot: string,
+): { ok: true; entry: ResolvedViewerEntry } | { ok: false; error: string } {
 	const binPath = join(pluginRoot, "packages", "viewer", "bin", "viewer.mjs");
 	const distPath = join(pluginRoot, "packages", "viewer", "dist");
 	if (!existsSync(binPath)) {
@@ -200,21 +200,28 @@ async function spawnDashboard(input: StartReviewGraphDashboardInput): Promise<St
 
 	const port = await findFreePort();
 	if (port === null) {
-		return { ok: false, error: `No free port in ${DASHBOARD_PORT_BASE}–${DASHBOARD_PORT_BASE + DASHBOARD_PORT_ATTEMPTS}.` };
+		return {
+			ok: false,
+			error: `No free port in ${DASHBOARD_PORT_BASE}–${DASHBOARD_PORT_BASE + DASHBOARD_PORT_ATTEMPTS}.`,
+		};
 	}
 	const token = randomBytes(16).toString("hex");
 
 	let child: ChildProcess;
 	try {
-		child = spawn(process.execPath, [resolved.entry.binPath, input.projectPath, "--port", String(port), "--no-open"], {
-			cwd: input.projectPath,
-			// The token is the whole access-control story for the viewer, so it is
-			// generated here and never logged.
-			env: { ...process.env, UNDERSTAND_ACCESS_TOKEN: token },
-			stdio: ["ignore", "pipe", "pipe"],
-			windowsHide: true,
-			detached: process.platform !== "win32",
-		});
+		child = spawn(
+			process.execPath,
+			[resolved.entry.binPath, input.projectPath, "--port", String(port), "--no-open"],
+			{
+				cwd: input.projectPath,
+				// The token is the whole access-control story for the viewer, so it is
+				// generated here and never logged.
+				env: { ...process.env, UNDERSTAND_ACCESS_TOKEN: token },
+				stdio: ["ignore", "pipe", "pipe"],
+				windowsHide: true,
+				detached: process.platform !== "win32",
+			},
+		);
 	} catch (error) {
 		return { ok: false, error: error instanceof Error ? error.message : String(error) };
 	}
@@ -262,7 +269,14 @@ async function spawnDashboard(input: StartReviewGraphDashboardInput): Promise<St
 	}
 
 	const url = announcedUrl ?? `http://127.0.0.1:${port}/?token=${token}`;
-	const entry: RegistryEntry = { projectPath: input.projectPath, url, port, pid: child.pid ?? null, child, exited: false };
+	const entry: RegistryEntry = {
+		projectPath: input.projectPath,
+		url,
+		port,
+		pid: child.pid ?? null,
+		child,
+		exited: false,
+	};
 	dashboards.set(input.projectPath, entry);
 	log(`Graph dashboard for ${input.projectPath} listening on 127.0.0.1:${port}.`);
 	return { ok: true, dashboard: { projectPath: entry.projectPath, url: entry.url, port: entry.port, pid: entry.pid } };

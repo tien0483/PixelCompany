@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -9,9 +9,9 @@ import {
 	computeReviewGraphImpact,
 	loadReviewGraphIndex,
 	matchChangedPathNodeIds,
+	type ReviewGraphIndex,
 	resolveReviewGraphLocation,
 	writeReviewGraphDiffOverlay,
-	type ReviewGraphIndex,
 } from "../../../src/review/review-graph";
 import { formatGraphImpactForPrompt } from "../../../src/review/review-prompts";
 
@@ -118,10 +118,7 @@ describe("loadReviewGraphIndex", () => {
 
 		expect(index.nodeCount).toBe(6);
 		expect(index.edgeCount).toBe(6);
-		expect(index.nodeIdsByFilePath.get("src/core.py")).toEqual([
-			"file:src/core.py",
-			"function:src/core.py:solve",
-		]);
+		expect(index.nodeIdsByFilePath.get("src/core.py")).toEqual(["file:src/core.py", "function:src/core.py:solve"]);
 		expect(index.containedNodeIds.get("file:src/core.py")).toEqual(["function:src/core.py:solve"]);
 		expect(index.impactEdges.map((edge) => edge.type).sort()).toEqual(["calls", "imports", "imports", "imports"]);
 	});
@@ -159,10 +156,7 @@ describe("matchChangedPathNodeIds", () => {
 		await writeGraph(".ua", graphDocument());
 		const index = await loadIndex();
 
-		expect(matchChangedPathNodeIds(index, "src/api.py")).toEqual([
-			"file:src/api.py",
-			"function:src/api.py:handler",
-		]);
+		expect(matchChangedPathNodeIds(index, "src/api.py")).toEqual(["file:src/api.py", "function:src/api.py:handler"]);
 	});
 
 	it("falls back to a path suffix, so a graph built from a subdirectory still matches", async () => {
@@ -171,10 +165,7 @@ describe("matchChangedPathNodeIds", () => {
 
 		// What a merge request looks like when the graph was built one level down.
 		expect(matchChangedPathNodeIds(index, "repo-root/src/api.py")).toEqual([]);
-		expect(matchChangedPathNodeIds(index, "SRC/API.PY")).toEqual([
-			"file:src/api.py",
-			"function:src/api.py:handler",
-		]);
+		expect(matchChangedPathNodeIds(index, "SRC/API.PY")).toEqual(["file:src/api.py", "function:src/api.py:handler"]);
 	});
 
 	it("returns nothing for a path the graph has never seen", async () => {

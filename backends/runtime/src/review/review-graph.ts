@@ -325,7 +325,9 @@ function buildIndex(input: {
 		if (id === null) {
 			continue;
 		}
-		const nodeIds = Array.isArray(raw.nodeIds) ? raw.nodeIds.filter((value): value is string => typeof value === "string") : [];
+		const nodeIds = Array.isArray(raw.nodeIds)
+			? raw.nodeIds.filter((value): value is string => typeof value === "string")
+			: [];
 		layers.push({
 			id,
 			name: typeof raw.name === "string" ? raw.name : id,
@@ -564,8 +566,13 @@ export function computeReviewGraphImpact(
 		const existing = neighbourByNodeId.get(outsideId);
 		// A node reachable both ways is a dependent: that is the reading that matters,
 		// and a mutual import is exactly the case where a change can come back around.
-		const upgradesDirection = existing !== undefined && existing.direction !== "dependent" && direction === "dependent";
-		if (existing === undefined || upgradesDirection || (existing.direction === direction && edge.weight > existing.weight)) {
+		const upgradesDirection =
+			existing !== undefined && existing.direction !== "dependent" && direction === "dependent";
+		if (
+			existing === undefined ||
+			upgradesDirection ||
+			(existing.direction === direction && edge.weight > existing.weight)
+		) {
 			neighbourByNodeId.set(outsideId, { via: edge.type, direction, fromNodeId: insideId, weight: edge.weight });
 		}
 	}
@@ -708,7 +715,12 @@ export async function readReviewGraphFreshness(
 		};
 	}
 
-	const resolved = await runGit(projectPath, ["rev-parse", "--verify", "--end-of-options", `${graphCommitRaw}^{commit}`]);
+	const resolved = await runGit(projectPath, [
+		"rev-parse",
+		"--verify",
+		"--end-of-options",
+		`${graphCommitRaw}^{commit}`,
+	]);
 	if (!resolved.ok) {
 		return {
 			graphCommit: graphCommitRaw,

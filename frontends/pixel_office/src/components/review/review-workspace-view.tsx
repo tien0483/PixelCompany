@@ -1,4 +1,4 @@
-import { ArrowLeft, ExternalLink, Send, Sparkles, X } from "lucide-react";
+import { ArrowLeft, ExternalLink, Network, Send, Sparkles, X } from "lucide-react";
 import { type ReactElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { showAppToast } from "@/components/app-toaster";
@@ -6,6 +6,7 @@ import { ClaudeUsageChip } from "@/components/claude-usage-chip";
 import { ReviewClaudePanel } from "@/components/review/review-claude-panel";
 import { ReviewDiffPane, type ReviewCommentDraftInput } from "@/components/review/review-diff-pane";
 import { ReviewFilesPanel } from "@/components/review/review-files-panel";
+import { ReviewImpactPanel } from "@/components/review/review-impact-panel";
 import { ReviewRulesPanel } from "@/components/review/review-rules-panel";
 import { ReviewSeatPicker } from "@/components/review/review-seat-picker";
 import {
@@ -42,6 +43,7 @@ import {
 import { readStoredPolishComments, writeStoredPolishComments } from "@/review/review-comment-polish";
 import type { FullFileFetchResult } from "@/review/use-full-file-content";
 import { useReviewChat } from "@/review/use-review-chat";
+import { useReviewGraphImpact } from "@/review/use-review-graph-impact";
 import { useReviewRulesConfig } from "@/review/use-review-rules-config";
 import { useReviewSeat } from "@/review/use-review-seat";
 import { useReviewSession } from "@/review/use-review-session";
@@ -50,11 +52,12 @@ import type {
 	RuntimeManagerAccount,
 	RuntimeReviewAuditRequest,
 	RuntimeReviewChatMessage,
+	RuntimeReviewGraphRebuildRequest,
 	RuntimeReviewRulesExtractRequest,
 	RuntimeReviewSuggestCommentRequest,
 } from "@/runtime/types";
 
-type LeftTab = "files" | "threads" | "rules";
+type LeftTab = "files" | "impact" | "threads" | "rules";
 
 export function ReviewWorkspaceView({
 	target,
@@ -100,11 +103,88 @@ export function ReviewWorkspaceView({
 
 	const audit = useHtmlAgentStream<RuntimeReviewAuditRequest>("/api/review/audit");
 	const rulesExtract = useHtmlAgentStream<RuntimeReviewRulesExtractRequest>("/api/review/rules-extract");
+	/**
+	 * The knowledge-graph rebuild. Streamed like the other one-shots, but it is the
+	 * only one that does not spend the reviewer's Claude seat: a whole-repository
+	 * analysis runs on the Antigravity quota pool instead.
+	 */
+	const graphRebuild = useHtmlAgentStream<RuntimeReviewGraphRebuildRequest>("/api/review/graph-rebuild");
 
 	const claudeAccounts = useMemo(
 		() => managerAccounts.filter((account) => account.provider === "claude"),
 		[managerAccounts],
 	);
+
+	/**
+	 * A rebuild needs an Antigravity seat to exist, but it does not get pinned the way
+	 * a Claude seat does: those credentials are machine-wide in `~/.gemini` and Manager
+	 * rotates which is active. The pin is passed anyway so an over-cap seat refuses the
+	 * run rather than silently spending it.
+	 */
+	const antigravityAccounts = useMemo(
+		() => managerAccounts.filter((account) => account.provider === "antigravity" && account.isActive !== false),
+		[managerAccounts],
+	);
+
+	/**
+	 * What the change touches, according to the project's knowledge graph.
+	 *
+	 * Costs no tokens — the walk happens in the runtime — so it is fetched whether or
+	 * not the reviewer runs an agent. It is also the surface that makes a missing or
+	 * stale graph visible: the audit and chat passes are handed the same walk as
+	 * prose, so without somewhere to look at it, a graph problem would only ever show
+	 * up as prompts that quietly got worse.
+	 */
+	const graph = useReviewGraphImpact({
+		projectPath: localRepoPath || undefined,
+		changedPaths: session.files.map((file) => file.newPath),
+		baseBranch: session.mergeRequest?.targetBranch,
+		workspaceId,
+	});
+
+	const openGraphDashboard = useCallback(() => {
+		if (!localRepoPath) {
+			showAppToast({ intent: "danger", message: "No local checkout is selected for this project." });
+			return;
+		}
+		void (async () => {
+			try {
+				const client = getRuntimeTrpcClient(workspaceId);
+				const response = await client.review.openGraphDashboard.mutate({ projectPath: localRepoPath });
+				if (!response.ok || !response.url) {
+					const message = response.error ?? "The graph dashboard could not be started.";
+					setAgentError(message);
+					showAppToast({ intent: "danger", message });
+					return;
+				}
+				// A new tab rather than an embedded frame: the dashboard is a full graph
+				// explorer, and the review workspace already has three columns.
+				window.open(response.url, "_blank", "noopener,noreferrer");
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error);
+				setAgentError(message);
+				showAppToast({ intent: "danger", message });
+			}
+		})();
+	}, [localRepoPath, workspaceId]);
+
+	const rebuildGraph = useCallback(() => {
+		if (!localRepoPath) {
+			showAppToast({ intent: "danger", message: "No local checkout is selected for this project." });
+			return;
+		}
+		setAgentError(null);
+		showAppToast({
+			intent: "success",
+			message: "Rebuilding the knowledge graph on the Antigravity seat. This analyzes the whole repository.",
+		});
+		void graphRebuild.run({
+			projectPath: localRepoPath,
+			// No model: agy's own default. Pinning one here would hard-code an id from
+			// `agy models`, which carries its effort suffix and changes between releases.
+			managerAccountId: antigravityAccounts[0]?.id,
+		});
+	}, [antigravityAccounts, graphRebuild, localRepoPath]);
 
 	/**
 	 * The seat every review run pins. A reviewer who has never chosen gets the
@@ -253,6 +333,31 @@ export function ReviewWorkspaceView({
 		showAppToast({ intent: "danger", message: chatError });
 	}, [chatError, chatStatus]);
 
+	// A finished rebuild has to invalidate the impact query, or the panel keeps
+	// showing the stale walk that prompted the rebuild in the first place. The graph
+	// index itself is cached on mtime server-side, so the refetch picks up the new
+	// file without any explicit cache busting.
+	const graphRebuildStatus = graphRebuild.status;
+	const graphRebuildReset = graphRebuild.reset;
+	const graphRebuildError = graphRebuild.error;
+	const refreshGraph = graph.refresh;
+	useEffect(() => {
+		if (graphRebuildStatus !== "done") {
+			return;
+		}
+		refreshGraph();
+		showAppToast({ intent: "success", message: "Knowledge graph rebuilt." });
+		graphRebuildReset();
+	}, [graphRebuildReset, graphRebuildStatus, refreshGraph]);
+	useEffect(() => {
+		if (graphRebuildStatus !== "error" || !graphRebuildError) {
+			return;
+		}
+		setAgentError(graphRebuildError);
+		showAppToast({ intent: "danger", message: graphRebuildError });
+		graphRebuildReset();
+	}, [graphRebuildError, graphRebuildReset, graphRebuildStatus]);
+
 	const citeRule = useCallback((ruleId: string) => {
 		setPendingCitations((current) => (current.includes(ruleId) ? current : [...current, ruleId]));
 	}, []);
@@ -347,6 +452,7 @@ export function ReviewWorkspaceView({
 	// Stable identity so the diff pane's `closeComposer` memoization holds — it is a
 	// dependency of effects there, and a fresh arrow per render defeats them.
 	const clearCitations = useCallback(() => setPendingCitations([]), []);
+
 
 	const runAudit = useCallback(() => {
 		if (session.files.length === 0 || !session.mergeRequest) {
@@ -771,6 +877,50 @@ export function ReviewWorkspaceView({
 					<span className="text-text-tertiary">
 						{progress.reviewed}/{progress.total} reviewed
 					</span>
+					{/*
+					 * Says what the agents can see. A review whose prompts silently lost their
+					 * blast radius — no graph, or one built before half the branch existed —
+					 * looks exactly like one that has it, which is why this is in the header
+					 * rather than only inside the Impact tab.
+					 */}
+					{localRepoPath ? (
+						<button
+							type="button"
+							data-testid="review-graph-chip"
+							title={
+								graph.impact?.hasGraph
+									? `${graph.impact.dataDir ?? "knowledge graph"} — ${
+											graph.impact.freshness?.isStale
+												? `${graph.impact.freshness.changedSinceGraphCount} file(s) changed since it was built`
+												: "up to date with HEAD"
+										}. Opens the dashboard.`
+									: "This project has no knowledge graph, so the review agents only see the diff."
+							}
+							className={cn(
+								"flex shrink-0 cursor-pointer items-center gap-1 rounded px-1.5 py-0.5 text-[11px]",
+								graph.impact?.hasGraph
+									? graph.impact.freshness?.isStale
+										? "bg-status-orange/15 text-status-orange"
+										: "bg-surface-3 text-text-secondary hover:text-text-primary"
+									: "bg-surface-3 text-text-tertiary hover:text-text-secondary",
+							)}
+							onClick={() => {
+								if (graph.impact?.hasGraph) {
+									openGraphDashboard();
+									return;
+								}
+								// Nothing to open, so send them where the build button is.
+								setLeftTab("impact");
+							}}
+						>
+							<Network size={11} />
+							{graph.impact?.hasGraph
+								? graph.impact.freshness?.isStale
+									? "Graph stale"
+									: "Graph"
+								: "No graph"}
+						</button>
+					) : null}
 					<ReviewSeatPicker
 						claudeAccounts={claudeAccounts}
 						activeAccountId={managerActiveAccountId}
@@ -832,6 +982,18 @@ export function ReviewWorkspaceView({
 							onSelect={() => setLeftTab("files")}
 						/>
 						<LeftTabButton
+							label={
+								graph.impact?.hasGraph
+									? `Impact (${graph.impact.affected?.length ?? 0})`
+									: "Impact"
+							}
+							active={leftTab === "impact"}
+							// The dot is the only place a stale graph is visible without opening the
+							// tab, and a stale graph silently degrades every agent prompt.
+							showAlert={graph.impact?.freshness?.isStale === true}
+							onSelect={() => setLeftTab("impact")}
+						/>
+						<LeftTabButton
 							label={`Threads (${session.discussions.length})`}
 							active={leftTab === "threads"}
 							onSelect={() => setLeftTab("threads")}
@@ -843,7 +1005,19 @@ export function ReviewWorkspaceView({
 						/>
 					</div>
 
-					{leftTab === "files" ? (
+					{leftTab === "impact" ? (
+						<ReviewImpactPanel
+							impact={graph.impact}
+							isLoading={graph.isLoading}
+							projectPath={localRepoPath || undefined}
+							isRebuilding={graphRebuild.status === "running"}
+							canRebuild={antigravityAccounts.length > 0}
+							onRefresh={graph.refresh}
+							onRebuildGraph={rebuildGraph}
+							onOpenDashboard={openGraphDashboard}
+							onSelectPath={session.setActivePath}
+						/>
+					) : leftTab === "files" ? (
 						<ReviewFilesPanel
 							files={session.files}
 							activePath={session.activePath}
@@ -966,10 +1140,13 @@ export function ReviewWorkspaceView({
 function LeftTabButton({
 	label,
 	active,
+	showAlert = false,
 	onSelect,
 }: {
 	label: string;
 	active: boolean;
+	/** Draws an attention dot next to the label. */
+	showAlert?: boolean;
 	onSelect: () => void;
 }): ReactElement {
 	return (
@@ -977,13 +1154,19 @@ function LeftTabButton({
 			type="button"
 			onClick={onSelect}
 			className={cn(
-				"flex-1 cursor-pointer border-b-2 px-2 py-2",
+				"flex flex-1 cursor-pointer items-center justify-center gap-1 border-b-2 px-2 py-2",
 				active
 					? "border-accent bg-surface-0/40 text-text-primary"
 					: "border-transparent text-text-secondary hover:text-text-primary",
 			)}
 		>
 			{label}
+			{showAlert ? (
+				<span
+					aria-label="Needs attention"
+					className="inline-block size-1.5 shrink-0 rounded-full bg-status-orange"
+				/>
+			) : null}
 		</button>
 	);
 }

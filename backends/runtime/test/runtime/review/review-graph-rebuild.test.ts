@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { parseAgyLine, makeParser, type ParseState } from "../../../src/html/html-stream-parser";
+import { makeParser, type ParseState, parseAgyLine } from "../../../src/html/html-stream-parser";
 import {
 	buildGraphRebuildPrompt,
 	GRAPH_REBUILD_IDLE_TIMEOUT_MS,

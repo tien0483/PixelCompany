@@ -929,9 +929,7 @@ export interface RuntimeTrpcContext {
 		getRulesConfig: (input: RuntimeReviewRulesReadRequest) => Promise<RuntimeReviewRulesConfigResponse>;
 		setRulesConfig: (input: RuntimeReviewRulesConfig) => Promise<RuntimeReviewRulesConfigResponse>;
 		getGraphImpact: (input: RuntimeReviewGraphImpactRequest) => Promise<RuntimeReviewGraphImpactResponse>;
-		openGraphDashboard: (
-			input: RuntimeReviewGraphDashboardRequest,
-		) => Promise<RuntimeReviewGraphDashboardResponse>;
+		openGraphDashboard: (input: RuntimeReviewGraphDashboardRequest) => Promise<RuntimeReviewGraphDashboardResponse>;
 	};
 }
 

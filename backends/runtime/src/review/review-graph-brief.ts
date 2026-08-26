@@ -9,16 +9,17 @@
  * project was never analyzed, because the graph is mid-rebuild, or because git is
  * unhappy — the reviewer's merge request is still in front of them either way.
  */
-import { formatGraphImpactForPrompt } from "./review-prompts";
+
 import {
-	type ReviewGraphFreshness,
-	type ReviewGraphImpact,
 	computeReviewGraphImpact,
 	loadReviewGraphIndex,
+	type ReviewGraphFreshness,
+	type ReviewGraphImpact,
 	readReviewGraphFreshness,
 	reviewGraphFingerprint,
 	writeReviewGraphDiffOverlay,
 } from "./review-graph";
+import { formatGraphImpactForPrompt } from "./review-prompts";
 
 export interface ReviewGraphBrief {
 	impact: ReviewGraphImpact;

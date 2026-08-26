@@ -85,7 +85,9 @@ export function formatGraphImpactForPrompt(input: {
 		lines.push(
 			`### Layers touched`,
 			"",
-			impact.layers.map((layer) => `- ${layer.name}${layer.description ? ` — ${layer.description}` : ""}`).join("\n"),
+			impact.layers
+				.map((layer) => `- ${layer.name}${layer.description ? ` — ${layer.description}` : ""}`)
+				.join("\n"),
 			"",
 		);
 	}

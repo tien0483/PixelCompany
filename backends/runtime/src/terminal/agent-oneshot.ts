@@ -97,6 +97,17 @@ function isAgyAgentId(agentId: string): agentId is "gemini" {
 	return agentId === "gemini";
 }
 
+/**
+ * How the engine is named in an error the reviewer reads. Deliberately not the
+ * binary — `claude` and `agy` are what you type, not what the failure is about,
+ * and "agy exited with code 7" reads like a missing dependency rather than a
+ * failed run.
+ */
+const AGENT_ONE_SHOT_LABELS: Record<AgentOneShotAgentId, string> = {
+	claude: "Claude",
+	gemini: "Antigravity CLI",
+};
+
 function resolveClaudeBinary(): string {
 	const entry = RUNTIME_AGENT_CATALOG.find((agent) => agent.id === "claude");
 	const binary = entry?.binary ?? "claude";
@@ -400,7 +411,7 @@ export async function runAgentOneShot(input: RunAgentOneShotInput): Promise<{ co
 		input.signal.removeEventListener("abort", onAbort);
 	}
 	if (code !== 0 && !errorEmitted) {
-		input.onEvent({ type: "error", message: `${binary} exited with code ${code}` });
+		input.onEvent({ type: "error", message: `${AGENT_ONE_SHOT_LABELS[agentId]} exited with code ${code}` });
 	}
 	input.onEvent({ type: "done", code });
 	return { code };
