@@ -137,6 +137,17 @@ export function FeatureShelfView({
 				if (!result.ok) {
 					setError(result.error ?? "Could not change that.");
 				} else {
+					if (workspaceId && feature.category !== "hooks") {
+						setProjectInstalled((prev) => {
+							const next = new Set(prev ?? []);
+							if (!feature.installed) {
+								next.add(key);
+							} else {
+								next.delete(key);
+							}
+							return next;
+						});
+					}
 					notifySkillInventoryChanged();
 					// The streamed snapshot only refreshes the global flags, so re-read the
 					// project's own state to reflect what just changed.
@@ -246,7 +257,9 @@ export function FeatureShelfView({
 					</ul>
 				)}
 				<p className="mt-2 border-t border-border pt-1.5 text-[10px] text-text-tertiary">
-					{MANAGER_LABELS.globalInstallNotice}
+					{projectClaudeDir !== null
+						? `Installs are scoped to this project (${projectClaudeDir}).`
+						: MANAGER_LABELS.globalInstallNotice}
 				</p>
 			</div>
 		</div>

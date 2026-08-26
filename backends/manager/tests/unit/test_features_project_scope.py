@@ -115,6 +115,18 @@ class TestToggleInstallsIntoProject:
         _toggle("knowledge", "skill_dcr", False, repo_path=str(repo))
         assert not skill_md.parent.exists()
 
+    def test_skill_copies_entire_directory_including_scripts(self, tmp_path, catalog):
+        repo = tmp_path / "project-b"
+        repo.mkdir()
+        script_file = catalog / "skills" / "dcr" / "scripts" / "run.sh"
+        script_file.parent.mkdir(parents=True, exist_ok=True)
+        script_file.write_text("#!/bin/bash\necho ok", encoding="utf-8")
+
+        _toggle("knowledge", "skill_dcr", True, repo_path=str(repo))
+        installed_script = repo / ".claude" / "skills" / "dcr" / "scripts" / "run.sh"
+        assert installed_script.exists()
+        assert installed_script.read_text(encoding="utf-8") == "#!/bin/bash\necho ok"
+
     def test_rules_append_to_the_project_claude_md(self, tmp_path, global_claude):
         repo = tmp_path / "project-a"
         repo.mkdir()

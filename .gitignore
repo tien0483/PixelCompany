@@ -66,3 +66,10 @@ backends/agent_stack/*.bak
 /review-standalone/
 /dist/review-standalone*.zip
 /dist/review-standalone*.tar.gz
+
+# Temporary / scratch workspaces & plans (stored globally in Claude / agent / Gemini)
+_workspace/
+.plan/
+*.log
+_tsc*.txt
+
