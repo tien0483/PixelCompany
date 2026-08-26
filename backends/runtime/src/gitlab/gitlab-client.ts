@@ -24,6 +24,15 @@ import { buildTextPosition, countPatchLines } from "./gitlab-position";
 
 const REQUEST_TIMEOUT_MS = 15_000;
 const DEFAULT_PAGE_SIZE = 50;
+/** Parallel `/approvals` lookups when a list asks for approval state. */
+const APPROVAL_LOOKUP_CONCURRENCY = 6;
+/**
+ * Entries in the approvals cache. The sidebar refetches both inboxes on every
+ * connection change, so without a cache each of those is a page's worth of extra
+ * requests; the cap is what stops a long session from holding every merge request
+ * the user ever scrolled past.
+ */
+const APPROVAL_CACHE_MAX_ENTRIES = 400;
 /**
  * Cap on `/diffs` pages. A 4000-file MR is not reviewable in this UI anyway, and
  * an uncapped walk would hold the request open for minutes; the caller surfaces
@@ -196,6 +205,59 @@ export function parseMergeRequestSummary(raw: unknown): RuntimeGitlabMergeReques
 		pipelineStatus: parsePipelineStatus(raw.head_pipeline) ?? parsePipelineStatus(raw.pipeline),
 		changesCount: readString(raw, "changes_count"),
 		userNotesCount: readNumber(raw, "user_notes_count"),
+		// Left unknown here on purpose: this parses both list rows and the detail
+		// payload, and only the latter carries `approved_by`. Callers that want the
+		// truth for a list row overlay it from the approvals endpoint.
+		...EMPTY_APPROVAL_STATE,
+	};
+}
+
+/**
+ * Approval state as the UI needs it, from any payload carrying `approved_by`.
+ *
+ * `approvedByCount` rather than `approvalsLeft === 0` is what answers "did anyone
+ * approve this": an instance with no approval rules reports zero approvals left
+ * for a merge request nobody has looked at, so the counter alone would mark the
+ * whole list green.
+ */
+export interface GitlabApprovalState {
+	approvedByMe: boolean | null;
+	approvedByCount: number | null;
+	approvalsRequired: number | null;
+	approvalsLeft: number | null;
+}
+
+/** "Never looked up" — distinct from "looked up, nobody approved". */
+export const EMPTY_APPROVAL_STATE: GitlabApprovalState = {
+	approvedByMe: null,
+	approvedByCount: null,
+	approvalsRequired: null,
+	approvalsLeft: null,
+};
+
+export function parseApprovalState(raw: unknown, username: string | null): GitlabApprovalState {
+	if (!isRecord(raw)) {
+		return EMPTY_APPROVAL_STATE;
+	}
+	// `approved_by` is absent on instances without the approvals feature. That is
+	// "cannot tell", not "nobody approved", so the count stays null and the UI
+	// shows no badge instead of claiming an approval state it does not have.
+	if (!Array.isArray(raw.approved_by)) {
+		return {
+			...EMPTY_APPROVAL_STATE,
+			approvalsRequired: readNumber(raw, "approvals_required"),
+			approvalsLeft: readNumber(raw, "approvals_left"),
+		};
+	}
+	const approvedBy = raw.approved_by;
+	return {
+		approvedByMe:
+			username === null
+				? null
+				: approvedBy.some((entry) => isRecord(entry) && readNestedString(entry, "user", "username") === username),
+		approvedByCount: approvedBy.length,
+		approvalsRequired: readNumber(raw, "approvals_required"),
+		approvalsLeft: readNumber(raw, "approvals_left"),
 	};
 }
 
@@ -331,6 +393,8 @@ export interface GitlabClient {
 		reviewerId?: number;
 		search?: string;
 		limit?: number;
+		/** Overlay approval state onto every row — one extra request per row. */
+		withApprovals?: boolean;
 	}) => Promise<GitlabResult<RuntimeGitlabMergeRequestSummary[]>>;
 	getMergeRequest: (input: {
 		projectId: number;
@@ -542,6 +606,92 @@ export function createGitlabClient(deps?: CreateGitlabClientDependencies): Gitla
 		return { ok: true, value: parsed };
 	};
 
+	/**
+	 * Approval state by merge request *and* its `updated_at`.
+	 *
+	 * Keying on the timestamp is what makes this safe to reuse without a TTL:
+	 * approving touches the merge request, so a changed approval always arrives
+	 * under a key nothing has cached. A row with no `updated_at` is never cached.
+	 */
+	const approvalCache = new Map<string, GitlabApprovalState>();
+
+	const approvalCacheKey = (mergeRequest: RuntimeGitlabMergeRequestSummary): string | null =>
+		mergeRequest.updatedAt === null
+			? null
+			: `${mergeRequest.projectId}:${mergeRequest.iid}:${mergeRequest.updatedAt}`;
+
+	const rememberApproval = (key: string, state: GitlabApprovalState): void => {
+		// Insertion-ordered eviction: the oldest key is the one least likely to be on
+		// the page the user is looking at now.
+		if (approvalCache.size >= APPROVAL_CACHE_MAX_ENTRIES) {
+			const oldest = approvalCache.keys().next();
+			if (!oldest.done) {
+				approvalCache.delete(oldest.value);
+			}
+		}
+		approvalCache.set(key, state);
+	};
+
+	/**
+	 * Fills in the approval fields on a page of list rows.
+	 *
+	 * One request each, because GitLab's list endpoint returns no approval data and
+	 * the `approved_by_ids` filter that would avoid this is a paid-tier feature —
+	 * relying on it would make the whole feature vanish on a Free instance. Rows are
+	 * capped by the caller's page size and run a few at a time so a 50-row page does
+	 * not open 50 sockets at once.
+	 *
+	 * A row whose approvals call fails keeps its null approval state: one 403 on a
+	 * project with restricted approvals must not fail the list it belongs to.
+	 */
+	const overlayApprovals = async (
+		mergeRequests: RuntimeGitlabMergeRequestSummary[],
+	): Promise<RuntimeGitlabMergeRequestSummary[]> => {
+		const credential = await resolveCredential();
+		const username = credential?.username ?? null;
+		const enriched = [...mergeRequests];
+		const pending: number[] = [];
+		for (const [index, mergeRequest] of enriched.entries()) {
+			const key = approvalCacheKey(mergeRequest);
+			const cachedState = key === null ? undefined : approvalCache.get(key);
+			if (cachedState) {
+				enriched[index] = { ...mergeRequest, ...cachedState };
+			} else {
+				pending.push(index);
+			}
+		}
+
+		let cursor = 0;
+		const worker = async (): Promise<void> => {
+			while (cursor < pending.length) {
+				const index = pending[cursor];
+				cursor += 1;
+				if (index === undefined) {
+					continue;
+				}
+				const mergeRequest = enriched[index];
+				if (!mergeRequest) {
+					continue;
+				}
+				const result = await requestJson(
+					"GET",
+					`/projects/${mergeRequest.projectId}/merge_requests/${mergeRequest.iid}/approvals`,
+				);
+				if (!result.ok) {
+					continue;
+				}
+				const state = parseApprovalState(result.value, username);
+				const key = approvalCacheKey(mergeRequest);
+				if (key !== null) {
+					rememberApproval(key, state);
+				}
+				enriched[index] = { ...mergeRequest, ...state };
+			}
+		};
+		await Promise.all(Array.from({ length: Math.min(APPROVAL_LOOKUP_CONCURRENCY, pending.length) }, () => worker()));
+		return enriched;
+	};
+
 	const mutate = async (method: string, path: string, body?: unknown): Promise<GitlabResult<true>> => {
 		const outcome = await request(method, path, body);
 		if (!outcome.ok) {
@@ -559,6 +709,8 @@ export function createGitlabClient(deps?: CreateGitlabClientDependencies): Gitla
 
 		invalidateCredential: () => {
 			cached = null;
+			// `approvedByMe` was resolved against the old credential's username.
+			approvalCache.clear();
 		},
 
 		listProjects: async ({ search, membership = true, limit = DEFAULT_PAGE_SIZE }) => {
@@ -583,6 +735,7 @@ export function createGitlabClient(deps?: CreateGitlabClientDependencies): Gitla
 			reviewerId,
 			search,
 			limit = DEFAULT_PAGE_SIZE,
+			withApprovals = false,
 		}) => {
 			const params = new URLSearchParams({
 				state,
@@ -610,7 +763,11 @@ export function createGitlabClient(deps?: CreateGitlabClientDependencies): Gitla
 				projectId === undefined
 					? `/merge_requests?${params.toString()}`
 					: `/projects/${projectId}/merge_requests?${params.toString()}`;
-			return await requestArray("GET", path, parseMergeRequestSummary);
+			const listed = await requestArray("GET", path, parseMergeRequestSummary);
+			if (!listed.ok || !withApprovals) {
+				return listed;
+			}
+			return { ok: true, value: await overlayApprovals(listed.value) };
 		},
 
 		getMergeRequest: async ({ projectId, iid }) => {
@@ -624,23 +781,16 @@ export function createGitlabClient(deps?: CreateGitlabClientDependencies): Gitla
 			}
 			const raw = result.value;
 			const credential = await resolveCredential();
-			// `approved_by` is only present on instances with the approvals feature; its
-			// absence means "cannot tell", which the UI renders as not-approved rather
-			// than claiming an approval that does not exist.
-			const approvedBy = Array.isArray(raw.approved_by) ? raw.approved_by : [];
-			const approvedByMe =
-				credential !== null &&
-				approvedBy.some(
-					(entry) => isRecord(entry) && readNestedString(entry, "user", "username") === credential.username,
-				);
+			const approval = parseApprovalState(raw, credential?.username ?? null);
 			return {
 				ok: true,
 				value: {
 					...summary,
+					...approval,
 					diffRefs: parseDiffRefs(raw.diff_refs),
-					approvedByMe,
-					approvalsRequired: readNumber(raw, "approvals_required"),
-					approvalsLeft: readNumber(raw, "approvals_left"),
+					// The detail view has a real approve/unapprove button, so it commits to a
+					// boolean: "cannot tell" reads as not approved by you there.
+					approvedByMe: approval.approvedByMe === true,
 				} satisfies RuntimeGitlabMergeRequestDetail,
 			};
 		},
@@ -749,7 +899,20 @@ export function createGitlabClient(deps?: CreateGitlabClientDependencies): Gitla
 				resolved,
 			}),
 
-		setApproval: async ({ projectId, iid, approved }) =>
-			await mutate("POST", `/projects/${projectId}/merge_requests/${iid}/${approved ? "approve" : "unapprove"}`),
+		setApproval: async ({ projectId, iid, approved }) => {
+			// Drop every cached timestamp for this merge request. The cache self-expires
+			// on `updated_at`, but the user's own approval is the one case where a list
+			// is refreshed immediately afterwards and a stale badge would be read as the
+			// approve button having done nothing.
+			for (const key of approvalCache.keys()) {
+				if (key.startsWith(`${projectId}:${iid}:`)) {
+					approvalCache.delete(key);
+				}
+			}
+			return await mutate(
+				"POST",
+				`/projects/${projectId}/merge_requests/${iid}/${approved ? "approve" : "unapprove"}`,
+			);
+		},
 	};
 }

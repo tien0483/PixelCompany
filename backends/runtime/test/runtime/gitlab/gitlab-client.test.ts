@@ -27,6 +27,19 @@ function jsonResponse(body: unknown, init?: { status?: number; headers?: Record<
 	});
 }
 
+/** The shape GitLab's list endpoint returns — note it carries no approval fields. */
+function listRow(iid: number): Record<string, unknown> {
+	return {
+		project_id: 102,
+		iid,
+		title: `MR ${iid}`,
+		state: "opened",
+		source_branch: `feature/${iid}`,
+		target_branch: "main",
+		author: { username: "dev_alex" },
+	};
+}
+
 function createHarness(
 	responses: Array<() => Response>,
 	overrides?: Partial<Parameters<typeof createGitlabClient>[0]>,
@@ -104,6 +117,116 @@ describe("createGitlabClient", () => {
 		await client.listMergeRequests({ projectId: 102, state: "all" });
 		expect(calls[0]?.url).toContain("/api/v4/projects/102/merge_requests?");
 		expect(calls[0]?.url).toContain("state=all");
+	});
+
+	it("leaves approval state unknown on a plain list, and asks for none of it", async () => {
+		const { client, calls } = createHarness([() => jsonResponse([listRow(142), listRow(143)])]);
+		const result = await client.listMergeRequests({});
+		expect(result.ok).toBe(true);
+		if (!result.ok) {
+			return;
+		}
+		expect(result.value.map((item) => item.approvedByMe)).toEqual([null, null]);
+		expect(result.value.map((item) => item.approvedByCount)).toEqual([null, null]);
+		expect(calls.filter((call) => call.url.includes("/approvals"))).toHaveLength(0);
+	});
+
+	it("overlays approval state onto every row when asked", async () => {
+		const { client, calls } = createHarness([
+			() => jsonResponse([listRow(142), listRow(143)]),
+			() =>
+				jsonResponse({
+					approved_by: [{ user: { username: "hoangtien.nguyen" } }],
+					approvals_required: 1,
+					approvals_left: 0,
+				}),
+			() => jsonResponse({ approved_by: [{ user: { username: "dev_bo" } }], approvals_required: 2, approvals_left: 1 }),
+		]);
+
+		const result = await client.listMergeRequests({ reviewerId: 7, withApprovals: true });
+		expect(result.ok).toBe(true);
+		if (!result.ok) {
+			return;
+		}
+		expect(result.value.map((item) => item.approvedByMe)).toEqual([true, false]);
+		expect(result.value.map((item) => item.approvedByCount)).toEqual([1, 1]);
+		expect(result.value.map((item) => item.approvalsLeft)).toEqual([0, 1]);
+		expect(calls.map((call) => call.url).filter((url) => url.includes("/approvals"))).toEqual([
+			"https://code.example.com/repo/api/v4/projects/102/merge_requests/142/approvals",
+			"https://code.example.com/repo/api/v4/projects/102/merge_requests/143/approvals",
+		]);
+	});
+
+	it("keeps a row whose approvals lookup fails rather than failing the whole list", async () => {
+		const { client } = createHarness([
+			() => jsonResponse([listRow(142)]),
+			() => jsonResponse({ message: "403 Forbidden" }, { status: 403 }),
+		]);
+
+		const result = await client.listMergeRequests({ withApprovals: true });
+		expect(result.ok).toBe(true);
+		if (!result.ok) {
+			return;
+		}
+		expect(result.value).toHaveLength(1);
+		expect(result.value[0]?.approvedByMe).toBeNull();
+		expect(result.value[0]?.approvedByCount).toBeNull();
+	});
+
+	it("reuses cached approvals across refreshes, and drops them once the merge request changes", async () => {
+		const approvals = () => jsonResponse({ approved_by: [{ user: { username: "dev_bo" } }] });
+		const { client, calls } = createHarness([
+			() => jsonResponse([{ ...listRow(142), updated_at: "2026-08-26T10:00:00Z" }]),
+			approvals,
+			() => jsonResponse([{ ...listRow(142), updated_at: "2026-08-26T10:00:00Z" }]),
+			// Same merge request, but touched — the cache key changes with it.
+			() => jsonResponse([{ ...listRow(142), updated_at: "2026-08-26T11:00:00Z" }]),
+			approvals,
+		]);
+
+		await client.listMergeRequests({ withApprovals: true });
+		await client.listMergeRequests({ withApprovals: true });
+		expect(calls.filter((call) => call.url.includes("/approvals"))).toHaveLength(1);
+
+		await client.listMergeRequests({ withApprovals: true });
+		expect(calls.filter((call) => call.url.includes("/approvals"))).toHaveLength(2);
+	});
+
+	it("forgets a merge request's cached approvals as soon as the user approves it", async () => {
+		const { client, calls } = createHarness([
+			() => jsonResponse([{ ...listRow(142), updated_at: "2026-08-26T10:00:00Z" }]),
+			() => jsonResponse({ approved_by: [] }),
+			() => jsonResponse({}),
+			() => jsonResponse([{ ...listRow(142), updated_at: "2026-08-26T10:00:00Z" }]),
+			() => jsonResponse({ approved_by: [{ user: { username: "hoangtien.nguyen" } }] }),
+		]);
+
+		await client.listMergeRequests({ withApprovals: true });
+		await client.setApproval({ projectId: 102, iid: 142, approved: true });
+		const result = await client.listMergeRequests({ withApprovals: true });
+
+		expect(calls.filter((call) => call.url.includes("/approvals"))).toHaveLength(2);
+		expect(result.ok).toBe(true);
+		if (!result.ok) {
+			return;
+		}
+		expect(result.value[0]?.approvedByMe).toBe(true);
+	});
+
+	it("reports 'cannot tell' rather than 'nobody approved' when the instance omits approved_by", async () => {
+		const { client } = createHarness([
+			() => jsonResponse([listRow(142)]),
+			() => jsonResponse({ approvals_required: 0, approvals_left: 0 }),
+		]);
+
+		const result = await client.listMergeRequests({ withApprovals: true });
+		expect(result.ok).toBe(true);
+		if (!result.ok) {
+			return;
+		}
+		expect(result.value[0]?.approvedByCount).toBeNull();
+		expect(result.value[0]?.approvedByMe).toBeNull();
+		expect(result.value[0]?.approvalsRequired).toBe(0);
 	});
 
 	it("refreshes once on a 401 and retries with the new token", async () => {

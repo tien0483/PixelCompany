@@ -3,21 +3,29 @@ import type { RuntimeGitlabMergeRequestListRequest, RuntimeGitlabMergeRequestSum
 /**
  * Which pile of merge requests a Review surface is showing.
  *
- * Both the sidebar panel and the full-screen list offer the same three, so the
- * tab identity, its query and its grouping live here rather than being spelled
- * out twice with two different ideas of what "mine" means.
+ * Both the sidebar panel and the full-screen list share this list, so the tab
+ * identity, its query and its grouping live here rather than being spelled out
+ * twice with two different ideas of what "mine" means.
  *
- * - `requested` — someone asked *me* to review. GitLab's `reviewer_id`, which is
- *   a different field from `scope: "assigned_to_me"` (that one is the assignee).
+ * - `requested` — someone asked *me* to review and I have not approved yet.
+ *   GitLab's `reviewer_id`, which is a different field from
+ *   `scope: "assigned_to_me"` (that one is the assignee).
+ * - `approvedByMe` — the same inbox after I signed off. Split out because
+ *   GitLab leaves an approved merge request sitting in the reviewer inbox
+ *   looking exactly like an untouched one, which is how you end up re-reviewing
+ *   your own approval.
  * - `mine` — merge requests I opened, split by whether I remembered to ask for a
  *   reviewer.
- * - `browse` — the unfiltered picker, for everything the first two exclude.
+ * - `mineApproved` — mine, after a reviewer approved: the merge queue.
+ * - `browse` — the unfiltered picker, for everything the others exclude.
  */
-export type ReviewInboxTab = "requested" | "mine" | "browse";
+export type ReviewInboxTab = "requested" | "approvedByMe" | "mine" | "mineApproved" | "browse";
 
 export const REVIEW_INBOX_TABS: ReadonlyArray<{ id: ReviewInboxTab; label: string }> = [
 	{ id: "requested", label: "Review requests" },
+	{ id: "approvedByMe", label: "Approved by me" },
 	{ id: "mine", label: "My merge requests" },
+	{ id: "mineApproved", label: "Mine · approved" },
 	{ id: "browse", label: "Browse" },
 ];
 
@@ -50,15 +58,87 @@ export function buildReviewInboxQuery(input: ReviewInboxQueryInput): RuntimeGitl
 
 	switch (input.tab) {
 		case "requested":
+		case "approvedByMe":
 			if (input.userId === null) {
 				return null;
 			}
-			return { ...base, reviewerId: input.userId };
+			// Both tabs fetch the same reviewer inbox and are told apart client-side by
+			// `filterMergeRequestsForTab`: GitLab's server-side `approved_by_ids` filter
+			// is Premium-only, so splitting the pile here would break on a Free instance.
+			return { ...base, reviewerId: input.userId, withApprovals: true };
 		case "mine":
-			return { ...base, scope: "created_by_me" };
+		case "mineApproved":
+			return { ...base, scope: "created_by_me", withApprovals: true };
 		case "browse":
+			// No approvals: browse can span every project the user is a member of, and
+			// approval state costs one request per row.
 			return { ...base, scope: input.scope ?? "created_by_me" };
 	}
+}
+
+/**
+ * Narrows a fetched page to the rows the tab is actually about.
+ *
+ * The approval tabs cannot be expressed as a GitLab query on a Free instance, so
+ * the split happens on the rows the query did return. Consequence worth knowing:
+ * these tabs only see as far as one page — a merge request approved 80 entries
+ * deep is not in the page, so it is not in the tab either.
+ *
+ * Unknown approval state (null — the lookup was skipped or the call failed) keeps
+ * a row in `requested` and out of the approved tabs. Erring that way shows a
+ * review one extra time; the other direction hides it entirely.
+ */
+export function filterMergeRequestsForTab(
+	tab: ReviewInboxTab,
+	mergeRequests: readonly RuntimeGitlabMergeRequestSummary[],
+): RuntimeGitlabMergeRequestSummary[] {
+	switch (tab) {
+		case "requested":
+			return mergeRequests.filter((mergeRequest) => mergeRequest.approvedByMe !== true);
+		case "approvedByMe":
+			return mergeRequests.filter((mergeRequest) => mergeRequest.approvedByMe === true);
+		case "mineApproved":
+			return mergeRequests.filter((mergeRequest) => hasAnyApproval(mergeRequest));
+		case "mine":
+		case "browse":
+			return [...mergeRequests];
+	}
+}
+
+/**
+ * Did anyone approve this?
+ *
+ * Deliberately counts approvers rather than trusting `approvalsLeft === 0`: an
+ * instance with no approval rules configured reports zero approvals left for
+ * every merge request, including ones nobody has opened.
+ */
+export function hasAnyApproval(mergeRequest: RuntimeGitlabMergeRequestSummary): boolean {
+	return (mergeRequest.approvedByCount ?? 0) > 0;
+}
+
+/** Short badge text for a list row, or null when approval state is unknown. */
+export function describeApprovalState(mergeRequest: RuntimeGitlabMergeRequestSummary): {
+	label: string;
+	tone: "approved" | "pending";
+} | null {
+	if (mergeRequest.approvedByMe === true) {
+		return { label: "Approved by you", tone: "approved" };
+	}
+	if (mergeRequest.approvedByCount === null) {
+		return null;
+	}
+	if (mergeRequest.approvedByCount > 0) {
+		return {
+			label: mergeRequest.approvedByCount === 1 ? "Approved" : `Approved ×${mergeRequest.approvedByCount}`,
+			tone: "approved",
+		};
+	}
+	// Only worth saying when the project actually gates on approvals; otherwise
+	// "0 approvals" is the normal state of every merge request ever opened.
+	if ((mergeRequest.approvalsRequired ?? 0) > 0) {
+		return { label: `${mergeRequest.approvalsLeft ?? mergeRequest.approvalsRequired} to approve`, tone: "pending" };
+	}
+	return null;
 }
 
 export interface MergeRequestReviewSplit {
