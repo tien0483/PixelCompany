@@ -771,21 +771,33 @@ async def _toggle_knowledge(name: str, enabled: bool, claude_dir: Path | None = 
     if name.startswith("skill_"):
         skill_name = name[len("skill_"):]
         if _validate_name(skill_name):
-            src = _catalog_root() / "skills" / skill_name / "SKILL.md"
+            src_dir = _catalog_root() / "skills" / skill_name
+            src = src_dir / "SKILL.md"
             skill_dir = target / "skills" / skill_name
-            dst = skill_dir / "SKILL.md"
             if enabled:
-                if src.exists():
-                    return await _toggle_file_feature(
-                        src, dst, enabled, name, "knowledge", claude_dir=target
+                if not src.exists():
+                    return JSONResponse(
+                        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                        content={"error": {"message": "Source file not found. Reinstall manager.", "code": "SOURCE_UNAVAILABLE"}},
                     )
+                root = (target if target is not None else CLAUDE_DIR).resolve()
+                skill_dir.parent.mkdir(parents=True, exist_ok=True)
+                try:
+                    skill_dir.resolve().relative_to(root)
+                except ValueError:
+                    return JSONResponse(
+                        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                        content={"error": {"message": "Invalid path", "code": "INVALID_FEATURE"}},
+                    )
+                if skill_dir.exists():
+                    shutil.rmtree(skill_dir)
+                shutil.copytree(src_dir, skill_dir)
+                return {"name": name, "category": "knowledge", "enabled": True}
             else:
                 # Skills are directories; deleting only SKILL.md left empty folders that
                 # still appeared in PixelOffice card skill pickers.
                 if skill_dir.exists():
                     shutil.rmtree(skill_dir)
-                elif dst.exists():
-                    dst.unlink()
                 return {"name": name, "category": "knowledge", "enabled": False}
         return JSONResponse(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,

@@ -184,6 +184,7 @@ import type {
 	RuntimeShellSessionStartRequest,
 	RuntimeShellSessionStartResponse,
 	RuntimeSkillInventory,
+	RuntimeSkillInventoryItem,
 	RuntimeSkillInventoryRequest,
 	RuntimeSlashCommandsResponse,
 	RuntimeTaskChatAbortRequest,
@@ -1090,11 +1091,19 @@ export const runtimeAppRouter = t.router({
 				const disabled = new Set(
 					managerState.features.filter((f) => !f.installed).map((f) => `${f.category}:${f.name}`),
 				);
+				const isAllowed = (item: RuntimeSkillInventoryItem, key: string) => {
+					// Project-local assets (installed per-project via Manager or authored in the project)
+					// must not be suppressed by the global Manager companion flags.
+					if (item.origin === "project") {
+						return true;
+					}
+					return !disabled.has(key);
+				};
 				return {
 					...inventory,
-					skills: inventory.skills.filter((s) => !disabled.has(`knowledge:skill_${s.id}`)),
-					agents: inventory.agents.filter((a) => !disabled.has(`agents:${a.id}`)),
-					commands: inventory.commands.filter((c) => !disabled.has(`commands:${c.id}`)),
+					skills: inventory.skills.filter((s) => isAllowed(s, `knowledge:skill_${s.id}`)),
+					agents: inventory.agents.filter((a) => isAllowed(a, `agents:${a.id}`)),
+					commands: inventory.commands.filter((c) => isAllowed(c, `commands:${c.id}`)),
 					workflows: inventory.workflows,
 				};
 			}),
