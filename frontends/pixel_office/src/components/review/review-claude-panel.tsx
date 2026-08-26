@@ -1,4 +1,4 @@
-import { Bot, Eraser, Network, Trash2 } from "lucide-react";
+import { Bot, Eraser, Trash2 } from "lucide-react";
 import type { ReactElement } from "react";
 
 import { ReviewChatComposer } from "@/components/review/review-chat-composer";
@@ -11,6 +11,7 @@ import {
 	type ReviewAgentModelId,
 	normalizeReviewAgentModel,
 } from "@/review/review-agent-model";
+import { REVIEW_INLINE_PROMPTS } from "@/review/review-inline-prompts";
 import { formatDraftLineLabel } from "@/review/review-target";
 import type { ReviewProjectCommand } from "@/review/use-review-project-commands";
 import type { RuntimeReviewChatMessage, RuntimeReviewDraftComment, RuntimeReviewFinding } from "@/runtime/types";
@@ -29,6 +30,7 @@ export function ReviewClaudePanel({
 	projectCommands,
 	polishComments,
 	pendingFindings,
+	triagedFindingIds,
 	draftComments,
 	isAuditing,
 	model,
@@ -61,12 +63,18 @@ export function ReviewClaudePanel({
 	projectCommands: readonly ReviewProjectCommand[];
 	polishComments: boolean;
 	pendingFindings: RuntimeReviewFinding[];
+	/** Accepted or dismissed ids, so a triaged suggestion leaves the transcript too. */
+	triagedFindingIds: ReadonlySet<string>;
 	draftComments: RuntimeReviewDraftComment[];
 	isAuditing: boolean;
 	/** Model every review pass runs on — chat, audit and rules extraction alike. */
 	model: ReviewAgentModelId;
 	onModelChange: (model: ReviewAgentModelId) => void;
-	onSend: (prompt: string) => void;
+	/**
+	 * `expectSuggestions` is an override for the inline prompt buttons, whose text has
+	 * no leading slash for the caller to recognise. Omitted, the caller decides.
+	 */
+	onSend: (prompt: string, options?: { expectSuggestions?: boolean }) => void;
 	onCancel: () => void;
 	onClearChat: () => void;
 	onClearContext: () => void;
@@ -125,20 +133,22 @@ export function ReviewClaudePanel({
 			</div>
 
 			<div className="flex shrink-0 flex-wrap gap-1 border-b border-border p-2">
-				<button
-					type="button"
-					title="Explain how these changes affect the broader codebase"
-					disabled={chatStatus === "running"}
-					onClick={() =>
-						onSend(
-							`Analyze how the changes in this merge request affect the broader codebase — without relying on any pre-built knowledge graph.\n\nFor each changed file:\n1. Use Grep to find all files that import or require it (search for the filename and any exported symbols that were modified).\n2. Use Grep to find callers of any functions or classes that were changed.\n3. Note which modules are downstream consumers and whether the changes are breaking, additive, or purely internal.\n\nSummarize: which parts of the codebase are affected, what the risk surface is, and whether any callers need updates.`,
-						)
-					}
-					className="flex cursor-pointer items-center gap-1 rounded border border-border bg-surface-2 px-1.5 py-0.5 text-[10px] text-text-secondary hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-40"
-				>
-					<Network size={10} />
-					Understand changes
-				</button>
+				{REVIEW_INLINE_PROMPTS.map((entry) => {
+					const Icon = entry.icon;
+					return (
+						<button
+							key={entry.id}
+							type="button"
+							title={entry.hint}
+							disabled={chatStatus === "running"}
+							onClick={() => onSend(entry.prompt, { expectSuggestions: entry.expectSuggestions })}
+							className="flex cursor-pointer items-center gap-1 rounded border border-border bg-surface-2 px-1.5 py-0.5 text-[10px] text-text-secondary hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-40"
+						>
+							<Icon size={10} />
+							{entry.label}
+						</button>
+					);
+				})}
 			</div>
 
 			{pendingFindings.length > 0 ? (
@@ -170,6 +180,7 @@ export function ReviewClaudePanel({
 				log={chatLog}
 				notices={chatNotices}
 				canRequestChange={canRequestChange}
+				triagedFindingIds={triagedFindingIds}
 				onRequestChange={onRequestChange}
 				onAcceptSuggestion={onAcceptFinding}
 				onDismissSuggestion={onDismissFinding}
