@@ -1,11 +1,17 @@
 import { ArrowUp, Crosshair, X } from "lucide-react";
 import { type ReactElement, useState } from "react";
 
+import type { ReviewProjectCommand } from "@/review/use-review-project-commands";
+
 /**
  * Slash commands that exist as real skills in this stack. They are prefilled into
  * the input rather than sent immediately, so the reviewer can add a target before
  * spending a turn — a bare `/security-review` on a 40-file MR is rarely what they
  * meant.
+ *
+ * Stack-wide only. A project's own commands are discovered from its checkout and
+ * arrive as `projectCommands` — hardcoding those here is what made a repo's `/review`
+ * look unavailable when the CLI could expand it all along.
  */
 export const REVIEW_QUICK_PROMPTS = [
 	{ command: "/understand-diff", hint: "What does this change touch?" },
@@ -14,15 +20,25 @@ export const REVIEW_QUICK_PROMPTS = [
 	{ command: "/simplify", hint: "Simplification opportunities" },
 ] as const;
 
-/** True when a prompt is one of the review skills, which are a request for findings. */
-export function isReviewCommandPrompt(prompt: string): boolean {
+/**
+ * True when a prompt is a slash command, which is a request for findings rather than
+ * a question. `projectCommands` is passed so a repo's own `/review` counts too —
+ * without it the panel would ask the stack skills for a suggestions block and leave
+ * the project's command answering in prose nobody can turn into a comment.
+ */
+export function isReviewCommandPrompt(prompt: string, projectCommands: readonly ReviewProjectCommand[] = []): boolean {
 	const trimmed = prompt.trimStart();
-	return REVIEW_QUICK_PROMPTS.some((entry) => trimmed === entry.command || trimmed.startsWith(`${entry.command} `));
+	const names = [
+		...REVIEW_QUICK_PROMPTS.map((entry) => entry.command),
+		...projectCommands.map((entry) => entry.command),
+	];
+	return names.some((name) => trimmed === name || trimmed.startsWith(`${name} `));
 }
 
 export function ReviewChatComposer({
 	contextLabel,
 	isRunning,
+	projectCommands,
 	polishComments,
 	onTogglePolish,
 	onClearContext,
@@ -31,6 +47,8 @@ export function ReviewChatComposer({
 	/** What the next turn will be able to see. Null when nothing is selected. */
 	contextLabel: string | null;
 	isRunning: boolean;
+	/** `.claude/commands` of the selected checkout. Empty for a project that ships none. */
+	projectCommands: readonly ReviewProjectCommand[];
 	polishComments: boolean;
 	onTogglePolish: (next: boolean) => void;
 	onClearContext: () => void;
@@ -57,6 +75,19 @@ export function ReviewChatComposer({
 						title={prompt.hint}
 						onClick={() => setInput(`${prompt.command} `)}
 						className="cursor-pointer rounded border border-border bg-surface-2 px-1.5 py-0.5 font-mono text-[10px] text-text-secondary hover:text-text-primary"
+					>
+						{prompt.command}
+					</button>
+				))}
+				{/* The project's own commands, tinted so it stays obvious which chips come
+				    from this repository and would disappear if another project were selected. */}
+				{projectCommands.map((prompt) => (
+					<button
+						key={prompt.command}
+						type="button"
+						title={`${prompt.source}${prompt.description ? ` — ${prompt.description}` : ""}`}
+						onClick={() => setInput(`${prompt.command} `)}
+						className="cursor-pointer rounded border border-accent/40 bg-accent/10 px-1.5 py-0.5 font-mono text-[10px] text-accent hover:text-accent-hover"
 					>
 						{prompt.command}
 					</button>

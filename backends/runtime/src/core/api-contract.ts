@@ -3799,6 +3799,33 @@ export const runtimeReviewGraphDashboardResponseSchema = z.object({
 });
 export type RuntimeReviewGraphDashboardResponse = z.infer<typeof runtimeReviewGraphDashboardResponseSchema>;
 
+/**
+ * The project's own `.claude/commands`, listed so the chat composer can offer them
+ * as chips. Keyed by checkout path because that is what decides the answer: the
+ * review agent runs with that path as cwd, and it is the only directory whose
+ * commands the run can resolve.
+ */
+export const runtimeReviewCommandsRequestSchema = z.object({
+	projectPath: z.string().min(1),
+});
+export type RuntimeReviewCommandsRequest = z.infer<typeof runtimeReviewCommandsRequestSchema>;
+
+export const runtimeReviewCommandsResponseSchema = z.object({
+	ok: z.boolean(),
+	commands: z.array(
+		z.object({
+			/** Leading slash included, namespaced by directory: `/frontend:audit`. */
+			command: z.string(),
+			description: z.string().nullable(),
+			source: z.string(),
+		}),
+	),
+	/** How many were dropped by the display cap, so the panel can say so. */
+	omitted: z.number().int().nonnegative(),
+	error: z.string().optional(),
+});
+export type RuntimeReviewCommandsResponse = z.infer<typeof runtimeReviewCommandsResponseSchema>;
+
 export const runtimeReviewRulesExtractRequestSchema = z.object({
 	projectKey: z.string().min(1),
 	sourceRoots: z.array(z.string()).min(1),

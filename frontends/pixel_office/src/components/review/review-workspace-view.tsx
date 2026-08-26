@@ -44,6 +44,7 @@ import { readStoredPolishComments, writeStoredPolishComments } from "@/review/re
 import type { FullFileFetchResult } from "@/review/use-full-file-content";
 import { useReviewChat } from "@/review/use-review-chat";
 import { useReviewGraphImpact } from "@/review/use-review-graph-impact";
+import { useReviewProjectCommands } from "@/review/use-review-project-commands";
 import { useReviewRulesConfig } from "@/review/use-review-rules-config";
 import { useReviewSeat } from "@/review/use-review-seat";
 import { useReviewSession } from "@/review/use-review-session";
@@ -135,6 +136,16 @@ export function ReviewWorkspaceView({
 	 * prose, so without somewhere to look at it, a graph problem would only ever show
 	 * up as prompts that quietly got worse.
 	 */
+	/**
+	 * The checkout's own slash commands, offered as chips next to the stack skills.
+	 * Tied to `localRepoPath` because that path is the chat agent's cwd — a command
+	 * from any other project is one the run could not expand.
+	 */
+	const projectCommands = useReviewProjectCommands({
+		projectPath: localRepoPath || undefined,
+		workspaceId,
+	});
+
 	const graph = useReviewGraphImpact({
 		projectPath: localRepoPath || undefined,
 		changedPaths: session.files.map((file) => file.newPath),
@@ -499,8 +510,9 @@ export function ReviewWorkspaceView({
 					...(session.activeFile ? { activeDiff: session.activeFile.diff } : {}),
 					...(selection ? { screen: selection } : {}),
 					...(visibleRange && !selection ? { visible: visibleRange } : {}),
-					// The review skills are a request for findings; a plain question is not.
-					...(isReviewCommandPrompt(prompt) ? { expectSuggestions: true } : {}),
+					// Any slash command — a stack skill or one of this project's own — is a
+					// request for findings; a plain question is not.
+					...(isReviewCommandPrompt(prompt, projectCommands) ? { expectSuggestions: true } : {}),
 					projectKey: target.projectKey,
 					model: agentModel,
 					managerAccountId: effectiveAccountId,
@@ -513,6 +525,7 @@ export function ReviewWorkspaceView({
 			chat,
 			effectiveAccountId,
 			localRepoPath,
+			projectCommands,
 			selection,
 			session.activeFile,
 			session.files,
@@ -1104,6 +1117,7 @@ export function ReviewWorkspaceView({
 						chatNotices={chat.notices}
 						contextLabel={selection ? formatSelectionLabel(selection) : null}
 						canRequestChange={selection !== null}
+						projectCommands={projectCommands}
 						polishComments={polishComments}
 						pendingFindings={pendingFindings}
 						draftComments={draftComments}

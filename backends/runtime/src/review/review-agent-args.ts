@@ -25,7 +25,29 @@ export const REVIEW_AUDIT_ALLOWED_TOOLS = ["Read"] as const;
  * reads neighbouring modules — so it gets read plus the skill-running tools, and
  * still no writes: nothing in a review should edit the working tree.
  */
-export const REVIEW_CHAT_ALLOWED_TOOLS = ["Read", "Glob", "Grep", "Task", "Skill"] as const;
+export const REVIEW_CHAT_ALLOWED_TOOLS = [
+	"Read",
+	"Glob",
+	"Grep",
+	"Task",
+	"Skill",
+	// Read-only git, enumerated one subcommand at a time rather than as `Bash(git:*)`.
+	// A project's own `.claude/commands/review.md` is typically written against a
+	// terminal — `git diff master...$BRANCH`, `git show $BRANCH:<path>` — and with no
+	// Bash at all those runs do not fail loudly: a one-shot `-p` has no UI to answer
+	// the permission prompt with, so the panel just sits there until the idle watchdog
+	// cancels it. Nothing here can write to the repository or move HEAD, which keeps
+	// the "reading, not editing" rule in REVIEW_CHAT_SYSTEM_PROMPT true.
+	"Bash(git diff:*)",
+	"Bash(git show:*)",
+	"Bash(git log:*)",
+	"Bash(git status:*)",
+	"Bash(git merge-base:*)",
+	"Bash(git rev-parse:*)",
+	"Bash(git ls-files:*)",
+	// Deliberately absent: `git branch`, which reads with no flags but deletes with
+	// `-D`. `git rev-parse --abbrev-ref HEAD` covers what a review command needs.
+] as const;
 
 /**
  * Rewriting a note into a review comment is a text transformation on text the
