@@ -12,6 +12,7 @@ import {
 	normalizeReviewAgentModel,
 } from "@/review/review-agent-model";
 import { formatDraftLineLabel } from "@/review/review-target";
+import type { ReviewProjectCommand } from "@/review/use-review-project-commands";
 import type { RuntimeReviewChatMessage, RuntimeReviewDraftComment, RuntimeReviewFinding } from "@/runtime/types";
 
 export { REVIEW_QUICK_PROMPTS } from "@/components/review/review-chat-composer";
@@ -25,6 +26,7 @@ export function ReviewClaudePanel({
 	chatNotices,
 	contextLabel,
 	canRequestChange,
+	projectCommands,
 	polishComments,
 	pendingFindings,
 	draftComments,
@@ -55,6 +57,8 @@ export function ReviewClaudePanel({
 	contextLabel: string | null;
 	/** False when no diff line is selected, so a comment could not be anchored. */
 	canRequestChange: boolean;
+	/** Slash commands the selected checkout ships in `.claude/commands`. */
+	projectCommands: readonly ReviewProjectCommand[];
 	polishComments: boolean;
 	pendingFindings: RuntimeReviewFinding[];
 	draftComments: RuntimeReviewDraftComment[];
@@ -208,6 +212,7 @@ export function ReviewClaudePanel({
 			<ReviewChatComposer
 				contextLabel={contextLabel}
 				isRunning={chatStatus === "running"}
+				projectCommands={projectCommands}
 				polishComments={polishComments}
 				onTogglePolish={onTogglePolish}
 				onClearContext={onClearContext}

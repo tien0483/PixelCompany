@@ -1,4 +1,6 @@
 import type {
+	RuntimeReviewCommandsRequest,
+	RuntimeReviewCommandsResponse,
 	RuntimeReviewGraphDashboardRequest,
 	RuntimeReviewGraphDashboardResponse,
 	RuntimeReviewGraphImpactRequest,
@@ -12,6 +14,7 @@ import type {
 	RuntimeReviewSessionResponse,
 	RuntimeReviewSessionWriteRequest,
 } from "../core/api-contract";
+import { listProjectSlashCommands } from "../review/review-commands";
 import { startReviewGraphDashboard } from "../review/review-dashboard-process";
 import { loadReviewGraphIndex, readReviewGraphFreshness } from "../review/review-graph";
 import { buildReviewGraphBrief } from "../review/review-graph-brief";
@@ -79,6 +82,15 @@ export function createReviewApi(): RuntimeTrpcContext["reviewApi"] {
 				return { ok: true, config: input };
 			} catch (error) {
 				return { ok: false, config: null, error: fail(error) };
+			}
+		},
+
+		listCommands: async (input: RuntimeReviewCommandsRequest): Promise<RuntimeReviewCommandsResponse> => {
+			try {
+				const listed = await listProjectSlashCommands({ projectPath: input.projectPath });
+				return { ok: true, commands: listed.commands, omitted: listed.omitted };
+			} catch (error) {
+				return { ok: false, commands: [], omitted: 0, error: fail(error) };
 			}
 		},
 
