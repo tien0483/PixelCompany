@@ -913,6 +913,36 @@ body.kb-dependency-link-mode {
 	background: rgba(0, 132, 255, 0.3);
 }
 
+/*
+ * The row a jump from the draft-comment list just landed on. Scrolling alone puts the
+ * line in the middle of a screenful of near-identical rows, so it fades out over a
+ * couple of seconds rather than persisting: it answers "which line", then gets out of
+ * the way of the selection and comment tints that mean something lasting.
+ */
+.kb-diff-row-focused {
+	animation: kb-diff-row-focus-flash 1.8s ease-out forwards;
+}
+
+@keyframes kb-diff-row-focus-flash {
+	0%,
+	55% {
+		box-shadow: inset 2px 0 0 var(--color-status-orange);
+		background: rgba(210, 153, 34, 0.32);
+	}
+	100% {
+		box-shadow: inset 2px 0 0 transparent;
+		background: transparent;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.kb-diff-row-focused {
+		animation: none;
+		box-shadow: inset 2px 0 0 var(--color-status-orange);
+		background: rgba(210, 153, 34, 0.32);
+	}
+}
+
 /* Drag-to-select paints a native text selection over the diff without this. */
 .kb-diff-body-dragging {
 	user-select: none;

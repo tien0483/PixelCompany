@@ -45,6 +45,7 @@ import { buildFullFileRows } from "@/review/review-full-file-rows";
 import {
 	buildLineAnnotations,
 	type ReviewDiffMode,
+	type ReviewLineFocus,
 	type ReviewLineSelection,
 	type ReviewNavDirection,
 	type ReviewVisibleRange,
@@ -150,6 +151,57 @@ function formatLineEndpoint(oldLine: number | null, newLine: number | null): str
 	return newLine !== null ? `+${newLine}` : `-${oldLine ?? "?"}`;
 }
 
+/** How long a jumped-to row stays tinted before fading back to its normal colours. */
+const FOCUS_FLASH_MS = 1800;
+
+/** Where in the DOM a focused line lives: a row key plus the column it renders in. */
+interface FocusRowTarget {
+	key: string;
+	side: SplitDiffSide;
+}
+
+/**
+ * The row a focus request names, matched the same way a note is anchored.
+ *
+ * A request carrying a post-image number is resolved on the new side — which covers
+ * both additions and unchanged lines, since an unchanged row carries both numbers —
+ * and one carrying only a pre-image number is resolved against removed rows. Doing it
+ * the other way round would land a note on a deleted line on whichever post-image row
+ * happened to share its number, i.e. the wrong line.
+ */
+function resolveFocusRowTarget(rows: UnifiedDiffRow[], focus: ReviewLineFocus): FocusRowTarget | null {
+	if (focus.newLine !== null) {
+		const row = rows.find(
+			(candidate) => candidate.variant !== "removed" && resolveRowLines(candidate).newLine === focus.newLine,
+		);
+		return row ? { key: row.key, side: "right" } : null;
+	}
+	if (focus.oldLine !== null) {
+		const row = rows.find(
+			(candidate) => candidate.variant === "removed" && candidate.lineNumber === focus.oldLine,
+		);
+		return row ? { key: row.key, side: "left" } : null;
+	}
+	return null;
+}
+
+/**
+ * The collapsed block hiding a row, if one is. A draft can sit on an unchanged line
+ * far enough from any change that `buildDisplayItems` elides it, and a row that is not
+ * rendered cannot be scrolled to — revealing the block is the only way to reach it.
+ */
+function findCollapsedBlockIdContaining(items: DiffDisplayItem[], rowKey: string): string | null {
+	for (const item of items) {
+		if (item.type !== "collapsed" || item.block.expanded) {
+			continue;
+		}
+		if (item.block.rows.some((row) => row.key === rowKey)) {
+			return item.block.id;
+		}
+	}
+	return null;
+}
+
 export function ReviewDiffPane({
 	file,
 	mode,
@@ -169,6 +221,7 @@ export function ReviewDiffPane({
 	selection,
 	onSelectionChange,
 	onVisibleRangeChange,
+	lineFocus,
 	onNavigate,
 	navTargets,
 }: {
@@ -199,6 +252,13 @@ export function ReviewDiffPane({
 	/** Must be referentially stable — it re-arms the visibility observer. */
 	onVisibleRangeChange?: (range: ReviewVisibleRange | null) => void;
 	/**
+	 * A line to scroll to, set when the reviewer clicks a draft comment in the chat
+	 * panel. Only the *line* is this pane's business: the caller has already switched
+	 * the active file, so a focus naming a different path is ignored rather than
+	 * fought over.
+	 */
+	lineFocus?: ReviewLineFocus | null;
+	/**
 	 * Moves to the adjacent file that still needs reading. Called by the header buttons, by
 	 * the workspace's `]` / `[` keys, and by a wheel gesture that *begins* at an edge of the
 	 * diff and pushes past it. Only the gesture's first event decides: wheeling from the
@@ -216,6 +276,8 @@ export function ReviewDiffPane({
 	const [drag, setDrag] = useState<DragState | null>(null);
 	const [forceRenderLargeDiff, setForceRenderLargeDiff] = useState(false);
 	const [showFullFile, setShowFullFile] = useState(false);
+	/** The row a jump just landed on, tinted for a moment so the eye can find it. */
+	const [focusedRowKey, setFocusedRowKey] = useState<string | null>(null);
 	const { expandedBlocks, expandTop, expandBottom, expandAll } = useIncrementalExpand();
 	const scrollRef = useRef<HTMLDivElement | null>(null);
 
@@ -555,6 +617,45 @@ export function ReviewDiffPane({
 		}
 	}, [path]);
 
+	/** The row a focus request names, or null when it names another file or no line. */
+	const focusRowTarget = useMemo(
+		() =>
+			lineFocus && file && lineFocus.path === file.newPath
+				? resolveFocusRowTarget(rows, lineFocus)
+				: null,
+		[file, lineFocus, rows],
+	);
+
+	// Declared *after* the file-change reset above so it wins the race they are always in:
+	// a jump into another file changes the path and the focus in one render, and the reset
+	// would otherwise send the pane back to the top of the file it had just scrolled.
+	const handledFocusNonceRef = useRef<number | null>(null);
+	useEffect(() => {
+		const root = scrollRef.current;
+		if (!lineFocus || !focusRowTarget || !root || handledFocusNonceRef.current === lineFocus.nonce) {
+			return;
+		}
+		const element = root.querySelector<HTMLElement>(
+			`[data-row-key="${focusRowTarget.key}"][data-diff-side="${focusRowTarget.side}"]`,
+		);
+		if (!element) {
+			// Hidden inside a collapsed run of unchanged lines. Revealing it re-renders, and
+			// this effect runs again on the new `displayItems` with the row in the DOM. The
+			// nonce is deliberately left unhandled so that second pass still scrolls.
+			const blockId = findCollapsedBlockIdContaining(displayItems, focusRowTarget.key);
+			if (blockId) {
+				expandAll(blockId);
+			}
+			return;
+		}
+		handledFocusNonceRef.current = lineFocus.nonce;
+		// Optional call: jsdom has no layout, so it does not implement `scrollIntoView`.
+		element.scrollIntoView?.({ block: "center" });
+		setFocusedRowKey(focusRowTarget.key);
+		const timer = setTimeout(() => setFocusedRowKey(null), FOCUS_FLASH_MS);
+		return () => clearTimeout(timer);
+	}, [displayItems, expandAll, focusRowTarget, lineFocus]);
+
 	/**
 	 * Wheel navigation. Deliberately *not* reset when `path` changes: the lock a fired
 	 * gesture leaves behind is what absorbs the momentum still arriving after the jump, and
@@ -638,6 +739,9 @@ export function ReviewDiffPane({
 						: "kb-diff-row-context";
 			const isComposerHere = composer?.rowKey === row.key && composer.side === side;
 			const isSelected = commentable && selectedRowKeys?.has(row.key) === true;
+			// Only the commentable column: in split mode an unchanged row renders twice, and
+			// tinting both would point at two lines for a note that hangs off one.
+			const isFocused = commentable && focusedRowKey === row.key;
 
 			return (
 				<div className="flex min-w-0 flex-col">
@@ -651,6 +755,7 @@ export function ReviewDiffPane({
 							variantClass,
 							hasAnnotation && "kb-diff-row-commented",
 							isSelected && "kb-diff-row-selected",
+							isFocused && "kb-diff-row-focused",
 							!commentable && "kb-diff-row-noncommentable",
 						)}
 						data-row-key={row.key}
@@ -769,6 +874,7 @@ export function ReviewDiffPane({
 			composer,
 			composerText,
 			extendDrag,
+			focusedRowKey,
 			onRemoveCitation,
 			onRemoveDraft,
 			path,
