@@ -4,6 +4,7 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 import { prepareAgentLaunch } from "../../../src/terminal/agent-session-adapters";
+import { encodeClaudeProjectDirName } from "../../../src/terminal/claude-permission-mode";
 import { RUNTIME_HOME_PARENT_DIR_NAME } from "../../../src/workspace/task-worktree-path";
 
 const originalHome = process.env.HOME;
@@ -18,6 +19,17 @@ function setupTempHome(): string {
 	tempHome = mkdtempSync(join(tmpdir(), "kanban-agent-adapters-"));
 	process.env.HOME = tempHome;
 	return tempHome;
+}
+
+/** Writes a Claude Code session transcript where the CLI would keep one for `cwd`. */
+function writeClaudeTranscript(home: string, cwd: string, records: Array<Record<string, unknown>>): void {
+	const projectDir = join(home, ".claude", "projects", encodeClaudeProjectDirName(cwd));
+	mkdirSync(projectDir, { recursive: true });
+	writeFileSync(
+		join(projectDir, "session.jsonl"),
+		`${records.map((record) => JSON.stringify(record)).join("\n")}\n`,
+		"utf8",
+	);
 }
 
 function setKanbanProcessContext(): void {
@@ -809,6 +821,89 @@ describe("prepareAgentLaunch hook strategies", () => {
 		expect(launch.args).not.toContain("--allow-dangerously-skip-permissions");
 		const permissionModeIndex = launch.args.indexOf("--permission-mode");
 		expect(launch.args[permissionModeIndex + 1]).toBe("plan");
+	});
+
+	it("re-enters the recorded permission mode when a Claude session resumes", async () => {
+		const home = setupTempHome();
+		writeClaudeTranscript(home, "/tmp/task-resume", [
+			{ type: "permission-mode", permissionMode: "auto" },
+			{ type: "permission-mode", permissionMode: "plan" },
+		]);
+
+		const launch = await prepareAgentLaunch({
+			taskId: "task-claude-resume-mode",
+			agentId: "claude",
+			binary: "claude",
+			args: [],
+			// Both defaults point at auto; the transcript is what must win on a resume.
+			autonomousModeEnabled: true,
+			cwd: "/tmp/task-resume",
+			prompt: "",
+			resumeFromPersistence: true,
+		});
+
+		const permissionModeIndex = launch.args.indexOf("--permission-mode");
+		expect(launch.args[permissionModeIndex + 1]).toBe("plan");
+		expect(launch.args.filter((arg) => arg === "--permission-mode")).toHaveLength(1);
+		expect(launch.args).toContain("--continue");
+	});
+
+	it("re-enters a recorded bypass mode through the bypass flag", async () => {
+		const home = setupTempHome();
+		writeClaudeTranscript(home, "/tmp/task-resume-bypass", [
+			{ type: "permission-mode", permissionMode: "bypassPermissions" },
+		]);
+
+		const launch = await prepareAgentLaunch({
+			taskId: "task-claude-resume-bypass",
+			agentId: "claude",
+			binary: "claude",
+			args: [],
+			autonomousModeEnabled: true,
+			cwd: "/tmp/task-resume-bypass",
+			prompt: "",
+			resumeFromPersistence: true,
+		});
+
+		expect(launch.args).toContain("--dangerously-skip-permissions");
+		expect(launch.args).not.toContain("--permission-mode");
+	});
+
+	it("ignores the recorded mode on a fresh Claude start", async () => {
+		const home = setupTempHome();
+		writeClaudeTranscript(home, "/tmp/task-fresh", [{ type: "permission-mode", permissionMode: "plan" }]);
+
+		const launch = await prepareAgentLaunch({
+			taskId: "task-claude-fresh-mode",
+			agentId: "claude",
+			binary: "claude",
+			args: [],
+			autonomousModeEnabled: true,
+			cwd: "/tmp/task-fresh",
+			prompt: "",
+		});
+
+		const permissionModeIndex = launch.args.indexOf("--permission-mode");
+		expect(launch.args[permissionModeIndex + 1]).toBe("auto");
+	});
+
+	it("keeps an explicit mode arg over the recorded one on a resume", async () => {
+		const home = setupTempHome();
+		writeClaudeTranscript(home, "/tmp/task-resume-explicit", [{ type: "permission-mode", permissionMode: "plan" }]);
+
+		const launch = await prepareAgentLaunch({
+			taskId: "task-claude-resume-explicit",
+			agentId: "claude",
+			binary: "claude",
+			args: ["--permission-mode", "acceptEdits"],
+			autonomousModeEnabled: true,
+			cwd: "/tmp/task-resume-explicit",
+			prompt: "",
+			resumeFromPersistence: true,
+		});
+
+		expect(launch.args.filter((arg) => arg === "--permission-mode")).toHaveLength(1);
+		expect(launch.args).not.toContain("plan");
 	});
 
 	it("starts Gemini plan mode without bypass flags", async () => {

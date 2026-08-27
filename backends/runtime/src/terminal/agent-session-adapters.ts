@@ -21,6 +21,11 @@ import {
 	getWorkspaceManagerFeatures,
 	loadWorkspaceContextById,
 } from "../state/workspace-state";
+import {
+	claudePermissionModeArgs,
+	readLastClaudePermissionMode,
+	resolveClaudeLaunchPermissionMode,
+} from "./claude-permission-mode";
 import { configureCodexHooks, hasCodexConfigOverride } from "./codex-hook-config";
 import { createHookRuntimeEnv } from "./hook-runtime-context";
 import {
@@ -684,26 +689,43 @@ const claudeAdapter: AgentSessionAdapter = {
 		const launchSettings = input.taskLaunchSettings;
 		applyModelAndEffortArgs(args, launchSettings, { effortFlag: "--effort" });
 		const appendedSystemPrompt = resolveHomeAgentAppendSystemPrompt(input.taskId);
-		if (input.autonomousModeEnabled) {
+		// A caller-supplied `--continue` is a resume too, even without the resume flags.
+		const resumesConversation = Boolean(
+			input.resumeFromTrash || input.resumeFromPersistence || hasCliOption(args, "--continue"),
+		);
+		const hasExplicitModeArg =
+			hasCliOption(args, "--permission-mode") || hasCliOption(args, "--dangerously-skip-permissions");
+		// A resume replays the *original* start request, so without this the session re-enters
+		// the configured default and loses a mode the user cycled into with shift+tab. Claude
+		// Code never restores it on `--continue` — the flag is the only way back in.
+		const recordedMode =
+			resumesConversation && !hasExplicitModeArg
+				? await readLastClaudePermissionMode({
+						cwd: input.cwd,
+						claudeConfigDir: input.env?.[CLAUDE_CONFIG_DIR_ENV],
+					})
+				: null;
+		const permissionMode = resolveClaudeLaunchPermissionMode({
+			recordedMode,
+			startInPlanMode: input.startInPlanMode === true,
+			autonomousModeEnabled: input.autonomousModeEnabled === true,
+			hasExplicitModeArg,
+		});
+		if (input.autonomousModeEnabled || permissionMode === "auto") {
 			// Auto mode is gated behind this env var on Bedrock/Vertex/Foundry; the Anthropic API ignores it.
 			env.CLAUDE_CODE_ENABLE_AUTO_MODE = "1";
-		}
-		if (
-			input.autonomousModeEnabled &&
-			!input.startInPlanMode &&
-			!hasCliOption(args, "--permission-mode") &&
-			!hasCliOption(args, "--dangerously-skip-permissions")
-		) {
-			args.push("--permission-mode", "auto");
 		}
 		if ((input.resumeFromTrash || input.resumeFromPersistence) && !hasCliOption(args, "--continue")) {
 			args.push("--continue");
 		}
-		if (input.startInPlanMode) {
-			const withoutImmediateBypass = args.filter((arg) => arg !== "--dangerously-skip-permissions");
-			args.length = 0;
-			args.push(...withoutImmediateBypass);
-			args.push("--permission-mode", "plan");
+		if (permissionMode !== null) {
+			if (permissionMode !== "bypassPermissions") {
+				// Any prompting mode is contradicted by an immediate bypass flag, so the flag goes.
+				const withoutImmediateBypass = args.filter((arg) => arg !== "--dangerously-skip-permissions");
+				args.length = 0;
+				args.push(...withoutImmediateBypass);
+			}
+			args.push(...claudePermissionModeArgs(permissionMode));
 		}
 
 		const skillAllowlist = hasSkillAllowlist(launchSettings);
