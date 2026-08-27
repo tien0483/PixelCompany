@@ -40,6 +40,25 @@ export interface ReviewLineSelection {
 	text: string;
 }
 
+/**
+ * A request to bring one line of one file into view — what clicking a draft comment
+ * or a thread in the side panels resolves to.
+ *
+ * The line is carried as the same `oldLine`/`newLine` pair a note is anchored by,
+ * rather than a single number, because a note on a deleted line has no post-image
+ * number at all and the pane has to look it up on the other side of the split.
+ *
+ * `nonce` is what makes a repeat click work: jumping to the draft already on screen
+ * changes neither path nor line, so without it the pane sees an unchanged value and
+ * never scrolls again.
+ */
+export interface ReviewLineFocus {
+	path: string;
+	oldLine: number | null;
+	newLine: number | null;
+	nonce: number;
+}
+
 /** Where the reviewer is scrolled to, used when nothing is selected. */
 export interface ReviewVisibleRange {
 	path: string;

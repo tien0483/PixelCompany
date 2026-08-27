@@ -7,7 +7,7 @@ import {
 	ReviewDiffPane,
 } from "@/components/review/review-diff-pane";
 import { DEEP_SCROLL_IDLE_RESET_MS } from "@/review/review-deep-scroll";
-import type { ReviewNavDirection } from "@/review/review-target";
+import type { ReviewLineFocus, ReviewNavDirection } from "@/review/review-target";
 import type { FullFileFetchResult } from "@/review/use-full-file-content";
 import { LocalStorageKey } from "@/storage/local-storage-store";
 import type { RuntimeGitlabDiffFile } from "@/runtime/types";
@@ -66,6 +66,25 @@ const OTHER_FILE: RuntimeGitlabDiffFile = {
 
 const OTHER_CONTENT = "tax_a\ntax_b\ntax_c\n";
 
+/**
+ * One addition, sixteen unchanged lines, one more addition. The run in the middle is
+ * long enough (16 lines, three kept as context at each end) that `buildDisplayItems`
+ * elides ten of them — which is what a draft anchored to new line 5 has to survive.
+ */
+const COLLAPSING_FILE: RuntimeGitlabDiffFile = {
+	...FILE,
+	oldPath: "src/long.ts",
+	newPath: "src/long.ts",
+	diff: [
+		"@@ -1,16 +1,18 @@",
+		"+const head = 0;",
+		...Array.from({ length: 16 }, (_unused, index) => ` const keep${index + 1} = ${index + 1};`),
+		"+const tail = 99;",
+	].join("\n"),
+	additions: 2,
+	deletions: 0,
+};
+
 function mouseEvent(type: string): MouseEvent {
 	return new MouseEvent(type, { bubbles: true, cancelable: true });
 }
@@ -111,6 +130,7 @@ describe("ReviewDiffPane", () => {
 			onNavigate?: (direction: ReviewNavDirection) => void;
 			navTargets?: { previous: boolean; next: boolean };
 			onFetchFullFile?: () => Promise<FullFileFetchResult>;
+			lineFocus?: ReviewLineFocus | null;
 		} = {},
 	): Promise<void> {
 		await act(async () => {
@@ -130,6 +150,7 @@ describe("ReviewDiffPane", () => {
 					onComposerOpenChange={() => {}}
 					onClearCitations={() => {}}
 					onRemoveCitation={() => {}}
+					lineFocus={overrides.lineFocus ?? null}
 					{...(overrides.onNavigate ? { onNavigate: overrides.onNavigate } : {})}
 					{...(overrides.navTargets ? { navTargets: overrides.navTargets } : {})}
 					{...(overrides.onFetchFullFile ? { onFetchFullFile: overrides.onFetchFullFile } : {})}
@@ -528,6 +549,68 @@ describe("ReviewDiffPane", () => {
 
 			await renderPane({ file: { ...FILE, binary: true }, onFetchFullFile: fetchOf(CONTENT) });
 			expect(hasToggle()).toBe(false);
+		});
+	});
+
+	describe("jumping to a line", () => {
+		/** jsdom implements no layout and so no `scrollIntoView`; this records the calls. */
+		let scrolledInto: HTMLElement[];
+
+		beforeEach(() => {
+			scrolledInto = [];
+			Object.defineProperty(Element.prototype, "scrollIntoView", {
+				configurable: true,
+				writable: true,
+				value: function scrollIntoView(this: HTMLElement): void {
+					scrolledInto.push(this);
+				},
+			});
+		});
+
+		afterEach(() => {
+			delete (Element.prototype as Partial<Element>).scrollIntoView;
+		});
+
+		function focus(overrides: Partial<ReviewLineFocus>): ReviewLineFocus {
+			return { path: FILE.newPath, oldLine: null, newLine: null, nonce: 1, ...overrides };
+		}
+
+		it("scrolls to the post-image line a draft is anchored to", async () => {
+			await renderPane({ lineFocus: focus({ newLine: 3 }) });
+
+			expect(scrolledInto).toEqual([row("n-3", "right")]);
+			expect(row("n-3", "right").className).toContain("kb-diff-row-focused");
+		});
+
+		it("scrolls to the pre-image line when the note is on a deleted one", async () => {
+			await renderPane({ lineFocus: focus({ oldLine: 2 }) });
+
+			expect(scrolledInto).toEqual([row("o-2", "left")]);
+		});
+
+		it("ignores a focus that names another file", async () => {
+			await renderPane({ file: OTHER_FILE, lineFocus: focus({ newLine: 3 }) });
+
+			expect(scrolledInto).toEqual([]);
+		});
+
+		it("scrolls again when the same draft is clicked twice", async () => {
+			await renderPane({ lineFocus: focus({ newLine: 3, nonce: 1 }) });
+			await renderPane({ lineFocus: focus({ newLine: 3, nonce: 1 }) });
+			expect(scrolledInto).toHaveLength(1);
+
+			await renderPane({ lineFocus: focus({ newLine: 3, nonce: 2 }) });
+			expect(scrolledInto).toHaveLength(2);
+		});
+
+		it("reveals the collapsed context block hiding the line, then scrolls to it", async () => {
+			await renderPane({
+				file: COLLAPSING_FILE,
+				lineFocus: { path: COLLAPSING_FILE.newPath, oldLine: 4, newLine: 5, nonce: 1 },
+			});
+
+			expect(container.textContent).toContain("const keep4 = 4;");
+			expect(scrolledInto).toEqual([row("c-4-5", "right")]);
 		});
 	});
 });

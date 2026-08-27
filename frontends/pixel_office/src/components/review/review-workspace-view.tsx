@@ -33,6 +33,7 @@ import {
 	countReviewProgress,
 	formatSelectionLabel,
 	type ReviewDiffMode,
+	type ReviewLineFocus,
 	type ReviewLineSelection,
 	type ReviewTarget,
 	type ReviewNavDirection,
@@ -55,6 +56,7 @@ import type {
 	RuntimeManagerAccount,
 	RuntimeReviewAuditRequest,
 	RuntimeReviewChatMessage,
+	RuntimeReviewDraftComment,
 	RuntimeReviewGraphRebuildRequest,
 	RuntimeReviewRulesExtractRequest,
 	RuntimeReviewSuggestCommentRequest,
@@ -113,6 +115,8 @@ export function ReviewWorkspaceView({
 	/** Lines the reviewer has focused in the diff — what the chat can "see". */
 	const [selection, setSelection] = useState<ReviewLineSelection | null>(null);
 	const [visibleRange, setVisibleRange] = useState<ReviewVisibleRange | null>(null);
+	/** The line the last jump asked the diff pane to scroll to. */
+	const [lineFocus, setLineFocus] = useState<ReviewLineFocus | null>(null);
 	const [polishComments, setPolishComments] = useState<boolean>(() => readStoredPolishComments());
 
 	const audit = useHtmlAgentStream<RuntimeReviewAuditRequest>("/api/review/audit");
@@ -408,6 +412,27 @@ export function ReviewWorkspaceView({
 	const addDraft = useCallback(
 		(draft: ReviewCommentDraftInput) => {
 			session.addDraftComment({ ...draft, aiFindingId: null });
+		},
+		[session],
+	);
+
+	/**
+	 * Opens the file a draft comment hangs off *at the line it hangs off*. Switching the
+	 * file alone lands the reviewer at the top of it, which for anything but a one-hunk
+	 * diff is nowhere near the note they clicked.
+	 *
+	 * The nonce increments rather than the focus being cleared and re-set, so clicking the
+	 * same draft twice — the reviewer having scrolled away in between — scrolls back.
+	 */
+	const jumpToDraft = useCallback(
+		(draft: RuntimeReviewDraftComment) => {
+			session.setActivePath(draft.newPath);
+			setLineFocus((current) => ({
+				path: draft.newPath,
+				oldLine: draft.oldLine,
+				newLine: draft.newLine,
+				nonce: (current?.nonce ?? 0) + 1,
+			}));
 		},
 		[session],
 	);
@@ -1152,6 +1177,7 @@ export function ReviewWorkspaceView({
 						selection={selection}
 						onSelectionChange={setSelection}
 						onVisibleRangeChange={setVisibleRange}
+						lineFocus={lineFocus}
 						onNavigate={navigateUnreviewed}
 						navTargets={navTargets}
 					/>
@@ -1184,7 +1210,7 @@ export function ReviewWorkspaceView({
 						onAcceptFinding={session.acceptFinding}
 						onDismissFinding={session.dismissFinding}
 						onRemoveDraft={session.removeDraftComment}
-						onJumpToDraft={(draft) => session.setActivePath(draft.newPath)}
+						onJumpToDraft={jumpToDraft}
 					/>
 				</aside>
 			</div>
