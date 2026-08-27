@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { createLoginExpiredTracker } from "../../../src/terminal/login-expired-tracker";
+import {
+	createLoginExpiredTracker,
+	MAX_SAME_SEAT_ATTEMPTS,
+} from "../../../src/terminal/login-expired-tracker";
 
 const REPORT = { taskId: "task-1", accountId: 7, canReplayRequest: true };
 
@@ -8,8 +11,8 @@ describe("createLoginExpiredTracker", () => {
 	it("self-recovers up to MAX_SAME_SEAT_ATTEMPTS times before handing to failover", () => {
 		const tracker = createLoginExpiredTracker();
 
-		// Attempts 1–3: each pop self-recovers.
-		for (let i = 1; i <= 3; i++) {
+		// Every pop up to the cap self-recovers.
+		for (let i = 1; i <= MAX_SAME_SEAT_ATTEMPTS; i++) {
 			const decision = tracker.record(REPORT, i * 1_000);
 			expect(decision.action).toBe("self_recover");
 			expect(decision.record.popCount).toBe(i);
@@ -17,12 +20,12 @@ describe("createLoginExpiredTracker", () => {
 			tracker.markAttempt("task-1", i * 1_000 + 100);
 		}
 
-		// Attempt 4: allowance exhausted → failover.
-		const fourth = tracker.record(REPORT, 4_000);
-		expect(fourth.action).toBe("failover");
-		expect(fourth.failoverReason).toBe("attempt_spent");
-		expect(fourth.record.popCount).toBe(4);
-		expect(fourth.record.sameSeatAttempts).toBe(3);
+		// One pop past the cap: allowance exhausted → failover.
+		const spent = tracker.record(REPORT, (MAX_SAME_SEAT_ATTEMPTS + 1) * 1_000);
+		expect(spent.action).toBe("failover");
+		expect(spent.failoverReason).toBe("attempt_spent");
+		expect(spent.record.popCount).toBe(MAX_SAME_SEAT_ATTEMPTS + 1);
+		expect(spent.record.sameSeatAttempts).toBe(MAX_SAME_SEAT_ATTEMPTS);
 	});
 
 	it("keeps self-recovering while no attempt has been spent", () => {
@@ -58,14 +61,14 @@ describe("createLoginExpiredTracker", () => {
 	it("clear() makes a much later pop count as the first again", () => {
 		const tracker = createLoginExpiredTracker();
 		// Exhaust all attempts.
-		for (let i = 1; i <= 3; i++) {
+		for (let i = 1; i <= MAX_SAME_SEAT_ATTEMPTS; i++) {
 			tracker.record(REPORT, i * 1_000);
 			tracker.markAttempt("task-1", i * 1_000 + 100);
 		}
-		expect(tracker.record(REPORT, 4_000).action).toBe("failover");
+		expect(tracker.record(REPORT, (MAX_SAME_SEAT_ATTEMPTS + 1) * 1_000).action).toBe("failover");
 
 		tracker.clear("task-1");
-		const afterClear = tracker.record(REPORT, 9_000);
+		const afterClear = tracker.record(REPORT, 99_000);
 		expect(afterClear.action).toBe("self_recover");
 		expect(afterClear.record.popCount).toBe(1);
 	});
