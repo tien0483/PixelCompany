@@ -56,9 +56,9 @@ export interface LoginExpiredTracker {
 	clear: (taskId: string) => void;
 }
 
-// Re-preparing the seat refreshes the CC token; allow several tries for transient failures
+// Re-preparing the seat refreshes the CC token; allow this many tries for transient failures
 // before handing the card to the cross-seat failover.
-const MAX_SAME_SEAT_ATTEMPTS = 3;
+export const MAX_SAME_SEAT_ATTEMPTS = 10;
 
 export function createLoginExpiredTracker(): LoginExpiredTracker {
 	const records = new Map<string, LoginExpiredRecord>();
