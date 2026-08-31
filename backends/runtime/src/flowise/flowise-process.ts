@@ -16,6 +16,8 @@ import { terminateProcessForTimeout } from "../server/process-termination";
 import { nextRestartDelayMs, shouldGiveUpRestarting } from "../stack/stack-daemon";
 import { probePort, waitForPort } from "../stack/stack-ports";
 import { DEFAULT_FLOWISE_HOST, findFlowiseRoot, resolveFlowisePort } from "./flowise-endpoint";
+import { resolvePixelOfficeEmbedOrigins } from "./flowise-embed-origins";
+import { isFlowiseLlmProxyEnabled, resolveFlowiseLlmProxyProviderUrl } from "./flowise-llm-proxy-config";
 import { describeMissingStudioNode, resolveStudioNodeBinary } from "./flowise-node";
 
 /**
@@ -79,22 +81,19 @@ function openStudioLog(dataDir: string): { fd: number; path: string } | null {
  * load-bearing: `syncIgnoredPathsIntoWorktree` then symlinks it into every task worktree,
  * so all tasks share one studio instead of each growing its own database.
  *
- * `ANTHROPIC_BASE_URL`/`ANTHROPIC_API_KEY` are stripped on purpose. `scripts/solo.mjs`
- * exports the base URL so *task agents* traverse the stack chain; inheriting it here would
- * silently route every Anthropic node in every flow through the switchboard. Billing a
- * flow to a chosen seat is a per-credential decision inside the studio, not an ambient one.
+ * `ANTHROPIC_BASE_URL`/`ANTHROPIC_API_KEY` are stripped on purpose. Phase 3 instead sets
+ * `PIXELOFFICE_FLOWISE_LLM_PROXY_URL` so Anthropic nodes hit the runtime loopback proxy,
+ * which attaches the active Manager Claude seat before forwarding to the switchboard.
  */
-/** Loopback hostnames browsers treat as distinct origins for CSP frame-ancestors. */
-function resolvePixelOfficeEmbedOrigins(pixelOfficePort: string): string {
-	return [`http://127.0.0.1:${pixelOfficePort}`, `http://localhost:${pixelOfficePort}`].join(",");
-}
-
 function buildStudioEnv(dataDir: string, host: string, port: number, pixelOfficePort: string): NodeJS.ProcessEnv {
 	const embedOrigins = resolvePixelOfficeEmbedOrigins(pixelOfficePort);
 	const env: NodeJS.ProcessEnv = {
 		...process.env,
 		NODE_ENV: "production",
 		PORT: String(port),
+		// Flowise's server reads HOST (not FLOWISE_HOST). Bind all interfaces so WSL /
+		// Windows browsers can reach :3010 on the same hostname they used for PixelOffice.
+		HOST: "0.0.0.0",
 		FLOWISE_HOST: host,
 		DATABASE_PATH: dataDir,
 		SECRETKEY_PATH: dataDir,
@@ -115,6 +114,13 @@ function buildStudioEnv(dataDir: string, host: string, port: number, pixelOffice
 	};
 	delete env.ANTHROPIC_BASE_URL;
 	delete env.ANTHROPIC_API_KEY;
+	if (isFlowiseLlmProxyEnabled()) {
+		env.PIXELOFFICE_FLOWISE_LLM_PROXY_URL = resolveFlowiseLlmProxyProviderUrl("anthropic");
+		env.PIXELOFFICE_FLOWISE_LLM_PROXY_ANTHROPIC_URL = resolveFlowiseLlmProxyProviderUrl("anthropic");
+		env.PIXELOFFICE_FLOWISE_LLM_PROXY_GEMINI_URL = resolveFlowiseLlmProxyProviderUrl("gemini");
+		env.PIXELOFFICE_FLOWISE_LLM_PROXY_OPENAI_URL = resolveFlowiseLlmProxyProviderUrl("openai");
+		env.PIXELOFFICE_FLOWISE_LLM_PROXY_CURSOR_URL = resolveFlowiseLlmProxyProviderUrl("cursor");
+	}
 	return env;
 }
 

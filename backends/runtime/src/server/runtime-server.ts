@@ -44,6 +44,7 @@ import { BUILD_REQUEST_TIMEOUT_MS, type DocSkillClient } from "../doc-skill/doc-
 import { findDocSkillRoot } from "../doc-skill/doc-skill-process";
 import { buildDocAuditPrompt, buildDocRoundPrompt, loadDocSkillText } from "../doc-skill/doc-skill-prompts";
 import type { FlowiseClient } from "../flowise/flowise-client";
+import { createFlowiseLlmProxyHandler } from "../flowise/flowise-llm-proxy";
 import type { OrchestratorClient } from "../orchestrator/orchestrator-client";
 import { createGitlabClient } from "../gitlab/gitlab-client";
 import { createGitlabOauthSession } from "../gitlab/gitlab-oauth";
@@ -346,8 +347,30 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 	const docSkillApi = createDocSkillApi({
 		client: deps.docSkill.client,
 	});
+	const flowiseSeatDeps = {
+		monitor: deps.manager.monitor,
+		getAccountLaunchDir: async (accountId: number) => {
+			const launchDir = await managerApi.getAccountLaunchDir({ accountId });
+			return launchDir ? { configDir: launchDir.configDir } : null;
+		},
+		getAccountLaunchCredential: async (accountId: number) => {
+			const credential = await managerApi.getAccountLaunchCredential({ accountId });
+			return credential ? { apiKey: credential.apiKey } : null;
+		},
+		useManagerAccount: async (accountId: number) => {
+			const result = await deps.manager.client.useAccount(accountId);
+			return result.ok;
+		},
+		resolveApiSeatCredentials: async (providerId: string) =>
+			await clineProviderServiceForRestart.resolveApiSeatCredentials({ providerId }),
+	};
 	const flowiseApi = createFlowiseApi({
 		client: deps.flowise.client,
+		...flowiseSeatDeps,
+	});
+	const flowiseLlmProxy = createFlowiseLlmProxyHandler({
+		...flowiseSeatDeps,
+		warn: deps.warn,
 	});
 	const orchestratorApi = createOrchestratorApi({
 		client: deps.orchestrator.client,
@@ -662,6 +685,11 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 
 			const requestUrl = new URL(req.url ?? "/", "http://localhost");
 			const pathname = normalizeRequestPath(requestUrl.pathname);
+
+			// Loopback-only; Flowise has no session cookie when calling Anthropic through us.
+			if (await flowiseLlmProxy(req, res, pathname)) {
+				return;
+			}
 
 			// ── Passcode gate (remote mode only) ──────────────────────────────
 			const passcodeActive = isRemoteMode && isPasscodeEnabled();

@@ -1431,12 +1431,25 @@ export const RuntimeFlowiseFlowSchema = z.object({
 });
 export type RuntimeFlowiseFlow = z.infer<typeof RuntimeFlowiseFlowSchema>;
 
+/** Per-provider readiness for Flowise LLM proxy routes. */
+export const RuntimeFlowiseLlmProxyProviderStatusSchema = z.object({
+	id: z.enum(["anthropic", "gemini", "openai", "cursor"]),
+	available: z.boolean(),
+	seatLabel: z.string().nullable().optional(),
+	flowiseNode: z.string().optional(),
+});
+export type RuntimeFlowiseLlmProxyProviderStatus = z.infer<typeof RuntimeFlowiseLlmProxyProviderStatusSchema>;
+
 /** Phase 3: Flowise LLM nodes billed via Manager/switchboard instead of studio credentials. */
 export const RuntimeFlowiseLlmProxyStatusSchema = z.object({
 	phase: z.literal(3),
 	enabled: z.boolean(),
 	available: z.boolean(),
 	switchboardBaseUrl: z.string().nullable().optional(),
+	proxyBaseUrl: z.string().nullable().optional(),
+	seatAccountId: z.number().int().nullable().optional(),
+	seatLabel: z.string().nullable().optional(),
+	providers: z.array(RuntimeFlowiseLlmProxyProviderStatusSchema).optional(),
 	hints: z.array(z.string()).optional(),
 });
 export type RuntimeFlowiseLlmProxyStatus = z.infer<typeof RuntimeFlowiseLlmProxyStatusSchema>;

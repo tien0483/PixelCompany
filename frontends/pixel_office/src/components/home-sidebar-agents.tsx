@@ -53,18 +53,31 @@ function FlowiseLlmProxyPanel({ status }: { status: RuntimeFlowiseLlmProxyStatus
 			className="mt-2 rounded-md border border-border bg-surface-1 p-2 text-[11px] text-text-secondary"
 			data-testid="sidebar-flowise-llm-proxy"
 		>
-			<p className="font-medium text-text-primary">Flowise LLM proxy (Phase 3)</p>
+			<p className="font-medium text-text-primary">Flowise LLM proxy</p>
 			<p className="mt-1">
-				{status.available ? "Routing studio LLM nodes via switchboard." : "Not implemented — use Flowise Credentials in the studio."}
+				{status.available
+					? "Studio nodes can bill through Manager / Cline seats."
+					: status.enabled
+						? "Proxy enabled — no live seats for wired nodes."
+						: "Disabled — use Flowise Credentials."}
 			</p>
-			{status.enabled ? (
-				<p className="mt-1 text-[10px] text-status-orange">
-					PIXELOFFICE_FLOWISE_LLM_PROXY=1 is set; proxy wiring is still a stub.
-				</p>
+			{(status.providers?.length ?? 0) > 0 ? (
+				<ul className="mt-1 list-disc pl-4 text-[10px]">
+					{status.providers?.map((provider) => (
+						<li key={provider.id}>
+							<span className="text-text-primary">{provider.flowiseNode ?? provider.id}</span>:{" "}
+							{provider.available ? (
+								<span className="text-status-green">{provider.seatLabel ?? "ready"}</span>
+							) : (
+								<span className="text-status-orange">unavailable</span>
+							)}
+						</li>
+					))}
+				</ul>
 			) : null}
 			{(status.hints?.length ?? 0) > 0 ? (
 				<ul className="mt-1 list-disc pl-4 text-[10px]">
-					{status.hints?.slice(0, 2).map((hint) => (
+					{status.hints?.slice(0, 3).map((hint) => (
 						<li key={hint}>{hint}</li>
 					))}
 				</ul>
@@ -214,6 +227,19 @@ export function HomeSidebarAgentsPanel({
 		void refresh();
 	}, [refresh]);
 
+	// First boot is slow; keep probing until the sidecar answers instead of flashing "offline".
+	useEffect(() => {
+		if (status?.installed !== true || status.online) {
+			return;
+		}
+		const timer = window.setInterval(() => {
+			void refresh();
+		}, 5000);
+		return () => {
+			window.clearInterval(timer);
+		};
+	}, [refresh, status?.installed, status?.online]);
+
 	const openFlow = useCallback(
 		(flow: RuntimeFlowiseFlow | null) => {
 			if (status === null || !status.online) {
@@ -277,11 +303,14 @@ export function HomeSidebarAgentsPanel({
 					<div className="flex flex-col gap-2 rounded-md border border-border bg-surface-2 p-2.5 text-[12px]">
 						<div className="flex items-center gap-1.5 text-text-primary font-medium">
 							<CircleSlash size={14} className="shrink-0 text-status-orange" />
-							Agent studio offline
+							{isLoading ? "Agent studio starting…" : "Agent studio offline"}
 						</div>
 						<p className="text-text-secondary">
-							It is installed but nothing is answering on {status.baseUrl}. First boot takes a while; its
-							output is in <code className="text-[11px]">backends/flowise/.flowise/studio.log</code>.
+							{isLoading
+								? "Waiting for Flowise on "
+								: "It is installed but nothing is answering on "}
+							{status.baseUrl}. First boot takes a while; its output is in{" "}
+							<code className="text-[11px]">backends/flowise/.flowise/studio.log</code>.
 						</p>
 					</div>
 				) : null}

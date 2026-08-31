@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildFlowiseCanvasPath, buildFlowiseStudioUrl } from "./flowise-studio-url";
+import { buildFlowiseCanvasPath, buildFlowiseStudioUrl, alignFlowiseBaseUrlForBrowser } from "./flowise-studio-url";
 
 describe("buildFlowiseCanvasPath", () => {
 	it("routes each flow kind to its own canvas", () => {
@@ -32,5 +32,16 @@ describe("buildFlowiseStudioUrl", () => {
 
 	it("returns an empty string when there is no base URL to frame", () => {
 		expect(buildFlowiseStudioUrl("", null)).toBe("");
+	});
+});
+
+describe("alignFlowiseBaseUrlForBrowser", () => {
+	it("leaves non-loopback hosts unchanged", () => {
+		expect(alignFlowiseBaseUrlForBrowser("http://studio.example.com:3010")).toBe("http://studio.example.com:3010");
+	});
+
+	it("normalizes loopback studio hosts to 127.0.0.1", () => {
+		expect(alignFlowiseBaseUrlForBrowser("http://localhost:3010")).toBe("http://127.0.0.1:3010");
+		expect(alignFlowiseBaseUrlForBrowser("http://127.0.0.1:3010")).toBe("http://127.0.0.1:3010");
 	});
 });

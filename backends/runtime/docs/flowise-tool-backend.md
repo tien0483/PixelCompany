@@ -150,10 +150,10 @@ Research question for run_agent:
 
 | Want | Status |
 |------|--------|
-| Flowise LLM billed to Manager Claude OAuth / API seat | Phase 3 stub only — `runtime.flowise.llmProxyStatus`; set `PIXELOFFICE_FLOWISE_LLM_PROXY=1` when implemented |
+| Flowise LLM billed to Manager Claude OAuth / API seat | **Phase 3** — `/api/flowise-llm-proxy/{anthropic,gemini,openai,cursor}`; Manager Claude, Antigravity Gemini, Cline API seats, Cursor via OmniRoute |
 | Same MCP registry on card and canvas | Manual duplicate config |
 | Claude `.claude/skills` inside Flowise | Encode behavior in AgentFlow prompt/nodes |
-| One subscription for all LLM hops | Task agent seat + Flowise credentials are separate |
+| One subscription for all LLM hops | Wired nodes share Manager/Cline seats; other providers still need Flowise Credentials |
 
 ## Related code
 
@@ -161,4 +161,5 @@ Research question for run_agent:
 |------|------|
 | `scripts/flowise-mcp-shim.mjs` | stdio MCP → prediction API |
 | `src/flowise/flowise-mcp.ts` | Phase 2 inventory + Claude launch config |
-| `src/flowise/flowise-process.ts` | Sidecar supervisor; strips inherited `ANTHROPIC_*` |
+| `src/flowise/flowise-llm-proxy.ts` | Phase 3 loopback proxy — Manager OAuth → switchboard for Anthropic nodes |
+| `src/flowise/flowise-process.ts` | Sidecar supervisor; strips inherited `ANTHROPIC_*`; sets `PIXELOFFICE_FLOWISE_LLM_PROXY_URL` |
