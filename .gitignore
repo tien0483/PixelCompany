@@ -42,6 +42,21 @@ backends/agent_stack/skills/caveman
 backends/agent_stack/stack-flags.json
 backends/agent_stack/*.bak
 
+# Flowise agent studio (backends/flowise is a submodule pointing at our fork).
+#
+# The source is tracked in the fork, never here; what is ignored is its install, its
+# build products and its machine state. Same load-bearing reason as the block above:
+# syncIgnoredPathsIntoWorktree symlinks these into every task worktree, so all tasks
+# share one install and one studio database instead of each growing their own.
+#
+# .flowise/ holds the sqlite DB, the credential encryption key, API keys, logs and
+# uploads. It is machine-local secret material — it must never be committed.
+backends/flowise/node_modules/
+backends/flowise/packages/*/node_modules/
+backends/flowise/packages/*/dist/
+backends/flowise/packages/ui/build/
+backends/flowise/.flowise/
+
 # Stack-provided skills, symlinked into .claude/skills by
 # scripts/link-stack-skills.mjs. They are machine-local links, so they cannot be
 # committed — and being ignored is what makes the runtime mirror them into every

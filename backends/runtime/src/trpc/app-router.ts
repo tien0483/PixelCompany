@@ -230,6 +230,10 @@ import {
 	RuntimeDocProjectCreateRequestSchema,
 	RuntimeDocProjectSchema,
 	RuntimeDocSkillStatusSchema,
+	type RuntimeFlowiseFlow,
+	RuntimeFlowiseFlowSchema,
+	type RuntimeFlowiseStatus,
+	RuntimeFlowiseStatusSchema,
 	type RuntimeGitlabConnection,
 	type RuntimeGitlabConnectStartRequest,
 	type RuntimeGitlabConnectStartResponse,
@@ -903,6 +907,10 @@ export interface RuntimeTrpcContext {
 	};
 	claudeUsageApi: {
 		get: () => Promise<RuntimeClaudeUsage>;
+	};
+	flowiseApi: {
+		status: () => Promise<RuntimeFlowiseStatus>;
+		flows: () => Promise<RuntimeFlowiseFlow[]>;
 	};
 	docSkillApi: {
 		status: () => Promise<RuntimeDocSkillStatus>;
@@ -1919,6 +1927,14 @@ export const runtimeAppRouter = t.router({
 	claude: t.router({
 		usage: t.procedure.output(RuntimeClaudeUsageSchema).query(async ({ ctx }) => {
 			return await ctx.claudeUsageApi.get();
+		}),
+	}),
+	flowise: t.router({
+		status: t.procedure.output(RuntimeFlowiseStatusSchema).query(async ({ ctx }) => {
+			return await ctx.flowiseApi.status();
+		}),
+		flows: t.procedure.output(RuntimeFlowiseFlowSchema.array()).query(async ({ ctx }) => {
+			return await ctx.flowiseApi.flows();
 		}),
 	}),
 	docSkill: t.router({

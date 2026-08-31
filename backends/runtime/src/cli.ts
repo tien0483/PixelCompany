@@ -418,6 +418,9 @@ async function startServer(): Promise<{
 		{ stopAllSeatRouters },
 		{ createDocSkillClient },
 		{ startDocSkillProcess },
+		{ createFlowiseClient },
+		{ resolveFlowiseDataDir, seedFlowiseEmbedAccount },
+		{ startFlowiseProcess },
 		{ describeRuntimeHomeMigration, migrateRuntimeHome },
 		{ startOmniRouteProcess },
 		{ findAgentDataRoot },
@@ -442,6 +445,9 @@ async function startServer(): Promise<{
 		import("./stack/ccr-process.js"),
 		import("./doc-skill/doc-skill-client.js"),
 		import("./doc-skill/doc-skill-process.js"),
+		import("./flowise/flowise-client.js"),
+		import("./flowise/flowise-credential.js"),
+		import("./flowise/flowise-process.js"),
 		import("./state/runtime-home-migration.js"),
 		import("./omniroute/omniroute-process.js"),
 		import("./state/agent-data-manifest.js"),
@@ -686,6 +692,41 @@ async function startServer(): Promise<{
 			console.warn(`[kanban] ${message}`);
 		},
 	});
+	// The Agents tab's studio (`backends/flowise`). Absent on any checkout that never
+	// initialized the submodule, which is logged rather than warned about — same posture as
+	// the switchboard above.
+	const FlowiseProcess = await startFlowiseProcess({
+		warn: (message) => {
+			console.warn(`[kanban] ${message}`);
+		},
+		log: (message) => {
+			console.log(`[kanban] ${message}`);
+		},
+	});
+	const FlowiseClient = createFlowiseClient({
+		warn: (message) => {
+			console.warn(`[kanban] ${message}`);
+		},
+	});
+	// Seeding the studio's single local account needs it listening, so it rides the readiness
+	// promise instead of blocking startup — the board must never wait on an optional sidecar's
+	// first boot, which is minutes on a cold build.
+	void FlowiseProcess.ready.then(async (isUp) => {
+		const dataDir = resolveFlowiseDataDir();
+		if (!isUp || dataDir === null) {
+			return;
+		}
+		await seedFlowiseEmbedAccount({
+			baseUrl: FlowiseClient.baseUrl,
+			dataDir,
+			warn: (message) => {
+				console.warn(`[kanban] ${message}`);
+			},
+			log: (message) => {
+				console.log(`[kanban] ${message}`);
+			},
+		});
+	});
 	runtimeStateHub = createRuntimeStateHub({
 		workspaceRegistry,
 		ManagerMonitor,
@@ -717,6 +758,7 @@ async function startServer(): Promise<{
 		manager: { client: ManagerClient, monitor: ManagerMonitor },
 		html: { client: HtmlClient },
 		docSkill: { client: DocSkillClient },
+		flowise: { client: FlowiseClient },
 		warn: (message) => {
 			console.warn(`[kanban] ${message}`);
 		},
@@ -794,6 +836,9 @@ async function startServer(): Promise<{
 		// a subagent seat — so unlike the daemons above they are unconditionally stopped.
 		await stopAllSeatRouters();
 		await DocSkillProcess.close();
+		// Only stops a studio this runtime spawned; one started by hand in the submodule keeps
+		// the port and is left alone (`startFlowiseProcess` adopts rather than fights for it).
+		await FlowiseProcess.close();
 	};
 
 	const shutdown = async (options?: { skipSessionCleanup?: boolean }) => {
