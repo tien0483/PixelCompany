@@ -143,6 +143,12 @@ const HTML_PORT = Number(process.env.PIXELOFFICE_HTML_PORT ?? 8322);
  */
 const STACK_CONTROL_PORT = Number(process.env.STACK_UI_PORT ?? 8000);
 const DOC_SKILL_PORT = Number(process.env.PIXELOFFICE_DOCSKILL_PORT ?? 8323);
+/**
+ * The Flowise agent studio behind the Agents tab, spawned by the runtime from the
+ * `backends/flowise` submodule. Clear of 3000 (upstream's default) on purpose: 3001 is the
+ * DevTools daemon and 3456/3460+ are CCR routers.
+ */
+const FLOWISE_PORT = Number(process.env.PIXELOFFICE_FLOWISE_PORT ?? 3010);
 
 const args = process.argv.slice(2);
 const restart = args.includes("--restart");
@@ -426,11 +432,14 @@ async function main() {
 	await wireAgentStack();
 
 	if (restart) {
-		console.log(`Freeing ports ${RUNTIME_PORT}, ${MANAGER_PORT}, ${HTML_PORT}, ${DOC_SKILL_PORT}...`);
+		console.log(
+			`Freeing ports ${RUNTIME_PORT}, ${MANAGER_PORT}, ${HTML_PORT}, ${DOC_SKILL_PORT}, ${FLOWISE_PORT}...`,
+		);
 		freePort(RUNTIME_PORT);
 		freePort(MANAGER_PORT);
 		freePort(HTML_PORT);
 		freePort(DOC_SKILL_PORT);
+		freePort(FLOWISE_PORT);
 		await new Promise((resolve) => setTimeout(resolve, 500));
 	} else if (await portIsListening(RUNTIME_PORT)) {
 		console.error(`Port ${RUNTIME_PORT} is already in use. Run: npm run solo -- --restart`);

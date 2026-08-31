@@ -11,7 +11,9 @@ import { notifyError, showAppToast } from "@/components/app-toaster";
 import { CardDetailView } from "@/components/card-detail-view";
 import { CleanupDialog } from "@/components/cleanup-dialog";
 import { ClearTrashDialog } from "@/components/clear-trash-dialog";
+import { AgentStudioView } from "@/agents/agent-studio-view";
 import { DebugDialog } from "@/components/debug-dialog";
+import type { AgentStudioTarget } from "@/components/home-sidebar-agents";
 import { DocsView } from "@/components/docs/docs-view";
 import { AgentTerminalPanel } from "@/components/detail-panels/agent-terminal-panel";
 import {
@@ -154,6 +156,8 @@ export default function App(): ReactElement {
 	const [isDocsOpen, setIsDocsOpen] = useState(false);
 	const [editingPlan, setEditingPlan] = useState<RuntimeSavedPlan | null>(null);
 	const [reviewTarget, setReviewTarget] = useState<ReviewTarget | null>(null);
+	const [agentStudioTarget, setAgentStudioTarget] =
+		useState<AgentStudioTarget | null>(null);
 	const [isCommitDialogOpen, setIsCommitDialogOpen] = useState(false);
 	const [isPullRequestDialogOpen, setIsPullRequestDialogOpen] = useState(false);
 	const [isWorktreesDialogOpen, setIsWorktreesDialogOpen] = useState(false);
@@ -1242,6 +1246,7 @@ export default function App(): ReactElement {
 						onOpenPlan={setEditingPlan}
 						reviewProjectKey={reviewProjectKey}
 						onOpenMergeRequest={setReviewTarget}
+						onOpenAgentStudio={setAgentStudioTarget}
 					/>
 				) : null}
 				<div className="flex flex-col flex-1 min-w-0 overflow-hidden">
@@ -1394,6 +1399,11 @@ export default function App(): ReactElement {
 									managerAccounts={managedManagerAccounts}
 									managerActiveAccountId={manager?.activeAccountId ?? null}
 									onClose={() => setEditingPlan(null)}
+								/>
+							) : agentStudioTarget ? (
+								<AgentStudioView
+									target={agentStudioTarget}
+									onClose={() => setAgentStudioTarget(null)}
 								/>
 							) : shouldShowProjectLoadingState ? (
 								<div className="flex flex-1 min-h-0 flex-col items-center justify-center gap-4 bg-surface-0">

@@ -1,0 +1,4 @@
+[submodule "backends/flowise"]
+	path = backends/flowise
+	url = https://github.com/tien0483/Flowise.git
+	branch = pixeloffice

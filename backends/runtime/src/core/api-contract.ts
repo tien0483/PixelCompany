@@ -1403,6 +1403,33 @@ export const RuntimeDocSkillStatusSchema = z.object({
 });
 export type RuntimeDocSkillStatus = z.infer<typeof RuntimeDocSkillStatusSchema>;
 
+/**
+ * The Flowise agent studio (`backends/flowise`). `installed: false` is a distinct state
+ * from `online: false` on purpose: an uninitialized submodule needs a build, a built-but-
+ * down studio needs a restart, and the Agents tab says something different for each.
+ */
+export const RuntimeFlowiseStatusSchema = z.object({
+	online: z.boolean(),
+	/** False when `backends/flowise` was never initialized or built. */
+	installed: z.boolean(),
+	/** Cross-origin URL the studio is embedded from; the browser loads this directly. */
+	baseUrl: z.string(),
+	version: z.string().optional(),
+});
+export type RuntimeFlowiseStatus = z.infer<typeof RuntimeFlowiseStatusSchema>;
+
+export const RuntimeFlowiseFlowSchema = z.object({
+	id: z.string().min(1),
+	name: z.string(),
+	/** Only a deployed flow answers `/api/v1/prediction/<id>`, so only it can back a tool. */
+	deployed: z.boolean(),
+	/** Upstream's CHATFLOW / AGENTFLOW / ASSISTANT discriminator; absent on older rows. */
+	type: z.string().optional(),
+	category: z.string().optional(),
+	updatedAt: z.string().optional(),
+});
+export type RuntimeFlowiseFlow = z.infer<typeof RuntimeFlowiseFlowSchema>;
+
 export const RuntimeDocProjectSchema = z.object({
 	id: z.string(),
 	name: z.string(),

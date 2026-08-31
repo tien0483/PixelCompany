@@ -136,6 +136,7 @@ describe("ProjectNavigationPanel width persistence", () => {
 					onOpenPlan={() => {}}
 					reviewProjectKey="test-project"
 					onOpenMergeRequest={() => {}}
+					onOpenAgentStudio={() => {}}
 					{...overrides}
 				/>,
 			);
