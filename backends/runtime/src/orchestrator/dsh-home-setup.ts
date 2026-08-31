@@ -75,7 +75,7 @@ export async function ensureDshProductSubagents(input: EnsureDshProductSubagents
 
 function runNpmInstall(cwd: string): Promise<number> {
 	return new Promise((resolve) => {
-		const child = spawn("npm", ["install", "--omit=dev", "--no-audit", "--no-fund"], {
+		const child = spawn("npm", ["install", "--legacy-peer-deps", "--omit=dev", "--no-audit", "--no-fund"], {
 			cwd,
 			stdio: ["ignore", "pipe", "pipe"],
 			env: process.env,

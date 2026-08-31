@@ -126,6 +126,17 @@ export function getAllowedOriginHeaders(): ReadonlySet<string> {
 
 	addOrigin("localhost");
 	addOrigin("127.0.0.1");
+
+	const webUiPort = process.env.KANBAN_WEB_UI_PORT ? Number(process.env.KANBAN_WEB_UI_PORT) : null;
+	if (webUiPort && Number.isFinite(webUiPort)) {
+		allowed.add(`${scheme}://localhost:${webUiPort}`);
+		allowed.add(`${scheme}://127.0.0.1:${webUiPort}`);
+	}
+	allowed.add(`${scheme}://localhost:5173`);
+	allowed.add(`${scheme}://127.0.0.1:5173`);
+	allowed.add(`${scheme}://localhost:4173`);
+	allowed.add(`${scheme}://127.0.0.1:4173`);
+
 	return allowed;
 }
 

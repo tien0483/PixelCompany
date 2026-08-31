@@ -24,11 +24,18 @@ export function evaluateCors(input: CorsGateInput): CorsDecision {
 	const origin = input.originHeader || null;
 	const isPreflight = input.method === "OPTIONS";
 
-	if (origin === null) {
+	// No Origin header, or the literal string "null" (sent by browsers in sandboxed
+	// contexts / certain privacy modes) — both are safe to allow on a loopback server.
+	if (origin === null || origin === "null") {
 		return { kind: "allow", origin: null };
 	}
 
-	const isDevServer = isDev && (origin === "http://localhost:4173" || origin === "http://127.0.0.1:4173");
+	const isDevServer =
+		isDev &&
+		(origin === "http://localhost:4173" ||
+			origin === "http://127.0.0.1:4173" ||
+			origin === "http://localhost:5173" ||
+			origin === "http://127.0.0.1:5173");
 
 	if (!input.allowedOrigins.has(origin) && !isDevServer) {
 		return { kind: "reject", origin };
@@ -76,9 +83,11 @@ export function getAllowedHostHeaders(): ReadonlySet<string> {
 	addHostPort("localhost");
 	addHostPort("127.0.0.1");
 	if (isDev) {
-		// Vite's default dev server host:port
+		// Vite's default dev server and preview host:port
 		allowed.add("localhost:4173");
 		allowed.add("127.0.0.1:4173");
+		allowed.add("localhost:5173");
+		allowed.add("127.0.0.1:5173");
 	}
 	return allowed;
 }
