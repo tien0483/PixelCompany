@@ -8,11 +8,13 @@ import type {
 	RuntimeClaudeCacheCleanResponse,
 	RuntimeClaudeCacheStatusResponse,
 } from "../core/api-contract";
+import { resolveDefaultDshHome } from "../orchestrator/dsh-endpoint";
 import { getLegacyRuntimeHomePath, getRuntimeHomePath, getTaskWorktreesHomePath } from "../state/workspace-state";
+import { cleanAgentHomes, scanAgentHomes, summarizeAgentHomes } from "./agent-home-cleanup";
 import { measureDirectorySize } from "./worktree-disk-usage";
 
 const SAFE_TIER_SUBDIRS = ["cache", "paste-cache", "shell-snapshots", "file-history"] as const;
-const DEFAULT_SAFE_AGE_DAYS = 7;
+const DEFAULT_SAFE_AGE_DAYS = 1;
 const CLAUDE_CLI_CACHE_DIR_NAME = "claude-cli-nodejs";
 
 interface ScannedFile {
@@ -158,6 +160,57 @@ async function scanLegacyTier(): Promise<LegacyLeftover[]> {
 	return leftovers;
 }
 
+function resolveClaudeCliCacheRoot(): string {
+	return join(homedir(), ".cache", CLAUDE_CLI_CACHE_DIR_NAME);
+}
+
+async function scanEntireCliCacheTier(): Promise<LegacyLeftover[]> {
+	const cacheRoot = resolveClaudeCliCacheRoot();
+	let cacheDirs: string[];
+	try {
+		cacheDirs = await readdir(cacheRoot);
+	} catch {
+		return [];
+	}
+	const leftovers: LegacyLeftover[] = [];
+	for (const dirName of cacheDirs) {
+		const path = join(cacheRoot, dirName);
+		if (!(await directoryExists(path))) {
+			continue;
+		}
+		leftovers.push({
+			path,
+			sizeBytes: await measureDirectorySize(path),
+			reason: "Claude Code CLI cache — recreated automatically on next launch.",
+		});
+	}
+	return leftovers;
+}
+
+async function scanDshPackagesTier(): Promise<LegacyLeftover[]> {
+	const dshHome = resolveDefaultDshHome();
+	const targets = [join(dshHome, "node_modules"), join(dshHome, ".npm")];
+	const leftovers: LegacyLeftover[] = [];
+	for (const path of targets) {
+		if (!(await directoryExists(path))) {
+			continue;
+		}
+		leftovers.push({
+			path,
+			sizeBytes: await measureDirectorySize(path),
+			reason: "Orchestrator (dsh) subagent packages — reinstall on next orchestrator use.",
+		});
+	}
+	return leftovers;
+}
+
+function isOlderThanCutoff(ageMs: number, ageCutoffMs: number, days: number | undefined): boolean {
+	if (days === 0) {
+		return true;
+	}
+	return ageMs > ageCutoffMs;
+}
+
 async function directoryExists(path: string): Promise<boolean> {
 	try {
 		return (await stat(path)).isDirectory();
@@ -180,20 +233,35 @@ export async function getClaudeCacheStatus(options?: {
 }): Promise<RuntimeClaudeCacheStatusResponse> {
 	try {
 		const claudeHomeDir = resolveClaudeHomeDir(options?.claudeHomeDir);
-		if (!(await claudeHomeDirExists(claudeHomeDir))) {
+		const claudePresent = await claudeHomeDirExists(claudeHomeDir);
+		const agentHomeSummary = summarizeAgentHomes(await scanAgentHomes({ days: options?.days }));
+		const legacyLeftovers = await scanLegacyTier();
+		const cliCacheLeftovers = await scanEntireCliCacheTier();
+		const dshPackageLeftovers = await scanDshPackagesTier();
+
+		if (!claudePresent) {
 			return {
-				ok: false,
+				ok: true,
 				safeItemCount: 0,
 				safeSizeBytes: 0,
 				transcriptItemCount: 0,
 				transcriptSizeBytes: 0,
-				error: "~/.claude not found",
+				legacyItemCount: legacyLeftovers.length,
+				legacySizeBytes: legacyLeftovers.reduce((sum, item) => sum + item.sizeBytes, 0),
+				cliCacheItemCount: cliCacheLeftovers.length,
+				cliCacheSizeBytes: cliCacheLeftovers.reduce((sum, item) => sum + item.sizeBytes, 0),
+				dshPackageItemCount: dshPackageLeftovers.length,
+				dshPackageSizeBytes: dshPackageLeftovers.reduce((sum, item) => sum + item.sizeBytes, 0),
+				...agentHomeSummary,
 			};
 		}
 		const ageCutoffMs = (options?.days ?? DEFAULT_SAFE_AGE_DAYS) * 24 * 60 * 60 * 1000;
-		const safeFiles = (await scanSafeTier(claudeHomeDir)).filter((file) => file.ageMs > ageCutoffMs);
-		const transcriptFiles = (await scanTranscriptTier(claudeHomeDir)).filter((file) => file.ageMs > ageCutoffMs);
-		const legacyLeftovers = await scanLegacyTier();
+		const safeFiles = (await scanSafeTier(claudeHomeDir)).filter((file) =>
+			isOlderThanCutoff(file.ageMs, ageCutoffMs, options?.days),
+		);
+		const transcriptFiles = (await scanTranscriptTier(claudeHomeDir)).filter((file) =>
+			isOlderThanCutoff(file.ageMs, ageCutoffMs, options?.days),
+		);
 		return {
 			ok: true,
 			safeItemCount: safeFiles.length,
@@ -202,6 +270,11 @@ export async function getClaudeCacheStatus(options?: {
 			transcriptSizeBytes: transcriptFiles.reduce((sum, file) => sum + file.sizeBytes, 0),
 			legacyItemCount: legacyLeftovers.length,
 			legacySizeBytes: legacyLeftovers.reduce((sum, item) => sum + item.sizeBytes, 0),
+			cliCacheItemCount: cliCacheLeftovers.length,
+			cliCacheSizeBytes: cliCacheLeftovers.reduce((sum, item) => sum + item.sizeBytes, 0),
+			dshPackageItemCount: dshPackageLeftovers.length,
+			dshPackageSizeBytes: dshPackageLeftovers.reduce((sum, item) => sum + item.sizeBytes, 0),
+			...agentHomeSummary,
 		};
 	} catch (error) {
 		return {
@@ -220,50 +293,86 @@ export async function cleanClaudeCache(
 ): Promise<RuntimeClaudeCacheCleanResponse> {
 	try {
 		const claudeHomeDir = resolveClaudeHomeDir(options.claudeHomeDir);
-		if (!(await claudeHomeDirExists(claudeHomeDir))) {
+		const claudePresent = await claudeHomeDirExists(claudeHomeDir);
+		const needsClaude =
+			options.includeSafe !== false || options.includeTranscripts === true;
+		if (needsClaude && !claudePresent) {
 			return { ok: false, cleaned: [], skipped: [], error: "~/.claude not found" };
 		}
 		const ageCutoffMs = (options.days ?? DEFAULT_SAFE_AGE_DAYS) * 24 * 60 * 60 * 1000;
 
 		const candidates: { file: ScannedFile; tier: "safe" | "transcript" }[] = [];
-		if (options.includeSafe !== false) {
+		if (claudePresent && options.includeSafe !== false) {
 			for (const file of await scanSafeTier(claudeHomeDir)) {
-				if (file.ageMs > ageCutoffMs) {
+				if (isOlderThanCutoff(file.ageMs, ageCutoffMs, options.days)) {
 					candidates.push({ file, tier: "safe" });
 				}
 			}
 		}
-		if (options.includeTranscripts) {
+		if (claudePresent && options.includeTranscripts) {
 			for (const file of await scanTranscriptTier(claudeHomeDir)) {
-				if (file.ageMs > ageCutoffMs) {
+				if (isOlderThanCutoff(file.ageMs, ageCutoffMs, options.days)) {
 					candidates.push({ file, tier: "transcript" });
 				}
 			}
 		}
 
-		const cleaned: { path: string; sizeBytes: number; tier: "safe" | "transcript" | "legacy" }[] = [];
+		const cleaned: {
+			path: string;
+			sizeBytes: number;
+			tier: "safe" | "transcript" | "legacy" | "cli-cache" | "dsh" | "cursor" | "gemini" | "antigravity";
+		}[] = [];
 		const skipped: { path: string; reason: string }[] = [];
+
+		async function removeLegacyLeftover(
+			leftover: LegacyLeftover,
+			tier: "legacy" | "cli-cache" | "dsh",
+		): Promise<void> {
+			if (options.dryRun) {
+				cleaned.push({ path: leftover.path, sizeBytes: leftover.sizeBytes, tier });
+				return;
+			}
+			try {
+				await rm(leftover.path, { recursive: true, force: true });
+				cleaned.push({ path: leftover.path, sizeBytes: leftover.sizeBytes, tier });
+			} catch (error) {
+				skipped.push({
+					path: leftover.path,
+					reason: error instanceof Error ? error.message : String(error),
+				});
+			}
+		}
 
 		// Legacy leftovers are whole directories outside the age-gated allowlist, so
 		// they are handled separately from the per-file candidates below rather than
 		// being forced through a walker that assumes files.
 		if (options.includeLegacy) {
 			for (const leftover of await scanLegacyTier()) {
-				if (options.dryRun) {
-					cleaned.push({ path: leftover.path, sizeBytes: leftover.sizeBytes, tier: "legacy" });
-					continue;
-				}
-				try {
-					await rm(leftover.path, { recursive: true, force: true });
-					cleaned.push({ path: leftover.path, sizeBytes: leftover.sizeBytes, tier: "legacy" });
-				} catch (error) {
-					skipped.push({
-						path: leftover.path,
-						reason: error instanceof Error ? error.message : String(error),
-					});
-				}
+				await removeLegacyLeftover(leftover, "legacy");
 			}
 		}
+		if (options.includeEntireCliCache) {
+			for (const leftover of await scanEntireCliCacheTier()) {
+				await removeLegacyLeftover(leftover, "cli-cache");
+			}
+		}
+		if (options.includeDshPackages) {
+			for (const leftover of await scanDshPackagesTier()) {
+				await removeLegacyLeftover(leftover, "dsh");
+			}
+		}
+
+		const agentHomeResult = await cleanAgentHomes({
+			days: options.days,
+			dryRun: options.dryRun,
+			includeCursor: options.includeCursorCache,
+			includeGemini: options.includeGeminiCache,
+			includeAntigravityHome: options.includeAntigravityHome,
+		});
+		for (const item of agentHomeResult.cleaned) {
+			cleaned.push({ path: item.path, sizeBytes: item.sizeBytes, tier: item.tier });
+		}
+		skipped.push(...agentHomeResult.skipped);
 
 		for (const candidate of candidates) {
 			if (options.dryRun) {

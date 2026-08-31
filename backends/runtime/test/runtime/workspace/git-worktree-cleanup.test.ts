@@ -28,6 +28,7 @@ const diskUsageMocks = vi.hoisted(() => ({
 const fsMocks = vi.hoisted(() => ({
 	stat: vi.fn(),
 	readdir: vi.fn(),
+	rm: vi.fn(),
 }));
 
 vi.mock("../../../src/workspace/branch-registry.js", () => ({
@@ -52,12 +53,17 @@ vi.mock("../../../src/state/workspace-state.js", () => ({
 	listWorkspaceIndexEntries: workspaceStateMocks.listWorkspaceIndexEntries,
 	loadWorkspaceBoardById: workspaceStateMocks.loadWorkspaceBoardById,
 }));
+vi.mock("../../../src/workspace/worktree-orphan-modules.js", () => ({
+	findOrphanNodeModuleDirs: vi.fn().mockResolvedValue([]),
+	removeOrphanNodeModuleDirs: vi.fn().mockResolvedValue({ cleaned: [], skipped: [] }),
+}));
 vi.mock("../../../src/workspace/worktree-disk-usage.js", () => ({
 	measureDirectorySize: diskUsageMocks.measureDirectorySize,
 }));
 vi.mock("node:fs/promises", () => ({
 	stat: fsMocks.stat,
 	readdir: fsMocks.readdir,
+	rm: fsMocks.rm,
 }));
 
 import { cleanMergedWorktrees, scanReclaimableWorktrees } from "../../../src/workspace/git-worktree-cleanup";
@@ -92,6 +98,9 @@ function stubGit(handlers: {
 		if (args[0] === "merge-base") {
 			return { ok: handlers.merged === true };
 		}
+		if (args[0] === "for-each-ref") {
+			return { ok: true, stdout: "" };
+		}
 		if (args[0] === "status") {
 			return { ok: true, stdout: handlers.statusPorcelain ?? "" };
 		}
@@ -118,6 +127,7 @@ beforeEach(() => {
 	fsMocks.stat.mockResolvedValue({ isDirectory: () => true });
 	// No stray directories under the worktrees root by default.
 	fsMocks.readdir.mockResolvedValue([]);
+	fsMocks.rm.mockResolvedValue(undefined);
 	workspaceStateMocks.listWorkspaceIndexEntries.mockResolvedValue([{ workspaceId: "ws-1", repoPath: "/repo" }]);
 	workspaceStateMocks.loadWorkspaceBoardById.mockResolvedValue({ columns: [], dependencies: [] });
 });
@@ -359,7 +369,7 @@ describe("cleanMergedWorktrees category selection", () => {
 		expect(taskWorktreeMocks.deleteTaskWorktree).toHaveBeenCalledTimes(1);
 	});
 
-	it("reports an unregistered directory instead of deleting it", async () => {
+	it("removes an unregistered directory instead of asking for manual cleanup", async () => {
 		branchRegistryMocks.listActiveBranchEntries.mockResolvedValue([]);
 		fsMocks.readdir.mockImplementation(async (path: string) =>
 			path === WORKTREES_ROOT ? ["stray-1"] : ["demo-repo"],
@@ -372,9 +382,25 @@ describe("cleanMergedWorktrees category selection", () => {
 			categories: ["unregistered"],
 		});
 
-		expect(response.cleanedTaskIds).toEqual([]);
+		expect(response.cleanedTaskIds).toEqual(["stray-1"]);
+		expect(fsMocks.rm).toHaveBeenCalled();
 		expect(taskWorktreeMocks.deleteTaskWorktree).not.toHaveBeenCalled();
-		expect(response.skipped[0]?.reason).toContain("remove it manually");
+	});
+
+	it("deletes a merged local branch when the worktree is removed", async () => {
+		branchRegistryMocks.listActiveBranchEntries.mockResolvedValue([entry("merged-1")]);
+		stubGit({ merged: true });
+		workspaceStateMocks.loadWorkspaceBoardById.mockResolvedValue({
+			columns: [{ id: "backlog", title: "Backlog", cards: [{ id: "merged-1" }] }],
+			dependencies: [],
+		});
+
+		await cleanMergedWorktrees({ repoPath: "/repo", workspaceId: "ws-1", board: {} as never });
+
+		expect(gitSyncMocks.runGitDeleteBranchAction).toHaveBeenCalledWith({
+			cwd: "/repo",
+			branch: "kanban/merged-1",
+		});
 	});
 
 	it("reconciles the registry after a real delete so the next scan is accurate", async () => {

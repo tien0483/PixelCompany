@@ -298,7 +298,7 @@ describe("CleanupDialog", () => {
 			expect(mockCleanMergedWorktrees).toHaveBeenCalledWith(
 				expect.objectContaining({
 					dryRun: true,
-					categories: expect.arrayContaining(["merged", "unused", "orphaned", "missing", "unregistered"]),
+					categories: expect.arrayContaining(["merged", "unused", "orphaned", "missing", "unregistered", "stale-branch"]),
 				}),
 			);
 		});
