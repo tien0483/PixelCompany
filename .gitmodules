@@ -2,3 +2,7 @@
 	path = backends/flowise
 	url = https://github.com/tien0483/Flowise.git
 	branch = pixeloffice
+
+[submodule "backends/OmniRoute"]
+	path = backends/OmniRoute
+	url = https://github.com/diegosouzapw/OmniRoute.git
