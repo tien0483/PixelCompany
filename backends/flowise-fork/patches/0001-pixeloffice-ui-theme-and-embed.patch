@@ -1,0 +1,262 @@
+diff --git a/packages/ui/src/App.jsx b/packages/ui/src/App.jsx
+index 857d4ea..51b8b58 100644
+--- a/packages/ui/src/App.jsx
++++ b/packages/ui/src/App.jsx
+@@ -11,6 +11,7 @@ import themes from '@/themes'
+ 
+ // project imports
+ import NavigationScroll from '@/layout/NavigationScroll'
++import EmbedAutoLogin from '@/pixeloffice/EmbedAutoLogin'
+ 
+ // ==============================|| APP ||============================== //
+ 
+@@ -22,7 +23,9 @@ const App = () => {
+             <ThemeProvider theme={themes(customization)}>
+                 <CssBaseline />
+                 <NavigationScroll>
+-                    <Routes />
++                    <EmbedAutoLogin>
++                        <Routes />
++                    </EmbedAutoLogin>
+                 </NavigationScroll>
+             </ThemeProvider>
+         </StyledEngineProvider>
+diff --git a/packages/ui/src/assets/scss/_themes-vars.module.scss b/packages/ui/src/assets/scss/_themes-vars.module.scss
+index 7235b84..eba6ab3 100644
+--- a/packages/ui/src/assets/scss/_themes-vars.module.scss
++++ b/packages/ui/src/assets/scss/_themes-vars.module.scss
+@@ -57,32 +57,40 @@ $transparent: #ffffff00;
+ 
+ // ==============================|| DARK THEME VARIANTS ||============================== //
+ 
++// PixelOffice: the dark variants are mapped onto PixelOffice's design tokens (defined in
++// frontends/pixel_office/src/globals.css `@theme`) so the framed studio reads as one app
++// with its host. Only these values changed; the variable names are upstream's.
++//
++// surface-0 #1F2428 · surface-1 #24292E · surface-2 #2D3339 · surface-3 #353C43
++// surface-4 #3E464E · border #30363D · accent #0084FF · accent-hover #339DFF
++// text-primary #E6EDF3 · text-secondary #8B949E · text-tertiary #6E7681
++
+ // paper & background
+-$darkBackground: #191b1f;
+-$darkPaper: #191b1f;
++$darkBackground: #1f2428;
++$darkPaper: #1f2428;
+ 
+ // dark 800 & 900
+-$darkLevel1: #252525; // level 1
+-$darkLevel2: #242424; // level 2
++$darkLevel1: #2d3339; // level 1  → surface-2 (cards/inputs)
++$darkLevel2: #24292e; // level 2  → surface-1 (raised)
+ 
+ // primary dark
+-$darkPrimaryLight: #23262c;
+-$darkPrimaryMain: #23262c;
+-$darkPrimaryDark: #191b1f;
+-$darkPrimary200: #c9d4e9;
+-$darkPrimary800: #32353b;
++$darkPrimaryLight: #24292e;
++$darkPrimaryMain: #24292e;
++$darkPrimaryDark: #1f2428;
++$darkPrimary200: #8b949e;
++$darkPrimary800: #353c43;
+ 
+ // secondary dark
+-$darkSecondaryLight: #454c59;
+-$darkSecondaryMain: #7c4dff;
+-$darkSecondaryDark: #ffffff;
+-$darkSecondary200: #32353b;
+-$darkSecondary800: #6200ea;
++$darkSecondaryLight: #2d3339;
++$darkSecondaryMain: #0084ff;
++$darkSecondaryDark: #e6edf3;
++$darkSecondary200: #30363d;
++$darkSecondary800: #339dff;
+ 
+ // text variants
+-$darkTextTitle: #d7dcec;
+-$darkTextPrimary: #bdc8f0;
+-$darkTextSecondary: #8492c4;
++$darkTextTitle: #e6edf3;
++$darkTextPrimary: #e6edf3;
++$darkTextSecondary: #8b949e;
+ 
+ // ==============================|| JAVASCRIPT ||============================== //
+ 
+diff --git a/packages/ui/src/index.jsx b/packages/ui/src/index.jsx
+index d8833ee..e04db29 100644
+--- a/packages/ui/src/index.jsx
++++ b/packages/ui/src/index.jsx
+@@ -1,4 +1,7 @@
+ import React from 'react'
++// PixelOffice: must precede every store import — it latches embed mode and forces dark
++// before customizationReducer reads `isDarkMode` for its initial state.
++import '@/pixeloffice/embed'
+ import App from '@/App'
+ import { store } from '@/store'
+ import { createRoot } from 'react-dom/client'
+diff --git a/packages/ui/src/layout/MainLayout/index.jsx b/packages/ui/src/layout/MainLayout/index.jsx
+index a73c4ef..e1c50bb 100644
+--- a/packages/ui/src/layout/MainLayout/index.jsx
++++ b/packages/ui/src/layout/MainLayout/index.jsx
+@@ -12,6 +12,7 @@ import Sidebar from './Sidebar'
+ import AnnouncementBanner from './AnnouncementBanner'
+ import { drawerWidth, headerHeight } from '@/store/constant'
+ import { SET_MENU } from '@/store/actions'
++import { isEmbedded } from '@/pixeloffice/embed'
+ 
+ const BANNER_HEIGHT = 45
+ const BANNER_DISMISSED_KEY = 'flowise.announcementDismissed'
+@@ -86,6 +87,20 @@ const MainLayout = () => {
+     }
+     const bannerOffset = bannerDismissed ? 0 : BANNER_HEIGHT
+ 
++    // PixelOffice: the Agents tab supplies its own header, navigation and window chrome, so
++    // the framed studio renders the canvas alone — no AppBar, no drawer, no banner, and none
++    // of the margins those reserve.
++    if (isEmbedded()) {
++        return (
++            <Box sx={{ display: 'flex', height: '100vh', width: '100%' }}>
++                <CssBaseline />
++                <Box component='main' sx={{ flexGrow: 1, minWidth: 0, height: '100%', overflow: 'auto' }}>
++                    <Outlet />
++                </Box>
++            </Box>
++        )
++    }
++
+     return (
+         <Box sx={{ display: 'flex' }}>
+             <CssBaseline />
+diff --git a/packages/ui/src/pixeloffice/EmbedAutoLogin.jsx b/packages/ui/src/pixeloffice/EmbedAutoLogin.jsx
+new file mode 100644
+index 0000000..b7043f0
+--- /dev/null
++++ b/packages/ui/src/pixeloffice/EmbedAutoLogin.jsx
+@@ -0,0 +1,64 @@
++import PropTypes from 'prop-types'
++import { useEffect, useState } from 'react'
++import { useSelector } from 'react-redux'
++
++import { store } from '@/store'
++import { loginSuccess } from '@/store/reducers/authSlice'
++
++import { isEmbedded } from './embed'
++
++const CREDENTIAL_URL = '/api/v1/pixeloffice-embed/credential'
++const LOGIN_URL = '/api/v1/auth/login'
++
++/**
++ * Signs the framed studio in with the local account PixelOffice's runtime seeded, so the
++ * Agents tab never shows a login screen.
++ *
++ * Upstream's account system is kept as shipped (its schema and migrations live in the
++ * commercially-licensed `enterprise/` tree, so removing it would mean forking the schema).
++ * The credential is served only to loopback callers by
++ * `packages/server/src/pixeloffice/embed-credential-route.ts` and only when
++ * `PIXELOFFICE_EMBED=1` — outside that, this component is inert and the normal login runs.
++ */
++export const EmbedAutoLogin = ({ children }) => {
++    const currentUser = useSelector((state) => state.auth.user)
++    const [attempted, setAttempted] = useState(false)
++
++    useEffect(() => {
++        if (!isEmbedded() || currentUser || attempted) return
++        let cancelled = false
++        const signIn = async () => {
++            try {
++                const credentialResponse = await fetch(CREDENTIAL_URL, { credentials: 'include' })
++                if (!credentialResponse.ok) return
++                const credential = await credentialResponse.json()
++                const loginResponse = await fetch(LOGIN_URL, {
++                    method: 'POST',
++                    headers: { 'Content-Type': 'application/json' },
++                    credentials: 'include',
++                    body: JSON.stringify({ email: credential.email, password: credential.password })
++                })
++                if (!loginResponse.ok || cancelled) return
++                store.dispatch(loginSuccess(await loginResponse.json()))
++            } catch (e) {
++                // Leave the normal login screen in place rather than blocking the canvas.
++            } finally {
++                // One attempt only: a retry loop against a studio whose account drifted would
++                // hammer the login route on every render.
++                if (!cancelled) setAttempted(true)
++            }
++        }
++        void signIn()
++        return () => {
++            cancelled = true
++        }
++    }, [currentUser, attempted])
++
++    return children
++}
++
++EmbedAutoLogin.propTypes = {
++    children: PropTypes.node
++}
++
++export default EmbedAutoLogin
+diff --git a/packages/ui/src/pixeloffice/embed.js b/packages/ui/src/pixeloffice/embed.js
+new file mode 100644
+index 0000000..2f80e57
+--- /dev/null
++++ b/packages/ui/src/pixeloffice/embed.js
+@@ -0,0 +1,41 @@
++// PixelOffice embed mode. The studio is framed by PixelOffice's Agents tab, which passes
++// `?embed=1` on the first load. Everything here is additive: without the flag the studio
++// behaves exactly as upstream, so it stays debuggable on its own port.
++
++const EMBED_QUERY_KEY = 'embed'
++const EMBED_SESSION_KEY = 'pixeloffice.embed'
++
++/**
++ * The studio uses BrowserRouter, so any internal navigation drops the query string — the
++ * flag is therefore latched into sessionStorage on first load and read from there
++ * afterwards. sessionStorage (not localStorage) so opening the studio directly in a browser
++ * tab is never stuck in embed mode.
++ */
++export const isEmbedded = () => {
++    try {
++        const fromQuery = new URLSearchParams(window.location.search).get(EMBED_QUERY_KEY)
++        if (fromQuery === '1') {
++            window.sessionStorage.setItem(EMBED_SESSION_KEY, '1')
++            return true
++        }
++        return window.sessionStorage.getItem(EMBED_SESSION_KEY) === '1'
++    } catch (e) {
++        return false
++    }
++}
++
++/**
++ * PixelOffice is dark-only, so a light-mode studio inside its frame reads as a broken embed.
++ * This runs as an import side effect *before* customizationReducer reads the same key for its
++ * initial state, which is why `index.jsx` imports this module first.
++ */
++export const forceDarkModeWhenEmbedded = () => {
++    if (!isEmbedded()) return
++    try {
++        window.localStorage.setItem('isDarkMode', 'true')
++    } catch (e) {
++        // Private-mode browsers: the theme falls back to upstream's default, nothing breaks.
++    }
++}
++
++forceDarkModeWhenEmbedded()
+diff --git a/packages/ui/src/themes/index.js b/packages/ui/src/themes/index.js
+index b1067ab..cf2aa1b 100644
+--- a/packages/ui/src/themes/index.js
++++ b/packages/ui/src/themes/index.js
+@@ -28,7 +28,9 @@ export const theme = (customization) => {
+               textDark: color.paper,
+               menuSelected: color.darkSecondaryDark,
+               menuSelectedBack: color.darkSecondaryLight,
+-              divider: color.darkPaper,
++              // PixelOffice: a divider equal to the background is invisible against the
++              // remapped surfaces, so dark mode uses the border token instead.
++              divider: color.darkSecondary200,
+               customization
+           }
+         : {

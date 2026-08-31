@@ -43,6 +43,7 @@ import { DOC_SKILL_ALLOWED_TOOLS, resolveDocSkillAgentCwd } from "../doc-skill/d
 import { BUILD_REQUEST_TIMEOUT_MS, type DocSkillClient } from "../doc-skill/doc-skill-client";
 import { findDocSkillRoot } from "../doc-skill/doc-skill-process";
 import { buildDocAuditPrompt, buildDocRoundPrompt, loadDocSkillText } from "../doc-skill/doc-skill-prompts";
+import type { FlowiseClient } from "../flowise/flowise-client";
 import { createGitlabClient } from "../gitlab/gitlab-client";
 import { createGitlabOauthSession } from "../gitlab/gitlab-oauth";
 import { HTML_NO_TOOLS, resolveHtmlAgentCwd, resolveHtmlAllowedTools } from "../html/html-agent-args";
@@ -107,6 +108,7 @@ import { type RuntimeTrpcContext, type RuntimeTrpcWorkspaceScope, runtimeAppRout
 import { createClaudeUsageApi } from "../trpc/claude-usage-api";
 import { createDeployApi } from "../trpc/deploy-api";
 import { createDocSkillApi } from "../trpc/doc-skill-api";
+import { createFlowiseApi } from "../trpc/flowise-api";
 import { createGitlabApi } from "../trpc/gitlab-api";
 import { createHooksApi } from "../trpc/hooks-api";
 import { createHtmlApi } from "../trpc/html-api";
@@ -133,6 +135,7 @@ export interface CreateRuntimeServerDependencies {
 	manager: { client: ManagerClient; monitor: ManagerMonitor };
 	html: { client: HtmlClient };
 	docSkill: { client: DocSkillClient };
+	flowise: { client: FlowiseClient };
 	warn: (message: string) => void;
 	ensureTerminalManagerForWorkspace: (workspaceId: string, repoPath: string) => Promise<TerminalSessionManager>;
 	resolveInteractiveShellCommand: () => { binary: string; args: string[] };
@@ -339,6 +342,9 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 	const claudeUsageApi = createClaudeUsageApi();
 	const docSkillApi = createDocSkillApi({
 		client: deps.docSkill.client,
+	});
+	const flowiseApi = createFlowiseApi({
+		client: deps.flowise.client,
 	});
 	// One GitLab identity serves the whole runtime, so the client and the OAuth flow
 	// registry are singletons here rather than per request: a flow started by one
@@ -607,6 +613,7 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 			htmlApi,
 			claudeUsageApi,
 			docSkillApi,
+			flowiseApi,
 			gitlabApi,
 			reviewApi,
 		};

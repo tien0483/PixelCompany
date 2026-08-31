@@ -13,6 +13,11 @@ import {
 import { type MouseEvent as ReactMouseEvent, useCallback, useEffect, useRef, useState } from "react";
 import { canShowFeaturebaseFeedbackButton } from "@/components/featurebase-feedback-button";
 import { HomeSidebarManagerPanel, HomeSidebarManagerTab } from "@/components/home-sidebar-manager";
+import {
+	type AgentStudioTarget,
+	HomeSidebarAgentsPanel,
+	HomeSidebarAgentsTab,
+} from "@/components/home-sidebar-agents";
 import { HomeSidebarPlansPanel, HomeSidebarPlansTab } from "@/components/home-sidebar-plans";
 import { HomeSidebarReviewPanel, HomeSidebarReviewTab } from "@/components/home-sidebar-review";
 import askeeLogo from "@/assets/images/askee-logo.png";
@@ -48,7 +53,7 @@ import { useUnmount, useWindowEvent } from "@/utils/react-use";
  * Which sidebar surface is showing. Exported so `App.tsx` names one type instead of
  * repeating the union — it drifted out of sync when Plans was added.
  */
-export type HomeSidebarSection = "projects" | "manager" | "plans" | "review";
+export type HomeSidebarSection = "projects" | "manager" | "plans" | "review" | "agents";
 
 const COLLAPSED_WIDTH = 48;
 const SIDEBAR_COLLAPSE_THRESHOLD = 120;
@@ -87,6 +92,7 @@ export function ProjectNavigationPanel({
 	setSidebarCollapsed,
 	managerSettingsFocusToken = 0,
 	onOpenPlan,
+	onOpenAgentStudio,
 }: {
 	projects: RuntimeProjectSummary[];
 	isLoadingProjects?: boolean;
@@ -114,6 +120,7 @@ export function ProjectNavigationPanel({
 	/** Rules-bundle key for the Review panel — the active project's identity. */
 	reviewProjectKey: string;
 	onOpenMergeRequest: (target: ReviewTarget) => void;
+	onOpenAgentStudio: (target: AgentStudioTarget) => void;
 }): React.ReactElement {
 	const sortedProjects = [...projects].sort((a, b) => a.path.localeCompare(b.path));
 	const shouldShowFeaturebaseFeedback = canShowFeaturebaseFeedbackButton({
@@ -368,7 +375,7 @@ export function ProjectNavigationPanel({
 					)}
 				</div>
 				<div className="mt-2 rounded-md bg-surface-2 border border-border p-1">
-					<div className="grid grid-cols-4 gap-1">
+					<div className="grid grid-cols-5 gap-1">
 						<button
 							type="button"
 							onClick={() => onActiveSectionChange("projects")}
@@ -392,6 +399,10 @@ export function ProjectNavigationPanel({
 						<HomeSidebarReviewTab
 							active={activeSection === "review"}
 							onSelect={() => onActiveSectionChange("review")}
+						/>
+						<HomeSidebarAgentsTab
+							active={activeSection === "agents"}
+							onSelect={() => onActiveSectionChange("agents")}
 						/>
 					</div>
 				</div>
@@ -461,6 +472,8 @@ export function ProjectNavigationPanel({
 				/>
 			) : activeSection === "plans" ? (
 				<HomeSidebarPlansPanel workspaceId={currentProjectId} onOpenPlan={onOpenPlan} />
+			) : activeSection === "agents" ? (
+				<HomeSidebarAgentsPanel workspaceId={currentProjectId} onOpenStudio={onOpenAgentStudio} />
 			) : (
 				<HomeSidebarReviewPanel
 					workspaceId={currentProjectId}
