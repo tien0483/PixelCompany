@@ -16,6 +16,7 @@ import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
 import type {
 	RuntimeConfigResponse,
 	RuntimeGitSyncAction,
+	RuntimeTaskSessionSummary,
 	RuntimeTaskWorkspaceInfoResponse,
 } from "@/runtime/types";
 import {
@@ -76,6 +77,7 @@ interface UseGitActionsInput {
 		task: BoardCard,
 		options?: { worktreeTaskId?: string },
 	) => Promise<RuntimeTaskWorkspaceInfoResponse | null>;
+	taskSessions?: Record<string, RuntimeTaskSessionSummary>;
 	isGitHistoryOpen: boolean;
 	refreshWorkspaceState: () => Promise<void>;
 }
@@ -171,6 +173,19 @@ function matchesWorkspaceInfoSelection(
 	return workspaceInfo.taskId === card.id;
 }
 
+function resolveEffectiveTaskAgentId(
+	card: BoardCard,
+	taskSessions: Record<string, RuntimeTaskSessionSummary> | undefined,
+	workspaceDefaultAgentId: RuntimeConfigResponse["selectedAgentId"] | null | undefined,
+): RuntimeConfigResponse["selectedAgentId"] | null {
+	return (
+		taskSessions?.[card.id]?.agentId ??
+		card.agentId ??
+		workspaceDefaultAgentId ??
+		null
+	);
+}
+
 export function useGitActions({
 	currentProjectId,
 	board,
@@ -179,6 +194,7 @@ export function useGitActions({
 	sendTaskSessionInput,
 	sendTaskChatMessage,
 	fetchTaskWorkspaceInfo,
+	taskSessions,
 	isGitHistoryOpen,
 	refreshWorkspaceState,
 }: UseGitActionsInput): UseGitActionsResult {
@@ -338,10 +354,6 @@ export function useGitActions({
 		return next;
 	}, [taskGitActionLoadingByTaskId]);
 
-	const shouldUseClineChatForTaskGitActions = isNativeClineAgentSelected(
-		runtimeProjectConfig?.selectedAgentId ?? null,
-	);
-
 	const runTaskGitAction = useCallback(
 		async (
 			taskId: string,
@@ -436,7 +448,15 @@ export function useGitActions({
 						: null,
 					agentDisplayName: runtimeProjectConfig?.agentDisplayName,
 				});
-				if (shouldUseClineChatForTaskGitActions) {
+				if (
+					isNativeClineAgentSelected(
+						resolveEffectiveTaskAgentId(
+							selection.card,
+							taskSessions,
+							runtimeProjectConfig?.selectedAgentId ?? null,
+						),
+					)
+				) {
 					const sent = await sendTaskChatMessage(taskId, prompt, {
 						mode: "act",
 					});
@@ -497,7 +517,7 @@ export function useGitActions({
 			sendTaskChatMessage,
 			sendTaskSessionInput,
 			setTaskGitActionLoading,
-			shouldUseClineChatForTaskGitActions,
+			taskSessions,
 			taskGitActionLoadingByTaskId,
 		],
 	);

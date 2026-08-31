@@ -68,7 +68,12 @@ vi.mock("../../src/workspace/task-worktree-path.js", () => ({
 	normalizeTaskIdForWorktreePath: taskWorktreePathMocks.normalizeTaskIdForWorktreePath,
 }));
 
+vi.mock("../../src/workspace/task-worktree-turbopack.js", () => ({
+	listTurbopackNodeModulesSymlinkSkipPaths: vi.fn(async () => []),
+}));
+
 import { ensureTaskWorktreeIfDoesntExist, removeTaskWorktreeSetupLock } from "../../src/workspace/task-worktree";
+import { clearIgnoredPathsCacheForTests } from "../../src/workspace/task-worktree-sync-cache";
 
 type ExecFileOptions = {
 	cwd?: string;
@@ -154,6 +159,7 @@ describe.sequential("task-worktree serialization", () => {
 		branchRegistryMocks.recordTaskWorktreeBaseRef.mockResolvedValue(undefined);
 		branchRegistryMocks.registerActiveBranch.mockResolvedValue(undefined);
 		branchRegistryMocks.deregisterActiveBranch.mockResolvedValue(undefined);
+		clearIgnoredPathsCacheForTests();
 	});
 
 	afterEach(() => {
@@ -181,8 +187,10 @@ describe.sequential("task-worktree serialization", () => {
 			taskWorktreePathMocks.normalizeTaskIdForWorktreePath.mockImplementation((taskId: string) => taskId);
 
 			const worktreeHeads = new Map<string, string>();
+			worktreeHeads.set(repoPath, "base-commit");
 			let activeSubmoduleUpdates = 0;
 			let maxConcurrentSubmoduleUpdates = 0;
+			let lsFilesCallCount = 0;
 
 			childProcessMocks.execFilePromise.mockImplementation(
 				async (_file: string, args: readonly string[], options?: ExecFileOptions) => {
@@ -264,6 +272,7 @@ describe.sequential("task-worktree serialization", () => {
 					}
 
 					if (command[0] === "ls-files") {
+						lsFilesCallCount += 1;
 						return {
 							stdout: "",
 							stderr: "",
@@ -307,6 +316,230 @@ describe.sequential("task-worktree serialization", () => {
 				lockfileName: "kanban-task-worktree-setup.lock",
 			});
 			expect(maxConcurrentSubmoduleUpdates).toBe(1);
+		} finally {
+			cleanup();
+		}
+	});
+
+	it("skips ignored-path rescans on repeated ensure when the manifest is fresh", async () => {
+		const { path: sandboxRoot, cleanup } = createTempDir("kanban-task-worktree-manifest-");
+		try {
+			const repoPath = join(sandboxRoot, "repo");
+			const runtimeHomePath = join(sandboxRoot, "runtime-home");
+			const worktreesHomePath = join(sandboxRoot, "worktrees-home");
+			const worktreePath = join(worktreesHomePath, "task-a", "repo");
+			mkdirSync(join(repoPath, ".git"), { recursive: true });
+			mkdirSync(worktreePath, { recursive: true });
+			mkdirSync(runtimeHomePath, { recursive: true });
+			mkdirSync(worktreesHomePath, { recursive: true });
+
+			workspaceStateMocks.getRuntimeHomePath.mockReturnValue(runtimeHomePath);
+			workspaceStateMocks.getTaskWorktreesHomePath.mockReturnValue(worktreesHomePath);
+			workspaceStateMocks.getLegacyTaskWorktreesHomePath.mockReturnValue(join(sandboxRoot, "legacy-worktrees-home"));
+			workspaceStateMocks.loadWorkspaceContext.mockResolvedValue({
+				repoPath,
+				workspaceId: "workspace-test",
+			});
+			taskWorktreePathMocks.getWorkspaceFolderLabelForWorktreePath.mockReturnValue("repo");
+			taskWorktreePathMocks.normalizeTaskIdForWorktreePath.mockImplementation((taskId: string) => taskId);
+
+			const worktreeHeads = new Map<string, string>([
+				[repoPath, "base-commit"],
+				[worktreePath, "base-commit"],
+			]);
+			let lsFilesCallCount = 0;
+
+			childProcessMocks.execFilePromise.mockImplementation(
+				async (_file: string, args: readonly string[], options?: ExecFileOptions) => {
+					const { cwd, command } = getCommandArgs(args, options);
+
+					if (command[0] === "rev-parse" && command[1] === "HEAD") {
+						const head = worktreeHeads.get(cwd);
+						if (!head) {
+							throw createGitError("fatal: not a git repository");
+						}
+						return {
+							stdout: `${head}\n`,
+							stderr: "",
+						};
+					}
+
+					if (command[0] === "ls-files") {
+						lsFilesCallCount += 1;
+						return {
+							stdout: "node_modules/\n",
+							stderr: "",
+						};
+					}
+
+					if (command[0] === "rev-parse" && command[1] === "--git-path") {
+						return {
+							stdout: ".git/info/exclude\n",
+							stderr: "",
+						};
+					}
+
+					throw createGitError(`Unhandled git command: ${command.join(" ")}`);
+				},
+			);
+
+			mkdirSync(join(repoPath, "node_modules"), { recursive: true });
+			writeFileSync(join(repoPath, "node_modules", ".keep"), "", "utf8");
+
+			const first = await ensureTaskWorktreeIfDoesntExist({
+				cwd: repoPath,
+				taskId: "task-a",
+				baseRef: "main",
+			});
+			expect(first.ok).toBe(true);
+			expect(lsFilesCallCount).toBe(1);
+			expect(existsSync(join(worktreePath, ".kanban", "ignored-symlinks.json"))).toBe(true);
+
+			const second = await ensureTaskWorktreeIfDoesntExist({
+				cwd: repoPath,
+				taskId: "task-a",
+				baseRef: "main",
+			});
+			expect(second.ok).toBe(true);
+			expect(lsFilesCallCount).toBe(1);
+		} finally {
+			cleanup();
+		}
+	});
+
+	it("symlinks populated submodules from the home repo instead of running submodule update", async () => {
+		const { path: sandboxRoot, cleanup } = createTempDir("kanban-task-worktree-submodule-");
+		try {
+			const repoPath = join(sandboxRoot, "repo");
+			const runtimeHomePath = join(sandboxRoot, "runtime-home");
+			const worktreesHomePath = join(sandboxRoot, "worktrees-home");
+			mkdirSync(join(repoPath, ".git"), { recursive: true });
+			mkdirSync(runtimeHomePath, { recursive: true });
+			mkdirSync(worktreesHomePath, { recursive: true });
+			writeFileSync(
+				join(repoPath, ".gitmodules"),
+				'[submodule "evals/cline-bench"]\n\tpath = evals/cline-bench\n\turl = ../cline-bench\n',
+				"utf8",
+			);
+			mkdirSync(join(repoPath, "evals", "cline-bench"), { recursive: true });
+			writeFileSync(join(repoPath, "evals", "cline-bench", ".git"), "gitdir: fake\n", "utf8");
+
+			workspaceStateMocks.getRuntimeHomePath.mockReturnValue(runtimeHomePath);
+			workspaceStateMocks.getTaskWorktreesHomePath.mockReturnValue(worktreesHomePath);
+			workspaceStateMocks.getLegacyTaskWorktreesHomePath.mockReturnValue(join(sandboxRoot, "legacy-worktrees-home"));
+			workspaceStateMocks.loadWorkspaceContext.mockResolvedValue({
+				repoPath,
+				workspaceId: "workspace-test",
+			});
+			taskWorktreePathMocks.getWorkspaceFolderLabelForWorktreePath.mockReturnValue("repo");
+			taskWorktreePathMocks.normalizeTaskIdForWorktreePath.mockImplementation((taskId: string) => taskId);
+
+			const worktreeHeads = new Map<string, string>();
+			worktreeHeads.set(repoPath, "base-commit");
+			let submoduleUpdateCalls = 0;
+
+			childProcessMocks.execFilePromise.mockImplementation(
+				async (_file: string, args: readonly string[], options?: ExecFileOptions) => {
+					const { cwd, command } = getCommandArgs(args, options);
+
+					if (command[0] === "rev-parse" && command[1] === "--git-common-dir") {
+						return {
+							stdout: ".git\n",
+							stderr: "",
+						};
+					}
+
+					if (command[0] === "rev-parse" && command[1] === "HEAD") {
+						const head = worktreeHeads.get(cwd);
+						if (!head) {
+							throw createGitError("fatal: not a git repository");
+						}
+						return {
+							stdout: `${head}\n`,
+							stderr: "",
+						};
+					}
+
+					if (command[0] === "rev-parse" && command[1] === "--verify") {
+						return {
+							stdout: "base-commit\n",
+							stderr: "",
+						};
+					}
+
+					if (command[0] === "symbolic-ref") {
+						return {
+							stdout: "main\n",
+							stderr: "",
+						};
+					}
+
+					if (command[0] === "worktree" && command[1] === "add") {
+						const nextWorktreePath = command[3];
+						const commit = command[4] ?? "base-commit";
+						if (!nextWorktreePath) {
+							throw createGitError("fatal: missing worktree path");
+						}
+						mkdirSync(nextWorktreePath, { recursive: true });
+						writeFileSync(
+							join(nextWorktreePath, ".gitmodules"),
+							'[submodule "evals/cline-bench"]\n\tpath = evals/cline-bench\n\turl = ../cline-bench\n',
+							"utf8",
+						);
+						worktreeHeads.set(nextWorktreePath, commit);
+						return {
+							stdout: "",
+							stderr: "",
+						};
+					}
+
+					if (command[0] === "config" && command[1] === "--file") {
+						return {
+							stdout: "submodule.evals/cline-bench.path evals/cline-bench\n",
+							stderr: "",
+						};
+					}
+
+					if (command[0] === "submodule" && command[1] === "update") {
+						submoduleUpdateCalls += 1;
+						throw createGitError("submodule update should not run when home repo is populated");
+					}
+
+					if (command[0] === "ls-files") {
+						return {
+							stdout: "",
+							stderr: "",
+						};
+					}
+
+					if (command[0] === "rev-parse" && command[1] === "--git-path") {
+						return {
+							stdout: ".git/info/exclude\n",
+							stderr: "",
+						};
+					}
+
+					if (command[0] === "worktree" && command[1] === "prune") {
+						return {
+							stdout: "",
+							stderr: "",
+						};
+					}
+
+					throw createGitError(`Unhandled git command: ${command.join(" ")}`);
+				},
+			);
+
+			const result = await ensureTaskWorktreeIfDoesntExist({
+				cwd: repoPath,
+				taskId: "task-a",
+				baseRef: "HEAD",
+			});
+
+			const worktreePath = join(worktreesHomePath, "task-a", "repo");
+			expect(result.ok).toBe(true);
+			expect(submoduleUpdateCalls).toBe(0);
+			expect(existsSync(join(worktreePath, "evals", "cline-bench", ".git"))).toBe(true);
 		} finally {
 			cleanup();
 		}
