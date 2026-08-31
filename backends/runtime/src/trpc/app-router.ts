@@ -203,6 +203,8 @@ import type {
 	RuntimeTaskSessionInputResponse,
 	RuntimeTaskSessionPauseRequest,
 	RuntimeTaskSessionPauseResponse,
+	RuntimeTaskSessionStagePasteImagesRequest,
+	RuntimeTaskSessionStagePasteImagesResponse,
 	RuntimeTaskSessionStartRequest,
 	RuntimeTaskSessionStartResponse,
 	RuntimeTaskSessionStopRequest,
@@ -509,6 +511,8 @@ import {
 	runtimeTaskSessionInputResponseSchema,
 	runtimeTaskSessionPauseRequestSchema,
 	runtimeTaskSessionPauseResponseSchema,
+	runtimeTaskSessionStagePasteImagesRequestSchema,
+	runtimeTaskSessionStagePasteImagesResponseSchema,
 	runtimeTaskSessionStartRequestSchema,
 	runtimeTaskSessionStartResponseSchema,
 	runtimeTaskSessionStopRequestSchema,
@@ -589,6 +593,10 @@ export interface RuntimeTrpcContext {
 			scope: RuntimeTrpcWorkspaceScope,
 			input: RuntimeTaskSessionInputRequest,
 		) => Promise<RuntimeTaskSessionInputResponse>;
+		stageTaskSessionPasteImages: (
+			scope: RuntimeTrpcWorkspaceScope,
+			input: RuntimeTaskSessionStagePasteImagesRequest,
+		) => Promise<RuntimeTaskSessionStagePasteImagesResponse>;
 		getTaskChatMessages: (
 			scope: RuntimeTrpcWorkspaceScope,
 			input: RuntimeTaskChatMessagesRequest,
@@ -1077,6 +1085,12 @@ export const runtimeAppRouter = t.router({
 			.output(runtimeTaskSessionInputResponseSchema)
 			.mutation(async ({ ctx, input }) => {
 				return await ctx.runtimeApi.sendTaskSessionInput(ctx.workspaceScope, input);
+			}),
+		stageTaskSessionPasteImages: workspaceProcedure
+			.input(runtimeTaskSessionStagePasteImagesRequestSchema)
+			.output(runtimeTaskSessionStagePasteImagesResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.runtimeApi.stageTaskSessionPasteImages(ctx.workspaceScope, input);
 			}),
 		getTaskChatMessages: workspaceProcedure
 			.input(runtimeTaskChatMessagesRequestSchema)

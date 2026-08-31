@@ -2701,6 +2701,26 @@ export const runtimeTaskSessionInputResponseSchema = z.object({
 });
 export type RuntimeTaskSessionInputResponse = z.infer<typeof runtimeTaskSessionInputResponseSchema>;
 
+/** ~20 MB of image bytes, expressed as a base64 character-count ceiling (4/3 expansion). */
+export const TASK_SESSION_PASTE_IMAGE_MAX_BASE64_LENGTH = 28_000_000;
+
+export const runtimeTaskSessionStagePasteImagesRequestSchema = z.object({
+	taskId: z.string(),
+	images: z.array(runtimeTaskImageSchema).min(1).max(10),
+});
+export type RuntimeTaskSessionStagePasteImagesRequest = z.infer<
+	typeof runtimeTaskSessionStagePasteImagesRequestSchema
+>;
+
+export const runtimeTaskSessionStagePasteImagesResponseSchema = z.object({
+	ok: z.boolean(),
+	paths: z.array(z.string()),
+	error: z.string().optional(),
+});
+export type RuntimeTaskSessionStagePasteImagesResponse = z.infer<
+	typeof runtimeTaskSessionStagePasteImagesResponseSchema
+>;
+
 export const runtimeTaskChatMessageSchema = z.object({
 	id: z.string(),
 	role: z.enum(["user", "assistant", "system", "tool", "reasoning", "status"]),

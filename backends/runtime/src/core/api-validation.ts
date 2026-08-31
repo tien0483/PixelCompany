@@ -35,6 +35,7 @@ import {
 	type RuntimeTaskChatSendRequest,
 	type RuntimeTaskSessionInputRequest,
 	type RuntimeTaskSessionPauseRequest,
+	type RuntimeTaskSessionStagePasteImagesRequest,
 	type RuntimeTaskSessionStartRequest,
 	type RuntimeTaskSessionStopRequest,
 	type RuntimeTaskWorkspaceInfoRequest,
@@ -77,6 +78,8 @@ import {
 	runtimeTaskChatReloadRequestSchema,
 	runtimeTaskChatSendRequestSchema,
 	runtimeTaskSessionInputRequestSchema,
+	runtimeTaskSessionStagePasteImagesRequestSchema,
+	TASK_SESSION_PASTE_IMAGE_MAX_BASE64_LENGTH,
 	runtimeTaskSessionPauseRequestSchema,
 	runtimeTaskSessionStartRequestSchema,
 	runtimeTaskSessionStopRequestSchema,
@@ -387,6 +390,25 @@ export function parseTaskSessionInputRequest(value: unknown): RuntimeTaskSession
 	const taskId = parsed.taskId.trim();
 	if (!taskId) {
 		throw new Error("Task session taskId cannot be empty.");
+	}
+	return {
+		...parsed,
+		taskId,
+	};
+}
+
+export function parseTaskSessionStagePasteImagesRequest(
+	value: unknown,
+): RuntimeTaskSessionStagePasteImagesRequest {
+	const parsed = parseWithSchema(runtimeTaskSessionStagePasteImagesRequestSchema, value);
+	const taskId = parsed.taskId.trim();
+	if (!taskId) {
+		throw new Error("Task session taskId cannot be empty.");
+	}
+	for (const image of parsed.images) {
+		if (image.data.length > TASK_SESSION_PASTE_IMAGE_MAX_BASE64_LENGTH) {
+			throw new Error("Pasted terminal image exceeds the 20 MB size limit.");
+		}
 	}
 	return {
 		...parsed,

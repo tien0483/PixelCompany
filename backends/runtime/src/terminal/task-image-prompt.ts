@@ -1,4 +1,4 @@
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, extname, join } from "node:path";
 
@@ -78,4 +78,38 @@ export async function prepareTaskPromptWithImages(input: {
 	);
 
 	return buildTaskPromptWithImagePaths(input.prompt, imageFileEntries);
+}
+
+function buildTaskSessionPasteImageDir(taskId: string): string {
+	return join(tmpdir(), `kanban-pty-images-${sanitizeFileNameSegment(taskId)}`);
+}
+
+/**
+ * Writes pasted terminal images under a stable per-task tmp dir and returns absolute paths
+ * suitable for typing into a PTY (Claude Code / Cursor Agent / Antigravity read paths as text).
+ */
+export async function writeTaskSessionPasteImages(
+	taskId: string,
+	images: RuntimeTaskImage[],
+): Promise<string[]> {
+	const normalizedTaskId = taskId.trim();
+	if (normalizedTaskId.length === 0) {
+		throw new Error("Task id is required to stage a pasted terminal image.");
+	}
+	const stagedImages = images.filter((image) => image.data.trim().length > 0);
+	if (stagedImages.length === 0) {
+		throw new Error("At least one non-empty image is required.");
+	}
+
+	const tempDir = buildTaskSessionPasteImageDir(normalizedTaskId);
+	await mkdir(tempDir, { recursive: true });
+	const stamp = Date.now();
+	const paths = await Promise.all(
+		stagedImages.map(async (image, index) => {
+			const filePath = join(tempDir, `${stamp}-${buildTaskImageFileName(image, index)}`);
+			await writeFile(filePath, Buffer.from(image.data, "base64"));
+			return filePath;
+		}),
+	);
+	return paths;
 }

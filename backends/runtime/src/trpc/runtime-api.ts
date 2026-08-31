@@ -45,6 +45,7 @@ import {
 	parseTaskChatSendRequest,
 	parseTaskSessionInputRequest,
 	parseTaskSessionPauseRequest,
+	parseTaskSessionStagePasteImagesRequest,
 	parseTaskSessionStartRequest,
 	parseTaskSessionStopRequest,
 } from "../core/api-validation";
@@ -60,6 +61,7 @@ import {
 	loadWorkspaceContextById,
 	setWorkspaceLocalAssets,
 } from "../state/workspace-state";
+import { writeTaskSessionPasteImages } from "../terminal/task-image-prompt";
 import { listAgentModelInventory } from "../terminal/agent-model-inventory";
 import { buildRuntimeConfigResponse, resolveAgentCommand } from "../terminal/agent-registry";
 import type { TerminalSessionManager } from "../terminal/session-manager";
@@ -549,6 +551,23 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 				return {
 					ok: false,
 					summary: null,
+					error: message,
+				};
+			}
+		},
+		stageTaskSessionPasteImages: async (workspaceScope, input) => {
+			try {
+				const body = parseTaskSessionStagePasteImagesRequest(input);
+				const paths = await writeTaskSessionPasteImages(body.taskId, body.images);
+				return {
+					ok: true,
+					paths,
+				};
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error);
+				return {
+					ok: false,
+					paths: [],
 					error: message,
 				};
 			}
