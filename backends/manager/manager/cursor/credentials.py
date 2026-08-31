@@ -15,7 +15,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping, Optional
 
+from .wsl import is_wsl, windows_drive_mounts
+
 logger = logging.getLogger(__name__)
+
+# Where Cursor keeps globalStorage under a Windows user profile, relative to the
+# drive mount. Globbed per drive under WSL, never touched elsewhere.
+_WINDOWS_PROFILE_GLOB = "Users/*/AppData/Roaming/Cursor/User/globalStorage/state.vscdb"
 
 # Keys Cursor writes into ItemTable. Exact set varies by version; we probe all
 # known aliases and take the first hit.
@@ -38,12 +44,8 @@ _MEMBERSHIP_KEYS = (
 )
 
 
-def cursor_state_db_path(env: Optional[Mapping[str, str]] = None) -> Path:
-    """Resolve the Cursor ``state.vscdb`` path for the current platform."""
-    env = env if env is not None else os.environ
-    override = env.get("CURSOR_STATE_VSCDB")
-    if override:
-        return Path(override).expanduser()
+def _native_state_db_path(env: Mapping[str, str]) -> Path:
+    """The platform's own Cursor ``state.vscdb`` location."""
     if os.name == "nt":
         appdata = env.get("APPDATA") or str(Path.home() / "AppData" / "Roaming")
         return Path(appdata) / "Cursor" / "User" / "globalStorage" / "state.vscdb"
@@ -60,6 +62,57 @@ def cursor_state_db_path(env: Optional[Mapping[str, str]] = None) -> Path:
     xdg = env.get("XDG_CONFIG_HOME")
     base = Path(xdg) if xdg else Path.home() / ".config"
     return base / "Cursor" / "User" / "globalStorage" / "state.vscdb"
+
+
+def _windows_mount_state_db_paths() -> list[Path]:
+    """Cursor DBs on mounted Windows drives — WSL only, never raises.
+
+    A 9p/DrvFs hiccup must degrade to "not found" rather than blow up
+    ``detect_cursor_account``, which callers rely on to never raise.
+    """
+    found: list[Path] = []
+    for mount in windows_drive_mounts():
+        try:
+            found.extend(sorted(mount.glob(_WINDOWS_PROFILE_GLOB)))
+        except OSError:
+            logger.debug("cursor state.vscdb glob failed under %s", mount, exc_info=True)
+            continue
+    return found
+
+
+def cursor_state_db_candidates(env: Optional[Mapping[str, str]] = None) -> list[Path]:
+    """Every place Cursor's ``state.vscdb`` could live, best guess first.
+
+    Under WSL the manager is Linux but Cursor is a Windows app, so the native
+    XDG path does not exist and the real DB sits on a ``/mnt/<drive>`` profile.
+    The ``/mnt`` walk is gated on WSL: a plain Linux server must never enumerate
+    mounts that may be slow network shares.
+    """
+    env = env if env is not None else os.environ
+    override = env.get("CURSOR_STATE_VSCDB")
+    if override:
+        return [Path(override).expanduser()]
+    candidates = [_native_state_db_path(env)]
+    if is_wsl(env):
+        candidates.extend(_windows_mount_state_db_paths())
+    return candidates
+
+
+def cursor_state_db_path(env: Optional[Mapping[str, str]] = None) -> Path:
+    """Resolve the Cursor ``state.vscdb`` path for the current platform.
+
+    Returns the first candidate that exists, else the first candidate — so a
+    host with no Cursor at all still reports the platform-native path in the
+    "not found" message.
+    """
+    candidates = cursor_state_db_candidates(env)
+    for candidate in candidates:
+        try:
+            if candidate.exists():
+                return candidate
+        except OSError:
+            continue
+    return candidates[0]
 
 
 def sys_platform_is_darwin(env: Optional[Mapping[str, str]] = None) -> bool:
