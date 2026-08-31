@@ -78,6 +78,32 @@ export function formatResetHint(iso: string | null | undefined, nowMs: number = 
 	return `resets ${date} ${time}`;
 }
 
+/**
+ * Time left until an ISO reset, as a compact `45m` / `19h` / `3d`. Null when the
+ * timestamp is missing, unparseable, or already past.
+ *
+ * Distinct from {@link formatResetHint}, which names the wall-clock moment. The Auto seat
+ * ranking turns on *how much runway is left*, so the picker's label needs the duration.
+ */
+export function formatResetCountdown(iso: string | null | undefined, nowMs: number = Date.now()): string | null {
+	if (!iso) {
+		return null;
+	}
+	const resetAt = Date.parse(iso);
+	if (!Number.isFinite(resetAt) || resetAt <= nowMs) {
+		return null;
+	}
+	const minutes = Math.round((resetAt - nowMs) / 60_000);
+	if (minutes < 60) {
+		return `${minutes}m`;
+	}
+	const hours = Math.round(minutes / 60);
+	if (hours < 48) {
+		return `${hours}h`;
+	}
+	return `${Math.round(hours / 24)}d`;
+}
+
 /** Short cache-age label from unix seconds (`just now` / `5m ago` / `never`). */
 export function formatUsageCacheAge(usageCachedAt: number | null | undefined, nowMs: number = Date.now()): string {
 	if (usageCachedAt === null || usageCachedAt === undefined) {

@@ -12,6 +12,7 @@
 // still launches on the CLI login / globally active credential rather than failing.
 import type { RuntimeAgentId, RuntimeManagerAccount, RuntimeManagerProvider } from "../core/api-contract";
 import { resolveHostPath } from "../terminal/task-launch-settings";
+import { pickBestClaudeAutoSeat } from "./claude-auto-seat-ranking";
 
 export const CLAUDE_CONFIG_DIR_ENV = "CLAUDE_CONFIG_DIR";
 export const CURSOR_API_KEY_ENV = "CURSOR_API_KEY";
@@ -77,6 +78,8 @@ export interface ManagerDonateAccountLike {
 	isActiveForProvider?: boolean;
 	fiveHourPercent?: number | null;
 	sevenDayPercent?: number | null;
+	fiveHourResetsAt?: string | null;
+	sevenDayResetsAt?: string | null;
 	pressure?: number;
 	donateLimitPercent?: number;
 	donateLimitLocked?: boolean;
@@ -112,6 +115,8 @@ export function toManagerDonateAccount(account: RuntimeManagerAccount): ManagerD
 		isActiveForProvider: account.isActiveForProvider,
 		fiveHourPercent: account.fiveHourPercent,
 		sevenDayPercent: account.sevenDayPercent,
+		fiveHourResetsAt: account.fiveHourResetsAt,
+		sevenDayResetsAt: account.sevenDayResetsAt,
 		pressure: account.pressure,
 		donateLimitPercent: account.donateLimitPercent,
 		donateLimitLocked: account.donateLimitLocked,
@@ -191,6 +196,10 @@ function pickHealthyPool<T extends ManagerDonateAccountLike>(accounts: ReadonlyA
  * Picks the pool member with the lowest 5h usage (missing usage counts as 0,
  * so an unvalidated seat is never penalized). Ties keep the first candidate,
  * matching the previous `pool[0]` fallback's determinism.
+ *
+ * Cursor and Antigravity only. Claude seats rank through `pickBestClaudeAutoSeat`,
+ * which also weighs the 7d deadline — Cursor's pools are monthly, so a 5h/7d
+ * deadline bucket would classify every Cursor seat identically.
  */
 function pickLeastFiveHourUsage<T extends ManagerDonateAccountLike>(pool: ReadonlyArray<T>): T | null {
 	if (pool.length === 0) {
@@ -233,7 +242,7 @@ export function pickDefaultCursorAccountId(input: {
 
 /**
  * Prefer the currently active Claude seat if it is under its donate cap, else
- * the under-cap Claude seat with the lowest 5h usage. Mirrors
+ * the best-ranked under-cap Claude seat (see `pickBestClaudeAutoSeat`). Mirrors
  * `pickDefaultCursorAccountId`: an over-donate active seat is skipped for
  * Auto selection so unpinned launches do not wait on jacked's own async
  * auto-swap daemon to move off it first. If every Claude seat is exhausted,
@@ -254,12 +263,13 @@ export function pickDefaultClaudeAccountId(input: {
 	if (input.activeAccountId !== null && pool.some((account) => account.id === input.activeAccountId)) {
 		return input.activeAccountId;
 	}
-	return pickLeastFiveHourUsage(pool)?.id ?? null;
+	return pickBestClaudeAutoSeat(pool)?.id ?? null;
 }
 
 /**
- * The seat an Auto (unpinned) Claude board task runs on: the least-used healthy,
- * under-cap, enabled Claude seat.
+ * The seat an Auto (unpinned) Claude board task runs on: the best-ranked healthy,
+ * under-cap, enabled Claude seat — nearest 7d reset first, then least used, with a
+ * 5h-saturated seat sunk to the back. See `claude-auto-seat-ranking.ts`.
  *
  * Deliberately ignores jacked's global active seat, which is what separates this
  * from `pickDefaultClaudeAccountId`. That seat is the credential an unpinned launch
@@ -276,7 +286,7 @@ export function pickLeastUsedClaudeAccountId(input: {
 	if (claudeAccounts.length === 0) {
 		return null;
 	}
-	return pickLeastFiveHourUsage(pickHealthyPool(claudeAccounts))?.id ?? null;
+	return pickBestClaudeAutoSeat(pickHealthyPool(claudeAccounts))?.id ?? null;
 }
 
 export function pickDefaultAntigravityAccountId(input: {
@@ -475,7 +485,7 @@ export async function resolveManagerAccountPin(input: ResolveManagerAccountPinIn
 			accountId: null,
 			blocked: true,
 			warning: autoResolved
-				? `Every Claude seat is over its donate cap (account ${String(managerAccountId)} is the least used); refusing to launch until usage resets.`
+				? `Every Claude seat is over its donate cap (account ${String(managerAccountId)} ranked best); refusing to launch until usage resets.`
 				: `Account ${String(managerAccountId)} is over its donate cap; refusing to launch on this seat until usage resets.`,
 		};
 	}

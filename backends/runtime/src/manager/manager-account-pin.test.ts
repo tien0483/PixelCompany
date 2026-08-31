@@ -75,6 +75,8 @@ describe("toManagerDonateAccount", () => {
 			isActiveForProvider: false,
 			fiveHourPercent: 42,
 			sevenDayPercent: 11,
+			fiveHourResetsAt: null,
+			sevenDayResetsAt: null,
 			pressure: 0.42,
 			donateLimitPercent: 80,
 			donateLimitLocked: true,
@@ -380,6 +382,42 @@ describe("pickLeastUsedClaudeAccountId", () => {
 				],
 			}),
 		).toBeNull();
+	});
+
+	// The ranking itself is covered in claude-auto-seat-ranking.test.ts; these two
+	// only prove the picker feeds it the reset timestamps rather than dropping them
+	// in the ManagerDonateAccountLike projection.
+	it("prefers a seat whose 7d window expires sooner over a less-used one", () => {
+		const soon = new Date(Date.now() + 20 * 3_600_000).toISOString();
+		const later = new Date(Date.now() + 120 * 3_600_000).toISOString();
+		expect(
+			pickLeastUsedClaudeAccountId({
+				accounts: [
+					{ id: 1, provider: "claude", sevenDayPercent: 10, sevenDayResetsAt: later },
+					{ id: 2, provider: "claude", sevenDayPercent: 60, sevenDayResetsAt: soon },
+				],
+			}),
+		).toBe(2);
+	});
+
+	it("demotes a 5h-saturated seat even when its 7d deadline is nearer", () => {
+		const soon = new Date(Date.now() + 10 * 3_600_000).toISOString();
+		const later = new Date(Date.now() + 150 * 3_600_000).toISOString();
+		expect(
+			pickLeastUsedClaudeAccountId({
+				accounts: [
+					{
+						id: 1,
+						provider: "claude",
+						fiveHourPercent: 95,
+						sevenDayPercent: 20,
+						fiveHourResetsAt: new Date(Date.now() + 4 * 3_600_000).toISOString(),
+						sevenDayResetsAt: soon,
+					},
+					{ id: 2, provider: "claude", sevenDayPercent: 50, sevenDayResetsAt: later },
+				],
+			}),
+		).toBe(2);
 	});
 });
 

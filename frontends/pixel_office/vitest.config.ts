@@ -20,6 +20,7 @@ export default defineConfig({
 			"@runtime-agent-catalog": resolve(runtimeSrc, "core/agent-catalog.ts"),
 			"@runtime-cline-tool-call-display": resolve(runtimeSrc, "cline-sdk/cline-tool-call-display.ts"),
 			"@runtime-home-agent-session": resolve(runtimeSrc, "core/home-agent-session.ts"),
+			"@runtime-manager-seat-ranking": resolve(runtimeSrc, "manager/claude-auto-seat-ranking.ts"),
 			"@runtime-shortcuts": resolve(runtimeSrc, "config/shortcut-utils.ts"),
 			"@runtime-task-id": resolve(runtimeSrc, "core/task-id.ts"),
 			"@runtime-task-title": resolve(runtimeSrc, "core/task-title.ts"),
