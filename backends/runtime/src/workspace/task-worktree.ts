@@ -23,6 +23,7 @@ import {
 	resolveConcreteBaseBranch,
 	runGit,
 } from "./git-utils";
+import { getCommitsAheadOfBaseRef } from "./git-sync";
 import { getWorkspaceFolderLabelForWorktreePath, normalizeTaskIdForWorktreePath } from "./task-worktree-path";
 import { listTurbopackNodeModulesSymlinkSkipPaths } from "./task-worktree-turbopack";
 import { measureTaskStartSpan } from "./task-start-timing";
@@ -145,6 +146,46 @@ function deriveTaskBranchName(taskId: string): string {
 		.replace(/[^A-Za-z0-9._/-]+/g, "-")
 		.replace(/^[-/]+|[-/]+$/g, "");
 	return `kanban/task-${normalized || "task"}`;
+}
+
+/**
+ * Task worktrees start detached; agents often commit on that detached HEAD without
+ * checking out {@link deriveTaskBranchName}. Merge needs a branch ref name, so when
+ * HEAD is detached but carries commits ahead of the base ref, point the task branch
+ * at the current commit before merging.
+ */
+export async function resolveTaskMergeBranch(options: {
+	repoPath: string;
+	worktreePath: string;
+	workspaceId: string;
+	taskId: string;
+	baseRef: string;
+}): Promise<string | null> {
+	const headInfo = await readGitHeadInfo(options.worktreePath);
+	if (headInfo.branch && !headInfo.isDetached) {
+		return headInfo.branch;
+	}
+
+	const entry = await getActiveBranchEntry(options.workspaceId, options.taskId);
+	const candidateBranch = entry?.branch ?? deriveTaskBranchName(options.taskId);
+	const aheadCount = await getCommitsAheadOfBaseRef(options.worktreePath, options.baseRef);
+	if (aheadCount > 0 && headInfo.headCommit) {
+		const updateBranchResult = await runGit(options.worktreePath, [
+			"branch",
+			"-f",
+			candidateBranch,
+			headInfo.headCommit,
+		]);
+		if (updateBranchResult.ok) {
+			return candidateBranch;
+		}
+	}
+
+	if (await hasLocalGitBranch(options.repoPath, candidateBranch)) {
+		return candidateBranch;
+	}
+
+	return null;
 }
 
 async function resolveExistingWorktreeBaseRef(options: {

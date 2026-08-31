@@ -33,6 +33,7 @@ const taskWorktreeMocks = vi.hoisted(() => ({
 	ensureTaskWorktreeIfDoesntExist: vi.fn(),
 	getTaskWorkspaceInfo: vi.fn(),
 	resolveTaskCwd: vi.fn(),
+	resolveTaskMergeBranch: vi.fn(),
 }));
 
 const gitUtilsMocks = vi.hoisted(() => ({ hasLocalGitBranch: vi.fn() }));
@@ -83,7 +84,9 @@ beforeEach(() => {
 	worktreeInventoryMocks.listGitWorktrees.mockReset();
 	taskWorktreeMocks.resolveTaskCwd.mockReset();
 	taskWorktreeMocks.getTaskWorkspaceInfo.mockReset();
+	taskWorktreeMocks.resolveTaskMergeBranch.mockReset();
 	taskWorktreeMocks.resolveTaskCwd.mockResolvedValue("/repo/.worktrees/task-1");
+	taskWorktreeMocks.resolveTaskMergeBranch.mockResolvedValue("kanban/task-1");
 	gitUtilsMocks.hasLocalGitBranch.mockReset();
 	gitUtilsMocks.hasLocalGitBranch.mockResolvedValue(true);
 });
@@ -552,6 +555,71 @@ describe("workspaceApi.mergeTaskBranch", () => {
 		});
 		expect(broadcast).toHaveBeenCalledWith("ws-1", "/repo");
 		expect(res.ok).toBe(true);
+	});
+
+	it("merges detached task commits after resolveTaskMergeBranch materializes the branch ref", async () => {
+		taskWorktreeMocks.getTaskWorkspaceInfo.mockResolvedValue({
+			taskId: "task-1",
+			path: "/repo/.worktrees/task-1",
+			exists: true,
+			baseRef: "release",
+			baseRefLocked: true,
+			branch: null,
+			isDetached: true,
+			headCommit: "abc123",
+		});
+		taskWorktreeMocks.resolveTaskMergeBranch.mockResolvedValue("kanban/task-1");
+		worktreeInventoryMocks.listGitWorktrees.mockResolvedValue({
+			ok: true,
+			worktrees: [{ path: "/repo", branch: "main" }],
+		});
+		gitSyncMocks.runGitMergeBranchInTemporaryWorktree.mockResolvedValue({
+			ok: true,
+			branch: "kanban/task-1",
+			baseRef: "release",
+			summary: SUMMARY,
+			output: "",
+		});
+		const { api, broadcast } = makeApi();
+
+		const res = await api.mergeTaskBranch(SCOPE, { taskId: "task-1", baseRef: "main" });
+
+		expect(taskWorktreeMocks.resolveTaskMergeBranch).toHaveBeenCalledWith({
+			repoPath: "/repo",
+			worktreePath: "/repo/.worktrees/task-1",
+			workspaceId: "ws-1",
+			taskId: "task-1",
+			baseRef: "release",
+		});
+		expect(gitSyncMocks.runGitMergeBranchInTemporaryWorktree).toHaveBeenCalledWith({
+			repoPath: "/repo",
+			branch: "kanban/task-1",
+			baseRef: "release",
+		});
+		expect(broadcast).toHaveBeenCalledWith("ws-1", "/repo");
+		expect(res.ok).toBe(true);
+	});
+
+	it("refuses merge when no task branch can be resolved", async () => {
+		taskWorktreeMocks.getTaskWorkspaceInfo.mockResolvedValue({
+			taskId: "task-1",
+			path: "/repo/.worktrees/task-1",
+			exists: true,
+			baseRef: "main",
+			branch: null,
+			isDetached: true,
+			headCommit: "abc123",
+		});
+		taskWorktreeMocks.resolveTaskMergeBranch.mockResolvedValue(null);
+		const { api, broadcast } = makeApi();
+
+		const res = await api.mergeTaskBranch(SCOPE, { taskId: "task-1", baseRef: "main" });
+
+		expect(taskWorktreeMocks.resolveTaskMergeBranch).toHaveBeenCalled();
+		expect(gitSyncMocks.runGitMergeBranchAction).not.toHaveBeenCalled();
+		expect(broadcast).not.toHaveBeenCalled();
+		expect(res.ok).toBe(false);
+		expect(res.error).toContain("no committed branch");
 	});
 
 	it("refuses to merge when the recorded base ref is a floating HEAD", async () => {

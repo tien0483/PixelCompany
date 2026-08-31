@@ -71,6 +71,7 @@ import {
 	ensureTaskWorktreeIfDoesntExist,
 	getTaskWorkspaceInfo,
 	resolveTaskCwd,
+	resolveTaskMergeBranch,
 } from "../workspace/task-worktree";
 import { measureTaskStartSpan } from "../workspace/task-start-timing";
 import type { RuntimeTrpcContext } from "./app-router";
@@ -423,7 +424,14 @@ export function createWorkspaceApi(deps: CreateWorkspaceApiDependencies): Runtim
 				if (!info.exists) {
 					throw new Error("Task worktree not found. Start the task before merging.");
 				}
-				if (!info.branch || info.isDetached) {
+				const mergeBranch = await resolveTaskMergeBranch({
+					repoPath: workspaceScope.workspacePath,
+					worktreePath: info.path,
+					workspaceId: workspaceScope.workspaceId,
+					taskId: body.worktreeTaskId ?? body.taskId,
+					baseRef: info.baseRef,
+				});
+				if (!mergeBranch) {
 					throw new Error("Task has no committed branch yet. Run Commit on the task first.");
 				}
 				if (!(await hasLocalGitBranch(workspaceScope.workspacePath, info.baseRef))) {
@@ -443,12 +451,12 @@ export function createWorkspaceApi(deps: CreateWorkspaceApiDependencies): Runtim
 				const response = baseWorktree
 					? await runGitMergeBranchAction({
 							cwd: baseWorktree.path,
-							branch: info.branch,
+							branch: mergeBranch,
 							baseRef: info.baseRef,
 						})
 					: await runGitMergeBranchInTemporaryWorktree({
 							repoPath: workspaceScope.workspacePath,
-							branch: info.branch,
+							branch: mergeBranch,
 							baseRef: info.baseRef,
 						});
 				if (response.ok) {
