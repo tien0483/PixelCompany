@@ -40,13 +40,19 @@ import { HTML_LABELS } from "@/html/html-labels";
 import { importTemplateFile } from "@/html/import-template";
 import { useHtmlBrief, useHtmlDraft, useHtmlGenerate } from "@/html/use-html-agent-stream";
 import { useHtmlTemplates } from "@/html/use-html-templates";
+import { SeatPicker } from "@/manager/seat-picker";
+import { autoFallbackAccount } from "@/manager/task-account-picker";
+import { useSeatChoice } from "@/manager/use-seat-choice";
 import { ResizeHandle } from "@/resize/resize-handle";
 import { type PlanEditorPaneViewMode, usePlanEditorLayout } from "@/resize/use-plan-editor-layout";
 import { useResizeDrag } from "@/resize/use-resize-drag";
 import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
-import type { RuntimeSavedPlan } from "@/runtime/types";
+import type { RuntimeManagerAccount, RuntimeSavedPlan } from "@/runtime/types";
 
 const PlanRichEditor = lazy(() => import("@/components/plan-editor/plan-rich-editor"));
+
+/** Not keyed by plan: the seat is a machine preference, not a property of a document. */
+const PLAN_SEAT_STORAGE_KEY = "pixeloffice.plans.seat";
 
 /** Which file the split view is showing: the plan's markdown, or its generated HTML sibling. */
 type PlanEditorSource = "md" | "html";
@@ -171,9 +177,23 @@ export interface PlanEditorViewProps {
 	 * belongs to Settings, so it passes nothing.
 	 */
 	headerActions?: ReactNode;
+	/**
+	 * Manager's seat fleet, for the toolbar's seat picker. Omitted by the standalone
+	 * Plan Editor package, which has no Manager to ask — the picker then renders
+	 * nothing and the passes fall back to the global credential, as they do today.
+	 */
+	managerAccounts?: RuntimeManagerAccount[];
+	managerActiveAccountId?: number | null;
 }
 
-export function PlanEditorView({ plan, workspaceId, onClose, headerActions }: PlanEditorViewProps): ReactElement {
+export function PlanEditorView({
+	plan,
+	workspaceId,
+	onClose,
+	headerActions,
+	managerAccounts = [],
+	managerActiveAccountId = null,
+}: PlanEditorViewProps): ReactElement {
 	const kind = useMemo(() => planFileKind(plan.path), [plan.path]);
 	/** The plan file itself is HTML — there is no markdown side to show or generate from. */
 	const isHtmlPlan = kind === "html";
@@ -211,6 +231,35 @@ export function PlanEditorView({ plan, workspaceId, onClose, headerActions }: Pl
 	const generate = useHtmlGenerate();
 	const brief = useHtmlBrief();
 	const draft = useHtmlDraft();
+
+	// One preference for every plan, not one per plan: which seat someone spends is a
+	// machine choice, and a new plan starting back on the default would be a surprise.
+	const { seatChoice, setSeatChoice } = useSeatChoice(PLAN_SEAT_STORAGE_KEY);
+	const claudeAccounts = useMemo(
+		() => managerAccounts.filter((account) => account.provider === "claude"),
+		[managerAccounts],
+	);
+	/**
+	 * The seat the brief, generate and draft passes pin. Someone who has never chosen
+	 * gets the Manager's active Claude seat as an *explicit* pin rather than Auto: an
+	 * explicit pin refuses a disabled, re-auth-needed or over-cap seat outright, while
+	 * the unpinned path may silently redirect onto a different one.
+	 *
+	 * Same resolution as the Review tab (`review-workspace-view.tsx`), and it uses the
+	 * same `autoFallbackAccount` the picker labels its Auto option with, so the toolbar
+	 * and the run cannot disagree. Undefined — an explicit Auto, or a Manager snapshot
+	 * that has not arrived — sends no id and keeps the inherit behaviour, which is also
+	 * the only possible one in the standalone Plan Editor.
+	 */
+	const effectiveAccountId = useMemo(() => {
+		if (seatChoice === "auto") {
+			return undefined;
+		}
+		if (seatChoice !== undefined) {
+			return seatChoice;
+		}
+		return autoFallbackAccount(claudeAccounts, managerActiveAccountId, "claude")?.id;
+	}, [claudeAccounts, managerActiveAccountId, seatChoice]);
 	const savedHtmlRef = useRef<string | null>(null);
 	/**
 	 * The markdown the current `<stem>.html` was generated from, persisted as
@@ -456,9 +505,10 @@ export function PlanEditorView({ plan, workspaceId, onClose, headerActions }: Pl
 				content: mdDoc.content,
 				format: kind === "text" ? "text" : "markdown",
 				planId: plan.id,
+				managerAccountId: effectiveAccountId,
 			});
 		},
-		[generate, kind, mdDoc.content, plan.id],
+		[effectiveAccountId, generate, kind, mdDoc.content, plan.id],
 	);
 
 	/**
@@ -510,13 +560,23 @@ export function PlanEditorView({ plan, workspaceId, onClose, headerActions }: Pl
 				content: mdDoc.content,
 				format: kind === "text" ? "text" : "markdown",
 				planId: plan.id,
+				managerAccountId: effectiveAccountId,
 				editFromHtml: currentHtml,
 				...(outcome.kind === "diff"
 					? { editDiff: outcome.diff }
 					: { editFromContent: htmlSource.snapshot ?? mdDoc.content }),
 			});
 		},
-		[generate, htmlDoc.content, htmlSource.snapshot, isHtmlPlan, kind, mdDoc.content, plan.id],
+		[
+			effectiveAccountId,
+			generate,
+			htmlDoc.content,
+			htmlSource.snapshot,
+			isHtmlPlan,
+			kind,
+			mdDoc.content,
+			plan.id,
+		],
 	);
 
 	/**
@@ -582,10 +642,11 @@ export function PlanEditorView({ plan, workspaceId, onClose, headerActions }: Pl
 			void brief.run({
 				planId: plan.id,
 				content: mdDoc.content,
+				managerAccountId: effectiveAccountId,
 				...(templateId ? { templateId } : {}),
 			});
 		},
-		[brief, mdDoc.content, plan.id],
+		[brief, effectiveAccountId, mdDoc.content, plan.id],
 	);
 
 	/**
@@ -633,10 +694,11 @@ export function PlanEditorView({ plan, workspaceId, onClose, headerActions }: Pl
 				planId: plan.id,
 				instruction,
 				context: content,
+				managerAccountId: effectiveAccountId,
 				...(isEdit ? { selection } : {}),
 			});
 		},
-		[draft, focusedPane, mdDoc.content, plan.id],
+		[draft, effectiveAccountId, focusedPane, mdDoc.content, plan.id],
 	);
 
 	/** Stopping mid-stream must leave the file exactly as the user had it. */
@@ -1211,7 +1273,23 @@ export function PlanEditorView({ plan, workspaceId, onClose, headerActions }: Pl
 										/>
 									) : null}
 								</div>
-								{!isHtmlPlan && source === "md" ? (
+								<div className="flex shrink-0 items-center gap-2">
+									{/*
+									 * Left of the generate bar because it applies to every pass that bar can
+									 * start — Expand, Generate and Refine — as well as to the prompt bar's
+									 * Draft. Switching mid-run would not move the running agent, so it locks
+									 * while one is streaming.
+									 */}
+									<SeatPicker
+										claudeAccounts={claudeAccounts}
+										activeAccountId={managerActiveAccountId}
+										value={effectiveAccountId}
+										disabled={isStreaming}
+										label="Claude seat for plan agents"
+										title="Claude seat the plan agents bill"
+										onChange={setSeatChoice}
+									/>
+									{!isHtmlPlan && source === "md" ? (
 									<PlanHtmlGenerateBar
 										status={generate.status}
 										briefStatus={brief.status}
@@ -1249,7 +1327,8 @@ export function PlanEditorView({ plan, workspaceId, onClose, headerActions }: Pl
 									>
 										{HTML_LABELS.deploy}
 									</Button>
-								) : null}
+									) : null}
+								</div>
 							</div>
 							{renderedPaneBody()}
 						</div>

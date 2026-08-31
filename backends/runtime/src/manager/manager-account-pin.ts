@@ -35,6 +35,16 @@ export interface ResolveManagerAccountPinInput {
 	 */
 	resolveActiveClaudeAccountId?: () => Promise<number | null>;
 	/**
+	 * Board-task launches only: resolves an unpinned Claude card onto a concrete
+	 * seat, which is then pinned like an explicit one. Supplying this is what turns
+	 * "Auto" from "inherit jacked's global credential" into a real per-task pin, so
+	 * task load stops landing on whichever seat jacked last swapped to.
+	 *
+	 * The one-shot routes (Plans, Review, doc-skill, graph-rebuild) leave it unset:
+	 * their callers either send an explicit id or deliberately want the global seat.
+	 */
+	resolveAutoClaudeAccountId?: () => Promise<number | null>;
+	/**
 	 * Jacked's live active Claude seat (`snapshot.activeAccountId`), unfiltered —
 	 * the credential an unpinned launch would actually inherit. Distinct from
 	 * `resolveActiveClaudeAccountId`, which returns the auth/donate-healthy pick.
@@ -186,7 +196,9 @@ function pickLeastFiveHourUsage<T extends ManagerDonateAccountLike>(pool: Readon
 	if (pool.length === 0) {
 		return null;
 	}
-	return pool.reduce((best, account) => ((account.fiveHourPercent ?? 0) < (best.fiveHourPercent ?? 0) ? account : best));
+	return pool.reduce((best, account) =>
+		(account.fiveHourPercent ?? 0) < (best.fiveHourPercent ?? 0) ? account : best,
+	);
 }
 
 /**
@@ -213,10 +225,7 @@ export function pickDefaultCursorAccountId(input: {
 	if (activeForProvider) {
 		return activeForProvider.id;
 	}
-	if (
-		input.activeAccountId !== null &&
-		pool.some((account) => account.id === input.activeAccountId)
-	) {
+	if (input.activeAccountId !== null && pool.some((account) => account.id === input.activeAccountId)) {
 		return input.activeAccountId;
 	}
 	return pickLeastFiveHourUsage(pool)?.id ?? null;
@@ -246,6 +255,28 @@ export function pickDefaultClaudeAccountId(input: {
 		return input.activeAccountId;
 	}
 	return pickLeastFiveHourUsage(pool)?.id ?? null;
+}
+
+/**
+ * The seat an Auto (unpinned) Claude board task runs on: the least-used healthy,
+ * under-cap, enabled Claude seat.
+ *
+ * Deliberately ignores jacked's global active seat, which is what separates this
+ * from `pickDefaultClaudeAccountId`. That seat is the credential an unpinned launch
+ * used to inherit, it is what the Plans and Review tabs fall back to, and jacked's
+ * auto-swap daemon rewrites it underneath both — so every Auto card piling onto it
+ * is exactly what this picker exists to stop.
+ */
+export function pickLeastUsedClaudeAccountId(input: {
+	accounts: ReadonlyArray<ManagerDonateAccountLike>;
+}): number | null {
+	const claudeAccounts = input.accounts.filter(
+		(account) => account.provider === "claude" && account.isActive !== false,
+	);
+	if (claudeAccounts.length === 0) {
+		return null;
+	}
+	return pickLeastFiveHourUsage(pickHealthyPool(claudeAccounts))?.id ?? null;
 }
 
 export function pickDefaultAntigravityAccountId(input: {
@@ -294,11 +325,22 @@ async function resolveCursorCredentialPin(
 	};
 }
 
-export async function resolveManagerAccountPin(
-	input: ResolveManagerAccountPinInput,
-): Promise<ManagerAccountPin> {
+/**
+ * Tail of the hard-block warnings. An Auto-resolved seat has no pin to change, and
+ * `pickHealthyPool` already skips broken and over-cap seats — so reaching a block on
+ * an Auto launch means the whole Claude fleet is unusable, which is what to say.
+ */
+function blockedPinRemedy(autoResolved: boolean, explicit: string): string {
+	return autoResolved ? "no healthy Claude seat is available to launch on." : explicit;
+}
+
+export async function resolveManagerAccountPin(input: ResolveManagerAccountPinInput): Promise<ManagerAccountPin> {
 	let { managerAccountId } = input;
 	let mismatchWarning: string | null = null;
+	// True when the seat below was chosen by Auto rather than named by the card.
+	// Only affects the wording of the hard-block warnings: telling someone to
+	// "switch this task to Auto" makes no sense when Auto is what picked the seat.
+	let autoResolved = false;
 
 	if (managerAccountId !== undefined) {
 		const accountProvider = (await input.getAccountProvider?.(managerAccountId)) ?? null;
@@ -317,17 +359,21 @@ export async function resolveManagerAccountPin(
 		}
 	}
 
-	// Claude skill/MCP tags rewrite CLAUDE_CONFIG_DIR. Unpinned cards must still
-	// run prepare_account_dir for the active seat so the scoped clone gets a
-	// fresh CC credential + oauthAccount seed (otherwise Claude shows login).
-	if (
-		managerAccountId === undefined &&
-		input.agentId === "claude" &&
-		input.needsClaudeConfigDirForLaunchTags === true
-	) {
-		const activeId = (await input.resolveActiveClaudeAccountId?.()) ?? null;
-		if (activeId !== null) {
-			managerAccountId = activeId;
+	// Auto on a Claude card resolves to a concrete seat and is pinned from here on,
+	// so the launch never rides jacked's global credential. This also subsumes the
+	// skill/MCP-tag case: those rewrite CLAUDE_CONFIG_DIR and need prepare_account_dir
+	// to have run for some seat first, or the scoped clone has no CC credential and
+	// Claude opens on its login screen. `resolveActiveClaudeAccountId` remains that
+	// case's fallback for callers (the one-shot routes) that pass no Auto resolver.
+	if (managerAccountId === undefined && input.agentId === "claude") {
+		const autoId =
+			(await input.resolveAutoClaudeAccountId?.()) ??
+			(input.needsClaudeConfigDirForLaunchTags === true
+				? ((await input.resolveActiveClaudeAccountId?.()) ?? null)
+				: null);
+		if (autoId !== null) {
+			managerAccountId = autoId;
+			autoResolved = true;
 		}
 	}
 
@@ -344,7 +390,9 @@ export async function resolveManagerAccountPin(
 		// credential, which does not map 1:1 to a Seats row, so they are not gated.
 		if (input.agentId === "claude") {
 			const liveSeatId =
-				(await input.resolveLiveActiveClaudeAccountId?.()) ?? (await input.resolveActiveClaudeAccountId?.()) ?? null;
+				(await input.resolveLiveActiveClaudeAccountId?.()) ??
+				(await input.resolveActiveClaudeAccountId?.()) ??
+				null;
 			if (liveSeatId !== null) {
 				const liveSeat = (await input.getPinnedAccount?.(liveSeatId)) ?? null;
 				if (liveSeat && isManagerAccountDonatePinBlocked(liveSeat)) {
@@ -403,7 +451,7 @@ export async function resolveManagerAccountPin(
 			env: {},
 			accountId: null,
 			blocked: true,
-			warning: `Account ${String(managerAccountId)} is disabled in Manager; re-enable the seat or switch this task to Auto.`,
+			warning: `Account ${String(managerAccountId)} is disabled in Manager; ${blockedPinRemedy(autoResolved, "re-enable the seat or switch this task to Auto.")}`,
 		};
 	}
 
@@ -415,7 +463,7 @@ export async function resolveManagerAccountPin(
 			env: {},
 			accountId: null,
 			blocked: true,
-			warning: `Account ${String(managerAccountId)} needs re-auth; re-authenticate the seat or switch this task to Auto.`,
+			warning: `Account ${String(managerAccountId)} needs re-auth; ${blockedPinRemedy(autoResolved, "re-authenticate the seat or switch this task to Auto.")}`,
 		};
 	}
 
@@ -426,7 +474,9 @@ export async function resolveManagerAccountPin(
 			env: {},
 			accountId: null,
 			blocked: true,
-			warning: `Account ${String(managerAccountId)} is over its donate cap; refusing to launch on this seat until usage resets.`,
+			warning: autoResolved
+				? `Every Claude seat is over its donate cap (account ${String(managerAccountId)} is the least used); refusing to launch until usage resets.`
+				: `Account ${String(managerAccountId)} is over its donate cap; refusing to launch on this seat until usage resets.`,
 		};
 	}
 

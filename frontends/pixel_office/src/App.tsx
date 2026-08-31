@@ -1391,6 +1391,8 @@ export default function App(): ReactElement {
 									key={editingPlan.id}
 									plan={editingPlan}
 									workspaceId={currentProjectId}
+									managerAccounts={managedManagerAccounts}
+									managerActiveAccountId={manager?.activeAccountId ?? null}
 									onClose={() => setEditingPlan(null)}
 								/>
 							) : shouldShowProjectLoadingState ? (

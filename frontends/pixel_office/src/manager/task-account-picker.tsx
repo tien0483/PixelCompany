@@ -69,7 +69,7 @@ export function applyTaskSeatSelection(
 			onClineSettingsChange?.(undefined);
 		}
 		if (accounts && accounts.length > 0) {
-			const fallback = autoFallbackAccount(accounts, activeAccountId ?? null, currentAgentId);
+			const fallback = autoTaskSeatAccount(accounts, activeAccountId ?? null, currentAgentId);
 			const fallbackAgentId = agentIdForManagerProvider(fallback?.provider);
 			if (fallbackAgentId && fallbackAgentId !== currentAgentId) {
 				onAgentIdChange?.(fallbackAgentId);
@@ -181,24 +181,71 @@ function parseSeatSelection(
 }
 
 /**
+ * Narrows a fleet the way the runtime's `pickHealthyPool` does: prefer auth-healthy
+ * seats, then under-donate-cap seats within that set, each stage widening again
+ * rather than emptying out so a fully broken fleet still names a seat.
+ */
+function healthySeatPool(accounts: RuntimeManagerAccount[]): RuntimeManagerAccount[] {
+	const enabled = accounts.filter((account) => account.isActive);
+	const poolBase = enabled.length > 0 ? enabled : accounts;
+	const authHealthy = poolBase.filter((account) => !isAuthBroken(account));
+	const healthyBase = authHealthy.length > 0 ? authHealthy : poolBase;
+	const underLimit = healthyBase.filter((account) => !isDonateExhausted(account));
+	return underLimit.length > 0 ? underLimit : healthyBase;
+}
+
+/**
+ * The seat a card's Auto option resolves to for Claude — the least-used healthy one.
+ *
+ * Must stay in step with the runtime's `pickLeastUsedClaudeAccountId`
+ * (`manager/manager-account-pin.ts`), which is what the launch actually consults:
+ * a label naming one seat while the task runs on another is worse than no label.
+ * Missing usage counts as 0 and ties keep the first candidate, matching it.
+ */
+export function autoLeastUsedAccount(accounts: RuntimeManagerAccount[]): RuntimeManagerAccount | null {
+	const pool = healthySeatPool(accounts);
+	if (pool.length === 0) {
+		return null;
+	}
+	return pool.reduce((best, account) => ((account.fiveHourPercent ?? 0) < (best.fiveHourPercent ?? 0) ? account : best));
+}
+
+/**
  * Label for the Auto option — prefer under-donate seats so Auto does not advertise
  * an exhausted seat as the fallback. Explicit pins still list every account.
+ *
+ * Claude *board tasks* no longer use this: their Auto is `autoLeastUsedAccount`, so
+ * they stop piling onto the active seat. It stays the resolver for the Cursor and
+ * Antigravity provider-active seats, and for the Plans and Review tabs, whose Auto
+ * deliberately means "the seat Manager has active".
  */
 export function autoFallbackAccount(
 	accounts: RuntimeManagerAccount[],
 	activeAccountId: number | null,
 	agentId: RuntimeAgentId | null,
 ): RuntimeManagerAccount | null {
-	const enabled = accounts.filter((account) => account.isActive);
-	const poolBase = enabled.length > 0 ? enabled : accounts;
-	const authHealthy = poolBase.filter((account) => !isAuthBroken(account));
-	const healthyBase = authHealthy.length > 0 ? authHealthy : poolBase;
-	const underLimit = healthyBase.filter((account) => !isDonateExhausted(account));
-	const pool = underLimit.length > 0 ? underLimit : healthyBase;
+	const pool = healthySeatPool(accounts);
 	if (agentId === "cursor" || agentId === "gemini") {
 		return pool.find((account) => account.isActiveForProvider) ?? pool[0] ?? null;
 	}
 	return pool.find((account) => account.id === activeAccountId) ?? pool[0] ?? null;
+}
+
+/**
+ * The seat a *card's* Auto option resolves to, per agent. Claude cards get the
+ * least-used seat (a real per-task pin, made at launch); Cursor and Antigravity keep
+ * following their provider-active seat, since neither can be pinned per task —
+ * Cursor Auto inherits `agent login` and Antigravity's credentials are machine-wide.
+ */
+export function autoTaskSeatAccount(
+	accounts: RuntimeManagerAccount[],
+	activeAccountId: number | null,
+	agentId: RuntimeAgentId | null,
+): RuntimeManagerAccount | null {
+	if (agentId === "cursor" || agentId === "gemini") {
+		return autoFallbackAccount(accounts, activeAccountId, agentId);
+	}
+	return autoLeastUsedAccount(accounts);
 }
 
 /**
@@ -221,7 +268,7 @@ export function TaskAccountPicker({
 	onSubagentSeatChange,
 	subagentSeatAppliesOnRestart = false,
 }: TaskAccountPickerProps): ReactElement {
-	const fallbackAccount = autoFallbackAccount(accounts, activeAccountId, agentId);
+	const fallbackAccount = autoTaskSeatAccount(accounts, activeAccountId, agentId);
 	const autoLabel = fallbackAccount
 		? `Auto · ${fallbackAccount.displayName ?? fallbackAccount.email}`
 		: "Auto (active account)";

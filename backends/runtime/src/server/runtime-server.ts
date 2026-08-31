@@ -58,6 +58,7 @@ import {
 import {
 	pickDefaultClaudeAccountId,
 	pickDefaultCursorAccountId,
+	pickLeastUsedClaudeAccountId,
 	toManagerDonateAccount,
 } from "../manager/manager-account-pin";
 import type { ManagerClient } from "../manager/manager-client";
@@ -455,6 +456,16 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 				accounts: snapshot.accounts,
 				activeAccountId: snapshot.activeAccountId,
 			});
+		},
+		// Auto (unpinned) board tasks: the least-used healthy seat, chosen without
+		// reference to jacked's global active seat so task load stops landing on
+		// whichever seat the Plans and Review tabs are also using.
+		resolveAutoClaudemanagerAccountId: async () => {
+			const snapshot = deps.manager.monitor.getState();
+			if (!snapshot) {
+				return null;
+			}
+			return pickLeastUsedClaudeAccountId({ accounts: snapshot.accounts });
 		},
 		resolveLiveActiveClaudemanagerAccountId: async () => deps.manager.monitor.getState()?.activeAccountId ?? null,
 		getPinnedManagerAccount: async (accountId) => {
