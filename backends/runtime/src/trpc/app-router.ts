@@ -232,8 +232,14 @@ import {
 	RuntimeDocSkillStatusSchema,
 	type RuntimeFlowiseFlow,
 	RuntimeFlowiseFlowSchema,
+	type RuntimeFlowiseLlmProxyStatus,
+	RuntimeFlowiseLlmProxyStatusSchema,
 	type RuntimeFlowiseStatus,
 	RuntimeFlowiseStatusSchema,
+	type RuntimeClaudeOrgMcpPolicy,
+	RuntimeClaudeOrgMcpPolicySchema,
+	type RuntimeOrchestratorStatus,
+	RuntimeOrchestratorStatusSchema,
 	type RuntimeGitlabConnection,
 	type RuntimeGitlabConnectStartRequest,
 	type RuntimeGitlabConnectStartResponse,
@@ -610,6 +616,7 @@ export interface RuntimeTrpcContext {
 			input: RuntimeGetWorkspaceLocalAssetsRequest,
 		) => Promise<RuntimeSetWorkspaceLocalAssetsResponse>;
 		listMcpInventory: () => Promise<RuntimeMcpInventory>;
+		getClaudeOrgMcpPolicy: () => Promise<RuntimeClaudeOrgMcpPolicy>;
 		listAgentModels: (input: RuntimeListAgentModelsRequest) => Promise<RuntimeAgentModelInventory>;
 		sendTaskChatMessage: (
 			scope: RuntimeTrpcWorkspaceScope,
@@ -911,6 +918,10 @@ export interface RuntimeTrpcContext {
 	flowiseApi: {
 		status: () => Promise<RuntimeFlowiseStatus>;
 		flows: () => Promise<RuntimeFlowiseFlow[]>;
+		llmProxyStatus: () => Promise<RuntimeFlowiseLlmProxyStatus>;
+	};
+	orchestratorApi: {
+		status: () => Promise<RuntimeOrchestratorStatus>;
 	};
 	docSkillApi: {
 		status: () => Promise<RuntimeDocSkillStatus>;
@@ -1143,6 +1154,9 @@ export const runtimeAppRouter = t.router({
 			}),
 		listMcpInventory: t.procedure.output(runtimeMcpInventorySchema).query(async ({ ctx }) => {
 			return await ctx.runtimeApi.listMcpInventory();
+		}),
+		claudeOrgMcpPolicy: t.procedure.output(RuntimeClaudeOrgMcpPolicySchema).query(async ({ ctx }) => {
+			return await ctx.runtimeApi.getClaudeOrgMcpPolicy();
 		}),
 		listAgentModels: t.procedure
 			.input(runtimeListAgentModelsRequestSchema)
@@ -1935,6 +1949,14 @@ export const runtimeAppRouter = t.router({
 		}),
 		flows: t.procedure.output(RuntimeFlowiseFlowSchema.array()).query(async ({ ctx }) => {
 			return await ctx.flowiseApi.flows();
+		}),
+		llmProxyStatus: t.procedure.output(RuntimeFlowiseLlmProxyStatusSchema).query(async ({ ctx }) => {
+			return await ctx.flowiseApi.llmProxyStatus();
+		}),
+	}),
+	orchestrator: t.router({
+		status: t.procedure.output(RuntimeOrchestratorStatusSchema).query(async ({ ctx }) => {
+			return await ctx.orchestratorApi.status();
 		}),
 	}),
 	docSkill: t.router({

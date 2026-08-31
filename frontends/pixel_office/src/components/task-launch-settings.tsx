@@ -1,4 +1,4 @@
-import { X } from "lucide-react";
+import { AlertTriangle, X } from "lucide-react";
 import type { ReactElement } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -11,6 +11,7 @@ import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
 import type {
 	RuntimeAgentId,
 	RuntimeAgentModelInventoryItem,
+	RuntimeClaudeOrgMcpPolicy,
 	RuntimeMcpInventoryItem,
 	RuntimeSkillInventoryItem,
 	RuntimeTaskLaunchEffort,
@@ -61,6 +62,28 @@ const GEMINI_MODEL_FALLBACK: RuntimeAgentModelInventoryItem[] = [
 	{ id: "claude-opus-4-6", label: "Claude Opus 4.6" },
 	{ id: "gpt-oss-120b", label: "GPT-OSS 120B" },
 ];
+
+const FLOWISE_MCP_PREFIX = "flowise-";
+
+function listBlockedClaudeMcpIds(
+	mcpServerIds: string[],
+	policy: RuntimeClaudeOrgMcpPolicy | null,
+): string[] {
+	if (policy === null || !policy.allowManagedMcpServersOnly) {
+		return [];
+	}
+	const allowedNames = new Set((policy.allowedServerNames ?? []).map((name) => name.toLowerCase()));
+	return mcpServerIds.filter((rawId) => {
+		const id = rawId.trim();
+		if (!id) {
+			return false;
+		}
+		if (id.startsWith(FLOWISE_MCP_PREFIX)) {
+			return true;
+		}
+		return !allowedNames.has(id.toLowerCase());
+	});
+}
 
 type AllowlistKey = "skillIds" | "agentIds" | "commandIds" | "workflowIds" | "mcpServerIds";
 
@@ -242,8 +265,14 @@ export function TaskLaunchSettingsPicker({
 	sessionAppliesOnRestart?: boolean;
 }): ReactElement | null {
 	const effectiveAgentId = agentId ?? defaultAgentId ?? null;
+	const isOrchestrator = effectiveAgentId === "orchestrator";
 	const showForAgent =
-		effectiveAgentId === "claude" || effectiveAgentId === "cursor" || effectiveAgentId === "gemini";
+		effectiveAgentId === "claude" ||
+		effectiveAgentId === "cursor" ||
+		effectiveAgentId === "gemini" ||
+		isOrchestrator;
+	const showModelEffort = !isOrchestrator;
+	const showResourceAllowlists = !isOrchestrator;
 	const [skills, setSkills] = useState<RuntimeSkillInventoryItem[]>([]);
 	const [agents, setAgents] = useState<RuntimeSkillInventoryItem[]>([]);
 	const [commands, setCommands] = useState<RuntimeSkillInventoryItem[]>([]);
@@ -256,6 +285,7 @@ export function TaskLaunchSettingsPicker({
 	const [commandPick, setCommandPick] = useState("");
 	const [workflowPick, setWorkflowPick] = useState("");
 	const [mcpPick, setMcpPick] = useState("");
+	const [orgMcpPolicy, setOrgMcpPolicy] = useState<RuntimeClaudeOrgMcpPolicy | null>(null);
 	// Optimistic draft so rapid "Add skill" selections accumulate even before the
 	// parent re-renders with the persisted board value.
 	const [draft, setDraft] = useState<RuntimeTaskLaunchSettings | undefined>(() => cloneLaunchSettings(value));
@@ -278,13 +308,15 @@ export function TaskLaunchSettingsPicker({
 		void Promise.all([
 			client.runtime.listSkillInventory.query(workspaceId ? { workspaceId } : {}),
 			client.runtime.listMcpInventory.query(),
+			client.runtime.claudeOrgMcpPolicy.query(),
 		])
-			.then(([skillInventory, mcpInventory]) => {
+			.then(([skillInventory, mcpInventory, policy]) => {
 				setSkills(skillInventory.skills);
 				setAgents(skillInventory.agents ?? []);
 				setCommands(skillInventory.commands ?? []);
 				setWorkflows(skillInventory.workflows ?? []);
 				setMcpServers(mcpInventory.servers);
+				setOrgMcpPolicy(policy);
 			})
 			.catch(() => {
 				setSkills([]);
@@ -292,6 +324,7 @@ export function TaskLaunchSettingsPicker({
 				setCommands([]);
 				setWorkflows([]);
 				setMcpServers([]);
+				setOrgMcpPolicy(null);
 			});
 	}, [active, showForAgent, workspaceId]);
 
@@ -384,6 +417,13 @@ export function TaskLaunchSettingsPicker({
 	const attachedCommandIds = draft?.commandIds ?? [];
 	const attachedWorkflowIds = draft?.workflowIds ?? [];
 	const attachedMcpIds = draft?.mcpServerIds ?? [];
+	const blockedClaudeMcpIds = useMemo(
+		() =>
+			effectiveAgentId === "claude"
+				? listBlockedClaudeMcpIds(attachedMcpIds, orgMcpPolicy)
+				: [],
+		[attachedMcpIds, effectiveAgentId, orgMcpPolicy],
+	);
 
 	const commit = (next: RuntimeTaskLaunchSettings | undefined) => {
 		const cloned = cloneLaunchSettings(next);
@@ -486,6 +526,14 @@ export function TaskLaunchSettingsPicker({
 					apply on restart.
 				</p>
 			) : null}
+			{isOrchestrator ? (
+				<p className="text-[10px] text-text-tertiary">
+					Orchestrator cards: attach Flowise MCP here — runtime writes{" "}
+					<code className="text-[10px]">.cursor/mcp.json</code> in the worktree for{" "}
+					<code className="text-[10px]">cursor_agent</code> children.
+				</p>
+			) : null}
+			{showModelEffort ? (
 			<div className="grid grid-cols-2 gap-2">
 				<label className="flex flex-col gap-1 text-[11px] text-text-secondary">
 					Model
@@ -528,7 +576,10 @@ export function TaskLaunchSettingsPicker({
 					</NativeSelect>
 				</label>
 			</div>
+			) : null}
 
+			{showResourceAllowlists ? (
+			<>
 			<ResourceAllowlistSection
 				title="Agent"
 				allLabel="All installed"
@@ -578,6 +629,8 @@ export function TaskLaunchSettingsPicker({
 					onRemove={(id) => removeAllowlistId("workflowIds", id)}
 				/>
 			) : null}
+			</>
+			) : null}
 
 			<ResourceAllowlistSection
 				title="MCP"
@@ -590,6 +643,28 @@ export function TaskLaunchSettingsPicker({
 				onAdd={(id) => addAllowlistId("mcpServerIds", id)}
 				onRemove={(id) => removeAllowlistId("mcpServerIds", id)}
 			/>
+
+			{blockedClaudeMcpIds.length > 0 ? (
+				<div
+					className="flex gap-2 rounded-md border border-status-orange/40 bg-surface-2 p-2 text-[11px] text-text-secondary"
+					data-testid="task-launch-org-mcp-warning"
+				>
+					<AlertTriangle size={14} className="shrink-0 text-status-orange mt-0.5" aria-hidden />
+					<div className="flex flex-col gap-1">
+						<p className="font-medium text-text-primary">
+							Org MCP policy will block {blockedClaudeMcpIds.length} selected server
+							{blockedClaudeMcpIds.length === 1 ? "" : "s"} on Claude Code launch
+							{orgMcpPolicy?.organizationName ? ` (${orgMcpPolicy.organizationName})` : ""}.
+						</p>
+						<p>
+							Blocked:{" "}
+							<code className="text-[10px]">{blockedClaudeMcpIds.join(", ")}</code>. Flowise shims are
+							never on the org allowlist — use <strong className="font-medium">Cursor Agent</strong> or{" "}
+							<strong className="font-medium">Orchestrator</strong> instead, or ask IT to allowlist the shim.
+						</p>
+					</div>
+				</div>
+			) : null}
 
 			{hasAnyTags ? (
 				<button

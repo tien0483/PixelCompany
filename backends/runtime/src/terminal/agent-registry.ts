@@ -10,7 +10,8 @@ import type {
 	RuntimeClineProviderSettings,
 	RuntimeConfigResponse,
 } from "../core/api-contract";
-import { isBinaryAvailableOnPath } from "./command-discovery";
+import { resolveDshBinary } from "../orchestrator/dsh-binary";
+import { resolveOrchestratorPatchPath } from "../orchestrator/dsh-endpoint";
 
 export interface ResolvedAgentCommand {
 	agentId: RuntimeAgentId;
@@ -78,7 +79,10 @@ function getCuratedDefinitions(runtimeConfig: RuntimeConfigState, detected: stri
 		const hasDetectedBinary = getRuntimeAgentBinaryCandidates(entry.id).some((candidate) =>
 			detectedSet.has(candidate),
 		);
-		const isInstalled = entry.id === "cline" ? true : hasDetectedBinary;
+		let isInstalled = entry.id === "cline" ? true : hasDetectedBinary;
+		if (entry.id === "orchestrator") {
+			isInstalled = resolveDshBinary() !== null && resolveOrchestratorPatchPath() !== null;
+		}
 		return {
 			id: entry.id,
 			label: entry.label,

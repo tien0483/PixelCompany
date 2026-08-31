@@ -70,9 +70,11 @@ import {
 	listClaudeMcpInventory,
 	listClaudeSkillInventory,
 } from "../terminal/task-launch-settings";
+import { readClaudeOrgMcpPolicy } from "../terminal/claude-org-mcp-policy";
 import { cleanClaudeCache, getClaudeCacheStatus } from "../workspace/claude-cache-cleanup";
 import { resolveTaskCwd } from "../workspace/task-worktree";
 import { LEGACY_RUNTIME_HOME_PARENT_DIR_NAME, RUNTIME_HOME_PARENT_DIR_NAME } from "../workspace/task-worktree-path";
+import type { FlowiseClient } from "../flowise/flowise-client";
 import { captureTaskTurnCheckpoint } from "../workspace/turn-checkpoints";
 import type { RuntimeTrpcContext, RuntimeTrpcWorkspaceScope } from "./app-router";
 
@@ -113,6 +115,8 @@ export interface CreateRuntimeApiDependencies {
 	getUpdateStatus: () => RuntimeUpdateStatusResponse;
 	getHostEnvironment: () => RuntimeHostEnvironmentResponse;
 	runUpdateNow: () => Promise<RuntimeRunUpdateResponse>;
+	/** Deployed Flowise flows are merged into the MCP picker as synthetic `flowise-*` ids. */
+	flowiseClient?: FlowiseClient | null;
 }
 
 /**
@@ -634,7 +638,24 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 				enabled: input.enabled,
 				...(input.roots ? { roots: input.roots } : {}),
 			}),
-		listMcpInventory: async () => listClaudeMcpInventory(),
+		listMcpInventory: async () => listClaudeMcpInventory(deps.flowiseClient ?? null),
+		getClaudeOrgMcpPolicy: async () => {
+			const policy = await readClaudeOrgMcpPolicy();
+			return {
+				detected: policy.detected,
+				allowManagedMcpServersOnly: policy.allowManagedMcpServersOnly,
+				organizationName: policy.organizationName,
+				allowedServerNames: policy.allowedServerNames,
+				allowedServerUrls: policy.allowedServerUrls,
+				hints: policy.detected
+					? [
+							policy.allowManagedMcpServersOnly
+								? "Org MCP allowlist active — flowise-* and unlisted servers are blocked on Claude Code cards."
+								: "Org remote settings detected — Claude MCP is not restricted to IT allowlist only.",
+						]
+					: [],
+			};
+		},
 		listAgentModels: async (input) => listAgentModelInventory(input.agentId),
 		reloadTaskChatSession: async (workspaceScope, input) => {
 			try {

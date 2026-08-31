@@ -39,7 +39,9 @@ import {
 } from "./cursor-output-transition";
 import { stripAnsi } from "./output-utils";
 import type { SessionTransitionEvent } from "./session-state-machine";
+import { prepareOrchestratorLaunch } from "../orchestrator/orchestrator-launch";
 import { resolveSubagentSeatEnv } from "./subagent-seat-launch";
+import { prepareProjectMcpConfig } from "./agent-mcp-launch";
 import { prepareTaskPromptWithImages } from "./task-image-prompt";
 import {
 	applyModelAndEffortArgs,
@@ -1207,6 +1209,22 @@ const geminiAdapter: AgentSessionAdapter = {
 			}
 		}
 
+		const launchCleanups: Array<() => Promise<void>> = [];
+		const mcpAllowlist = hasMcpAllowlist(launchSettings);
+		if (mcpAllowlist && launchSettings?.mcpServerIds) {
+			const mcpConfig = await prepareProjectMcpConfig({
+				cwd: input.cwd,
+				mcpServerIds: launchSettings.mcpServerIds,
+				format: "gemini",
+				warn: (message) => {
+					console.warn(`[kanban] ${message}`);
+				},
+			});
+			if (mcpConfig) {
+				launchCleanups.push(mcpConfig.cleanup);
+			}
+		}
+
 		const hooks = resolveHookContext(input);
 		if (hooks) {
 			const configPath = join(getHookAgentDirectory("gemini"), "settings.json");
@@ -1258,12 +1276,28 @@ const geminiAdapter: AgentSessionAdapter = {
 			return {
 				args,
 				env,
+				cleanup:
+					launchCleanups.length > 0
+						? async () => {
+								for (const fn of launchCleanups) {
+									await fn();
+								}
+							}
+						: undefined,
 			};
 		}
 
 		return {
 			args,
 			env,
+			cleanup:
+				launchCleanups.length > 0
+					? async () => {
+							for (const fn of launchCleanups) {
+								await fn();
+							}
+						}
+					: undefined,
 		};
 	},
 };
@@ -1830,6 +1864,7 @@ const cursorAdapter: AgentSessionAdapter = {
 		const args = [...input.args];
 		const env: Record<string, string | undefined> = { ...input.env };
 		const launchSettings = input.taskLaunchSettings;
+		const launchCleanups: Array<() => Promise<void>> = [];
 		// Cursor Agent accepts --model; effort is stored on the card and applied
 		// only when a dedicated flag becomes available (null = UI-only for now).
 		applyModelAndEffortArgs(args, launchSettings, { effortFlag: null });
@@ -1865,6 +1900,28 @@ const cursorAdapter: AgentSessionAdapter = {
 			args.push("--continue");
 		}
 
+		const mcpAllowlist = hasMcpAllowlist(launchSettings);
+		if (mcpAllowlist && launchSettings?.mcpServerIds) {
+			const mcpConfig = await prepareProjectMcpConfig({
+				cwd: input.cwd,
+				mcpServerIds: launchSettings.mcpServerIds,
+				format: "cursor",
+				warn: (message) => {
+					console.warn(`[kanban] ${message}`);
+				},
+			});
+			if (mcpConfig) {
+				launchCleanups.push(mcpConfig.cleanup);
+			}
+			if (
+				input.autonomousModeEnabled &&
+				!hasCliOption(args, "--approve-mcps") &&
+				!hasCliOption(args, "--no-approve-mcps")
+			) {
+				args.push("--approve-mcps");
+			}
+		}
+
 		const tagPreface = buildCursorLaunchTagPreface(launchSettings);
 		const promptWithTags = tagPreface
 			? `${tagPreface}\n\n${input.prompt}`.trim()
@@ -1880,8 +1937,47 @@ const cursorAdapter: AgentSessionAdapter = {
 				...withPromptLaunch.env,
 				...env,
 			},
+			cleanup:
+				launchCleanups.length > 0
+					? async () => {
+							for (const fn of launchCleanups) {
+								await fn();
+							}
+						}
+					: undefined,
 			detectOutputTransition: createCursorOutputTransitionDetector(),
 			shouldInspectOutputForTransition: cursorOutputTransitionInspection,
+		};
+	},
+};
+
+const orchestratorAdapter: AgentSessionAdapter = {
+	async prepare(input) {
+		const launch = await prepareOrchestratorLaunch({
+			cwd: input.cwd,
+			prompt: input.prompt,
+			taskLaunchSettings: input.taskLaunchSettings,
+			autonomousModeEnabled: input.autonomousModeEnabled,
+			warn: (message) => {
+				console.warn(`[kanban] ${message}`);
+			},
+			log: (message) => {
+				console.log(`[kanban] ${message}`);
+			},
+		});
+		if (launch === null) {
+			throw new Error(
+				"Orchestrator (dsh) is not available — install DeepSeek Harness or set PIXELOFFICE_DSH_BINARY.",
+			);
+		}
+		return {
+			binary: launch.command,
+			args: launch.args,
+			env: {
+				...input.env,
+				...launch.env,
+			},
+			cleanup: launch.cleanup,
 		};
 	},
 };
@@ -1895,6 +1991,7 @@ const ADAPTERS: Record<RuntimeAgentId, AgentSessionAdapter> = {
 	kiro: kiroAdapter,
 	cline: clineAdapter,
 	cursor: cursorAdapter,
+	orchestrator: orchestratorAdapter,
 };
 
 export async function prepareAgentLaunch(input: AgentAdapterLaunchInput): Promise<PreparedAgentLaunch> {

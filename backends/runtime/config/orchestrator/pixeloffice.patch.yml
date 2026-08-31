@@ -1,0 +1,39 @@
+# PixelOffice orchestrator patch — mount product subagent providers for cross-CLI delegation.
+# Requires DeepSeek Harness with optional packages enabled in DSH_HOME (see docs).
+#
+# Providers (best-effort — only those with CLIs on PATH are usable at runtime):
+#   cursor     → Cursor Agent CLI over ACP (`agent acp`)
+#   claude-code → native Claude Code subprocess tool
+#   codex      → OpenAI Codex subprocess tool
+#   gemini-acp → Gemini CLI over ACP (`gemini --acp`) when available
+#   agy        → Antigravity CLI (`agy`) when it exposes a compatible interface
+#
+# Flowise: configure on Cursor via ~/.cursor/mcp.json (print-flowise-mcp-config.mjs) or on
+# Claude via card MCP picker; inner Flowise MCP stays in the Agents tab canvas.
+
+- id: tool-subagent-cursor
+  name: '@deepseek-ai/dsh-tool-subagent'
+  disabled: false
+  config:
+    provider: cursor
+    toolName: cursor_agent
+    enableRunInBackground: false
+    maxDepth: provider-managed
+
+- id: tool-subagent-claude-code
+  name: '@deepseek-ai/dsh-tool-subagent'
+  disabled: false
+  config:
+    provider: claude-code
+    toolName: subagent_claude_code
+    enableRunInBackground: false
+    maxDepth: provider-managed
+
+- id: tool-subagent-codex
+  name: '@deepseek-ai/dsh-tool-subagent'
+  disabled: false
+  config:
+    provider: codex
+    toolName: subagent_codex
+    enableRunInBackground: false
+    maxDepth: provider-managed

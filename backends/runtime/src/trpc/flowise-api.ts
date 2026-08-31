@@ -1,6 +1,7 @@
-import type { RuntimeFlowiseFlow, RuntimeFlowiseStatus } from "../core/api-contract";
+import type { RuntimeFlowiseFlow, RuntimeFlowiseLlmProxyStatus, RuntimeFlowiseStatus } from "../core/api-contract";
 import type { FlowiseClient } from "../flowise/flowise-client";
 import { findFlowiseRoot } from "../flowise/flowise-endpoint";
+import { resolveFlowiseLlmProxyStatus } from "../flowise/flowise-llm-proxy";
 import type { RuntimeTrpcContext } from "./app-router";
 
 export interface CreateFlowiseApiDependencies {
@@ -20,6 +21,9 @@ export function createFlowiseApi(deps: CreateFlowiseApiDependencies): RuntimeTrp
 		},
 		flows: async (): Promise<RuntimeFlowiseFlow[]> => {
 			return (await deps.client.listFlows()) ?? [];
+		},
+		llmProxyStatus: async (): Promise<RuntimeFlowiseLlmProxyStatus> => {
+			return resolveFlowiseLlmProxyStatus();
 		},
 	};
 }

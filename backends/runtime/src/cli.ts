@@ -421,6 +421,10 @@ async function startServer(): Promise<{
 		{ createFlowiseClient },
 		{ resolveFlowiseDataDir, seedFlowiseEmbedAccount },
 		{ startFlowiseProcess },
+		{ createOrchestratorClient },
+		{ startOrchestratorProcess },
+		{ resolveDefaultDshHome },
+		{ ensureDshProductSubagents },
 		{ describeRuntimeHomeMigration, migrateRuntimeHome },
 		{ startOmniRouteProcess },
 		{ findAgentDataRoot },
@@ -448,6 +452,10 @@ async function startServer(): Promise<{
 		import("./flowise/flowise-client.js"),
 		import("./flowise/flowise-credential.js"),
 		import("./flowise/flowise-process.js"),
+		import("./orchestrator/orchestrator-client.js"),
+		import("./orchestrator/orchestrator-process.js"),
+		import("./orchestrator/dsh-endpoint.js"),
+		import("./orchestrator/dsh-home-setup.js"),
 		import("./state/runtime-home-migration.js"),
 		import("./omniroute/omniroute-process.js"),
 		import("./state/agent-data-manifest.js"),
@@ -708,6 +716,34 @@ async function startServer(): Promise<{
 			console.warn(`[kanban] ${message}`);
 		},
 	});
+	const OrchestratorProcess = await startOrchestratorProcess({
+		warn: (message) => {
+			console.warn(`[kanban] ${message}`);
+		},
+		log: (message) => {
+			console.log(`[kanban] ${message}`);
+		},
+	});
+	const OrchestratorClient = createOrchestratorClient({
+		warn: (message) => {
+			console.warn(`[kanban] ${message}`);
+		},
+	});
+	// Product subagent packages (cursor_agent, subagent_claude_code, …) install into DSH_HOME
+	// on first boot — same non-blocking posture as Flowise embed seeding.
+	void ensureDshProductSubagents({
+		dshHome: resolveDefaultDshHome(),
+		warn: (message) => {
+			console.warn(`[kanban] ${message}`);
+		},
+		log: (message) => {
+			console.log(`[kanban] ${message}`);
+		},
+	}).catch((error: unknown) => {
+		console.warn(
+			`[kanban] dsh product subagent bootstrap failed: ${error instanceof Error ? error.message : String(error)}`,
+		);
+	});
 	// Seeding the studio's single local account needs it listening, so it rides the readiness
 	// promise instead of blocking startup — the board must never wait on an optional sidecar's
 	// first boot, which is minutes on a cold build.
@@ -759,6 +795,7 @@ async function startServer(): Promise<{
 		html: { client: HtmlClient },
 		docSkill: { client: DocSkillClient },
 		flowise: { client: FlowiseClient },
+		orchestrator: { client: OrchestratorClient },
 		warn: (message) => {
 			console.warn(`[kanban] ${message}`);
 		},
@@ -839,6 +876,7 @@ async function startServer(): Promise<{
 		// Only stops a studio this runtime spawned; one started by hand in the submodule keeps
 		// the port and is left alone (`startFlowiseProcess` adopts rather than fights for it).
 		await FlowiseProcess.close();
+		await OrchestratorProcess.close();
 	};
 
 	const shutdown = async (options?: { skipSessionCleanup?: boolean }) => {

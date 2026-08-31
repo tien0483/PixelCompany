@@ -77,6 +77,14 @@ export const RUNTIME_AGENT_CATALOG: RuntimeAgentCatalogEntry[] = [
 		autonomousArgs: ["--force", "--trust"],
 		installUrl: "https://cursor.com/docs/cli/overview",
 	},
+	{
+		id: "orchestrator",
+		label: "Orchestrator (dsh)",
+		binary: "dsh",
+		baseArgs: ["--profile", "headless"],
+		autonomousArgs: [],
+		installUrl: "https://github.com/deepseek-ai/deepseek-harness",
+	},
 ];
 
 // Claude + Cursor + Antigravity/Gemini are launchable; Jacked pins credentials per task. Cline runs
@@ -88,6 +96,7 @@ export const RUNTIME_LAUNCH_SUPPORTED_AGENT_IDS: readonly RuntimeAgentId[] = [
 	"cursor",
 	"cline",
 	"gemini",
+	"orchestrator",
 	// "codex",
 	// "droid",
 	// "kiro",

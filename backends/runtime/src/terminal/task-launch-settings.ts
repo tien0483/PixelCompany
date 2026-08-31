@@ -15,6 +15,9 @@ import type {
 	RuntimeTaskLaunchEffort,
 	RuntimeTaskLaunchSettings,
 } from "../core/api-contract";
+import type { FlowiseClient } from "../flowise/flowise-client";
+import { mergeFlowiseMcpInventory } from "../flowise/flowise-mcp";
+import { resolveMcpAllowlistServers } from "./agent-mcp-launch";
 import { getRuntimeHomePath } from "../state/workspace-state";
 
 export { buildCursorLaunchTagPreface, buildLaunchTagAllowlistUpdateNotice } from "./task-launch-tag-messages";
@@ -727,27 +730,19 @@ export async function prepareClaudeMcpAllowlistConfig(input: {
 	taskId: string;
 	mcpServerIds: string[];
 }): Promise<{ mcpConfigPath: string; cleanup: () => Promise<void> } | null> {
-	const settingsPath = join(globalClaudeDir(), "settings.json");
-	let parsed: unknown;
-	try {
-		parsed = JSON.parse(await readFile(settingsPath, "utf8"));
-	} catch {
-		return null;
-	}
-	if (!parsed || typeof parsed !== "object") {
-		return null;
-	}
-	const mcpServers = (parsed as { mcpServers?: unknown }).mcpServers;
-	if (!mcpServers || typeof mcpServers !== "object" || Array.isArray(mcpServers)) {
-		return null;
-	}
 	const allow = new Set(input.mcpServerIds.map((id) => id.trim()).filter(Boolean));
-	const filtered: Record<string, unknown> = {};
-	for (const [key, value] of Object.entries(mcpServers as Record<string, unknown>)) {
-		if (allow.has(key)) {
-			filtered[key] = value;
-		}
+	if (allow.size === 0) {
+		return null;
 	}
+
+	const filtered = await resolveMcpAllowlistServers({
+		mcpServerIds: input.mcpServerIds,
+		globalConfigPath: join(globalClaudeDir(), "settings.json"),
+		warn: (message) => {
+			console.warn(`[kanban] ${message}`);
+		},
+	});
+
 	const scratch = taskLaunchScratchDir(input.taskId);
 	await mkdir(scratch, { recursive: true });
 	const mcpConfigPath = join(scratch, "mcp.allowlist.json");
@@ -1096,7 +1091,7 @@ export async function listClaudeSkillInventory(
 	return { skills, agents, commands, workflows };
 }
 
-export async function listClaudeMcpInventory(): Promise<RuntimeMcpInventory> {
+export async function listClaudeMcpInventory(flowiseClient?: FlowiseClient | null): Promise<RuntimeMcpInventory> {
 	const settingsPath = join(globalClaudeDir(), "settings.json");
 	const servers: RuntimeMcpInventory["servers"] = [];
 	try {
@@ -1124,7 +1119,7 @@ export async function listClaudeMcpInventory(): Promise<RuntimeMcpInventory> {
 		// Missing or invalid settings — empty inventory.
 	}
 	servers.sort((left, right) => left.displayName.localeCompare(right.displayName));
-	return { servers };
+	return mergeFlowiseMcpInventory({ servers }, flowiseClient);
 }
 
 export type { RuntimeTaskLaunchEffort };

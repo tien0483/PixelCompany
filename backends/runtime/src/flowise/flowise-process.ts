@@ -84,7 +84,13 @@ function openStudioLog(dataDir: string): { fd: number; path: string } | null {
  * silently route every Anthropic node in every flow through the switchboard. Billing a
  * flow to a chosen seat is a per-credential decision inside the studio, not an ambient one.
  */
-function buildStudioEnv(dataDir: string, host: string, port: number, runtimeOrigin: string): NodeJS.ProcessEnv {
+/** Loopback hostnames browsers treat as distinct origins for CSP frame-ancestors. */
+function resolvePixelOfficeEmbedOrigins(pixelOfficePort: string): string {
+	return [`http://127.0.0.1:${pixelOfficePort}`, `http://localhost:${pixelOfficePort}`].join(",");
+}
+
+function buildStudioEnv(dataDir: string, host: string, port: number, pixelOfficePort: string): NodeJS.ProcessEnv {
+	const embedOrigins = resolvePixelOfficeEmbedOrigins(pixelOfficePort);
 	const env: NodeJS.ProcessEnv = {
 		...process.env,
 		NODE_ENV: "production",
@@ -104,8 +110,8 @@ function buildStudioEnv(dataDir: string, host: string, port: number, runtimeOrig
 		// commercial-licensed auth stripped there is no login in front of the canvas, and
 		// Flowise's Custom Function nodes execute arbitrary code by design — so loopback
 		// plus these two headers are the whole boundary. Never widen them.
-		CORS_ORIGINS: runtimeOrigin,
-		IFRAME_ORIGINS: runtimeOrigin,
+		CORS_ORIGINS: embedOrigins,
+		IFRAME_ORIGINS: embedOrigins,
 	};
 	delete env.ANTHROPIC_BASE_URL;
 	delete env.ANTHROPIC_API_KEY;
@@ -196,7 +202,7 @@ export async function startFlowiseProcess(deps: StartFlowiseProcessDependencies)
 		return createNoopProcess(false);
 	}
 
-	const runtimeOrigin = `http://${host}:${process.env.PIXELOFFICE_PORT?.trim() ?? "3484"}`;
+	const pixelOfficePort = process.env.PIXELOFFICE_PORT?.trim() ?? "3484";
 	const startupTimeoutMs = resolveStartupTimeoutMs();
 
 	let child: ChildProcess | null = null;
@@ -223,7 +229,7 @@ export async function startFlowiseProcess(deps: StartFlowiseProcessDependencies)
 		try {
 			spawned = spawn(target.binary, target.args, {
 				cwd: target.cwd,
-				env: buildStudioEnv(target.dataDir, host, port, runtimeOrigin),
+				env: buildStudioEnv(target.dataDir, host, port, pixelOfficePort),
 				stdio: studioLog === null ? "ignore" : ["ignore", studioLog.fd, studioLog.fd],
 				shell: false,
 				windowsHide: true,

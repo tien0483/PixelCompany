@@ -44,6 +44,7 @@ import { BUILD_REQUEST_TIMEOUT_MS, type DocSkillClient } from "../doc-skill/doc-
 import { findDocSkillRoot } from "../doc-skill/doc-skill-process";
 import { buildDocAuditPrompt, buildDocRoundPrompt, loadDocSkillText } from "../doc-skill/doc-skill-prompts";
 import type { FlowiseClient } from "../flowise/flowise-client";
+import type { OrchestratorClient } from "../orchestrator/orchestrator-client";
 import { createGitlabClient } from "../gitlab/gitlab-client";
 import { createGitlabOauthSession } from "../gitlab/gitlab-oauth";
 import { HTML_NO_TOOLS, resolveHtmlAgentCwd, resolveHtmlAllowedTools } from "../html/html-agent-args";
@@ -109,6 +110,7 @@ import { createClaudeUsageApi } from "../trpc/claude-usage-api";
 import { createDeployApi } from "../trpc/deploy-api";
 import { createDocSkillApi } from "../trpc/doc-skill-api";
 import { createFlowiseApi } from "../trpc/flowise-api";
+import { createOrchestratorApi } from "../trpc/orchestrator-api";
 import { createGitlabApi } from "../trpc/gitlab-api";
 import { createHooksApi } from "../trpc/hooks-api";
 import { createHtmlApi } from "../trpc/html-api";
@@ -136,6 +138,7 @@ export interface CreateRuntimeServerDependencies {
 	html: { client: HtmlClient };
 	docSkill: { client: DocSkillClient };
 	flowise: { client: FlowiseClient };
+	orchestrator: { client: OrchestratorClient };
 	warn: (message: string) => void;
 	ensureTerminalManagerForWorkspace: (workspaceId: string, repoPath: string) => Promise<TerminalSessionManager>;
 	resolveInteractiveShellCommand: () => { binary: string; args: string[] };
@@ -346,6 +349,9 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 	const flowiseApi = createFlowiseApi({
 		client: deps.flowise.client,
 	});
+	const orchestratorApi = createOrchestratorApi({
+		client: deps.orchestrator.client,
+	});
 	// One GitLab identity serves the whole runtime, so the client and the OAuth flow
 	// registry are singletons here rather than per request: a flow started by one
 	// request is polled by the next, and the client caches the credential in process.
@@ -491,6 +497,7 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 		getUpdateStatus: deps.getUpdateStatus,
 		getHostEnvironment: deps.getHostEnvironment,
 		runUpdateNow: deps.runUpdateNow,
+		flowiseClient: deps.flowise.client,
 	};
 
 	// One long-lived runtimeApi instance the usage-resume scheduler uses to relaunch
@@ -614,6 +621,7 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 			claudeUsageApi,
 			docSkillApi,
 			flowiseApi,
+			orchestratorApi,
 			gitlabApi,
 			reviewApi,
 		};

@@ -90,6 +90,7 @@ export const runtimeAgentIdSchema = z.enum([
 	"kiro",
 	"cline",
 	"cursor",
+	"orchestrator",
 ]);
 export type RuntimeAgentId = z.infer<typeof runtimeAgentIdSchema>;
 
@@ -1429,6 +1430,40 @@ export const RuntimeFlowiseFlowSchema = z.object({
 	updatedAt: z.string().optional(),
 });
 export type RuntimeFlowiseFlow = z.infer<typeof RuntimeFlowiseFlowSchema>;
+
+/** Phase 3: Flowise LLM nodes billed via Manager/switchboard instead of studio credentials. */
+export const RuntimeFlowiseLlmProxyStatusSchema = z.object({
+	phase: z.literal(3),
+	enabled: z.boolean(),
+	available: z.boolean(),
+	switchboardBaseUrl: z.string().nullable().optional(),
+	hints: z.array(z.string()).optional(),
+});
+export type RuntimeFlowiseLlmProxyStatus = z.infer<typeof RuntimeFlowiseLlmProxyStatusSchema>;
+
+/** Cached Claude org MCP allowlist from remote-settings.json. */
+export const RuntimeClaudeOrgMcpPolicySchema = z.object({
+	detected: z.boolean(),
+	allowManagedMcpServersOnly: z.boolean().optional(),
+	organizationName: z.string().nullable().optional(),
+	allowedServerNames: z.array(z.string()).optional(),
+	allowedServerUrls: z.array(z.string()).optional(),
+	hints: z.array(z.string()).optional(),
+});
+export type RuntimeClaudeOrgMcpPolicy = z.infer<typeof RuntimeClaudeOrgMcpPolicySchema>;
+
+/** DeepSeek Harness orchestrator (`dsh --profile headless`) for cross-provider delegation. */
+export const RuntimeOrchestratorStatusSchema = z.object({
+	/** True when `dsh` (or npx) and the PixelOffice patch file are present. */
+	installed: z.boolean(),
+	binary: z.string().nullable().optional(),
+	dshHome: z.string(),
+	patchPath: z.string().nullable().optional(),
+	flowiseOnline: z.boolean().optional(),
+	subagentsInstalled: z.boolean().optional(),
+	hints: z.array(z.string()).optional(),
+});
+export type RuntimeOrchestratorStatus = z.infer<typeof RuntimeOrchestratorStatusSchema>;
 
 export const RuntimeDocProjectSchema = z.object({
 	id: z.string(),

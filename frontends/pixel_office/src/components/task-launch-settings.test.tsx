@@ -10,6 +10,7 @@ import type { RuntimeTaskLaunchSettings } from "@/runtime/types";
 const listSkillInventoryQuery = vi.hoisted(() => vi.fn());
 const listMcpInventoryQuery = vi.hoisted(() => vi.fn());
 const listAgentModelsQuery = vi.hoisted(() => vi.fn());
+const claudeOrgMcpPolicyQuery = vi.hoisted(() => vi.fn());
 
 vi.mock("@/runtime/trpc-client", () => ({
 	getRuntimeTrpcClient: () => ({
@@ -17,6 +18,7 @@ vi.mock("@/runtime/trpc-client", () => ({
 			listSkillInventory: { query: listSkillInventoryQuery },
 			listMcpInventory: { query: listMcpInventoryQuery },
 			listAgentModels: { query: listAgentModelsQuery },
+			claudeOrgMcpPolicy: { query: claudeOrgMcpPolicyQuery },
 		},
 	}),
 }));
@@ -57,6 +59,9 @@ beforeEach(() => {
 			{ id: "opus", label: "Opus (latest alias)" },
 		],
 		source: "catalog",
+	});
+	claudeOrgMcpPolicyQuery.mockResolvedValue({
+		detected: false,
 	});
 });
 
@@ -381,6 +386,33 @@ describe("TaskLaunchSettingsPicker", () => {
 			removeButton!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
 		});
 		expect(onChange).toHaveBeenCalledWith(undefined);
+	});
+
+	it("warns when org MCP policy blocks selected Claude servers", async () => {
+		claudeOrgMcpPolicyQuery.mockResolvedValue({
+			detected: true,
+			allowManagedMcpServersOnly: true,
+			organizationName: "Akselos",
+			allowedServerNames: ["gitlab"],
+		});
+		await act(async () => {
+			renderUi(
+				<TaskLaunchSettingsPicker
+					active
+					agentId="claude"
+					value={{ mcpServerIds: ["flowise-abc", "filesystem"] }}
+					onChange={() => undefined}
+				/>,
+			);
+		});
+		await act(async () => {
+			await Promise.resolve();
+		});
+		const warning = container.querySelector('[data-testid="task-launch-org-mcp-warning"]');
+		expect(warning).toBeTruthy();
+		expect(warning?.textContent).toContain("flowise-abc");
+		expect(warning?.textContent).toContain("filesystem");
+		expect(warning?.textContent).toContain("Akselos");
 	});
 
 	it("passes the active workspaceId to listSkillInventory", async () => {

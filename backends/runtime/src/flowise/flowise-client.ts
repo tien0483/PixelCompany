@@ -1,7 +1,7 @@
 // HTTP client for the Flowise agent-studio sidecar. Read-only by design: authoring happens
 // inside the embedded studio UI, so the runtime only needs "is it up" and "what flows exist"
-// — the latter is what the Agents sidebar lists and (Phase 2) what a card can attach as an
-// MCP tool.
+// — deployed flows also surface as synthetic `flowise-*` MCP servers on task cards (see
+// flowise-mcp.ts).
 import type { RuntimeFlowiseFlow, RuntimeFlowiseStatus } from "../core/api-contract";
 import { resolveFlowiseBaseUrl } from "./flowise-endpoint";
 

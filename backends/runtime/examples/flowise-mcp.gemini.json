@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "flowise-gitlab-research": {
+      "command": "node",
+      "args": [
+        "/home/ubuntu/work/PixelCompany/backends/runtime/scripts/flowise-mcp-shim.mjs"
+      ],
+      "env": {
+        "PIXELOFFICE_FLOWISE_URL": "http://127.0.0.1:3010",
+        "PIXELOFFICE_FLOWISE_FLOW_ID": "REPLACE_WITH_DEPLOYED_FLOW_UUID"
+      }
+    }
+  }
+}

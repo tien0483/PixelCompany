@@ -1,4 +1,4 @@
-import { Bot, CircleSlash, Plus, RefreshCw } from "lucide-react";
+import { Bot, CircleSlash, Network, Plus, RefreshCw } from "lucide-react";
 import { type ReactElement, useCallback, useEffect, useState } from "react";
 
 import { showAppToast } from "@/components/app-toaster";
@@ -7,7 +7,12 @@ import { cn } from "@/components/ui/cn";
 import { Spinner } from "@/components/ui/spinner";
 import { Tooltip } from "@/components/ui/tooltip";
 import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
-import type { RuntimeFlowiseFlow, RuntimeFlowiseStatus } from "@/runtime/types";
+import type {
+	RuntimeFlowiseFlow,
+	RuntimeFlowiseLlmProxyStatus,
+	RuntimeFlowiseStatus,
+	RuntimeOrchestratorStatus,
+} from "@/runtime/types";
 
 export interface AgentStudioTarget {
 	/** Null opens a blank canvas — "create an agent" rather than "edit this one". */
@@ -39,6 +44,121 @@ export function HomeSidebarAgentsTab({
 	);
 }
 
+function FlowiseLlmProxyPanel({ status }: { status: RuntimeFlowiseLlmProxyStatus | null }): ReactElement | null {
+	if (status === null) {
+		return null;
+	}
+	return (
+		<div
+			className="mt-2 rounded-md border border-border bg-surface-1 p-2 text-[11px] text-text-secondary"
+			data-testid="sidebar-flowise-llm-proxy"
+		>
+			<p className="font-medium text-text-primary">Flowise LLM proxy (Phase 3)</p>
+			<p className="mt-1">
+				{status.available ? "Routing studio LLM nodes via switchboard." : "Not implemented — use Flowise Credentials in the studio."}
+			</p>
+			{status.enabled ? (
+				<p className="mt-1 text-[10px] text-status-orange">
+					PIXELOFFICE_FLOWISE_LLM_PROXY=1 is set; proxy wiring is still a stub.
+				</p>
+			) : null}
+			{(status.hints?.length ?? 0) > 0 ? (
+				<ul className="mt-1 list-disc pl-4 text-[10px]">
+					{status.hints?.slice(0, 2).map((hint) => (
+						<li key={hint}>{hint}</li>
+					))}
+				</ul>
+			) : null}
+		</div>
+	);
+}
+
+function OrchestratorStatusPanel({
+	status,
+	isLoading,
+}: {
+	status: RuntimeOrchestratorStatus | null;
+	isLoading: boolean;
+}): ReactElement {
+	if (isLoading && status === null) {
+		return (
+			<div className="flex items-center justify-center" style={{ padding: "8px 0" }}>
+				<Spinner size={14} />
+			</div>
+		);
+	}
+	if (status === null) {
+		return (
+			<p className="text-[11px] text-text-secondary" style={{ padding: "4px 0" }}>
+				Orchestrator status unavailable.
+			</p>
+		);
+	}
+
+	const ready = status.installed && status.subagentsInstalled !== false;
+	return (
+		<div
+			className="flex flex-col gap-2 rounded-md border border-border bg-surface-2 p-2.5 text-[12px]"
+			data-testid="sidebar-orchestrator-status"
+		>
+			<div className="flex items-center gap-1.5 text-text-primary font-medium">
+				<Network size={14} className="shrink-0 text-text-tertiary" />
+				Orchestrator (dsh)
+			</div>
+			<ul className="flex flex-col gap-1 text-[11px] text-text-secondary">
+				<li>
+					<span className="text-text-tertiary">dsh:</span>{" "}
+					{status.installed ? (
+						<span className="text-status-green">ready</span>
+					) : (
+						<span className="text-status-orange">not installed</span>
+					)}
+					{status.binary ? (
+						<span className="block truncate text-[10px] text-text-tertiary" title={status.binary}>
+							{status.binary}
+						</span>
+					) : null}
+				</li>
+				<li>
+					<span className="text-text-tertiary">Subagents:</span>{" "}
+					{status.subagentsInstalled ? (
+						<span className="text-status-green">installed</span>
+					) : (
+						<span className="text-status-orange">installing…</span>
+					)}
+				</li>
+				<li>
+					<span className="text-text-tertiary">Flowise:</span>{" "}
+					{status.flowiseOnline ? (
+						<span className="text-status-green">online</span>
+					) : (
+						<span className="text-status-orange">offline</span>
+					)}
+				</li>
+				{status.dshHome ? (
+					<li className="truncate text-[10px] text-text-tertiary" title={status.dshHome}>
+						DSH_HOME: {status.dshHome}
+					</li>
+				) : null}
+			</ul>
+			{ready ? (
+				<p className="text-[11px] text-text-secondary">
+					Pick <strong className="font-medium text-text-primary">Orchestrator (dsh)</strong> on a task card.
+					Attach <code className="text-[10px]">flowise-*</code> MCP — Cursor children auto-read{" "}
+					<code className="text-[10px]">.cursor/mcp.json</code> in the worktree.
+				</p>
+			) : null}
+			{(status.hints?.length ?? 0) > 0 ? (
+				<ul className="flex flex-col gap-1 text-[11px] text-text-secondary list-disc pl-4">
+					{status.hints?.map((hint) => (
+						<li key={hint}>{hint}</li>
+					))}
+				</ul>
+			) : null}
+		</div>
+	);
+}
+
 /**
  * The studio is a separate service, so this panel has three distinct empty states and they
  * are not interchangeable: not installed (the `backends/flowise` submodule was never
@@ -53,15 +173,25 @@ export function HomeSidebarAgentsPanel({
 	onOpenStudio: (target: AgentStudioTarget) => void;
 }): ReactElement {
 	const [status, setStatus] = useState<RuntimeFlowiseStatus | null>(null);
+	const [orchestratorStatus, setOrchestratorStatus] = useState<RuntimeOrchestratorStatus | null>(null);
+	const [llmProxyStatus, setLlmProxyStatus] = useState<RuntimeFlowiseLlmProxyStatus | null>(null);
 	const [flows, setFlows] = useState<RuntimeFlowiseFlow[]>([]);
 	const [isLoading, setIsLoading] = useState(true);
+	const [orchestratorLoading, setOrchestratorLoading] = useState(true);
 
 	const refresh = useCallback(async () => {
 		setIsLoading(true);
+		setOrchestratorLoading(true);
 		try {
 			const trpcClient = getRuntimeTrpcClient(workspaceId);
-			const nextStatus = await trpcClient.flowise.status.query();
+			const [nextStatus, nextOrchestrator, nextProxy] = await Promise.all([
+				trpcClient.flowise.status.query(),
+				trpcClient.orchestrator.status.query(),
+				trpcClient.flowise.llmProxyStatus.query(),
+			]);
 			setStatus(nextStatus);
+			setOrchestratorStatus(nextOrchestrator);
+			setLlmProxyStatus(nextProxy);
 			// Asking a down studio for its flows only produces a second failure with the same
 			// cause, and the panel already says why it is empty.
 			setFlows(nextStatus.online ? await trpcClient.flowise.flows.query() : []);
@@ -71,9 +201,12 @@ export function HomeSidebarAgentsPanel({
 				message: error instanceof Error ? error.message : String(error),
 			});
 			setStatus(null);
+			setOrchestratorStatus(null);
+			setLlmProxyStatus(null);
 			setFlows([]);
 		} finally {
 			setIsLoading(false);
+			setOrchestratorLoading(false);
 		}
 	}, [workspaceId]);
 
@@ -103,7 +236,7 @@ export function HomeSidebarAgentsPanel({
 				>
 					New agent
 				</Button>
-				<Tooltip content="Reload the studio's agent list">
+				<Tooltip content="Reload the studio's agent list and orchestrator status">
 					<Button
 						variant="ghost"
 						size="sm"
@@ -172,7 +305,7 @@ export function HomeSidebarAgentsPanel({
 						{/* Only a deployed flow answers the prediction endpoint, so only a deployed
 						    flow can back a card's tool once the MCP wiring lands. */}
 						{flow.deployed ? (
-							<Tooltip content="Deployed — callable over the prediction API">
+							<Tooltip content="Deployed — attach flowise-{id} on task MCP picker; Cursor/Agy auto-wire on launch">
 								<span className="shrink-0 rounded-sm bg-surface-3 px-1 py-0.5 text-[10px] text-status-green">
 									live
 								</span>
@@ -180,6 +313,12 @@ export function HomeSidebarAgentsPanel({
 						) : null}
 					</button>
 				))}
+
+				<FlowiseLlmProxyPanel status={llmProxyStatus} />
+
+				<div className="mt-2 border-t border-border pt-2">
+					<OrchestratorStatusPanel status={orchestratorStatus} isLoading={orchestratorLoading} />
+				</div>
 			</div>
 		</div>
 	);

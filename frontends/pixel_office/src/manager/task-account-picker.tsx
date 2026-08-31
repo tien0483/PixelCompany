@@ -288,7 +288,7 @@ export function TaskAccountPicker({
 
 	// Subagents are a Claude Code concept: the split rides on CLAUDE_CODE_SUBAGENT_MODEL,
 	// which no other CLI reads, and a Cline card already pins its provider on the row above.
-	const showSubagentRow = onSubagentSeatChange !== undefined && agentId === "claude" && apiSeats.length > 0;
+	const showSubagentRow = onSubagentSeatChange !== undefined && (agentId === "claude" || agentId === "orchestrator") && apiSeats.length > 0;
 	// A pin naming a seat that has since lost its key (or been deleted) must not stick as a
 	// select value — show Inherit, which is also what the launch will fall back to.
 	const pinnedSubagentSeat = subagentSeatProviderId

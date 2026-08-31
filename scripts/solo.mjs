@@ -149,6 +149,8 @@ const DOC_SKILL_PORT = Number(process.env.PIXELOFFICE_DOCSKILL_PORT ?? 8323);
  * DevTools daemon and 3456/3460+ are CCR routers.
  */
 const FLOWISE_PORT = Number(process.env.PIXELOFFICE_FLOWISE_PORT ?? 3010);
+/** Optional DeepSeek Harness web UI when PIXELOFFICE_DSH_WEB=1 (orchestrator sidecar). */
+const DSH_WEB_PORT = Number(process.env.PIXELOFFICE_DSH_WEB_PORT ?? 3020);
 
 const args = process.argv.slice(2);
 const restart = args.includes("--restart");

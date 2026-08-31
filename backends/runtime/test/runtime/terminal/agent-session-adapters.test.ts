@@ -2,8 +2,9 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { prepareAgentLaunch } from "../../../src/terminal/agent-session-adapters";
+import * as subagentSeatLaunch from "../../../src/terminal/subagent-seat-launch";
 import { encodeClaudeProjectDirName } from "../../../src/terminal/claude-permission-mode";
 import { RUNTIME_HOME_PARENT_DIR_NAME } from "../../../src/workspace/task-worktree-path";
 
@@ -1120,14 +1121,23 @@ describe("prepareAgentLaunch hook strategies", () => {
 	});
 
 	it("passes Cursor model and skill/MCP preface from taskLaunchSettings", async () => {
-		setupTempHome();
+		const home = setupTempHome();
+		const cwd = mkdtempSync(join(tmpdir(), "kanban-cursor-mcp-cwd-"));
+		mkdirSync(join(home, ".cursor"), { recursive: true });
+		writeFileSync(
+			join(home, ".cursor", "mcp.json"),
+			JSON.stringify({ mcpServers: { filesystem: { command: "npx" } } }),
+			"utf8",
+		);
+
 		const launch = await prepareAgentLaunch({
 			taskId: "task-cursor-launch-tags",
 			agentId: "cursor",
 			binary: "agent",
 			args: [],
-			cwd: "/tmp",
+			cwd,
 			prompt: "Implement the feature",
+			autonomousModeEnabled: true,
 			taskLaunchSettings: {
 				modelId: "composer-2",
 				effort: "max",
@@ -1139,10 +1149,17 @@ describe("prepareAgentLaunch hook strategies", () => {
 		expect(launch.args).toContain("--model");
 		expect(launch.args[launch.args.indexOf("--model") + 1]).toBe("composer-2");
 		expect(launch.args).not.toContain("--effort");
+		expect(launch.args).toContain("--approve-mcps");
 		const promptArg = launch.args.find((arg) => arg.includes("Implement the feature"));
 		expect(promptArg).toBeTruthy();
 		expect(promptArg).toContain("Skills: review.");
 		expect(promptArg).toContain("MCP servers: filesystem.");
+		const projectMcp = JSON.parse(readFileSync(join(cwd, ".cursor", "mcp.json"), "utf8")) as {
+			mcpServers: Record<string, unknown>;
+		};
+		expect(projectMcp.mcpServers.filesystem).toEqual({ command: "npx" });
+		await launch.cleanup?.();
+		rmSync(cwd, { recursive: true, force: true });
 	});
 
 	it("inherits all Claude skills/MCP when taskLaunchSettings tags are empty", async () => {
@@ -1251,5 +1268,70 @@ describe("prepareAgentLaunch hook strategies", () => {
 		const promptArg = launch.args.find((arg) => arg.includes("Plain prompt"));
 		expect(promptArg).toBe("Plain prompt");
 		expect(promptArg).not.toContain("Task launch tags");
+	});
+});
+
+describe("Claude subagent seat launch (regression)", () => {
+	it("sets switchboard env for Claude when a subagent seat is pinned", async () => {
+		const home = setupTempHome();
+		process.env.USERPROFILE = home;
+		mkdirSync(join(home, ".claude"), { recursive: true });
+		writeFileSync(
+			join(home, ".claude.json"),
+			JSON.stringify({ hasCompletedOnboarding: true, oauthAccount: { emailAddress: "a@b.co" } }),
+			"utf8",
+		);
+		writeFileSync(
+			join(home, ".claude", ".credentials.json"),
+			JSON.stringify({ claudeAiOauth: { accessToken: "tok" } }),
+			"utf8",
+		);
+
+		const spy = vi.spyOn(subagentSeatLaunch, "resolveSubagentSeatEnv").mockResolvedValue({
+			ANTHROPIC_BASE_URL: "http://127.0.0.1:8787",
+			CLAUDE_CODE_SUBAGENT_MODEL: "ccr-3460,north-mini",
+		});
+
+		const launch = await prepareAgentLaunch({
+			taskId: "task-claude-subagent-seat",
+			agentId: "claude",
+			binary: "claude",
+			args: [],
+			cwd: "/tmp",
+			prompt: "Use a subagent for research",
+			taskLaunchSettings: {
+				subagentSeatProviderId: "fpt-ai",
+				subagentSeatModelId: "north-mini",
+			},
+		});
+
+		expect(spy).toHaveBeenCalled();
+		expect(launch.env.ANTHROPIC_BASE_URL).toBe("http://127.0.0.1:8787");
+		expect(launch.env.CLAUDE_CODE_SUBAGENT_MODEL).toBe("ccr-3460,north-mini");
+		expect(launch.env.ANTHROPIC_API_KEY).toBeUndefined();
+		spy.mockRestore();
+		await launch.cleanup?.();
+	});
+
+	it("does not set subagent env for Cursor when the same pin is on the card", async () => {
+		const spy = vi.spyOn(subagentSeatLaunch, "resolveSubagentSeatEnv");
+
+		const launch = await prepareAgentLaunch({
+			taskId: "task-cursor-no-subagent-env",
+			agentId: "cursor",
+			binary: "agent",
+			args: [],
+			cwd: "/tmp",
+			prompt: "Implement",
+			taskLaunchSettings: {
+				subagentSeatProviderId: "fpt-ai",
+				subagentSeatModelId: "north-mini",
+			},
+		});
+
+		expect(spy).not.toHaveBeenCalled();
+		expect(launch.env.CLAUDE_CODE_SUBAGENT_MODEL).toBeUndefined();
+		expect(launch.env.ANTHROPIC_BASE_URL).toBeUndefined();
+		spy.mockRestore();
 	});
 });
