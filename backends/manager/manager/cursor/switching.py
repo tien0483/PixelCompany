@@ -24,8 +24,13 @@ from manager.providers import auto_swap_block_reason, can_auto_swap
 
 from .accounts import cursor_account_slot
 from .credentials import cursor_state_db_path
+from .wsl import is_wsl, path_is_windows_mount
 
 logger = logging.getLogger(__name__)
+
+# Matched against a process listing, lowercased. Cursor spawns Helper/GPU/
+# Renderer children, so the helper prefix has to match too.
+_CURSOR_PROCESS_MARKERS = ("cursor.exe", "cursor helper")
 
 
 class CursorSwapError(Exception):
@@ -41,32 +46,53 @@ class CursorSwapResult:
     restart_required: bool
 
 
-def is_cursor_running(env: Optional[Mapping[str, str]] = None) -> bool:
+def _tasklist_shows_cursor(command: list[str], env: Mapping[str, str]) -> bool:
+    """Run an unfiltered tasklist so Helper / GPU / Renderer children also match."""
+    result = subprocess.run(
+        command,
+        capture_output=True,
+        text=True,
+        timeout=10,
+        env=dict(env),
+    )
+    out = (result.stdout or "").lower()
+    return any(marker in out for marker in _CURSOR_PROCESS_MARKERS)
+
+
+def _pgrep_shows_cursor() -> bool:
+    result = subprocess.run(
+        ["pgrep", "-if", "Cursor"],
+        capture_output=True,
+        text=True,
+        timeout=5,
+    )
+    return result.returncode == 0 and len((result.stdout or "").strip()) > 0
+
+
+def is_cursor_running(
+    env: Optional[Mapping[str, str]] = None, db_path: Optional[Path] = None
+) -> bool:
     """Return True if a Cursor process appears to be running.
 
     Fail-closed: if the probe itself errors, treat Cursor as running so we
     refuse a write rather than risk corrupting state.vscdb.
+
+    On WSL a Windows-side ``Cursor.exe`` is invisible to ``pgrep``, so when the
+    DB we are about to write lives on a Windows drive mount we ask Windows
+    itself via ``tasklist.exe`` over interop, and union that with the Linux
+    probe (a native Cursor could be open too).
     """
     env = env if env is not None else os.environ
     try:
         if os.name == "nt":
-            # Unfiltered tasklist so Helper / GPU / Renderer children also match.
-            result = subprocess.run(
-                ["tasklist", "/NH"],
-                capture_output=True,
-                text=True,
-                timeout=5,
-                env=dict(env),
-            )
-            out = (result.stdout or "").lower()
-            return "cursor.exe" in out or "cursor helper" in out
-        result = subprocess.run(
-            ["pgrep", "-if", "Cursor"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        return result.returncode == 0 and len((result.stdout or "").strip()) > 0
+            return _tasklist_shows_cursor(["tasklist", "/NH"], env)
+        target = db_path or cursor_state_db_path(env)
+        if is_wsl(env) and path_is_windows_mount(target):
+            # No interop / missing tasklist.exe / timeout all raise here and are
+            # caught below as "assume running" — that is the safe direction.
+            if _tasklist_shows_cursor(["tasklist.exe", "/NH"], env):
+                return True
+        return _pgrep_shows_cursor()
     except (OSError, subprocess.SubprocessError):
         logger.warning(
             "cursor process probe failed — refusing swap (fail-closed)",
@@ -136,7 +162,11 @@ def swap_cursor_account(
     if (account.get("provider") or "") != "cursor":
         raise CursorSwapError(f"account {account_id} is not a cursor account")
 
-    if is_cursor_running(env) and not force:
+    # Resolve the target before the guard so the process probe and the write
+    # provably concern the same file.
+    path = db_path or cursor_state_db_path(env)
+
+    if is_cursor_running(env, path) and not force:
         reason = auto_swap_block_reason("cursor") or "Close Cursor before switching."
         raise CursorSwapError(reason)
 
@@ -152,7 +182,6 @@ def swap_cursor_account(
     if not isinstance(auth, dict) or not auth.get("access_token"):
         raise CursorSwapError("credential snapshot has no access_token")
 
-    path = db_path or cursor_state_db_path(env)
     backup = backup_state_vscdb(path, env)
     _write_auth_keys(path, auth)
     outgoing_id = db.get_active_account_id(provider="cursor")
