@@ -12,6 +12,7 @@ import type {
 } from "../core/api-contract";
 import { resolveDshBinary } from "../orchestrator/dsh-binary";
 import { resolveOrchestratorPatchPath } from "../orchestrator/dsh-endpoint";
+import { isBinaryAvailableOnPath } from "./command-discovery";
 
 export interface ResolvedAgentCommand {
 	agentId: RuntimeAgentId;

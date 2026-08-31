@@ -100,8 +100,8 @@ describe("buildRuntimeConfigResponse", () => {
 		});
 
 		expect(response.agentAutonomousModeEnabled).toBe(true);
-		// PixelOffice curates launch-supported agents only (Claude + Cline + Antigravity CLI + Cursor).
-		expect(response.agents.map((agent) => agent.id)).toEqual(["claude", "cline", "gemini", "cursor"]);
+		// PixelOffice curates launch-supported agents only (Claude + Cline + Antigravity CLI + Cursor + Orchestrator).
+		expect(response.agents.map((agent) => agent.id)).toEqual(["claude", "cline", "gemini", "cursor", "orchestrator"]);
 		expect(response.agents.find((agent) => agent.id === "claude")?.defaultArgs).toEqual([]);
 		expect(response.agents.find((agent) => agent.id === "cursor")?.defaultArgs).toEqual([]);
 	});
@@ -125,7 +125,7 @@ describe("buildRuntimeConfigResponse", () => {
 		});
 
 		expect(response.agentAutonomousModeEnabled).toBe(false);
-		expect(response.agents.map((agent) => agent.id)).toEqual(["claude", "cline", "gemini", "cursor"]);
+		expect(response.agents.map((agent) => agent.id)).toEqual(["claude", "cline", "gemini", "cursor", "orchestrator"]);
 		expect(response.agents.find((agent) => agent.id === "claude")?.defaultArgs).toEqual([]);
 		expect(response.agents.find((agent) => agent.id === "cursor")?.defaultArgs).toEqual([]);
 		expect(response.agents.find((agent) => agent.id === "claude")?.command).toBe("claude");
