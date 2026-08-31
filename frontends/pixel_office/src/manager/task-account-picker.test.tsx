@@ -3,6 +3,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
 
+import { pickBestClaudeAutoSeat } from "@runtime-manager-seat-ranking";
 import {
 	TaskAccountPicker,
 	type TaskSeatSelection,
@@ -11,6 +12,7 @@ import {
 	applyTaskSeatSelection,
 	applyTaskSubagentSeatSelection,
 	autoFallbackAccount,
+	autoOptionLabel,
 	autoTaskSeatAccount,
 	filterManagerAccountsForAgent,
 	managerProviderForAgent,
@@ -51,6 +53,10 @@ function account(
 		validationStatus: "valid",
 		lastError: null,
 	};
+}
+
+function isoInHours(hours: number): string {
+	return new Date(Date.now() + hours * 3_600_000).toISOString();
 }
 
 function apiSeat(providerId: string, name: string, defaultModelId: string | null): RuntimeClineApiSeat {
@@ -286,6 +292,54 @@ describe("autoTaskSeatAccount", () => {
 
 	it("returns null for an empty fleet", () => {
 		expect(autoTaskSeatAccount([], 1, "claude")).toBeNull();
+	});
+
+	it("prefers the seat whose 7d window expires soonest over a less-used one", () => {
+		const expiringSoon = account(1, "claude", "soon@example.com");
+		expiringSoon.sevenDayPercent = 60;
+		expiringSoon.sevenDayResetsAt = isoInHours(20);
+		const plentyOfRunway = account(2, "claude", "later@example.com");
+		plentyOfRunway.sevenDayPercent = 10;
+		plentyOfRunway.sevenDayResetsAt = isoInHours(120);
+		expect(autoTaskSeatAccount([plentyOfRunway, expiringSoon], null, "claude")?.id).toBe(1);
+	});
+
+	// The label defers to the same ranker the runtime's `pickLeastUsedClaudeAccountId`
+	// calls (see its own suite), so this pins the frontend half of that contract: a
+	// label naming one seat while the launch pins another is worse than no label.
+	it("defers to the shared ranker rather than ordering seats itself", () => {
+		const seats = [
+			account(1, "claude", "a@example.com"),
+			account(2, "claude", "b@example.com"),
+			account(3, "claude", "c@example.com"),
+		];
+		seats[0]!.sevenDayPercent = 10;
+		seats[0]!.sevenDayResetsAt = isoInHours(150);
+		seats[1]!.sevenDayPercent = 55;
+		seats[1]!.sevenDayResetsAt = isoInHours(30);
+		seats[2]!.sevenDayPercent = 40;
+		seats[2]!.sevenDayResetsAt = isoInHours(26);
+		expect(autoTaskSeatAccount(seats, null, "claude")?.id).toBe(pickBestClaudeAutoSeat(seats)?.id);
+	});
+});
+
+describe("autoOptionLabel", () => {
+	it("explains a Claude Auto pick with the winning seat's 7d runway", () => {
+		const seat = account(1, "claude", "seat@example.com");
+		seat.sevenDayResetsAt = isoInHours(19);
+		expect(autoOptionLabel(seat, "claude")).toBe("Auto · seat@example.com · 7d in 19h");
+	});
+
+	it("omits the runway when the seat has no usable 7d reset", () => {
+		const seat = account(1, "claude", "seat@example.com");
+		expect(autoOptionLabel(seat, "claude")).toBe("Auto · seat@example.com");
+	});
+
+	// Cursor/Antigravity Auto follows the provider-active seat, not this ranking.
+	it("stays plain for Cursor", () => {
+		const seat = account(3, "cursor", "cursor@example.com");
+		seat.sevenDayResetsAt = isoInHours(19);
+		expect(autoOptionLabel(seat, "cursor")).toBe("Auto · cursor@example.com");
 	});
 });
 

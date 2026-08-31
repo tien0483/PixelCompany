@@ -93,6 +93,10 @@ export default defineConfig({
 				"../../backends/runtime/src/cline-sdk/cline-tool-call-display.ts",
 			),
 			"@runtime-home-agent-session": resolve(__dirname, "../../backends/runtime/src/core/home-agent-session.ts"),
+			"@runtime-manager-seat-ranking": resolve(
+				__dirname,
+				"../../backends/runtime/src/manager/claude-auto-seat-ranking.ts",
+			),
 			"@runtime-shortcuts": resolve(__dirname, "../../backends/runtime/src/config/shortcut-utils.ts"),
 			"@runtime-task-id": resolve(__dirname, "../../backends/runtime/src/core/task-id.ts"),
 			"@runtime-task-title": resolve(__dirname, "../../backends/runtime/src/core/task-title.ts"),

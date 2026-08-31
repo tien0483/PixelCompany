@@ -1,4 +1,5 @@
 import { isRuntimeAgentLaunchSupported } from "@runtime-agent-catalog";
+import { pickBestClaudeAutoSeat } from "@runtime-manager-seat-ranking";
 import type { ReactElement } from "react";
 
 import type {
@@ -10,7 +11,7 @@ import type {
 } from "@/runtime/types";
 
 import { NativeSelect } from "@/components/ui/native-select";
-import { formatPercent, isAuthBroken, isDonateExhausted } from "@/manager/manager-format";
+import { formatPercent, formatResetCountdown, isAuthBroken, isDonateExhausted } from "@/manager/manager-format";
 
 const AUTO_VALUE = "auto";
 const MANAGER_VALUE_PREFIX = "manager:";
@@ -195,26 +196,22 @@ function healthySeatPool(accounts: RuntimeManagerAccount[]): RuntimeManagerAccou
 }
 
 /**
- * The seat a card's Auto option resolves to for Claude — the least-used healthy one.
+ * The seat a card's Auto option resolves to for Claude — nearest 7d reset first, then
+ * least used, with a 5h-saturated seat sunk to the back.
  *
- * Must stay in step with the runtime's `pickLeastUsedClaudeAccountId`
- * (`manager/manager-account-pin.ts`), which is what the launch actually consults:
- * a label naming one seat while the task runs on another is worse than no label.
- * Missing usage counts as 0 and ties keep the first candidate, matching it.
+ * The ranking is not reimplemented here: `pickBestClaudeAutoSeat` is the same module the
+ * runtime's `pickLeastUsedClaudeAccountId` calls, so this label cannot name one seat while
+ * the launch pins another. Only the pool narrowing is duplicated (`healthySeatPool`).
  */
-export function autoLeastUsedAccount(accounts: RuntimeManagerAccount[]): RuntimeManagerAccount | null {
-	const pool = healthySeatPool(accounts);
-	if (pool.length === 0) {
-		return null;
-	}
-	return pool.reduce((best, account) => ((account.fiveHourPercent ?? 0) < (best.fiveHourPercent ?? 0) ? account : best));
+export function autoBestSeatAccount(accounts: RuntimeManagerAccount[]): RuntimeManagerAccount | null {
+	return pickBestClaudeAutoSeat(healthySeatPool(accounts));
 }
 
 /**
  * Label for the Auto option — prefer under-donate seats so Auto does not advertise
  * an exhausted seat as the fallback. Explicit pins still list every account.
  *
- * Claude *board tasks* no longer use this: their Auto is `autoLeastUsedAccount`, so
+ * Claude *board tasks* no longer use this: their Auto is `autoBestSeatAccount`, so
  * they stop piling onto the active seat. It stays the resolver for the Cursor and
  * Antigravity provider-active seats, and for the Plans and Review tabs, whose Auto
  * deliberately means "the seat Manager has active".
@@ -233,7 +230,7 @@ export function autoFallbackAccount(
 
 /**
  * The seat a *card's* Auto option resolves to, per agent. Claude cards get the
- * least-used seat (a real per-task pin, made at launch); Cursor and Antigravity keep
+ * best-ranked seat (a real per-task pin, made at launch); Cursor and Antigravity keep
  * following their provider-active seat, since neither can be pinned per task —
  * Cursor Auto inherits `agent login` and Antigravity's credentials are machine-wide.
  */
@@ -245,7 +242,26 @@ export function autoTaskSeatAccount(
 	if (agentId === "cursor" || agentId === "gemini") {
 		return autoFallbackAccount(accounts, activeAccountId, agentId);
 	}
-	return autoLeastUsedAccount(accounts);
+	return autoBestSeatAccount(accounts);
+}
+
+/**
+ * Label for the resolved Auto seat. Claude cards append the winning seat's 7d runway,
+ * because that deadline — not the 5h reading the option rows show — is what decided the
+ * pick, and an otherwise-unexplained "Auto · bob" reads as arbitrary. Cursor and
+ * Antigravity Auto follows their provider-active seat, so there is nothing to explain.
+ */
+export function autoOptionLabel(
+	account: RuntimeManagerAccount,
+	agentId: RuntimeAgentId | null,
+	nowMs: number = Date.now(),
+): string {
+	const name = account.displayName ?? account.email;
+	if (agentId === "cursor" || agentId === "gemini") {
+		return `Auto · ${name}`;
+	}
+	const runway = formatResetCountdown(account.sevenDayResetsAt, nowMs);
+	return runway ? `Auto · ${name} · 7d in ${runway}` : `Auto · ${name}`;
 }
 
 /**
@@ -269,9 +285,7 @@ export function TaskAccountPicker({
 	subagentSeatAppliesOnRestart = false,
 }: TaskAccountPickerProps): ReactElement {
 	const fallbackAccount = autoTaskSeatAccount(accounts, activeAccountId, agentId);
-	const autoLabel = fallbackAccount
-		? `Auto · ${fallbackAccount.displayName ?? fallbackAccount.email}`
-		: "Auto (active account)";
+	const autoLabel = fallbackAccount ? autoOptionLabel(fallbackAccount, agentId) : "Auto (active account)";
 	// Orphaned pins (wrong provider after an agent switch) must not stick as a
 	// select value — fall back to Auto so the next start can resolve correctly.
 	const pinnedSeat =
