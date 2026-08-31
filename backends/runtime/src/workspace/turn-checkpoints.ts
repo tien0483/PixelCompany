@@ -75,6 +75,19 @@ export async function captureTaskTurnCheckpoint(input: {
 	turn: number;
 }): Promise<RuntimeTaskTurnCheckpoint> {
 	const repoRoot = await runGit(input.cwd, ["rev-parse", "--show-toplevel"]);
+	const porcelain = await tryRunGit(repoRoot, ["status", "--porcelain"]);
+	if (!porcelain || porcelain.trim().length === 0) {
+		const headCommit = await runGit(repoRoot, ["rev-parse", "--verify", "HEAD"]);
+		const ref = buildCheckpointRef(input.taskId, input.turn);
+		await runGit(repoRoot, ["update-ref", ref, headCommit]);
+		return {
+			turn: input.turn,
+			ref,
+			commit: headCommit,
+			createdAt: Date.now(),
+		};
+	}
+
 	const commit = await createWorkingTreeCheckpointCommit(repoRoot, input.turn, input.taskId);
 	const ref = buildCheckpointRef(input.taskId, input.turn);
 	await runGit(repoRoot, ["update-ref", ref, commit]);

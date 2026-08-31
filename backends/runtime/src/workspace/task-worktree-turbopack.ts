@@ -149,7 +149,30 @@ function getNodeModulesPathForPackageDir(repoPath: string, packageDir: string): 
 		: NODE_MODULES_RELATIVE_PATH;
 }
 
-export async function listTurbopackNodeModulesSymlinkSkipPaths(repoPath: string): Promise<string[]> {
+const TURBOPACK_SKIP_PATHS_CACHE_TTL_MS = 60_000;
+
+interface TurbopackSkipPathsCacheEntry {
+	head: string;
+	paths: string[];
+	cachedAt: number;
+}
+
+const turbopackSkipPathsCache = new Map<string, TurbopackSkipPathsCacheEntry>();
+
+export function clearTurbopackSkipPathsCacheForTests(): void {
+	turbopackSkipPathsCache.clear();
+}
+
+async function resolveRepoHead(repoPath: string): Promise<string | null> {
+	try {
+		const head = await readFile(join(repoPath, ".git", "HEAD"), "utf8");
+		return head.trim();
+	} catch {
+		return null;
+	}
+}
+
+async function listTurbopackNodeModulesSymlinkSkipPathsUncached(repoPath: string): Promise<string[]> {
 	const skipPaths = new Set<string>();
 
 	if (await packageDirectoryUsesTurbopack(repoPath)) {
@@ -164,4 +187,28 @@ export async function listTurbopackNodeModulesSymlinkSkipPaths(repoPath: string)
 	}
 
 	return Array.from(skipPaths).sort();
+}
+
+export async function listTurbopackNodeModulesSymlinkSkipPaths(repoPath: string): Promise<string[]> {
+	const head = await resolveRepoHead(repoPath);
+	if (head) {
+		const cached = turbopackSkipPathsCache.get(repoPath);
+		if (
+			cached &&
+			cached.head === head &&
+			Date.now() - cached.cachedAt <= TURBOPACK_SKIP_PATHS_CACHE_TTL_MS
+		) {
+			return cached.paths;
+		}
+	}
+
+	const paths = await listTurbopackNodeModulesSymlinkSkipPathsUncached(repoPath);
+	if (head) {
+		turbopackSkipPathsCache.set(repoPath, {
+			head,
+			paths,
+			cachedAt: Date.now(),
+		});
+	}
+	return paths;
 }

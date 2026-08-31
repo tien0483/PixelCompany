@@ -72,6 +72,7 @@ import {
 	getTaskWorkspaceInfo,
 	resolveTaskCwd,
 } from "../workspace/task-worktree";
+import { measureTaskStartSpan } from "../workspace/task-start-timing";
 import type { RuntimeTrpcContext } from "./app-router";
 
 export interface CreateWorkspaceApiDependencies {
@@ -794,11 +795,13 @@ export function createWorkspaceApi(deps: CreateWorkspaceApiDependencies): Runtim
 		},
 		ensureWorktree: async (workspaceScope, input) => {
 			const body = parseWorktreeEnsureRequest(input);
-			return await ensureTaskWorktreeIfDoesntExist({
-				cwd: workspaceScope.workspacePath,
-				taskId: body.taskId,
-				baseRef: body.baseRef,
-			});
+			return await measureTaskStartSpan("ensureWorktree.total", () =>
+				ensureTaskWorktreeIfDoesntExist({
+					cwd: workspaceScope.workspacePath,
+					taskId: body.taskId,
+					baseRef: body.baseRef,
+				}),
+			);
 		},
 		deleteWorktree: async (workspaceScope, input) => {
 			const body = parseWorktreeDeleteRequest(input);

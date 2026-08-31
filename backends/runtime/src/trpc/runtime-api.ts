@@ -20,6 +20,8 @@ import type {
 	RuntimeHostEnvironmentResponse,
 	RuntimeRunUpdateResponse,
 	RuntimeTaskClineSettings,
+	RuntimeTaskSessionSummary,
+	RuntimeTaskTurnCheckpoint,
 	RuntimeUpdateStatusResponse,
 } from "../core/api-contract";
 import {
@@ -76,6 +78,7 @@ import { resolveTaskCwd } from "../workspace/task-worktree";
 import { LEGACY_RUNTIME_HOME_PARENT_DIR_NAME, RUNTIME_HOME_PARENT_DIR_NAME } from "../workspace/task-worktree-path";
 import type { FlowiseClient } from "../flowise/flowise-client";
 import { captureTaskTurnCheckpoint } from "../workspace/turn-checkpoints";
+import { measureTaskStartSpan } from "../workspace/task-start-timing";
 import type { RuntimeTrpcContext, RuntimeTrpcWorkspaceScope } from "./app-router";
 
 export interface CreateRuntimeApiDependencies {
@@ -161,6 +164,26 @@ async function resolveExistingTaskCwdOrEnsure(options: {
 			ensure: true,
 		});
 	}
+}
+
+function scheduleTurnCheckpointCapture(options: {
+	cwd: string;
+	taskId: string;
+	turn: number;
+	applyCheckpoint: (checkpoint: RuntimeTaskTurnCheckpoint) => RuntimeTaskSessionSummary | null;
+}): void {
+	void measureTaskStartSpan("startTaskSession.turnCheckpoint", async () => {
+		try {
+			const checkpoint = await captureTaskTurnCheckpoint({
+				cwd: options.cwd,
+				taskId: options.taskId,
+				turn: options.turn,
+			});
+			options.applyCheckpoint(checkpoint);
+		} catch {
+			// Best effort checkpointing only.
+		}
+	});
 }
 
 export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrpcContext["runtimeApi"] {
@@ -353,17 +376,14 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 
 					let nextSummary = summary;
 					if (shouldCaptureTurnCheckpoint) {
-						try {
-							const nextTurn = (summary.latestTurnCheckpoint?.turn ?? 0) + 1;
-							const checkpoint = await captureTaskTurnCheckpoint({
-								cwd: taskCwd,
-								taskId: body.taskId,
-								turn: nextTurn,
-							});
-							nextSummary = clineTaskSessionService.applyTurnCheckpoint(body.taskId, checkpoint) ?? summary;
-						} catch {
-							// Best effort checkpointing only.
-						}
+						const nextTurn = (summary.latestTurnCheckpoint?.turn ?? 0) + 1;
+						scheduleTurnCheckpointCapture({
+							cwd: taskCwd,
+							taskId: body.taskId,
+							turn: nextTurn,
+							applyCheckpoint: (checkpoint) =>
+								clineTaskSessionService.applyTurnCheckpoint(body.taskId, checkpoint),
+						});
 					}
 
 					return {
@@ -388,20 +408,22 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 				// tasks can hold different accounts — a pinned card on the seat it names,
 				// an Auto card on the least-used healthy one. Neither reads or writes
 				// jacked's global active seat, which the Plans and Review tabs use.
-				const accountPin = await resolveManagerAccountPin({
-					agentId: resolved.agentId,
-					managerAccountId: body.managerAccountId,
-					getAccountLaunchDir: deps.getManagerAccountLaunchDir ?? (async () => null),
-					getAccountLaunchCredential: deps.getManagerAccountLaunchCredential ?? (async () => null),
-					getAccountProvider: async (accountId) => (await deps.getManagerAccountProvider?.(accountId)) ?? null,
-					resolveDefaultCursorAccountId: deps.resolveDefaultCursormanagerAccountId,
-					resolveActiveClaudeAccountId: deps.resolveActiveClaudemanagerAccountId,
-					resolveAutoClaudeAccountId: deps.resolveAutoClaudemanagerAccountId,
-					resolveLiveActiveClaudeAccountId: deps.resolveLiveActiveClaudemanagerAccountId,
-					getPinnedAccount: deps.getPinnedManagerAccount,
-					needsClaudeConfigDirForLaunchTags:
-						resolved.agentId === "claude" && hasClaudeScopedConfigAllowlist(body.taskLaunchSettings),
-				});
+				const accountPin = await measureTaskStartSpan("startTaskSession.accountPin", () =>
+					resolveManagerAccountPin({
+						agentId: resolved.agentId,
+						managerAccountId: body.managerAccountId,
+						getAccountLaunchDir: deps.getManagerAccountLaunchDir ?? (async () => null),
+						getAccountLaunchCredential: deps.getManagerAccountLaunchCredential ?? (async () => null),
+						getAccountProvider: async (accountId) => (await deps.getManagerAccountProvider?.(accountId)) ?? null,
+						resolveDefaultCursorAccountId: deps.resolveDefaultCursormanagerAccountId,
+						resolveActiveClaudeAccountId: deps.resolveActiveClaudemanagerAccountId,
+						resolveAutoClaudeAccountId: deps.resolveAutoClaudemanagerAccountId,
+						resolveLiveActiveClaudeAccountId: deps.resolveLiveActiveClaudemanagerAccountId,
+						getPinnedAccount: deps.getPinnedManagerAccount,
+						needsClaudeConfigDirForLaunchTags:
+							resolved.agentId === "claude" && hasClaudeScopedConfigAllowlist(body.taskLaunchSettings),
+					}),
+				);
 				// Locked donate cap over limit: abort before starting the session.
 				if (accountPin.blocked) {
 					return {
@@ -412,40 +434,38 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 				}
 				// Cursor Auto: no CURSOR_API_KEY injection — same auth as interactive
 				// `agent` (`agent login`). Explicit seat pins still inject a key.
-				const summary = await terminalManager.startTaskSession({
-					taskId: body.taskId,
-					agentId: resolved.agentId,
-					binary: resolved.binary,
-					args: resolved.args,
-					autonomousModeEnabled: scopedRuntimeConfig.agentAutonomousModeEnabled,
-					cwd: taskCwd,
-					prompt: launchPrompt,
-					images: body.images,
-					startInPlanMode: body.startInPlanMode,
-					resumeFromTrash: body.resumeFromTrash,
-					resumeFromPersistence: body.resumeFromPersistence,
-					cols: body.cols,
-					rows: body.rows,
-					workspaceId: workspaceScope.workspaceId,
-					taskLaunchSettings: body.taskLaunchSettings,
-					autoResumeOnUsageLimit: body.autoResumeOnUsageLimit ?? false,
-					...(Object.keys(accountPin.env).length > 0 ? { env: accountPin.env } : {}),
-					...(accountPin.accountId === null ? {} : { managerAccountId: accountPin.accountId }),
-				});
+				const summary = await measureTaskStartSpan("startTaskSession.ptyPrepare", () =>
+					terminalManager.startTaskSession({
+						taskId: body.taskId,
+						agentId: resolved.agentId,
+						binary: resolved.binary,
+						args: resolved.args,
+						autonomousModeEnabled: scopedRuntimeConfig.agentAutonomousModeEnabled,
+						cwd: taskCwd,
+						prompt: launchPrompt,
+						images: body.images,
+						startInPlanMode: body.startInPlanMode,
+						resumeFromTrash: body.resumeFromTrash,
+						resumeFromPersistence: body.resumeFromPersistence,
+						cols: body.cols,
+						rows: body.rows,
+						workspaceId: workspaceScope.workspaceId,
+						taskLaunchSettings: body.taskLaunchSettings,
+						autoResumeOnUsageLimit: body.autoResumeOnUsageLimit ?? false,
+						...(Object.keys(accountPin.env).length > 0 ? { env: accountPin.env } : {}),
+						...(accountPin.accountId === null ? {} : { managerAccountId: accountPin.accountId }),
+					}),
+				);
 
-				let nextSummary = summary;
+				const nextSummary = summary;
 				if (shouldCaptureTurnCheckpoint) {
-					try {
-						const nextTurn = (summary.latestTurnCheckpoint?.turn ?? 0) + 1;
-						const checkpoint = await captureTaskTurnCheckpoint({
-							cwd: taskCwd,
-							taskId: body.taskId,
-							turn: nextTurn,
-						});
-						nextSummary = terminalManager.applyTurnCheckpoint(body.taskId, checkpoint) ?? summary;
-					} catch {
-						// Best effort checkpointing only.
-					}
+					const nextTurn = (summary.latestTurnCheckpoint?.turn ?? 0) + 1;
+					scheduleTurnCheckpointCapture({
+						cwd: taskCwd,
+						taskId: body.taskId,
+						turn: nextTurn,
+						applyCheckpoint: (checkpoint) => terminalManager.applyTurnCheckpoint(body.taskId, checkpoint),
+					});
 				}
 				return {
 					ok: true,

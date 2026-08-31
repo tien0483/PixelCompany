@@ -586,6 +586,7 @@ export default function App(): ReactElement {
 		sendTaskSessionInput,
 		sendTaskChatMessage,
 		fetchTaskWorkspaceInfo,
+		taskSessions: sessions,
 		isGitHistoryOpen,
 		refreshWorkspaceState,
 	});

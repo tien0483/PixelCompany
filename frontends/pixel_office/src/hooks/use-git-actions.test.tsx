@@ -313,6 +313,46 @@ describe("useGitActions", () => {
 		expect(showAppToastMock).not.toHaveBeenCalled();
 	});
 
+	it("sends commit prompts through the terminal when the task card uses a non-cline agent", async () => {
+		const sendTaskSessionInput = vi.fn(async () => ({ ok: true }));
+		const sendTaskChatMessage = vi.fn(async () => ({ ok: true }));
+		let latestSnapshot: HookSnapshot | null = null;
+		const board = createBoard();
+		board.columns[0].cards[0] = {
+			...board.columns[0].cards[0],
+			agentId: "cursor",
+		};
+
+		await act(async () => {
+			root.render(
+				<HookHarness
+					board={board}
+					sendTaskSessionInput={sendTaskSessionInput}
+					sendTaskChatMessage={sendTaskChatMessage}
+					onSnapshot={(snapshot) => {
+						latestSnapshot = snapshot;
+					}}
+				/>,
+			);
+			await Promise.resolve();
+		});
+
+		if (latestSnapshot === null) {
+			throw new Error("Expected a hook snapshot.");
+		}
+
+		await act(async () => {
+			latestSnapshot?.handleAgentCommitTask("task-1");
+			await Promise.resolve();
+			await Promise.resolve();
+			await Promise.resolve();
+		});
+
+		expect(sendTaskSessionInput).toHaveBeenCalled();
+		expect(sendTaskChatMessage).not.toHaveBeenCalled();
+		expect(showAppToastMock).not.toHaveBeenCalled();
+	});
+
 	async function mountHook(options?: {
 		board?: BoardData;
 		fetchTaskWorkspaceInfo?: Parameters<

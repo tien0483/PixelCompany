@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { access, lstat, mkdir, readdir, readFile, rm, symlink } from "node:fs/promises";
+import { access, lstat, mkdir, readdir, readFile, readlink, rm, symlink, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join } from "node:path";
 
 import type {
@@ -25,12 +25,22 @@ import {
 } from "./git-utils";
 import { getWorkspaceFolderLabelForWorktreePath, normalizeTaskIdForWorktreePath } from "./task-worktree-path";
 import { listTurbopackNodeModulesSymlinkSkipPaths } from "./task-worktree-turbopack";
+import { measureTaskStartSpan } from "./task-start-timing";
+import { readCachedIgnoredPaths, writeCachedIgnoredPaths } from "./task-worktree-sync-cache";
 
 const KANBAN_MANAGED_EXCLUDE_BLOCK_START = "# kanban-managed-symlinked-ignored-paths:start";
 const KANBAN_MANAGED_EXCLUDE_BLOCK_END = "# kanban-managed-symlinked-ignored-paths:end";
 const KANBAN_TRASHED_TASK_PATCHES_DIR_NAME = "trashed-task-patches";
 const KANBAN_TASK_WORKTREE_SETUP_LOCKFILE_NAME = "kanban-task-worktree-setup.lock";
+const KANBAN_WORKTREE_META_DIR_NAME = ".kanban";
+const IGNORED_SYMLINKS_MANIFEST_FILENAME = "ignored-symlinks.json";
 const TASK_PATCH_FILE_SUFFIX = ".patch";
+
+interface IgnoredSymlinksManifest {
+	homeHead: string;
+	syncedPaths: string[];
+	syncedAt: number;
+}
 
 const SYMLINK_PATH_SEGMENT_BLACKLIST = new Set([
 	".git",
@@ -346,14 +356,145 @@ function getUniquePaths(relativePaths: string[]): string[] {
 }
 
 async function listIgnoredPaths(repoPath: string): Promise<string[]> {
+	const homeHead = await getRepoHeadCommit(repoPath);
+	if (homeHead) {
+		const cached = readCachedIgnoredPaths(repoPath, homeHead);
+		if (cached) {
+			return cached;
+		}
+	}
+
 	const output = await getGitStdout(
 		["ls-files", "--others", "--ignored", "--exclude-per-directory=.gitignore", "--directory"],
 		repoPath,
 	);
-	return output
+	const paths = output
 		.split("\n")
 		.map((line) => toPlatformRelativePath(line))
 		.filter((line) => line.length > 0);
+	if (homeHead) {
+		writeCachedIgnoredPaths(repoPath, homeHead, paths);
+	}
+	return paths;
+}
+
+function getWorktreeManifestPath(worktreePath: string): string {
+	return join(worktreePath, KANBAN_WORKTREE_META_DIR_NAME, IGNORED_SYMLINKS_MANIFEST_FILENAME);
+}
+
+async function readIgnoredSymlinksManifest(worktreePath: string): Promise<IgnoredSymlinksManifest | null> {
+	const manifestPath = getWorktreeManifestPath(worktreePath);
+	try {
+		const raw = await readFile(manifestPath, "utf8");
+		const parsed = JSON.parse(raw) as Partial<IgnoredSymlinksManifest>;
+		if (
+			typeof parsed.homeHead !== "string" ||
+			!Array.isArray(parsed.syncedPaths) ||
+			typeof parsed.syncedAt !== "number"
+		) {
+			return null;
+		}
+		return {
+			homeHead: parsed.homeHead,
+			syncedPaths: parsed.syncedPaths.filter((path): path is string => typeof path === "string"),
+			syncedAt: parsed.syncedAt,
+		};
+	} catch {
+		return null;
+	}
+}
+
+async function writeIgnoredSymlinksManifest(
+	worktreePath: string,
+	manifest: IgnoredSymlinksManifest,
+): Promise<void> {
+	const manifestPath = getWorktreeManifestPath(worktreePath);
+	await mkdir(dirname(manifestPath), { recursive: true });
+	await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+}
+
+async function getRepoHeadCommit(repoPath: string): Promise<string | null> {
+	return await tryRunGit(repoPath, ["rev-parse", "HEAD"]);
+}
+
+async function isValidIgnoredPathMirror(sourcePath: string, targetPath: string): Promise<boolean> {
+	if (!(await pathExists(targetPath))) {
+		return false;
+	}
+	try {
+		const targetStat = await lstat(targetPath);
+		if (!targetStat.isSymbolicLink()) {
+			return true;
+		}
+		const linkTarget = await readlink(targetPath);
+		const resolvedTarget = isAbsolute(linkTarget) ? linkTarget : join(dirname(targetPath), linkTarget);
+		return resolvedTarget === sourcePath;
+	} catch {
+		return false;
+	}
+}
+
+async function areManifestSymlinksValid(
+	repoPath: string,
+	worktreePath: string,
+	manifest: IgnoredSymlinksManifest,
+): Promise<boolean> {
+	for (const relativePath of manifest.syncedPaths) {
+		const sourcePath = join(repoPath, relativePath);
+		const targetPath = join(worktreePath, relativePath);
+		if (!(await pathExists(sourcePath))) {
+			continue;
+		}
+		if (!(await isValidIgnoredPathMirror(sourcePath, targetPath))) {
+			return false;
+		}
+	}
+	return true;
+}
+
+async function listConfiguredSubmodulePaths(worktreePath: string): Promise<string[]> {
+	const gitmodulesPath = join(worktreePath, ".gitmodules");
+	if (!(await pathExists(gitmodulesPath))) {
+		return [];
+	}
+
+	const result = await runGit(worktreePath, [
+		"config",
+		"--file",
+		gitmodulesPath,
+		"--get-regexp",
+		"^submodule\\..*\\.path$",
+	]);
+	if (!result.ok) {
+		return [];
+	}
+
+	return result.stdout
+		.split("\n")
+		.map((line) => line.trim())
+		.filter((line) => line.length > 0)
+		.map((line) => {
+			const spaceIndex = line.indexOf(" ");
+			return spaceIndex >= 0 ? line.slice(spaceIndex + 1).trim() : "";
+		})
+		.filter((path) => path.length > 0)
+		.map((path) => toPlatformRelativePath(path));
+}
+
+async function isPopulatedSubmoduleCheckout(submodulePath: string): Promise<boolean> {
+	if (!(await pathExists(submodulePath))) {
+		return false;
+	}
+	const gitMarkerPath = join(submodulePath, ".git");
+	if (!(await pathExists(gitMarkerPath))) {
+		return false;
+	}
+	try {
+		const gitMarkerStat = await lstat(gitMarkerPath);
+		return gitMarkerStat.isFile() || gitMarkerStat.isDirectory();
+	} catch {
+		return false;
+	}
 }
 
 async function worktreeHasConfiguredSubmodules(worktreePath: string): Promise<boolean> {
@@ -429,7 +570,7 @@ async function syncManagedIgnoredPathExcludes(repoPath: string, relativePaths: s
 	await lockedFileSystem.writeTextFileAtomic(excludePath, normalizedNextContent);
 }
 
-async function syncIgnoredPathsIntoWorktree(repoPath: string, worktreePath: string): Promise<void> {
+async function syncIgnoredPathsIntoWorktree(repoPath: string, worktreePath: string): Promise<string[]> {
 	const ignoredPaths = getUniquePaths(await listIgnoredPaths(repoPath)).filter(
 		(relativePath) => !shouldSkipSymlink(relativePath),
 	);
@@ -437,6 +578,7 @@ async function syncIgnoredPathsIntoWorktree(repoPath: string, worktreePath: stri
 	const mirroredIgnoredPaths = ignoredPaths.filter((relativePath) => !turbopackNodeModulesSkipPaths.has(relativePath));
 
 	await syncManagedIgnoredPathExcludes(repoPath, mirroredIgnoredPaths);
+	const syncedPaths: string[] = [];
 	for (const relativePath of mirroredIgnoredPaths) {
 		if (shouldSkipSymlink(relativePath)) {
 			continue;
@@ -449,21 +591,77 @@ async function syncIgnoredPathsIntoWorktree(repoPath: string, worktreePath: stri
 
 		const targetPath = join(worktreePath, relativePath);
 		if (await pathExists(targetPath)) {
+			syncedPaths.push(relativePath);
 			continue;
 		}
 
 		const sourceStat = await lstat(sourcePath);
 		await mkdir(dirname(targetPath), { recursive: true });
-		await mirrorIgnoredPath({
+		const mirrored = await mirrorIgnoredPath({
 			sourcePath,
 			targetPath,
 			isDirectory: sourceStat.isDirectory(),
 		});
+		if (mirrored === "mirrored") {
+			syncedPaths.push(relativePath);
+		}
 	}
+	return syncedPaths;
 }
 
-async function initializeSubmodulesIfNeeded(worktreePath: string): Promise<void> {
+async function syncIgnoredPathsIntoWorktreeIfStale(repoPath: string, worktreePath: string): Promise<void> {
+	const homeHead = await getRepoHeadCommit(repoPath);
+	if (!homeHead) {
+		await syncIgnoredPathsIntoWorktree(repoPath, worktreePath);
+		return;
+	}
+
+	const manifest = await readIgnoredSymlinksManifest(worktreePath);
+	if (
+		manifest &&
+		manifest.homeHead === homeHead &&
+		(await areManifestSymlinksValid(repoPath, worktreePath, manifest))
+	) {
+		return;
+	}
+
+	const syncedPaths = await syncIgnoredPathsIntoWorktree(repoPath, worktreePath);
+	const mergedPaths = getUniquePaths([...(manifest?.syncedPaths ?? []), ...syncedPaths]);
+	await writeIgnoredSymlinksManifest(worktreePath, {
+		homeHead,
+		syncedPaths: mergedPaths,
+		syncedAt: Date.now(),
+	});
+}
+
+async function initializeSubmodulesIfNeeded(repoPath: string, worktreePath: string): Promise<void> {
 	if (!(await worktreeHasConfiguredSubmodules(worktreePath))) {
+		return;
+	}
+
+	const submodulePaths = await listConfiguredSubmodulePaths(worktreePath);
+	if (submodulePaths.length === 0) {
+		await getGitStdout(["submodule", "update", "--init", "--recursive"], worktreePath);
+		return;
+	}
+
+	const populatedInHomeRepo = await Promise.all(
+		submodulePaths.map(async (relativePath) => isPopulatedSubmoduleCheckout(join(repoPath, relativePath))),
+	);
+	if (populatedInHomeRepo.every(Boolean)) {
+		for (const relativePath of submodulePaths) {
+			const sourcePath = join(repoPath, relativePath);
+			const targetPath = join(worktreePath, relativePath);
+			if (await pathExists(targetPath)) {
+				continue;
+			}
+			await mkdir(dirname(targetPath), { recursive: true });
+			await mirrorIgnoredPath({
+				sourcePath,
+				targetPath,
+				isDirectory: true,
+			});
+		}
 		return;
 	}
 
@@ -472,8 +670,8 @@ async function initializeSubmodulesIfNeeded(worktreePath: string): Promise<void>
 
 async function prepareNewTaskWorktree(repoPath: string, worktreePath: string): Promise<void> {
 	try {
-		await initializeSubmodulesIfNeeded(worktreePath);
-		await syncIgnoredPathsIntoWorktree(repoPath, worktreePath);
+		await initializeSubmodulesIfNeeded(repoPath, worktreePath);
+		await syncIgnoredPathsIntoWorktreeIfStale(repoPath, worktreePath);
 	} catch (error) {
 		await removeTaskWorktreeInternal(repoPath, worktreePath).catch(() => {});
 		throw error;
@@ -523,7 +721,9 @@ export async function ensureTaskWorktreeIfDoesntExist(options: {
 		// worktrees are now treated as authoritative and only missing worktrees are created.
 		const existingResult = await runGit(worktreePath, ["rev-parse", "HEAD"]);
 		if (existingResult.ok && existingResult.stdout) {
-			await syncIgnoredPathsIntoWorktree(context.repoPath, worktreePath);
+			await measureTaskStartSpan("ensureWorktree.syncIgnoredPaths", () =>
+				syncIgnoredPathsIntoWorktreeIfStale(context.repoPath, worktreePath),
+			);
 			const baseRef = await resolveExistingWorktreeBaseRef({
 				repoPath: context.repoPath,
 				workspaceId: context.workspaceId,
@@ -542,7 +742,9 @@ export async function ensureTaskWorktreeIfDoesntExist(options: {
 		return await withTaskWorktreeSetupLock(context.repoPath, async () => {
 			const lockedExistingCommit = await tryRunGit(worktreePath, ["rev-parse", "HEAD"]);
 			if (lockedExistingCommit) {
-				await syncIgnoredPathsIntoWorktree(context.repoPath, worktreePath);
+				await measureTaskStartSpan("ensureWorktree.syncIgnoredPaths", () =>
+					syncIgnoredPathsIntoWorktreeIfStale(context.repoPath, worktreePath),
+				);
 				const baseRef = await resolveExistingWorktreeBaseRef({
 					repoPath: context.repoPath,
 					workspaceId: context.workspaceId,
@@ -606,7 +808,9 @@ export async function ensureTaskWorktreeIfDoesntExist(options: {
 			await runGit(context.repoPath, ["worktree", "prune"]);
 
 			await mkdir(dirname(worktreePath), { recursive: true });
-			const addResult = await runGit(context.repoPath, ["worktree", "add", "--detach", worktreePath, baseCommit]);
+			const addResult = await measureTaskStartSpan("ensureWorktree.worktreeAdd", async () =>
+				runGit(context.repoPath, ["worktree", "add", "--detach", worktreePath, baseCommit]),
+			);
 			if (!addResult.ok) {
 				if (!storedPatch) {
 					return {
