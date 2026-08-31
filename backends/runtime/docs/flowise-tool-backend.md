@@ -81,18 +81,53 @@ Add a **Custom MCP Server** (or MCP Tool node) in the canvas:
 This is the same endpoint family as the org allowlisted GitLab MCP. Here it is invoked by
 **Flowise on loopback**, not by Claude Code on the card.
 
-### LLM credential (Flowise → Credentials)
+### LLM credential
 
-Every **Chat Model** node needs a credential in the studio:
+Two options, and the first needs no key at all.
+
+**Seat-backed nodes (no credential).** The **PixelOffice** category in the node palette holds
+three nodes that route through the runtime's loopback LLM proxy, which attaches the Manager
+seat's credential before forwarding:
+
+| Node | Bills | Route |
+|------|-------|-------|
+| `Claude (PixelOffice seat)` | Manager Claude seat OAuth | `/api/flowise-llm-proxy/anthropic` |
+| `Cursor (PixelOffice seat)` | pinned Cursor seat, else OmniRoute API seat | `/api/flowise-llm-proxy/cursor` |
+| `Antigravity (PixelOffice seat)` | Antigravity seat OAuth | `/api/flowise-llm-proxy/gemini` |
+
+They have no credential field and no base URL field — both come from the runtime. The Agents
+sidebar shows, per route, the seat it resolved **and** whether a probe of that route succeeded;
+"seat · route failing" means the credential exists but upstream rejected it, which is a
+different problem from "no seat".
+
+Two things had to change in the fork for these to work at all, and both are worth knowing
+before debugging one:
+
+- Flowise's SSRF guard denies `127.0.0.0/8` and `localhost` by default, so *any* node pointed at
+  the proxy failed with `Access to this host is denied by policy.` The supervisor now sets
+  `HTTP_ALLOW_LIST` to the runtime origin only. Never reach for `HTTP_SECURITY_CHECK=false`,
+  which unguards every HTTP/Cheerio/Puppeteer/MCP node on a canvas that has no login.
+- The upstream `Anthropic Claude` node had no base-URL input; it now has one ("Base URL", under
+  additional params), so the generic node can also target the proxy or any compatible endpoint.
+
+**Flowise Credentials (bring your own key)** — still the path for anything else:
 
 | Provider | Typical use |
 |----------|-------------|
-| Anthropic | Claude inside the flow |
+| Anthropic | Claude inside the flow, on your own key |
 | OpenAI | GPT inside the flow |
 | DeepSeek / OpenRouter | Cheaper research model |
 
 These keys are **only** for hops inside the canvas. They are not Manager OAuth, FPT.AI
 subagent seats, or Cursor subscription.
+
+### Node palette
+
+The studio loads a curated subset of the ~280 upstream nodes. The list lives in
+`backends/runtime/config/flowise/node-allowlist.json` and reaches the studio as
+`ENABLED_NODE_CATEGORIES` / `ENABLED_NODES`. Deleting that file restores every node — the
+fail-open direction, so an unreadable list cannot hide a node a saved flow depends on. If you
+drop a category that an existing flow uses, list that flow's node under `"nodes"`.
 
 **Deploy** the flow when the canvas is ready. Only deployed flows appear in the MCP picker
 and answer the prediction API.
@@ -150,7 +185,8 @@ Research question for run_agent:
 
 | Want | Status |
 |------|--------|
-| Flowise LLM billed to Manager Claude OAuth / API seat | **Phase 3** — `/api/flowise-llm-proxy/{anthropic,gemini,openai,cursor}`; Manager Claude, Antigravity Gemini, Cline API seats, Cursor via OmniRoute |
+| Flowise LLM billed to Manager Claude OAuth / API seat | **Shipped** — the three **PixelOffice** nodes above, over `/api/flowise-llm-proxy/{anthropic,gemini,openai,cursor}` |
+| Gemini on Antigravity OAuth | Route exists; upstream is `generativelanguage.googleapis.com`, which may want a quota project for a CLI OAuth bearer. Check the route's probe state in the Agents sidebar before building a flow on it |
 | Same MCP registry on card and canvas | Manual duplicate config |
 | Claude `.claude/skills` inside Flowise | Encode behavior in AgentFlow prompt/nodes |
 | One subscription for all LLM hops | Wired nodes share Manager/Cline seats; other providers still need Flowise Credentials |

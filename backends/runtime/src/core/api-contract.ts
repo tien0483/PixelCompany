@@ -1434,9 +1434,22 @@ export type RuntimeFlowiseFlow = z.infer<typeof RuntimeFlowiseFlowSchema>;
 /** Per-provider readiness for Flowise LLM proxy routes. */
 export const RuntimeFlowiseLlmProxyProviderStatusSchema = z.object({
 	id: z.enum(["anthropic", "gemini", "openai", "cursor"]),
+	/** A seat exists with a live credential. Says nothing about the upstream accepting it. */
 	available: z.boolean(),
 	seatLabel: z.string().nullable().optional(),
+	/** Human label of the studio node that uses this route. */
 	flowiseNode: z.string().optional(),
+	/** The node's `name` in the palette, for copy that has to be exact. */
+	flowiseNodeName: z.string().optional(),
+	/**
+	 * Result of a zero-token upstream probe (a models listing), cached briefly. Undefined when
+	 * no probe has run yet — distinct from `false`, which means the route answered with an
+	 * error. Additions here must stay `.optional()`: the schema is `z.infer`'d into the
+	 * frontend, so a required field breaks every existing construction site and fixture.
+	 */
+	pathVerified: z.boolean().optional(),
+	/** Upstream's status code / message when `pathVerified` is false. */
+	pathDetail: z.string().optional(),
 });
 export type RuntimeFlowiseLlmProxyProviderStatus = z.infer<typeof RuntimeFlowiseLlmProxyProviderStatusSchema>;
 

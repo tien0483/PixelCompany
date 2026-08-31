@@ -84,6 +84,25 @@ async function refreshAccessToken(creds: GeminiOAuthCreds): Promise<GeminiOAuthC
 	return merged;
 }
 
+/**
+ * Reports whether a usable credential exists without touching the network or the file.
+ *
+ * Status polling must not go through `resolveGeminiAccessToken`: that refreshes, and a refresh
+ * rewrites `oauth_creds.json` — the file the Antigravity CLI owns and rotates. A sidebar that
+ * repaints every few seconds would race the CLI for a single-use refresh token.
+ */
+export async function hasGeminiCredential(): Promise<boolean> {
+	const creds = await readOAuthCredsFile();
+	if (creds === null) {
+		return false;
+	}
+	const accessToken = creds.access_token?.trim();
+	const expiry = creds.expiry_date;
+	const accessTokenIsLive =
+		Boolean(accessToken) && (typeof expiry !== "number" || expiry > Date.now());
+	return accessTokenIsLive || Boolean(creds.refresh_token?.trim());
+}
+
 /** Returns a live Antigravity/Gemini CLI OAuth access token from ~/.gemini/oauth_creds.json. */
 export async function resolveGeminiAccessToken(): Promise<string | null> {
 	const creds = await readOAuthCredsFile();

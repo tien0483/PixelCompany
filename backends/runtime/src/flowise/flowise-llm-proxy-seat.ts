@@ -8,7 +8,7 @@ import {
 	pickDefaultCursorAccountId,
 } from "../manager/manager-account-pin";
 import type { ManagerMonitor } from "../manager/manager-monitor";
-import { resolveGeminiAccessToken } from "./flowise-llm-proxy-gemini";
+import { hasGeminiCredential, resolveGeminiAccessToken } from "./flowise-llm-proxy-gemini";
 
 const CLAUDE_SEAT_ENV = "PIXELOFFICE_FLOWISE_LLM_SEAT_ID";
 const CURSOR_SEAT_ENV = "PIXELOFFICE_FLOWISE_LLM_CURSOR_SEAT_ID";
@@ -38,6 +38,12 @@ export interface FlowiseLlmCursorSeatContext {
 export interface FlowiseLlmGeminiSeatContext {
 	accountId: number | null;
 	accessToken: string;
+	accountLabel: string | null;
+}
+
+/** What a status read may know: which seat would be used, never a token to use it with. */
+export interface FlowiseLlmGeminiSeatSummary {
+	accountId: number | null;
 	accountLabel: string | null;
 }
 
@@ -107,6 +113,11 @@ export async function resolveFlowiseLlmAnthropicSeatContext(
 	};
 }
 
+/** True when the card pinned a Cursor seat explicitly, which outranks any router seat. */
+export function isFlowiseLlmCursorSeatPinned(): boolean {
+	return readSeatOverride(CURSOR_SEAT_ENV) !== null;
+}
+
 export async function resolveFlowiseLlmCursorSeatContext(
 	input: ResolveFlowiseLlmSeatInput,
 ): Promise<FlowiseLlmCursorSeatContext | null> {
@@ -135,37 +146,60 @@ export async function resolveFlowiseLlmCursorSeatContext(
 	};
 }
 
-export async function resolveFlowiseLlmGeminiSeatContext(
+function pickGeminiSeatAccountId(input: ResolveFlowiseLlmSeatInput): number | null {
+	const pinned = readSeatOverride(GEMINI_SEAT_ENV);
+	if (pinned !== null) {
+		return pinned;
+	}
+	const snapshot = input.monitor.getState();
+	if (!snapshot) {
+		return null;
+	}
+	return pickDefaultAntigravityAccountId({
+		accounts: snapshot.accounts,
+		activeAccountId: snapshot.activeAccountId,
+	});
+}
+
+function geminiSeatLabel(input: ResolveFlowiseLlmSeatInput, accountId: number | null): string | null {
+	return accountId !== null ? accountLabel(input.monitor, accountId) : "Antigravity";
+}
+
+/**
+ * Read-only: never swaps the Manager's active account and never refreshes the CLI's OAuth file.
+ *
+ * The status surfaces (`resolveFlowiseLlmProxyStatus` → the Agents sidebar, which repolls every
+ * few seconds) call this one. Activating a seat from a status read moved the machine's global
+ * active account out from under whatever tasks were already running on it. It returns no token
+ * on purpose — a summary cannot be mistaken for something a request can be forwarded with.
+ */
+export async function resolveFlowiseLlmGeminiSeatSummary(
+	input: ResolveFlowiseLlmSeatInput,
+): Promise<FlowiseLlmGeminiSeatSummary | null> {
+	if (!(await hasGeminiCredential())) {
+		return null;
+	}
+	const accountId = pickGeminiSeatAccountId(input);
+	return { accountId, accountLabel: geminiSeatLabel(input, accountId) };
+}
+
+/**
+ * Activating variant — only for a request that is about to be forwarded. Selecting the
+ * Antigravity seat in Manager is what makes `~/.gemini/oauth_creds.json` the right account's,
+ * so the swap has to happen before the token is read.
+ */
+export async function activateFlowiseLlmGeminiSeatContext(
 	input: ResolveFlowiseLlmSeatInput,
 ): Promise<FlowiseLlmGeminiSeatContext | null> {
-	const snapshot = input.monitor.getState();
-	const pinnedAccountId = readSeatOverride(GEMINI_SEAT_ENV);
-	if (pinnedAccountId !== null && input.useManagerAccount) {
-		await input.useManagerAccount(pinnedAccountId);
-	} else if (snapshot) {
-		const accountId = pickDefaultAntigravityAccountId({
-			accounts: snapshot.accounts,
-			activeAccountId: snapshot.activeAccountId,
-		});
-		if (accountId !== null && input.useManagerAccount) {
-			await input.useManagerAccount(accountId);
-		}
+	const accountId = pickGeminiSeatAccountId(input);
+	if (accountId !== null && input.useManagerAccount) {
+		await input.useManagerAccount(accountId);
 	}
 	const accessToken = await resolveGeminiAccessToken();
 	if (accessToken === null) {
 		return null;
 	}
-	const accountId = pinnedAccountId ?? (snapshot
-		? pickDefaultAntigravityAccountId({
-				accounts: snapshot.accounts,
-				activeAccountId: snapshot.activeAccountId,
-			})
-		: null);
-	return {
-		accountId,
-		accessToken,
-		accountLabel: accountId !== null ? accountLabel(input.monitor, accountId) : "Antigravity",
-	};
+	return { accountId, accessToken, accountLabel: geminiSeatLabel(input, accountId) };
 }
 
 export async function resolveFlowiseLlmOpenAiSeatContext(

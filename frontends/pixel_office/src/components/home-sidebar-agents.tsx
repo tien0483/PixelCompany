@@ -67,9 +67,23 @@ function FlowiseLlmProxyPanel({ status }: { status: RuntimeFlowiseLlmProxyStatus
 						<li key={provider.id}>
 							<span className="text-text-primary">{provider.flowiseNode ?? provider.id}</span>:{" "}
 							{provider.available ? (
-								<span className="text-status-green">{provider.seatLabel ?? "ready"}</span>
+								// A seat and a working route are different claims: the seat can be
+								// live while the route fails (wrong header, blocked base URL). Only
+								// a verified probe earns green.
+								provider.pathVerified === false ? (
+									<Tooltip content={provider.pathDetail ?? "The proxy route did not answer"}>
+										<span className="text-status-red">
+											{provider.seatLabel ?? "seat"} · route failing
+										</span>
+									</Tooltip>
+								) : (
+									<span className={provider.pathVerified ? "text-status-green" : "text-status-orange"}>
+										{provider.seatLabel ?? "seat"}
+										{provider.pathVerified ? "" : " · unverified"}
+									</span>
+								)
 							) : (
-								<span className="text-status-orange">unavailable</span>
+								<span className="text-status-orange">no seat</span>
 							)}
 						</li>
 					))}

@@ -1,0 +1,30 @@
+{
+	"notes": [
+		"Which Flowise nodes the Agents tab offers. Consumed by buildStudioEnv in",
+		"src/flowise/flowise-process.ts and passed to the studio as ENABLED_NODE_CATEGORIES /",
+		"ENABLED_NODES (see backends/flowise/packages/server/src/utils/nodeFilter.ts).",
+		"",
+		"Deleting or breaking this file disables filtering — all ~280 upstream nodes come back.",
+		"That is the safe direction: a fresh clone shows too much rather than losing a node a",
+		"saved flow depends on. A node referenced by an existing flow must be listed under",
+		"\"nodes\" if its category is not allowed, or that flow will not load."
+	],
+	"categories": [
+		"Agent Flows",
+		"Chains",
+		"Chat Models",
+		"Document Loaders",
+		"Embeddings",
+		"Memory",
+		"Output Parsers",
+		"PixelOffice",
+		"Prompts",
+		"Retrievers",
+		"Text Splitters",
+		"Tools",
+		"Utilities",
+		"Vector Stores"
+	],
+	"nodes": [],
+	"disabledNodes": []
+}
