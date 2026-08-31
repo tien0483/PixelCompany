@@ -19,6 +19,14 @@ vi.mock("@/terminal/terminal-controller-registry", () => ({
 	registerTerminalController: registerTerminalControllerMock,
 }));
 
+vi.mock("@/terminal/use-terminal-image-paste", () => ({
+	useTerminalImagePaste: () => ({
+		handlePaste: vi.fn(),
+		handleDrop: vi.fn(),
+		handleDragOver: vi.fn(),
+	}),
+}));
+
 function createPersistentTerminalMock() {
 	return {
 		subscribe: vi.fn(() => vi.fn()),

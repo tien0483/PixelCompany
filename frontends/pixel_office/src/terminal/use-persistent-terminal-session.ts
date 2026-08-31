@@ -5,6 +5,7 @@ import { getTerminalThemeColors, useTheme } from "@/hooks/use-theme";
 import type { RuntimeTaskSessionSummary } from "@/runtime/types";
 import { disposePersistentTerminal, ensurePersistentTerminal } from "@/terminal/persistent-terminal-manager";
 import { registerTerminalController } from "@/terminal/terminal-controller-registry";
+import { useTerminalImagePaste } from "@/terminal/use-terminal-image-paste";
 
 interface UsePersistentTerminalSessionInput {
 	taskId: string;
@@ -63,6 +64,18 @@ export function usePersistentTerminalSession({
 	const [isStopping, setIsStopping] = useState(false);
 	const [restoreWasEmpty, setRestoreWasEmpty] = useState(false);
 	const [staleRestore, setStaleRestore] = useState(false);
+	const pastePathsIntoTerminal = useCallback((paths: string[]) => {
+		if (paths.length === 0) {
+			return;
+		}
+		terminalRef.current?.paste(paths.join(" "));
+	}, []);
+	const { handlePaste, handleDrop, handleDragOver } = useTerminalImagePaste({
+		taskId,
+		workspaceId,
+		enabled,
+		onPastePaths: pastePathsIntoTerminal,
+	});
 	callbackRef.current = {
 		onSummary,
 		onConnectionReady,
@@ -177,6 +190,21 @@ export function usePersistentTerminalSession({
 			waitForLikelyPrompt: async (timeoutMs) => await (terminalRef.current?.waitForLikelyPrompt(timeoutMs) ?? false),
 		});
 	}, [taskId]);
+
+	useEffect(() => {
+		const container = containerRef.current;
+		if (!container || !enabled) {
+			return;
+		}
+		container.addEventListener("paste", handlePaste, true);
+		container.addEventListener("drop", handleDrop, true);
+		container.addEventListener("dragover", handleDragOver, true);
+		return () => {
+			container.removeEventListener("paste", handlePaste, true);
+			container.removeEventListener("drop", handleDrop, true);
+			container.removeEventListener("dragover", handleDragOver, true);
+		};
+	}, [enabled, handleDrop, handleDragOver, handlePaste]);
 
 	const stopTerminal = useCallback(async () => {
 		const terminal = terminalRef.current;
