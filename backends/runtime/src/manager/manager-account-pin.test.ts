@@ -9,6 +9,7 @@ import {
 	isManagerAccountDonatePinBlocked,
 	pickDefaultClaudeAccountId,
 	pickDefaultCursorAccountId,
+	pickLeastUsedClaudeAccountId,
 	resolveManagerAccountPin,
 	toManagerDonateAccount,
 } from "./manager-account-pin";
@@ -312,6 +313,76 @@ describe("pickDefaultClaudeAccountId", () => {
 	});
 });
 
+describe("pickLeastUsedClaudeAccountId", () => {
+	it("ignores the active seat and takes the lowest 5h usage", () => {
+		expect(
+			pickLeastUsedClaudeAccountId({
+				accounts: [
+					{ id: 1, provider: "claude", fiveHourPercent: 80 },
+					{ id: 2, provider: "claude", fiveHourPercent: 12 },
+					{ id: 3, provider: "claude", fiveHourPercent: 45 },
+				],
+			}),
+		).toBe(2);
+	});
+
+	it("skips seats disabled in Manager", () => {
+		expect(
+			pickLeastUsedClaudeAccountId({
+				accounts: [
+					{ id: 1, provider: "claude", isActive: false, fiveHourPercent: 1 },
+					{ id: 2, provider: "claude", fiveHourPercent: 60 },
+				],
+			}),
+		).toBe(2);
+	});
+
+	it("skips auth-broken seats even when they are the least used", () => {
+		expect(
+			pickLeastUsedClaudeAccountId({
+				accounts: [
+					{ id: 1, provider: "claude", ccNeedsAuth: true, fiveHourPercent: 2 },
+					{ id: 2, provider: "claude", validationStatus: "expired", fiveHourPercent: 3 },
+					{ id: 3, provider: "claude", fiveHourPercent: 70 },
+				],
+			}),
+		).toBe(3);
+	});
+
+	it("skips over-donate-cap seats", () => {
+		expect(
+			pickLeastUsedClaudeAccountId({
+				accounts: [
+					{ id: 1, provider: "claude", fiveHourPercent: 95, donateLimitPercent: 90 },
+					{ id: 2, provider: "claude", fiveHourPercent: 55, donateLimitPercent: 90 },
+				],
+			}),
+		).toBe(2);
+	});
+
+	it("falls back to the least used of an exhausted fleet so the hard-block has a target", () => {
+		expect(
+			pickLeastUsedClaudeAccountId({
+				accounts: [
+					{ id: 1, provider: "claude", fiveHourPercent: 99, donateLimitPercent: 90 },
+					{ id: 2, provider: "claude", fiveHourPercent: 92, donateLimitPercent: 90 },
+				],
+			}),
+		).toBe(2);
+	});
+
+	it("ignores other providers and returns null when no Claude seat exists", () => {
+		expect(
+			pickLeastUsedClaudeAccountId({
+				accounts: [
+					{ id: 1, provider: "cursor", fiveHourPercent: 1 },
+					{ id: 2, provider: "antigravity", fiveHourPercent: 2 },
+				],
+			}),
+		).toBeNull();
+	});
+});
+
 describe("resolveManagerAccountPin", () => {
 	it("returns no env when the card is unpinned", async () => {
 		const getAccountLaunchDir = vi.fn();
@@ -324,6 +395,92 @@ describe("resolveManagerAccountPin", () => {
 
 		expect(pin).toEqual({ env: {}, accountId: null, warning: null });
 		expect(getAccountLaunchDir).not.toHaveBeenCalled();
+	});
+
+	it("pins an unpinned Claude card onto the Auto-resolved seat without reading the active one", async () => {
+		const getAccountLaunchDir = vi.fn(async () => ({ configDir: "/home/u/.claude/accounts/7" }));
+		const resolveLiveActiveClaudeAccountId = vi.fn(async () => 1);
+
+		const pin = await resolveManagerAccountPin({
+			agentId: "claude",
+			managerAccountId: undefined,
+			getAccountLaunchDir,
+			resolveAutoClaudeAccountId: async () => 7,
+			resolveLiveActiveClaudeAccountId,
+			getPinnedAccount: async (accountId) => ({ id: accountId, provider: "claude" }),
+		});
+
+		expect(getAccountLaunchDir).toHaveBeenCalledWith(7);
+		expect(pin.env).toEqual({ [CLAUDE_CONFIG_DIR_ENV]: "/home/u/.claude/accounts/7" });
+		expect(pin.accountId).toBe(7);
+		expect(pin.blocked).toBeUndefined();
+		// The global active seat is what Plans and Review use; Auto must not consult it.
+		expect(resolveLiveActiveClaudeAccountId).not.toHaveBeenCalled();
+	});
+
+	it("keeps the inherit path when no Auto resolver is supplied", async () => {
+		const getAccountLaunchDir = vi.fn();
+		const resolveLiveActiveClaudeAccountId = vi.fn(async () => 1);
+
+		const pin = await resolveManagerAccountPin({
+			agentId: "claude",
+			managerAccountId: undefined,
+			getAccountLaunchDir,
+			resolveLiveActiveClaudeAccountId,
+			getPinnedAccount: async (accountId) => ({ id: accountId, provider: "claude" }),
+		});
+
+		expect(pin).toEqual({ env: {}, accountId: null, warning: null });
+		expect(getAccountLaunchDir).not.toHaveBeenCalled();
+		expect(resolveLiveActiveClaudeAccountId).toHaveBeenCalled();
+	});
+
+	it("falls back to the inherit path when the Auto resolver has no seat to offer", async () => {
+		const getAccountLaunchDir = vi.fn();
+		const resolveLiveActiveClaudeAccountId = vi.fn(async () => null);
+
+		const pin = await resolveManagerAccountPin({
+			agentId: "claude",
+			managerAccountId: undefined,
+			getAccountLaunchDir,
+			resolveAutoClaudeAccountId: async () => null,
+			resolveLiveActiveClaudeAccountId,
+		});
+
+		expect(pin).toEqual({ env: {}, accountId: null, warning: null });
+		expect(getAccountLaunchDir).not.toHaveBeenCalled();
+	});
+
+	it("does not Auto-pin Cursor or Antigravity cards", async () => {
+		const resolveAutoClaudeAccountId = vi.fn(async () => 7);
+
+		for (const agentId of ["cursor", "gemini"] as const) {
+			const getAccountLaunchDir = vi.fn();
+			const pin = await resolveManagerAccountPin({
+				agentId,
+				managerAccountId: undefined,
+				getAccountLaunchDir,
+				resolveAutoClaudeAccountId,
+			});
+
+			expect(pin).toEqual({ env: {}, accountId: null, warning: null });
+			expect(getAccountLaunchDir).not.toHaveBeenCalled();
+		}
+		expect(resolveAutoClaudeAccountId).not.toHaveBeenCalled();
+	});
+
+	it("reports an Auto-resolved block as a fleet problem, not as a pin to change", async () => {
+		const pin = await resolveManagerAccountPin({
+			agentId: "claude",
+			managerAccountId: undefined,
+			getAccountLaunchDir: vi.fn(),
+			resolveAutoClaudeAccountId: async () => 7,
+			getPinnedAccount: async (accountId) => ({ id: accountId, provider: "claude", ccNeedsAuth: true }),
+		});
+
+		expect(pin.blocked).toBe(true);
+		expect(pin.warning).toContain("no healthy Claude seat is available");
+		expect(pin.warning).not.toContain("switch this task to Auto");
 	});
 
 	it("prepares the active Claude seat when launch tags need CLAUDE_CONFIG_DIR", async () => {

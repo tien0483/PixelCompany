@@ -1,24 +1,30 @@
 import { type ReactElement } from "react";
 
 import { autoFallbackAccount } from "@/manager/task-account-picker";
-import type { ReviewSeatChoice } from "@/review/use-review-seat";
+import type { SeatChoice } from "@/manager/use-seat-choice";
 import type { RuntimeManagerAccount } from "@/runtime/types";
 
 const MANAGER_VALUE_PREFIX = "manager:";
 
 /**
- * Which Claude seat the review one-shot agents (audit, chat, rules extraction)
- * bill.
+ * Which Claude seat a one-shot surface's agents bill — the Review tab's audit, chat
+ * and rules passes, the Plans editor's brief, generate and draft passes.
  *
- * A compact select rather than `TaskAccountPicker`: that component is a labelled
- * form block with agent-switching and subagent rows, none of which apply here —
- * a review never changes agent, and its agents spawn no subagents.
+ * A compact select rather than `TaskAccountPicker`: that component is a labelled form
+ * block with agent-switching and subagent rows, none of which apply here — these
+ * surfaces never change agent, and their agents spawn no subagents.
+ *
+ * Auto here means the Manager's *active* seat, not the least-used one a board card's
+ * Auto resolves to. That is deliberate: these are the surfaces the active seat exists
+ * to serve, and moving them off it is what pushed task load onto it in the first place.
  */
-export function ReviewSeatPicker({
+export function SeatPicker({
 	claudeAccounts,
 	activeAccountId,
 	value,
 	disabled = false,
+	label = "Claude seat for review agents",
+	title = "Claude seat the review agents bill",
 	onChange,
 }: {
 	/** Already narrowed to Claude seats by the caller, which needs the same list. */
@@ -31,8 +37,11 @@ export function ReviewSeatPicker({
 	 */
 	value: number | undefined;
 	disabled?: boolean;
+	/** Accessible name, so the Plans copy does not announce itself as review. */
+	label?: string;
+	title?: string;
 	/** `"auto"` rather than `undefined`, so declining the default is remembered. */
-	onChange: (choice: ReviewSeatChoice) => void;
+	onChange: (choice: SeatChoice) => void;
 }): ReactElement | null {
 	// Nothing to choose between, and no Manager to fall back to either — the select
 	// would be a control with one disabled option.
@@ -47,8 +56,8 @@ export function ReviewSeatPicker({
 
 	return (
 		<select
-			aria-label="Claude seat for review agents"
-			title="Claude seat the review agents bill"
+			aria-label={label}
+			title={title}
 			disabled={disabled}
 			value={isKnown ? `${MANAGER_VALUE_PREFIX}${value}` : "auto"}
 			onChange={(event) => {

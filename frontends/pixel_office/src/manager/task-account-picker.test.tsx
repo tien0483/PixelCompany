@@ -11,6 +11,7 @@ import {
 	applyTaskSeatSelection,
 	applyTaskSubagentSeatSelection,
 	autoFallbackAccount,
+	autoTaskSeatAccount,
 	filterManagerAccountsForAgent,
 	managerProviderForAgent,
 	resolveActiveManagerSeat,
@@ -239,6 +240,52 @@ describe("autoFallbackAccount", () => {
 		const broken = account(1, "claude", "broken@example.com");
 		broken.validationStatus = "invalid";
 		expect(autoFallbackAccount([broken], 1, "claude")?.id).toBe(1);
+	});
+
+	it("keeps preferring the active seat, which is what the Plans and Review tabs use", () => {
+		const active = account(1, "claude", "active@example.com");
+		active.fiveHourPercent = 80;
+		const cooler = account(2, "claude", "cooler@example.com");
+		cooler.fiveHourPercent = 5;
+		expect(autoFallbackAccount([active, cooler], 1, "claude")?.id).toBe(1);
+	});
+});
+
+describe("autoTaskSeatAccount", () => {
+	it("ignores the active seat and picks the least-used one for Claude cards", () => {
+		const active = account(1, "claude", "active@example.com");
+		active.fiveHourPercent = 80;
+		const cooler = account(2, "claude", "cooler@example.com");
+		cooler.fiveHourPercent = 5;
+		expect(autoTaskSeatAccount([active, cooler], 1, "claude")?.id).toBe(2);
+	});
+
+	it("skips disabled, re-auth-needed and over-cap seats before comparing usage", () => {
+		const disabled = account(1, "claude", "off@example.com");
+		disabled.isActive = false;
+		disabled.fiveHourPercent = 1;
+		const broken = account(2, "claude", "broken@example.com");
+		broken.ccNeedsAuth = true;
+		broken.fiveHourPercent = 2;
+		const overCap = account(3, "claude", "hot@example.com");
+		overCap.fiveHourPercent = 80;
+		overCap.donateLimitPercent = 70;
+		const usable = account(4, "claude", "usable@example.com");
+		usable.fiveHourPercent = 60;
+		expect(autoTaskSeatAccount([disabled, broken, overCap, usable], 1, "claude")?.id).toBe(4);
+	});
+
+	it("keeps Cursor and Antigravity on their provider-active seat", () => {
+		// `account()` marks id 3 as the provider-active seat.
+		const cool = account(1, "cursor", "cool@example.com");
+		cool.fiveHourPercent = 1;
+		const providerActive = account(3, "cursor", "active@example.com");
+		providerActive.fiveHourPercent = 90;
+		expect(autoTaskSeatAccount([cool, providerActive], null, "cursor")?.id).toBe(3);
+	});
+
+	it("returns null for an empty fleet", () => {
+		expect(autoTaskSeatAccount([], 1, "claude")).toBeNull();
 	});
 });
 

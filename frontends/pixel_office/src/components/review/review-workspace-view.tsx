@@ -10,7 +10,7 @@ import { ReviewFilesPanel } from "@/components/review/review-files-panel";
 import { ReviewImpactPanel } from "@/components/review/review-impact-panel";
 import { ReviewRulesPanel } from "@/components/review/review-rules-panel";
 import { ReviewRunDot, type ReviewRunState } from "@/components/review/review-run-dot";
-import { ReviewSeatPicker } from "@/components/review/review-seat-picker";
+import { SeatPicker } from "@/manager/seat-picker";
 import {
 	ReviewSubmitDialog,
 	type ReviewSubmitOutcome,
@@ -1003,7 +1003,7 @@ export function ReviewWorkspaceView({
 								: "No graph"}
 						</button>
 					) : null}
-					<ReviewSeatPicker
+					<SeatPicker
 						claudeAccounts={claudeAccounts}
 						activeAccountId={managerActiveAccountId}
 						value={effectiveAccountId}

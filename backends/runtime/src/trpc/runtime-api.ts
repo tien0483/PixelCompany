@@ -94,6 +94,8 @@ export interface CreateRuntimeApiDependencies {
 	resolveDefaultCursormanagerAccountId?: () => Promise<number | null>;
 	/** Active Claude Jacked seat — used to prep CC creds for skill/MCP-tagged launches. */
 	resolveActiveClaudemanagerAccountId?: () => Promise<number | null>;
+	/** Auto (unpinned) Claude tasks: the least-used healthy seat, pinned like an explicit one. */
+	resolveAutoClaudemanagerAccountId?: () => Promise<number | null>;
 	/** Jacked's live active Claude seat, unfiltered — used to detect a revoked live seat and redirect Auto launches. */
 	resolveLiveActiveClaudemanagerAccountId?: () => Promise<number | null>;
 	/** Donate state of a pinned account — lets a locked over-cap seat hard-block the launch. */
@@ -376,9 +378,10 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 						error: "No runnable agent command is configured. Open Settings, install a supported CLI, and select it.",
 					};
 				}
-				// A pinned card runs on its own credential directory so concurrent tasks
-				// can hold different Claude accounts; unpinned cards keep following
-				// jacked's global auto-swap.
+				// Every Claude card runs on its own credential directory so concurrent
+				// tasks can hold different accounts — a pinned card on the seat it names,
+				// an Auto card on the least-used healthy one. Neither reads or writes
+				// jacked's global active seat, which the Plans and Review tabs use.
 				const accountPin = await resolveManagerAccountPin({
 					agentId: resolved.agentId,
 					managerAccountId: body.managerAccountId,
@@ -387,6 +390,7 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 					getAccountProvider: async (accountId) => (await deps.getManagerAccountProvider?.(accountId)) ?? null,
 					resolveDefaultCursorAccountId: deps.resolveDefaultCursormanagerAccountId,
 					resolveActiveClaudeAccountId: deps.resolveActiveClaudemanagerAccountId,
+					resolveAutoClaudeAccountId: deps.resolveAutoClaudemanagerAccountId,
 					resolveLiveActiveClaudeAccountId: deps.resolveLiveActiveClaudemanagerAccountId,
 					getPinnedAccount: deps.getPinnedManagerAccount,
 					needsClaudeConfigDirForLaunchTags:
