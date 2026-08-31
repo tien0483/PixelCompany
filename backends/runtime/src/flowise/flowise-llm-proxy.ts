@@ -13,11 +13,14 @@ import {
 	resolveFlowiseLlmProxyPublicUrl,
 	resolveFlowiseLlmUpstreamBaseUrl,
 } from "./flowise-llm-proxy-config";
+import { probeFlowiseLlmProxyProvider } from "./flowise-llm-proxy-probe";
 import { parseFlowiseLlmProxyRoute, type FlowiseLlmProxyProvider } from "./flowise-llm-proxy-routes";
 import {
+	activateFlowiseLlmGeminiSeatContext,
+	isFlowiseLlmCursorSeatPinned,
 	resolveFlowiseLlmAnthropicSeatContext,
 	resolveFlowiseLlmCursorSeatContext,
-	resolveFlowiseLlmGeminiSeatContext,
+	resolveFlowiseLlmGeminiSeatSummary,
 	resolveFlowiseLlmOpenAiSeatContext,
 } from "./flowise-llm-proxy-seat";
 
@@ -29,6 +32,14 @@ export {
 } from "./flowise-llm-proxy-config";
 
 const LOOPBACK_ADDRESSES = new Set(["127.0.0.1", "::1", "::ffff:127.0.0.1"]);
+/** OmniRoute's own id for "let the router choose a Cursor model". */
+const DEFAULT_CURSOR_ROUTER_MODEL = "cursor-api/auto";
+/**
+ * Anthropic only honours a Claude Code OAuth bearer when the request opts into this beta. The
+ * seat's token is exactly that kind of credential, and nothing downstream adds the header —
+ * the switchboard forwards what it is given — so the proxy is the last place it can be set.
+ */
+const ANTHROPIC_OAUTH_BETA = "oauth-2025-04-20";
 const PROXY_MAX_BODY_BYTES = 32 * 1024 * 1024;
 const STRIP_REQUEST_HEADERS = new Set([
 	"host",
@@ -111,7 +122,29 @@ function copyRequestHeaders(req: IncomingMessage, stripAuth = true): Headers {
 	return headers;
 }
 
-function rewriteOpenAiModelBody(body: Buffer | undefined, modelId: string): Buffer | undefined {
+/** Adds a beta flag without dropping any the node already asked for (prompt caching, etc.). */
+function appendAnthropicBeta(headers: Headers, beta: string): void {
+	const existing = headers.get("anthropic-beta");
+	if (existing === null || existing.trim().length === 0) {
+		headers.set("anthropic-beta", beta);
+		return;
+	}
+	const values = existing
+		.split(",")
+		.map((entry) => entry.trim())
+		.filter((entry) => entry.length > 0);
+	if (values.includes(beta)) {
+		return;
+	}
+	headers.set("anthropic-beta", [...values, beta].join(","));
+}
+
+/**
+ * Names a model for a router that only answers to its own ids, without discarding a model the
+ * caller did choose. The node's selection is the user's intent; overwriting it unconditionally
+ * meant every Cursor request ran on `cursor-api/auto` no matter what the canvas said.
+ */
+function ensureOpenAiModelBody(body: Buffer | undefined, fallbackModelId: string): Buffer | undefined {
 	if (body === undefined || body.length === 0) {
 		return body;
 	}
@@ -120,7 +153,12 @@ function rewriteOpenAiModelBody(body: Buffer | undefined, modelId: string): Buff
 		if (!parsed || typeof parsed !== "object") {
 			return body;
 		}
-		return Buffer.from(JSON.stringify({ ...(parsed as Record<string, unknown>), model: modelId }), "utf8");
+		const record = parsed as Record<string, unknown>;
+		const model = typeof record.model === "string" ? record.model.trim() : "";
+		if (model.length > 0) {
+			return body;
+		}
+		return Buffer.from(JSON.stringify({ ...record, model: fallbackModelId }), "utf8");
 	} catch {
 		return body;
 	}
@@ -157,6 +195,7 @@ async function buildProviderForwardPlan(
 		}
 		const headers = copyRequestHeaders(req);
 		headers.set("authorization", `Bearer ${seat.bearerToken}`);
+		appendAnthropicBeta(headers, ANTHROPIC_OAUTH_BETA);
 		return {
 			upstreamBase: resolveFlowiseLlmUpstreamBaseUrl(),
 			upstreamPath: `${upstreamPath}${query}`,
@@ -166,7 +205,7 @@ async function buildProviderForwardPlan(
 	}
 
 	if (provider === "gemini") {
-		const seat = await resolveFlowiseLlmGeminiSeatContext(seatInput);
+		const seat = await activateFlowiseLlmGeminiSeatContext(seatInput);
 		if (seat === null) {
 			return {
 				errorStatus: 503,
@@ -227,9 +266,13 @@ async function buildProviderForwardPlan(
 	const headers = copyRequestHeaders(req);
 	const upstreamBase = resolveFlowiseLlmCursorUpstreamBaseUrl();
 	let forwardBody = body;
-	if (routerSeat !== null) {
+	// An explicitly pinned Cursor seat wins: the OmniRoute router used to take every request
+	// merely by existing, so pinning a seat changed nothing.
+	if (cursorSeat !== null && isFlowiseLlmCursorSeatPinned()) {
+		headers.set("authorization", `Bearer ${cursorSeat.apiKey}`);
+	} else if (routerSeat !== null) {
 		headers.set("authorization", `Bearer ${routerSeat.apiKey}`);
-		forwardBody = rewriteOpenAiModelBody(body, "cursor-api/auto");
+		forwardBody = ensureOpenAiModelBody(body, DEFAULT_CURSOR_ROUTER_MODEL);
 	} else if (cursorSeat !== null) {
 		headers.set("authorization", `Bearer ${cursorSeat.apiKey}`);
 	}
@@ -253,7 +296,8 @@ async function forwardUpstream(
 		upstream = await fetch(upstreamUrl, {
 			method,
 			headers: plan.headers,
-			body: plan.body && plan.body.length > 0 ? plan.body : undefined,
+			// `Buffer` is not a `BodyInit` under this lib's DOM types; the view is.
+			body: plan.body && plan.body.length > 0 ? new Uint8Array(plan.body) : undefined,
 		});
 	} catch (error) {
 		warn?.(`Flowise LLM proxy upstream failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -345,59 +389,80 @@ export function createFlowiseLlmProxyHandler(
 	};
 }
 
+/**
+ * Deliberately has no `useManagerAccount`: reporting readiness must not be able to swap the
+ * machine's active Manager account, and leaving the capability out of the type is what keeps a
+ * future status path from reaching for it.
+ */
 export interface ResolveFlowiseLlmProxyStatusInput {
 	monitor: ManagerMonitor;
 	getAccountLaunchDir: (accountId: number) => Promise<{ configDir: string } | null>;
 	getAccountLaunchCredential: (accountId: number) => Promise<{ apiKey: string } | null>;
-	useManagerAccount: (accountId: number) => Promise<boolean>;
 	resolveApiSeatCredentials: (providerId: string) => Promise<ClineApiSeatCredentials | null>;
+}
+
+/** The studio node each route belongs to. `null` name = no dedicated PixelOffice node yet. */
+const PROVIDER_NODES: Record<FlowiseLlmProxyProvider, { label: string; name: string | null }> = {
+	anthropic: { label: "Claude (PixelOffice seat)", name: "pixelOfficeClaude" },
+	gemini: { label: "Antigravity (PixelOffice seat)", name: "pixelOfficeAntigravity" },
+	openai: { label: "ChatOpenAI + Base Path", name: null },
+	cursor: { label: "Cursor (PixelOffice seat)", name: "pixelOfficeCursor" },
+};
+
+async function resolveProviderSeatLabel(
+	provider: FlowiseLlmProxyProvider,
+	input: ResolveFlowiseLlmProxyStatusInput,
+): Promise<{ available: boolean; seatLabel: string | null }> {
+	const seatInput = {
+		monitor: input.monitor,
+		getAccountLaunchDir: input.getAccountLaunchDir,
+		getAccountLaunchCredential: input.getAccountLaunchCredential,
+		resolveApiSeatCredentials: input.resolveApiSeatCredentials,
+	};
+	if (provider === "anthropic") {
+		const seat = await resolveFlowiseLlmAnthropicSeatContext(seatInput);
+		return { available: seat !== null, seatLabel: seat?.accountLabel ?? null };
+	}
+	if (provider === "gemini") {
+		// Summary, not a token: a status read must not activate a seat or refresh the CLI's file.
+		const seat = await resolveFlowiseLlmGeminiSeatSummary(seatInput);
+		return { available: seat !== null, seatLabel: seat?.accountLabel ?? null };
+	}
+	if (provider === "openai") {
+		const seat = await resolveFlowiseLlmOpenAiSeatContext(seatInput);
+		return { available: seat !== null, seatLabel: seat?.seatLabel ?? null };
+	}
+	const cursorSeat = await resolveFlowiseLlmCursorSeatContext(seatInput);
+	const routerSeat = await resolveFlowiseLlmOpenAiSeatContext(seatInput);
+	return {
+		available: cursorSeat !== null || routerSeat !== null,
+		seatLabel: cursorSeat?.accountLabel ?? routerSeat?.seatLabel ?? null,
+	};
 }
 
 async function buildProviderStatus(
 	provider: FlowiseLlmProxyProvider,
 	input: ResolveFlowiseLlmProxyStatusInput,
 ): Promise<RuntimeFlowiseLlmProxyProviderStatus> {
-	const seatInput = {
-		monitor: input.monitor,
-		getAccountLaunchDir: input.getAccountLaunchDir,
-		getAccountLaunchCredential: input.getAccountLaunchCredential,
-		useManagerAccount: input.useManagerAccount,
-		resolveApiSeatCredentials: input.resolveApiSeatCredentials,
-	};
-	if (provider === "anthropic") {
-		const seat = await resolveFlowiseLlmAnthropicSeatContext(seatInput);
-		return {
-			id: provider,
-			available: seat !== null,
-			seatLabel: seat?.accountLabel ?? null,
-			flowiseNode: "ChatAnthropic",
-		};
-	}
-	if (provider === "gemini") {
-		const seat = await resolveFlowiseLlmGeminiSeatContext(seatInput);
-		return {
-			id: provider,
-			available: seat !== null,
-			seatLabel: seat?.accountLabel ?? null,
-			flowiseNode: "ChatGoogleGenerativeAI",
-		};
-	}
-	if (provider === "openai") {
-		const seat = await resolveFlowiseLlmOpenAiSeatContext(seatInput);
-		return {
-			id: provider,
-			available: seat !== null,
-			seatLabel: seat?.seatLabel ?? null,
-			flowiseNode: "ChatOpenAI",
-		};
-	}
-	const cursorSeat = await resolveFlowiseLlmCursorSeatContext(seatInput);
-	const routerSeat = await resolveFlowiseLlmOpenAiSeatContext(seatInput);
-	return {
+	const seat = await resolveProviderSeatLabel(provider, input);
+	const node = PROVIDER_NODES[provider];
+	const status: RuntimeFlowiseLlmProxyProviderStatus = {
 		id: provider,
-		available: cursorSeat !== null || routerSeat !== null,
-		seatLabel: cursorSeat?.accountLabel ?? routerSeat?.seatLabel ?? null,
-		flowiseNode: "ChatOpenAICustom",
+		available: seat.available,
+		seatLabel: seat.seatLabel,
+		flowiseNode: node.label,
+		...(node.name !== null ? { flowiseNodeName: node.name } : {}),
+	};
+	if (!seat.available) {
+		// Nothing to probe: a route with no seat answers 503 from this process anyway, and
+		// reporting `pathVerified: false` would blame the upstream for a local gap.
+		return status;
+	}
+	const probe = await probeFlowiseLlmProxyProvider(provider);
+	return {
+		...status,
+		pathVerified: probe.ok,
+		...(probe.detail !== undefined ? { pathDetail: probe.detail } : {}),
 	};
 }
 
@@ -423,6 +488,13 @@ export async function resolveFlowiseLlmProxyStatus(
 				hints.push(
 					`${entry.flowiseNode}: ${entry.id}${entry.seatLabel ? ` (${entry.seatLabel})` : ""}.`,
 				);
+			}
+		}
+		// A failing route with a live seat is the interesting case, and the one the old status
+		// hid completely — say which one and what upstream answered.
+		for (const entry of providers) {
+			if (entry.available && entry.pathVerified === false) {
+				hints.push(`${entry.id} route not answering${entry.pathDetail ? `: ${entry.pathDetail}` : "."}`);
 			}
 		}
 		if (!available) {

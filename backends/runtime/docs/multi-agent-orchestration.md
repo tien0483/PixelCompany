@@ -70,7 +70,8 @@ PIXELOFFICE_DSH_WEB=1 pnpm run solo
 
 Build **AgentFlow** in Agents tab with:
 
-- LLM nodes → **Flowise Credentials** (API keys per provider)
+- LLM nodes → the **PixelOffice** palette category (seat-backed, no key) or
+  **Flowise Credentials** (API keys per provider) for anything else
 - MCP nodes → e.g. `https://code.akselos.com/repo/api/v4/mcp`
 - Tool nodes → HTTP, RAG, Custom Function
 - **Deploy** before use
@@ -118,7 +119,8 @@ Flowise: use **Orchestrator + cursor_agent** or call prediction API from a Custo
 | Cursor auth | `agent login` / `CURSOR_API_KEY` pin |
 | Antigravity auth | Manager Antigravity pool |
 | Flowise studio login | Auto (`pixeloffice@pixeloffice.local`) |
-| Flowise **LLM nodes** | Flowise Credentials in Agents tab |
+| Flowise **PixelOffice nodes** | Nothing to configure — the seat pinned in Manager (Claude / Cursor / Antigravity) |
+| Flowise **other LLM nodes** | Flowise Credentials in Agents tab |
 | Flowise **inner MCP** | MCP nodes in canvas |
 | dsh primary model | `DSH_HOME` profile / DeepSeek API key in dsh settings |
 

@@ -17,7 +17,12 @@ import { nextRestartDelayMs, shouldGiveUpRestarting } from "../stack/stack-daemo
 import { probePort, waitForPort } from "../stack/stack-ports";
 import { DEFAULT_FLOWISE_HOST, findFlowiseRoot, resolveFlowisePort } from "./flowise-endpoint";
 import { resolvePixelOfficeEmbedOrigins } from "./flowise-embed-origins";
-import { isFlowiseLlmProxyEnabled, resolveFlowiseLlmProxyProviderUrl } from "./flowise-llm-proxy-config";
+import {
+	isFlowiseLlmProxyEnabled,
+	resolveFlowiseLlmProxyProviderUrl,
+	resolveFlowiseLlmProxyPublicUrl,
+} from "./flowise-llm-proxy-config";
+import { buildFlowiseNodeFilterEnv, readFlowiseNodeAllowlist } from "./flowise-node-allowlist";
 import { describeMissingStudioNode, resolveStudioNodeBinary } from "./flowise-node";
 
 /**
@@ -54,6 +59,15 @@ export interface StartFlowiseProcessDependencies {
 	flowiseRoot?: string | null;
 	host?: string;
 	port?: number;
+}
+
+/** `http://127.0.0.1:3484/api/…` → `127.0.0.1:3484`; null when the URL is unparseable. */
+function extractOriginHost(url: string): string | null {
+	try {
+		return new URL(url).host;
+	} catch {
+		return null;
+	}
 }
 
 function resolveStartupTimeoutMs(): number {
@@ -111,6 +125,9 @@ function buildStudioEnv(dataDir: string, host: string, port: number, pixelOffice
 		// plus these two headers are the whole boundary. Never widen them.
 		CORS_ORIGINS: embedOrigins,
 		IFRAME_ORIGINS: embedOrigins,
+		// Curated node palette. Absent/unreadable list = every upstream node, on purpose:
+		// see `flowise-node-allowlist.ts`.
+		...buildFlowiseNodeFilterEnv(readFlowiseNodeAllowlist()),
 	};
 	delete env.ANTHROPIC_BASE_URL;
 	delete env.ANTHROPIC_API_KEY;
@@ -120,6 +137,16 @@ function buildStudioEnv(dataDir: string, host: string, port: number, pixelOffice
 		env.PIXELOFFICE_FLOWISE_LLM_PROXY_GEMINI_URL = resolveFlowiseLlmProxyProviderUrl("gemini");
 		env.PIXELOFFICE_FLOWISE_LLM_PROXY_OPENAI_URL = resolveFlowiseLlmProxyProviderUrl("openai");
 		env.PIXELOFFICE_FLOWISE_LLM_PROXY_CURSOR_URL = resolveFlowiseLlmProxyProviderUrl("cursor");
+		// The studio's own SSRF guard denies `127.0.0.0/8` by default, so without this every
+		// seat-backed node fails with "Access to this host is denied by policy" before it makes
+		// a request. Exempt the runtime origin only — never `HTTP_SECURITY_CHECK=false`, which
+		// would unguard every HTTP/Cheerio/Puppeteer/MCP node on a canvas that has no login.
+		const proxyOrigin = extractOriginHost(resolveFlowiseLlmProxyPublicUrl());
+		if (proxyOrigin !== null) {
+			env.HTTP_ALLOW_LIST = [process.env.HTTP_ALLOW_LIST?.trim(), proxyOrigin]
+				.filter((entry): entry is string => entry !== undefined && entry.length > 0)
+				.join(",");
+		}
 	}
 	return env;
 }
