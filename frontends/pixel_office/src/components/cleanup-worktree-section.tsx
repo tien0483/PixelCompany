@@ -37,7 +37,12 @@ const CATEGORY_LABELS: {
 	{
 		category: "unregistered",
 		label: "Unregistered directories",
-		hint: "Not claimed by any registry — remove these by hand.",
+		hint: "Not claimed by any registry — removed from disk.",
+	},
+	{
+		category: "stale-branch",
+		label: "Merged local branches",
+		hint: "kanban/task-* branches already in base with no worktree left.",
 	},
 ];
 
@@ -167,9 +172,9 @@ export function CleanupWorktreeSection({
 											<span className="font-mono text-text-primary">
 												{entry.taskId}
 											</span>
-											<span>· {entry.repoLabel}</span>
+											<span>· {entry.repoLabel || entry.branch || "branch"}</span>
 											<span className="ml-auto shrink-0">
-												{formatBytes(entry.sizeBytes)}
+												{formatBytes(entry.sizeBytes + (entry.orphanNodeModulesBytes ?? 0))}
 											</span>
 										</label>
 										<p

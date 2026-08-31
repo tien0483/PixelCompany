@@ -22,16 +22,22 @@ export function useCleanupTools(workspaceId: string | null): UseCleanupToolsResu
 			const [worktreeResult, statusResult] = await Promise.allSettled([
 				cleanRuntimeMergedWorktrees(workspaceId, {
 					dryRun: true,
-					categories: ["missing", "merged", "unused", "orphaned", "unregistered"],
+					categories: ["missing", "merged", "unused", "orphaned", "unregistered", "stale-branch"],
 				}),
-				fetchClaudeCacheStatus(workspaceId),
+				fetchClaudeCacheStatus(workspaceId, { days: 1 }),
 			]);
 			let total = 0;
 			if (worktreeResult.status === "fulfilled") {
 				total += (worktreeResult.value.reclaimable ?? []).reduce((sum, entry) => sum + entry.sizeBytes, 0);
 			}
 			if (statusResult.status === "fulfilled") {
-				total += statusResult.value.safeSizeBytes + (statusResult.value.legacySizeBytes ?? 0);
+				const status = statusResult.value;
+				total += status.safeSizeBytes + (status.legacySizeBytes ?? 0);
+				total += status.cliCacheSizeBytes ?? 0;
+				total += status.dshPackageSizeBytes ?? 0;
+				total += status.cursorCacheSizeBytes ?? 0;
+				total += status.geminiCacheSizeBytes ?? 0;
+				total += status.antigravityHomeSizeBytes ?? 0;
 			}
 			// Both sides failing is the "no project open" case, which should read as
 			// "nothing to show" rather than surfacing an error the user can't act on.
