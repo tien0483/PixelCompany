@@ -1,4 +1,4 @@
-import { act, type Dispatch, type SetStateAction, useEffect, useState } from "react";
+import { act, type Dispatch, type SetStateAction, useCallback, useEffect, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -139,6 +139,9 @@ function HookHarness({
 	const [, setSelectedTaskId] = useState<string | null>(null);
 	const [, setIsClearTrashDialogOpen] = useState(false);
 	const [, setIsGitHistoryOpen] = useState(false);
+	const closeGitHistory = useCallback(() => {
+		setIsGitHistoryOpen(false);
+	}, []);
 
 	const actions = useBoardInteractions({
 		board,
@@ -150,7 +153,7 @@ function HookHarness({
 		currentProjectId: "project-1",
 		setSelectedTaskId: setSelectedTaskIdOverride ?? setSelectedTaskId,
 		setIsClearTrashDialogOpen,
-		setIsGitHistoryOpen,
+		closeGitHistory,
 		stopTaskSession,
 		cleanupTaskWorkspace,
 		ensureTaskWorkspace,

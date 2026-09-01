@@ -1419,6 +1419,29 @@ export const RuntimeFlowiseStatusSchema = z.object({
 });
 export type RuntimeFlowiseStatus = z.infer<typeof RuntimeFlowiseStatusSchema>;
 
+/**
+ * OpenMAIC, the Learning tab's classroom (`backends/openmaic`). Three states rather than
+ * two, same reasoning as the studio above: an uninitialized submodule needs a clone, a
+ * cloned-but-unbuilt one needs `pnpm install && pnpm build`, and a built-but-down one
+ * needs a restart — the tab says something different for each.
+ */
+export const RuntimeOpenmaicStatusSchema = z.object({
+	online: z.boolean(),
+	/** False when `backends/openmaic` was never initialized. */
+	installed: z.boolean(),
+	/** False when the submodule is present but `.next` has not been built. */
+	built: z.boolean(),
+	/**
+	 * False when it was built without `ALLOWED_FRAME_ANCESTORS`, so it serves
+	 * `X-Frame-Options: SAMEORIGIN` and the cross-origin embed renders blank. A distinct
+	 * state because the fix is a *rebuild*, not a restart, and the browser reports nothing.
+	 */
+	embeddable: z.boolean(),
+	/** Cross-origin URL the classroom is embedded from; the browser loads this directly. */
+	baseUrl: z.string(),
+});
+export type RuntimeOpenmaicStatus = z.infer<typeof RuntimeOpenmaicStatusSchema>;
+
 export const RuntimeFlowiseFlowSchema = z.object({
 	id: z.string().min(1),
 	name: z.string(),
