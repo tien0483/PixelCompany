@@ -50,7 +50,7 @@ describe("LearningView", () => {
 		container.remove();
 	});
 
-	it("passes theme=light query parameter to classroom iframe when theme is light", async () => {
+	it("passes theme=light and themeId query parameter to classroom iframe when theme is light", async () => {
 		mockOpenmaicStatus.mockResolvedValue({
 			installed: true,
 			built: true,
@@ -70,10 +70,10 @@ describe("LearningView", () => {
 
 		const iframe = container.querySelector("iframe");
 		expect(iframe).not.toBeNull();
-		expect(iframe?.getAttribute("src")).toBe("http://127.0.0.1:3020?theme=light");
+		expect(iframe?.getAttribute("src")).toBe("http://127.0.0.1:3020?theme=light&themeId=light");
 	});
 
-	it("passes theme=dark query parameter to classroom iframe when theme is dark", async () => {
+	it("passes theme=dark and themeId query parameter to classroom iframe when theme is dark", async () => {
 		currentThemeId = "graphite";
 		mockOpenmaicStatus.mockResolvedValue({
 			installed: true,
@@ -94,6 +94,6 @@ describe("LearningView", () => {
 
 		const iframe = container.querySelector("iframe");
 		expect(iframe).not.toBeNull();
-		expect(iframe?.getAttribute("src")).toBe("http://127.0.0.1:3020?theme=dark");
+		expect(iframe?.getAttribute("src")).toBe("http://127.0.0.1:3020?theme=dark&themeId=graphite");
 	});
 });

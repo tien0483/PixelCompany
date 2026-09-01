@@ -68,10 +68,11 @@ export function LearningView({ workspaceId, onClose }: LearningViewProps): React
 			{
 				type: "theme-change",
 				theme: themeParam,
+				themeId,
 			},
 			"*",
 		);
-	}, [themeParam]);
+	}, [themeParam, themeId]);
 
 	/**
 	 * Polled while offline, not fetched once: the runtime starts the classroom at boot and
@@ -121,7 +122,7 @@ export function LearningView({ workspaceId, onClose }: LearningViewProps): React
 						icon={<ExternalLink size={14} />}
 						aria-label="Open the classroom in a new tab"
 						onClick={() => {
-							const targetUrl = `${status.baseUrl}${status.baseUrl.includes("?") ? "&" : "?"}theme=${themeParam}`;
+							const targetUrl = `${status.baseUrl}${status.baseUrl.includes("?") ? "&" : "?"}theme=${themeParam}&themeId=${encodeURIComponent(themeId)}`;
 							window.open(targetUrl, "_blank", "noopener,noreferrer");
 						}}
 					/>
@@ -150,7 +151,7 @@ export function LearningView({ workspaceId, onClose }: LearningViewProps): React
 			);
 		}
 		if (status.online && status.embeddable) {
-			const iframeSrc = `${status.baseUrl}${status.baseUrl.includes("?") ? "&" : "?"}theme=${themeParam}`;
+			const iframeSrc = `${status.baseUrl}${status.baseUrl.includes("?") ? "&" : "?"}theme=${themeParam}&themeId=${encodeURIComponent(themeId)}`;
 			return <iframe ref={iframeRef} src={iframeSrc} title="Learning" className="h-full w-full flex-1 border-0" />;
 		}
 		// Four distinct states, because each has a different fix — see
