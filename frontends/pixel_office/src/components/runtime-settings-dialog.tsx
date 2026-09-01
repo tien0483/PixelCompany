@@ -369,60 +369,40 @@ function AgentLaunchOptionsPanel({
 
 function AgentRow({
 	agent,
-	isSelected,
-	onSelect,
-	disabled,
+	disabled: _disabled,
 	showCommandPreview,
 }: {
 	agent: RuntimeSettingsAgentRowModel;
-	isSelected: boolean;
-	onSelect: () => void;
-	disabled: boolean;
+	disabled?: boolean;
 	showCommandPreview: boolean;
 }): React.ReactElement {
 	const installUrl = getRuntimeAgentCatalogEntry(agent.id)?.installUrl;
 	const isNativeCline = agent.id === "cline";
 	const isInstalled = agent.installed === true;
 	const isInstallStatusPending = !isNativeCline && agent.installed === null;
-	const radioId = `runtime-settings-agent-${agent.id}`;
 
 	return (
 		<div className="flex items-center justify-between gap-3 py-1.5">
-			<div className="flex items-start gap-2 min-w-0">
-				<input
-					id={radioId}
-					type="radio"
-					name="runtime-settings-default-agent"
-					checked={isSelected}
-					disabled={!isInstalled || disabled}
-					onChange={() => {
-						if (isInstalled && !disabled) {
-							onSelect();
-						}
-					}}
-					className="mt-1 shrink-0 cursor-pointer disabled:cursor-default disabled:opacity-40"
-				/>
-				<label htmlFor={radioId} className="min-w-0 cursor-pointer" style={{ cursor: isInstalled ? "pointer" : "default" }}>
-					<div className="flex items-center gap-2">
-						<span className="text-[13px] text-text-primary">{agent.label}</span>
-						{isNativeCline ? (
-							<span className="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium bg-status-green/10 text-status-green">
-								Installed
-							</span>
-						) : isInstalled ? (
-							<span className="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium bg-status-green/10 text-status-green">
-								Installed
-							</span>
-						) : isInstallStatusPending ? (
-							<span className="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary">
-								Checking...
-							</span>
-						) : null}
-					</div>
-					{showCommandPreview && agent.command ? (
-						<p className="text-text-secondary font-mono text-xs mt-0.5 m-0">{agent.command}</p>
-					) : null}
-				</label>
+			<div className="flex flex-col gap-0.5 min-w-0">
+				<div className="flex items-center gap-2">
+					<span className="text-[13px] font-medium text-text-primary">{agent.label}</span>
+					{isNativeCline || isInstalled ? (
+						<span className="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium bg-status-green/10 text-status-green">
+							Installed
+						</span>
+					) : isInstallStatusPending ? (
+						<span className="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary">
+							Checking...
+						</span>
+					) : (
+						<span className="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-tertiary">
+							Not Installed
+						</span>
+					)}
+				</div>
+				{showCommandPreview && agent.command ? (
+					<p className="text-text-secondary font-mono text-xs mt-0.5 m-0">{agent.command}</p>
+				) : null}
 			</div>
 			{!isNativeCline && agent.installed === false && installUrl ? (
 				<a
@@ -1232,16 +1212,38 @@ export function RuntimeSettingsDialog({
 							<span className="text-[10px] text-text-tertiary uppercase tracking-wide">Global</span>
 						</div>
 						<p className="text-text-secondary text-[13px] mt-0 mb-3">
-							Each task can override this on the card. Running sessions keep their launch flags until
-							restart.
+							Which agent new tasks default to when created without an explicit agent selected on the card.
 						</p>
-						<div role="radiogroup" aria-label="Default agent for new tasks" className="flex flex-col divide-y divide-border/40">
+						<NativeSelect
+							aria-label="Default agent for new tasks"
+							value={selectedAgentId}
+							disabled={controlsDisabled}
+							onChange={(event) => setSelectedAgentId(event.target.value as RuntimeAgentId)}
+							style={{ minWidth: 220 }}
+						>
+							{displayedAgents.map((agent) => (
+								<option key={agent.id} value={agent.id} disabled={agent.installed === false}>
+									{agent.label} {agent.installed === false ? "(Not installed)" : ""}
+								</option>
+							))}
+						</NativeSelect>
+					</div>
+
+					<div className="rounded-lg border border-border bg-surface-0 px-4 py-3 mb-4">
+						<div className="flex items-center justify-between gap-2 mb-1">
+							<h6 className="text-[12px] font-semibold uppercase tracking-wider text-text-secondary m-0">
+								Initial config for each agent
+							</h6>
+							<span className="text-[10px] text-text-tertiary uppercase tracking-wide">Global</span>
+						</div>
+						<p className="text-text-secondary text-[13px] mt-0 mb-3">
+							Configure default launch flags, permission modes, and subagent seats for each agent CLI. Each task can override this on the card.
+						</p>
+						<div className="flex flex-col divide-y divide-border/40">
 						{displayedAgents.map((agent) => (
 							<div key={agent.id} className="py-2.5 first:pt-0 last:pb-0">
 								<AgentRow
 									agent={agent}
-									isSelected={agent.id === selectedAgentId}
-									onSelect={() => setSelectedAgentId(agent.id)}
 									disabled={controlsDisabled}
 									showCommandPreview={Boolean(agent.command)}
 								/>

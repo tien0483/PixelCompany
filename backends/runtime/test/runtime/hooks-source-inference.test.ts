@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { resolveDroidFinalMessageFromTranscriptText } from "../../src/commands/hook-events/droid-hook-events";
+import { resolveGeminiFinalMessageFromTranscriptText } from "../../src/commands/hook-events/gemini-hook-events";
 import { inferHookSourceFromPayload } from "../../src/commands/hooks";
 
 describe("inferHookSourceFromPayload", () => {
@@ -18,6 +19,14 @@ describe("inferHookSourceFromPayload", () => {
 				transcript_path: "C:\\Users\\dev\\.claude\\projects\\task\\transcript.jsonl",
 			}),
 		).toBe("claude");
+	});
+
+	it("infers gemini/antigravity from transcript path", () => {
+		expect(
+			inferHookSourceFromPayload({
+				transcript_path: "/home/ubuntu/.gemini/antigravity-cli/brain/123/.system_generated/logs/transcript.jsonl",
+			}),
+		).toBe("gemini");
 	});
 
 	it("infers droid from windows transcript path", () => {
@@ -111,5 +120,29 @@ describe("resolveDroidFinalMessageFromTranscriptText", () => {
 		].join("\n");
 
 		expect(resolveDroidFinalMessageFromTranscriptText(transcriptText)).toBe("Implemented feature.");
+	});
+});
+
+describe("resolveGeminiFinalMessageFromTranscriptText", () => {
+	it("returns the latest Antigravity PLANNER_RESPONSE content", () => {
+		const transcriptText = [
+			JSON.stringify({
+				step_index: 1,
+				source: "USER_EXPLICIT",
+				type: "USER_INPUT",
+				content: "hello",
+			}),
+			JSON.stringify({
+				step_index: 2,
+				source: "MODEL",
+				type: "PLANNER_RESPONSE",
+				status: "DONE",
+				content: "Task completed successfully. All unit tests are passing.",
+			}),
+		].join("\n");
+
+		expect(resolveGeminiFinalMessageFromTranscriptText(transcriptText)).toBe(
+			"Task completed successfully. All unit tests are passing.",
+		);
 	});
 });

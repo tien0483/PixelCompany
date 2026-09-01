@@ -15,6 +15,7 @@ import {
 	startCodexSessionWatcher,
 } from "./hook-events/codex-hook-events";
 import { enrichDroidReviewMetadata } from "./hook-events/droid-hook-events";
+import { enrichGeminiReviewMetadata } from "./hook-events/gemini-hook-events";
 import { asRecord, normalizeWhitespace, readNestedString, readStringField } from "./hook-events/hook-utils";
 import { normalizeKiroHookMetadata } from "./hook-events/kiro-hook-events";
 
@@ -281,6 +282,9 @@ export function inferHookSourceFromPayload(payload: Record<string, unknown> | nu
 	if (normalizedTranscriptPath?.includes("/.factory/")) {
 		return "droid";
 	}
+	if (normalizedTranscriptPath?.includes("/.gemini/") || normalizedTranscriptPath?.includes("antigravity")) {
+		return "gemini";
+	}
 	if (payload && readStringField(payload, "type") === "agent-turn-complete") {
 		return "codex";
 	}
@@ -507,7 +511,8 @@ async function runHooksNotify(
 		const stdinPayload = await readStdinText();
 		const parsedArgs = parseHooksIngestArgs(event, options, payloadArg, stdinPayload);
 		const codexEnrichedArgs = await enrichCodexReviewMetadata(parsedArgs, process.cwd());
-		const args = await enrichDroidReviewMetadata(codexEnrichedArgs);
+		const droidEnrichedArgs = await enrichDroidReviewMetadata(codexEnrichedArgs);
+		const args = await enrichGeminiReviewMetadata(droidEnrichedArgs, process.cwd());
 		await ingestHookEvent(args);
 	} catch {
 		// Best effort only.
@@ -527,13 +532,22 @@ async function readStdinText(): Promise<string> {
 }
 
 function mapGeminiHookEvent(eventName: string): RuntimeHookEvent | null {
-	if (eventName === "AfterAgent") {
+	if (eventName === "to_review" || eventName === "to_in_progress" || eventName === "activity") {
+		return eventName;
+	}
+	if (eventName === "Stop" || eventName === "AfterAgent" || eventName === "PostInvocation") {
 		return "to_review";
 	}
-	if (eventName === "BeforeAgent") {
+	if (eventName === "BeforeAgent" || eventName === "PreInvocation") {
 		return "to_in_progress";
 	}
-	if (eventName === "AfterTool" || eventName === "BeforeTool" || eventName === "Notification") {
+	if (
+		eventName === "PreToolUse" ||
+		eventName === "PostToolUse" ||
+		eventName === "BeforeTool" ||
+		eventName === "AfterTool" ||
+		eventName === "Notification"
+	) {
 		return "activity";
 	}
 	return null;
@@ -562,28 +576,42 @@ async function runCodexHookSubcommand(
 	}
 }
 
-async function runGeminiHookSubcommand(): Promise<void> {
+async function runGeminiHookSubcommand(explicitEvent?: string, payloadArg?: string): Promise<void> {
 	let payload = "";
 	try {
 		payload = await readStdinText();
 	} catch {
 		payload = "";
 	}
+	if (!payload.trim() && payloadArg) {
+		payload = payloadArg;
+	}
 
-	let hookEventName = "";
+	let hookEventName = explicitEvent?.trim() ?? "";
 	let payloadRecord: Record<string, unknown> | null = null;
 	try {
 		const parsed = JSON.parse(payload || "{}") as { hook_event_name?: unknown };
 		payloadRecord = asRecord(parsed);
-		hookEventName =
-			typeof parsed.hook_event_name === "string"
-				? parsed.hook_event_name
-				: payloadRecord && typeof payloadRecord.hookEventName === "string"
-					? payloadRecord.hookEventName
-					: "";
+		if (!hookEventName) {
+			hookEventName =
+				typeof parsed.hook_event_name === "string"
+					? parsed.hook_event_name
+					: payloadRecord && typeof payloadRecord.hookEventName === "string"
+						? payloadRecord.hookEventName
+						: "";
+		}
 	} catch {
-		hookEventName = "";
 		payloadRecord = null;
+	}
+
+	if (!hookEventName && payloadRecord) {
+		if ("terminationReason" in payloadRecord || "executionNum" in payloadRecord) {
+			hookEventName = "Stop";
+		} else if ("toolCall" in payloadRecord || "tool_name" in payloadRecord) {
+			hookEventName = "PreToolUse";
+		} else if ("invocationNum" in payloadRecord) {
+			hookEventName = "PreInvocation";
+		}
 	}
 
 	process.stdout.write("{}\n");
@@ -729,7 +757,8 @@ async function runHooksIngest(
 		const stdinPayload = await readStdinText();
 		const parsedArgs = parseHooksIngestArgs(event, options, payloadArg, stdinPayload);
 		const codexEnrichedArgs = await enrichCodexReviewMetadata(parsedArgs, process.cwd());
-		args = await enrichDroidReviewMetadata(codexEnrichedArgs);
+		const droidEnrichedArgs = await enrichDroidReviewMetadata(codexEnrichedArgs);
+		args = await enrichGeminiReviewMetadata(droidEnrichedArgs, process.cwd());
 	} catch (error) {
 		process.stderr.write(`kanban hooks ingest: ${formatError(error)}\n`);
 		process.exitCode = 1;
@@ -788,10 +817,11 @@ export function registerHooksCommand(program: Command): void {
 		);
 
 	hooks
-		.command("gemini-hook")
-		.description("Gemini hook entrypoint.")
-		.action(async () => {
-			await runGeminiHookSubcommand();
+		.command("gemini-hook [payload]")
+		.description("Gemini / Antigravity hook entrypoint.")
+		.option("--event <event>", "Hook event name or mapped event.")
+		.action(async (payload: string | undefined, options: { event?: string }) => {
+			await runGeminiHookSubcommand(options.event, payload);
 		});
 
 	hooks
