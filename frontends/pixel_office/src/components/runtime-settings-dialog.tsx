@@ -5,14 +5,19 @@ import * as RadixCheckbox from "@radix-ui/react-checkbox";
 import * as RadixPopover from "@radix-ui/react-popover";
 import * as RadixSwitch from "@radix-ui/react-switch";
 import { getRuntimeAgentCatalogEntry, getRuntimeLaunchSupportedAgentCatalog } from "@runtime-agent-catalog";
+import {
+	areAgentLaunchOptionsEqual,
+	buildAgentLaunchPreviewArgs,
+	createDefaultAgentLaunchOptions,
+	getAgentLaunchOptionEntry,
+	normalizeAgentLaunchOptions,
+} from "@runtime-agent-launch-options";
 import { areRuntimeProjectShortcutsEqual } from "@runtime-shortcuts";
 import {
 	Bell,
 	Bot,
 	Check,
 	ChevronDown,
-	Circle,
-	CircleDot,
 	ExternalLink,
 	FolderOpen,
 	GitCommit,
@@ -60,9 +65,13 @@ import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
 import { useClineApiSeats } from "@/runtime/use-cline-api-seats";
 import type {
 	RuntimeAgentId,
+	RuntimeAgentLaunchOptionEntry,
+	RuntimeAgentLaunchOptions,
 	RuntimeClineMcpServerAuthStatus,
 	RuntimeConfigResponse,
 	RuntimeProjectShortcut,
+	ClaudeLaunchPermissionSetting,
+	GeminiLaunchModeSetting,
 } from "@/runtime/types";
 import { useRuntimeConfig } from "@/runtime/use-runtime-config";
 import {
@@ -88,12 +97,34 @@ function quoteCommandPartForDisplay(part: string): string {
 	return JSON.stringify(part);
 }
 
-function buildDisplayedAgentCommand(agentId: RuntimeAgentId, binary: string, autonomousModeEnabled: boolean): string {
+function buildDisplayedAgentCommand(
+	agentId: RuntimeAgentId,
+	binary: string,
+	agentLaunchOptions: RuntimeAgentLaunchOptions,
+): string {
 	if (agentId === "cline") {
 		return "";
 	}
-	const args = autonomousModeEnabled ? (getRuntimeAgentCatalogEntry(agentId)?.autonomousArgs ?? []) : [];
+	const args = buildAgentLaunchPreviewArgs(agentId, agentLaunchOptions);
 	return [binary, ...args.map(quoteCommandPartForDisplay)].join(" ");
+}
+
+function cloneAgentLaunchOptions(options: RuntimeAgentLaunchOptions): RuntimeAgentLaunchOptions {
+	return normalizeAgentLaunchOptions(options);
+}
+
+function patchAgentLaunchOption(
+	options: RuntimeAgentLaunchOptions,
+	agentId: RuntimeAgentId,
+	patch: RuntimeAgentLaunchOptionEntry,
+): RuntimeAgentLaunchOptions {
+	return {
+		...options,
+		[agentId]: {
+			...getAgentLaunchOptionEntry(agentId, options),
+			...patch,
+		},
+	};
 }
 
 function normalizeTemplateForComparison(value: string): string {
@@ -176,52 +207,167 @@ function getNextShortcutLabel(shortcuts: RuntimeProjectShortcut[], baseLabel: st
 	return `${baseLabel} ${suffix}`;
 }
 
+function AgentLaunchOptionsPanel({
+	agentId,
+	options,
+	onChange,
+	disabled,
+}: {
+	agentId: RuntimeAgentId;
+	options: RuntimeAgentLaunchOptions;
+	onChange: (next: RuntimeAgentLaunchOptions) => void;
+	disabled: boolean;
+}): React.ReactElement | null {
+	const entry = getAgentLaunchOptionEntry(agentId, options);
+	if (agentId === "claude") {
+		const mode = entry.claudePermissionMode ?? "auto";
+		return (
+			<div className="mt-3 ml-6 border-l border-border pl-3">
+				<label className="flex flex-col gap-1 text-[12px] text-text-secondary">
+					<span>Claude permission mode</span>
+					<NativeSelect
+						size="sm"
+						disabled={disabled}
+						value={mode}
+						onChange={(event) => {
+							onChange(
+								patchAgentLaunchOption(options, "claude", {
+									claudePermissionMode: event.target.value as ClaudeLaunchPermissionSetting,
+								}),
+							);
+						}}
+					>
+						<option value="off">Off — prompt before each tool</option>
+						<option value="auto">Auto — approve tools automatically</option>
+						<option value="plan">Plan — plan before edits</option>
+						<option value="acceptEdits">Accept edits — approve file edits only</option>
+					</NativeSelect>
+				</label>
+			</div>
+		);
+	}
+	if (agentId === "gemini") {
+		const mode = entry.geminiMode ?? "accept-edits";
+		const skipPermissions = entry.geminiSkipPermissions ?? true;
+		return (
+			<div className="mt-3 ml-6 border-l border-border pl-3 flex flex-col gap-2">
+				<label className="flex items-center gap-2 text-[13px] text-text-primary cursor-pointer">
+					<RadixCheckbox.Root
+						checked={skipPermissions}
+						disabled={disabled}
+						onCheckedChange={(checked) => {
+							onChange(
+								patchAgentLaunchOption(options, "gemini", {
+									geminiSkipPermissions: checked === true,
+								}),
+							);
+						}}
+						className="flex h-4 w-4 cursor-pointer items-center justify-center rounded border border-border bg-surface-2 data-[state=checked]:bg-accent data-[state=checked]:border-accent disabled:cursor-default disabled:opacity-40"
+					>
+						<RadixCheckbox.Indicator>
+							<Check size={12} className="text-white" />
+						</RadixCheckbox.Indicator>
+					</RadixCheckbox.Root>
+					<span>Skip permission prompts (--dangerously-skip-permissions)</span>
+				</label>
+				<label className="flex flex-col gap-1 text-[12px] text-text-secondary">
+					<span>Antigravity mode</span>
+					<NativeSelect
+						size="sm"
+						disabled={disabled}
+						value={mode}
+						onChange={(event) => {
+							onChange(
+								patchAgentLaunchOption(options, "gemini", {
+									geminiMode: event.target.value as GeminiLaunchModeSetting,
+								}),
+							);
+						}}
+					>
+						<option value="off">Off</option>
+						<option value="accept-edits">Accept edits</option>
+						<option value="plan">Plan</option>
+					</NativeSelect>
+				</label>
+			</div>
+		);
+	}
+	if (agentId === "cursor" || agentId === "codex" || agentId === "cline" || agentId === "droid" || agentId === "kiro") {
+		const catalogEntry = getRuntimeAgentCatalogEntry(agentId);
+		if (!catalogEntry || catalogEntry.autonomousArgs.length === 0) {
+			return null;
+		}
+		const enabled = entry.autonomousEnabled ?? true;
+		return (
+			<div className="mt-3 ml-6 border-l border-border pl-3">
+				<label className="flex items-center gap-2 text-[13px] text-text-primary cursor-pointer">
+					<RadixCheckbox.Root
+						checked={enabled}
+						disabled={disabled}
+						onCheckedChange={(checked) => {
+							onChange(
+								patchAgentLaunchOption(options, agentId, {
+									autonomousEnabled: checked === true,
+								}),
+							);
+						}}
+						className="flex h-4 w-4 cursor-pointer items-center justify-center rounded border border-border bg-surface-2 data-[state=checked]:bg-accent data-[state=checked]:border-accent disabled:cursor-default disabled:opacity-40"
+					>
+						<RadixCheckbox.Indicator>
+							<Check size={12} className="text-white" />
+						</RadixCheckbox.Indicator>
+					</RadixCheckbox.Root>
+					<span>Append autonomous launch flags</span>
+				</label>
+			</div>
+		);
+	}
+	return null;
+}
+
 function AgentRow({
 	agent,
 	isSelected,
 	onSelect,
 	disabled,
+	showCommandPreview,
 }: {
 	agent: RuntimeSettingsAgentRowModel;
 	isSelected: boolean;
 	onSelect: () => void;
 	disabled: boolean;
+	showCommandPreview: boolean;
 }): React.ReactElement {
 	const installUrl = getRuntimeAgentCatalogEntry(agent.id)?.installUrl;
 	const isNativeCline = agent.id === "cline";
 	const isInstalled = agent.installed === true;
 	const isInstallStatusPending = !isNativeCline && agent.installed === null;
+	const radioId = `runtime-settings-agent-${agent.id}`;
 
 	return (
-		<div
-			role="button"
-			tabIndex={0}
-			onClick={() => {
-				if (isInstalled && !disabled) {
-					onSelect();
-				}
-			}}
-			onKeyDown={(event) => {
-				if (event.key === "Enter" && isInstalled && !disabled) {
-					onSelect();
-				}
-			}}
-			className="flex items-center justify-between gap-3 py-1.5"
-			style={{ cursor: isInstalled ? "pointer" : "default" }}
-		>
+		<div className="flex items-center justify-between gap-3 py-1.5">
 			<div className="flex items-start gap-2 min-w-0">
-				{isSelected ? (
-					<CircleDot size={16} className="text-accent mt-0.5 shrink-0" />
-				) : (
-					<Circle
-						size={16}
-						className={cn("mt-0.5 shrink-0", !isInstalled ? "text-text-tertiary" : "text-text-secondary")}
-					/>
-				)}
-				<div className="min-w-0">
+				<input
+					id={radioId}
+					type="radio"
+					name="runtime-settings-default-agent"
+					checked={isSelected}
+					disabled={!isInstalled || disabled}
+					onChange={() => {
+						if (isInstalled && !disabled) {
+							onSelect();
+						}
+					}}
+					className="mt-1 shrink-0 cursor-pointer disabled:cursor-default disabled:opacity-40"
+				/>
+				<label htmlFor={radioId} className="min-w-0 cursor-pointer" style={{ cursor: isInstalled ? "pointer" : "default" }}>
 					<div className="flex items-center gap-2">
 						<span className="text-[13px] text-text-primary">{agent.label}</span>
-						{!isNativeCline && isInstalled ? (
+						{isNativeCline ? (
+							<span className="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium bg-status-green/10 text-status-green">
+								Installed
+							</span>
+						) : isInstalled ? (
 							<span className="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium bg-status-green/10 text-status-green">
 								Installed
 							</span>
@@ -231,10 +377,10 @@ function AgentRow({
 							</span>
 						) : null}
 					</div>
-					{agent.command ? (
+					{showCommandPreview && agent.command ? (
 						<p className="text-text-secondary font-mono text-xs mt-0.5 m-0">{agent.command}</p>
 					) : null}
-				</div>
+				</label>
 			</div>
 			{!isNativeCline && agent.installed === false && installUrl ? (
 				<a
@@ -352,13 +498,15 @@ function SettingsNav({
 	items,
 	activeId,
 	onSelect,
+	className,
 }: {
 	items: ReadonlyArray<{ id: SettingsNavId; label: string; icon: React.ReactNode }>;
 	activeId: SettingsNavId;
 	onSelect: (id: SettingsNavId) => void;
+	className?: string;
 }): React.ReactElement {
 	return (
-		<nav className="hidden md:flex w-[180px] shrink-0 flex-col gap-0.5 border-r border-border bg-surface-1 p-3 overflow-y-auto">
+		<nav className={cn("flex shrink-0 flex-col gap-0.5 border-r border-border bg-surface-1 p-3 overflow-y-auto", className)}>
 			{items.map((item) => (
 				<button
 					key={item.id}
@@ -407,7 +555,9 @@ export function RuntimeSettingsDialog({
 	const { resetLayoutCustomizations } = useLayoutCustomizations();
 	const [selectedAgentId, setSelectedAgentId] = useState<RuntimeAgentId>("claude");
 	const [defaultSubagentSeatProviderId, setDefaultSubagentSeatProviderId] = useState<string | null>(null);
-	const [agentAutonomousModeEnabled, setAgentAutonomousModeEnabled] = useState(true);
+	const [agentLaunchOptions, setAgentLaunchOptions] = useState<RuntimeAgentLaunchOptions>(() =>
+		createDefaultAgentLaunchOptions(true),
+	);
 	const [readyForReviewNotificationsEnabled, setReadyForReviewNotificationsEnabled] = useState(true);
 	const [initialThemeId, setInitialThemeId] = useState<ThemeId>(readStoredThemeId);
 	const [draftThemeId, setDraftThemeId] = useState<ThemeId>(readStoredThemeId);
@@ -462,7 +612,6 @@ export function RuntimeSettingsDialog({
 		selectedPromptVariant === "commit" ? isCommitPromptAtDefault : isOpenPrPromptAtDefault;
 	const selectedPromptPlaceholder =
 		selectedPromptVariant === "commit" ? "Commit prompt template" : "PR prompt template";
-	const bypassPermissionsCheckboxId = "runtime-settings-bypass-permissions";
 	const refreshNotificationPermission = useCallback(() => {
 		setNotificationPermission(getBrowserNotificationPermission());
 	}, []);
@@ -489,21 +638,24 @@ export function RuntimeSettingsDialog({
 		});
 		return orderedAgents.map((agent) => ({
 			...agent,
-			command: buildDisplayedAgentCommand(agent.id, agent.binary, agentAutonomousModeEnabled),
+			command:
+				agent.id === selectedAgentId
+					? buildDisplayedAgentCommand(agent.id, agent.binary, agentLaunchOptions)
+					: "",
 		}));
-	}, [agentAutonomousModeEnabled, config?.agents]);
+	}, [agentLaunchOptions, config?.agents, selectedAgentId]);
 	const displayedAgents = useMemo(() => supportedAgents, [supportedAgents]);
-	const navItems = useMemo(
-		() => SETTINGS_NAV_ITEMS.filter((item) => !item.clineOnly || selectedAgentId === "cline"),
-		[selectedAgentId],
-	);
+	const navItems = useMemo(() => SETTINGS_NAV_ITEMS, []);
 	const configuredAgentId = config?.selectedAgentId ?? null;
 	const firstInstalledAgentId = displayedAgents.find((agent) => agent.installed)?.id;
 	const fallbackAgentId = firstInstalledAgentId ?? displayedAgents[0]?.id ?? "claude";
 	const initialSelectedAgentId = configuredAgentId ?? fallbackAgentId;
 	const { seats: apiSeats } = useClineApiSeats(workspaceId, open);
 	const initialDefaultSubagentSeatProviderId = config?.defaultSubagentSeatProviderId ?? null;
-	const initialAgentAutonomousModeEnabled = config?.agentAutonomousModeEnabled ?? true;
+	const initialAgentLaunchOptions = normalizeAgentLaunchOptions(
+		config?.agentLaunchOptions,
+		config?.agentAutonomousModeEnabled,
+	);
 	const initialReadyForReviewNotificationsEnabled = config?.readyForReviewNotificationsEnabled ?? true;
 	const initialShortcuts = config?.shortcuts ?? [];
 	const initialCommitPromptTemplate = config?.commitPromptTemplate ?? "";
@@ -534,7 +686,7 @@ export function RuntimeSettingsDialog({
 		if (defaultSubagentSeatProviderId !== initialDefaultSubagentSeatProviderId) {
 			return true;
 		}
-		if (agentAutonomousModeEnabled !== initialAgentAutonomousModeEnabled) {
+		if (!areAgentLaunchOptionsEqual(agentLaunchOptions, initialAgentLaunchOptions)) {
 			return true;
 		}
 		if (readyForReviewNotificationsEnabled !== initialReadyForReviewNotificationsEnabled) {
@@ -581,7 +733,7 @@ export function RuntimeSettingsDialog({
 			normalizeTemplateForComparison(initialSeamCommentTagTemplate)
 		);
 	}, [
-		agentAutonomousModeEnabled,
+		agentLaunchOptions,
 		agentDisplayName,
 		clineMcpSettings.hasUnsavedChanges,
 		clineSettings.hasUnsavedChanges,
@@ -591,7 +743,7 @@ export function RuntimeSettingsDialog({
 		config,
 		defaultSubagentSeatProviderId,
 		draftThemeId,
-		initialAgentAutonomousModeEnabled,
+		initialAgentLaunchOptions,
 		initialAgentDisplayName,
 		initialCommitPromptTemplate,
 		initialCommitTrailerMode,
@@ -616,7 +768,9 @@ export function RuntimeSettingsDialog({
 		}
 		setSelectedAgentId(configuredAgentId ?? fallbackAgentId);
 		setDefaultSubagentSeatProviderId(config?.defaultSubagentSeatProviderId ?? null);
-		setAgentAutonomousModeEnabled(config?.agentAutonomousModeEnabled ?? true);
+		setAgentLaunchOptions(
+			normalizeAgentLaunchOptions(config?.agentLaunchOptions, config?.agentAutonomousModeEnabled),
+		);
 		setReadyForReviewNotificationsEnabled(config?.readyForReviewNotificationsEnabled ?? true);
 		setShortcuts(config?.shortcuts ?? []);
 		setCommitPromptTemplate(config?.commitPromptTemplate ?? "");
@@ -818,12 +972,6 @@ export function RuntimeSettingsDialog({
 		}
 	});
 
-	useEffect(() => {
-		if (activeSection === "cline" && selectedAgentId !== "cline") {
-			setActiveSection("general");
-		}
-	}, [activeSection, selectedAgentId]);
-
 	const handleBodyScroll = useCallback(() => {
 		if (isScrollingProgrammatically.current) return;
 		const body = bodyRef.current;
@@ -938,7 +1086,7 @@ export function RuntimeSettingsDialog({
 		const saved = await save({
 			selectedAgentId,
 			defaultSubagentSeatProviderId,
-			agentAutonomousModeEnabled,
+			agentLaunchOptions,
 			readyForReviewNotificationsEnabled,
 			shortcuts,
 			commitPromptTemplate,
@@ -1006,8 +1154,24 @@ export function RuntimeSettingsDialog({
 			contentClassName="w-[90vw] max-w-[780px] max-h-[85vh]"
 		>
 			<DialogHeader title="Settings" icon={<Settings size={16} />} />
-			<div className="flex h-[min(480px,60vh)]">
-				<SettingsNav items={navItems} activeId={activeSection} onSelect={handleNavSelect} />
+			<div className="flex flex-col h-[min(480px,60vh)]">
+				<div className="md:hidden border-b border-border bg-surface-1 px-3 py-2">
+					<NativeSelect
+						aria-label="Settings section"
+						value={activeSection}
+						onChange={(event) => {
+							handleNavSelect(event.target.value as SettingsNavId);
+						}}
+					>
+						{navItems.map((item) => (
+							<option key={item.id} value={item.id}>
+								{item.label}
+							</option>
+						))}
+					</NativeSelect>
+				</div>
+				<div className="flex flex-1 min-h-0">
+				<SettingsNav items={navItems} activeId={activeSection} onSelect={handleNavSelect} className="hidden md:flex w-[180px]" />
 				<div
 					ref={bodyRef}
 					onScroll={handleBodyScroll}
@@ -1022,9 +1186,17 @@ export function RuntimeSettingsDialog({
 						</h2>
 					</div>
 					<div className="rounded-lg border border-border bg-surface-0 px-4 py-3 mb-4">
-						<h6 className="text-[12px] font-semibold uppercase tracking-wider text-text-secondary m-0 mb-1">
-							Agent
-						</h6>
+						<div className="flex items-center justify-between gap-2 mb-1">
+							<h6 className="text-[12px] font-semibold uppercase tracking-wider text-text-secondary m-0">
+								Default agent for new tasks
+							</h6>
+							<span className="text-[10px] text-text-tertiary uppercase tracking-wide">Global</span>
+						</div>
+						<p className="text-text-secondary text-[13px] mt-0 mb-2">
+							Each task can override this on the card. Running sessions keep their launch flags until
+							restart.
+						</p>
+						<div role="radiogroup" aria-label="Default agent for new tasks">
 						{displayedAgents.map((agent) => (
 							<AgentRow
 								key={agent.id}
@@ -1032,67 +1204,74 @@ export function RuntimeSettingsDialog({
 								isSelected={agent.id === selectedAgentId}
 								onSelect={() => setSelectedAgentId(agent.id)}
 								disabled={controlsDisabled}
+								showCommandPreview={agent.id === selectedAgentId}
 							/>
 						))}
+						</div>
 						{config === null ? (
 							<p className="text-text-secondary py-2">Checking which CLIs are installed for this project...</p>
 						) : null}
-						<label
-							htmlFor={bypassPermissionsCheckboxId}
-							className="flex items-center gap-2 text-[13px] text-text-primary mt-2 cursor-pointer"
-						>
-							<RadixCheckbox.Root
-								id={bypassPermissionsCheckboxId}
-								aria-label="Enable bypass permissions flag"
-								checked={agentAutonomousModeEnabled}
-								disabled={controlsDisabled}
-								onCheckedChange={(checked) => setAgentAutonomousModeEnabled(checked === true)}
-								className="flex h-4 w-4 cursor-pointer items-center justify-center rounded border border-border bg-surface-2 data-[state=checked]:bg-accent data-[state=checked]:border-accent disabled:cursor-default disabled:opacity-40"
+						<AgentLaunchOptionsPanel
+							agentId={selectedAgentId}
+							options={agentLaunchOptions}
+							onChange={setAgentLaunchOptions}
+							disabled={controlsDisabled}
+						/>
+						<label className="flex min-w-0 items-center gap-1.5 text-[13px] text-text-primary mt-3">
+							<span className="shrink-0 text-text-secondary">Default subagent seat</span>
+							<NativeSelect
+								size="sm"
+								aria-label="Default API seat this task's subagents run on"
+								disabled={controlsDisabled || apiSeats.length === 0}
+								value={defaultSubagentSeatProviderId ?? ""}
+								onChange={(event) => {
+									setDefaultSubagentSeatProviderId(event.target.value || null);
+								}}
 							>
-								<RadixCheckbox.Indicator>
-									<Check size={12} className="text-white" />
-								</RadixCheckbox.Indicator>
-							</RadixCheckbox.Root>
-							<span>Enable bypass permissions flag</span>
+								<option value="">Same seat as the task (no split)</option>
+								{apiSeats.map((seat) => (
+									<option key={seat.providerId} value={seat.providerId}>
+										{apiSeatLabel(seat)}
+									</option>
+								))}
+							</NativeSelect>
 						</label>
-						<p className="text-text-secondary text-[13px] ml-6 mt-0 mb-0">
-							Allows agents to use tools without stopping for permission. Use at your own risk.
+						<p className="text-text-secondary text-[12px] mt-1 mb-0">
+							Applies to Claude Code tasks when no card pins a subagent seat.
 						</p>
-						{selectedAgentId === "claude" && apiSeats.length > 0 ? (
-							<label className="flex min-w-0 items-center gap-1.5 text-[13px] text-text-primary mt-3">
-								<span className="shrink-0 text-text-secondary">Default subagent seat</span>
-								<NativeSelect
-									size="sm"
-									aria-label="Default API seat this task's subagents run on"
-									disabled={controlsDisabled}
-									value={defaultSubagentSeatProviderId ?? ""}
-									onChange={(event) => {
-										setDefaultSubagentSeatProviderId(event.target.value || null);
-									}}
-								>
-									<option value="">Same seat as the task (no split)</option>
-									{apiSeats.map((seat) => (
-										<option key={seat.providerId} value={seat.providerId}>
-											{apiSeatLabel(seat)}
-										</option>
-									))}
-								</NativeSelect>
-							</label>
-						) : null}
+					</div>
+
+					<div className="rounded-lg border border-border bg-surface-0 px-4 py-3 mb-4">
+						<label className="flex items-center gap-2 text-[13px] text-text-primary select-none">
+							Max tasks running at once
+							<input
+								type="number"
+								min={1}
+								step={1}
+								value={maxRunningTasks}
+								onChange={(e) => {
+									const parsed = Number(e.currentTarget.value);
+									onMaxRunningTasksChange?.(Number.isFinite(parsed) && parsed >= 1 ? Math.floor(parsed) : 1);
+								}}
+								className="w-16 rounded-sm border border-border-bright bg-surface-3 px-2 py-1 text-[13px] text-text-primary"
+							/>
+						</label>
+						<p className="text-text-secondary text-[12px] m-0 mt-2">
+							Backlog cards with an auto-run countdown wait for a free slot when this many are already
+							running. Saved immediately on this device.
+						</p>
 					</div>
 
 					{/* ---- Cline ---- */}
-					{selectedAgentId === "cline" ? (
-						<>
-							<div data-settings-section="cline" />
-							<div className="sticky top-0 -mx-5 px-5 pt-4 pb-2 bg-surface-1 z-10">
-								<h2 className="flex items-center gap-2 text-base font-semibold text-text-primary m-0">
-									<Bot size={16} className="text-text-secondary" />
-									Cline
-								</h2>
-							</div>
-							<div className="rounded-lg border border-border bg-surface-0 px-4 py-3 mb-4">
-								<ClineSetupSection
+					<div data-settings-section="cline" />
+					<div className="sticky top-0 -mx-5 px-5 pt-4 pb-2 bg-surface-1 z-10">
+						<h2 className="flex items-center gap-2 text-base font-semibold text-text-primary m-0">
+							<Bot size={16} className="text-text-secondary" />
+							Cline
+						</h2>
+					</div>
+					<div className="rounded-lg border border-border bg-surface-0 px-4 py-3 mb-4">
+						<ClineSetupSection
 									controller={clineSettings}
 									mcpController={clineMcpSettings}
 									controlsDisabled={controlsDisabled}
@@ -1109,9 +1288,7 @@ export function RuntimeSettingsDialog({
 									onError={setSaveError}
 									onSaved={handleClineSetupSaved}
 								/>
-							</div>
-						</>
-					) : null}
+					</div>
 
 					{/* ---- Git Prompts ---- */}
 					<div data-settings-section="git-prompts" />
@@ -1119,6 +1296,9 @@ export function RuntimeSettingsDialog({
 						<h2 className="flex items-center gap-2 text-base font-semibold text-text-primary m-0">
 							<GitCommit size={16} className="text-text-secondary" />
 							Git Prompts
+							<span className="text-[10px] font-medium uppercase tracking-wide text-text-tertiary ml-1">
+								Global
+							</span>
 						</h2>
 					</div>
 					<div className="rounded-lg border border-border bg-surface-0 px-4 py-3 mb-4">
@@ -1400,27 +1580,7 @@ export function RuntimeSettingsDialog({
 						</div>
 					</div>
 
-					<div className="rounded-lg border border-border bg-surface-0 px-4 py-3 mb-4">
-						<label className="flex items-center gap-2 text-[13px] text-text-primary select-none">
-							Max tasks running at once
-							<input
-								type="number"
-								min={1}
-								step={1}
-								value={maxRunningTasks}
-								onChange={(e) => {
-									const parsed = Number(e.currentTarget.value);
-									onMaxRunningTasksChange?.(Number.isFinite(parsed) && parsed >= 1 ? Math.floor(parsed) : 1);
-								}}
-								className="w-16 rounded-sm border border-border-bright bg-surface-3 px-2 py-1 text-[13px] text-text-primary"
-							/>
-						</label>
-						<p className="text-text-secondary text-[12px] m-0 mt-2">
-							Backlog cards with an auto-run countdown wait for a free slot when this many are already running.
-						</p>
-					</div>
-
-					{/* ---- Appearance ---- */}
+					{/* ---- Notifications ---- */}
 					<div data-settings-section="appearance" />
 					<div className="sticky top-0 -mx-5 px-5 pt-4 pb-2 bg-surface-1 z-10">
 						<h2 className="flex items-center gap-2 text-base font-semibold text-text-primary m-0">
@@ -1432,6 +1592,9 @@ export function RuntimeSettingsDialog({
 						<h6 className="text-[12px] font-semibold uppercase tracking-wider text-text-secondary m-0 mb-2">
 							Theme
 						</h6>
+						<p className="text-text-secondary text-[12px] mt-0 mb-2">
+							Preview updates live. Click Save to keep a theme change; Cancel reverts it.
+						</p>
 						<div className="min-w-0 w-1/2 max-w-full">
 							<ThemeSelect variant="field" value={draftThemeId} onValueChange={setDraftThemeId} />
 						</div>
@@ -1464,13 +1627,16 @@ export function RuntimeSettingsDialog({
 					>
 						{config?.projectConfigPath
 							? formatPathForDisplay(config.projectConfigPath)
-							: "<project>/.cline/kanban/config.json"}
+							: "<project>/.agent/kanban/config.json"}
 						{config?.projectConfigPath ? <ExternalLink size={12} className="inline ml-1.5 align-middle" /> : null}
 					</p>
 					<div className="rounded-lg border border-border bg-surface-0 px-4 py-3 mb-4">
 						<div className="flex items-center justify-between mb-2">
 							<h6 className="text-[12px] font-semibold uppercase tracking-wider text-text-secondary m-0">
 								Local assets
+								<span className="ml-2 text-[10px] font-medium normal-case tracking-normal text-text-tertiary">
+									Project · saved immediately
+								</span>
 							</h6>
 							<Button
 								variant="ghost"
@@ -1531,6 +1697,9 @@ export function RuntimeSettingsDialog({
 								className="text-[12px] font-semibold uppercase tracking-wider text-text-secondary m-0"
 							>
 								Script shortcuts
+								<span className="ml-2 text-[10px] font-medium normal-case tracking-normal text-text-tertiary">
+									Project
+								</span>
 							</h6>
 							<Button
 								variant="ghost"
@@ -1623,6 +1792,7 @@ export function RuntimeSettingsDialog({
 						</div>
 					) : null}
 				</div>
+				</div>
 			</div>
 			<DialogFooter>
 				<Button
@@ -1630,7 +1800,7 @@ export function RuntimeSettingsDialog({
 					variant="ghost"
 					className="mr-auto mt-[3px]"
 					icon={<ExternalLink size={14} />}
-					onClick={() => window.open("https://docs.cline.bot/kanban/overview", "_blank")}
+					onClick={() => window.open("https://github.com/PixelOffice-v2/PixelOffice", "_blank")}
 				>
 					Read the docs
 				</Button>

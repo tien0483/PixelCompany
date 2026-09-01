@@ -97,6 +97,27 @@ describe("resolveClaudeLaunchPermissionMode", () => {
 		).toBe("auto");
 	});
 
+	it("uses configured permission mode from Settings when no recorded mode exists", () => {
+		expect(
+			resolveClaudeLaunchPermissionMode({
+				recordedMode: null,
+				startInPlanMode: false,
+				autonomousModeEnabled: false,
+				configuredPermissionMode: "acceptEdits",
+				hasExplicitModeArg: false,
+			}),
+		).toBe("acceptEdits");
+		expect(
+			resolveClaudeLaunchPermissionMode({
+				recordedMode: null,
+				startInPlanMode: false,
+				autonomousModeEnabled: true,
+				configuredPermissionMode: "off",
+				hasExplicitModeArg: false,
+			}),
+		).toBeNull();
+	});
+
 	it("leaves explicit args alone", () => {
 		expect(
 			resolveClaudeLaunchPermissionMode({

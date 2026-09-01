@@ -3,6 +3,10 @@ import { delimiter, join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 import {
+	createDefaultAgentLaunchOptions,
+	deriveLegacyAutonomousModeEnabled,
+} from "../../../src/config/agent-launch-options";
+import {
 	loadGlobalRuntimeConfig,
 	loadRuntimeConfig,
 	pickBestInstalledAgentIdFromDetected,
@@ -107,6 +111,7 @@ describe.sequential("runtime-config auto agent selection", () => {
 					) as {
 						selectedAgentId?: string;
 						agentAutonomousModeEnabled?: boolean;
+					agentLaunchOptions?: Record<string, unknown>;
 						readyForReviewNotificationsEnabled?: boolean;
 						commitPromptTemplate?: string;
 						openPrPromptTemplate?: string;
@@ -114,7 +119,7 @@ describe.sequential("runtime-config auto agent selection", () => {
 					// Claude is now the default agent, and the writer omits default-valued
 					// keys, so the auto-selected id is proven by the reload below.
 					expect(persisted.selectedAgentId).toBeUndefined();
-					expect(persisted.agentAutonomousModeEnabled).toBeUndefined();
+					expect(persisted.agentLaunchOptions).toBeUndefined();
 					expect(persisted.readyForReviewNotificationsEnabled).toBeUndefined();
 					expect(persisted.commitPromptTemplate).toBeUndefined();
 					expect(persisted.openPrPromptTemplate).toBeUndefined();
@@ -301,7 +306,7 @@ describe.sequential("runtime-config auto agent selection", () => {
 					selectedShortcutLabel: null,
 					defaultSubagentSeatProviderId: null,
 					defaultSubagentSeatModelId: null,
-					agentAutonomousModeEnabled: true,
+					agentLaunchOptions: createDefaultAgentLaunchOptions(true),
 					readyForReviewNotificationsEnabled: true,
 					shortcuts: [],
 					commitPromptTemplate: current.commitPromptTemplateDefault,
@@ -317,6 +322,7 @@ describe.sequential("runtime-config auto agent selection", () => {
 				) as {
 					selectedAgentId?: string;
 					agentAutonomousModeEnabled?: boolean;
+					agentLaunchOptions?: Record<string, unknown>;
 					readyForReviewNotificationsEnabled?: boolean;
 					commitPromptTemplate?: string;
 					openPrPromptTemplate?: string;
@@ -324,7 +330,7 @@ describe.sequential("runtime-config auto agent selection", () => {
 					commitTrailerTemplate?: string;
 				};
 				expect(globalPayload.selectedAgentId).toBeUndefined();
-				expect(globalPayload.agentAutonomousModeEnabled).toBeUndefined();
+				expect(globalPayload.agentLaunchOptions).toBeUndefined();
 				expect(globalPayload.readyForReviewNotificationsEnabled).toBeUndefined();
 				expect(globalPayload.commitPromptTemplate).toBeUndefined();
 				expect(globalPayload.openPrPromptTemplate).toBeUndefined();
@@ -356,7 +362,7 @@ describe.sequential("runtime-config auto agent selection", () => {
 					selectedShortcutLabel: null,
 					defaultSubagentSeatProviderId: null,
 					defaultSubagentSeatModelId: null,
-					agentAutonomousModeEnabled: true,
+					agentLaunchOptions: createDefaultAgentLaunchOptions(true),
 					readyForReviewNotificationsEnabled: true,
 					shortcuts: [],
 					commitPromptTemplate: current.commitPromptTemplateDefault,
@@ -389,7 +395,7 @@ describe.sequential("runtime-config auto agent selection", () => {
 					selectedShortcutLabel: null,
 					defaultSubagentSeatProviderId: null,
 					defaultSubagentSeatModelId: null,
-					agentAutonomousModeEnabled: true,
+					agentLaunchOptions: createDefaultAgentLaunchOptions(true),
 					readyForReviewNotificationsEnabled: true,
 					shortcuts: [{ label: "Ship", command: "npm run ship", icon: "rocket" }],
 					commitPromptTemplate: current.commitPromptTemplateDefault,
@@ -434,11 +440,12 @@ describe.sequential("runtime-config auto agent selection", () => {
 					selectedAgentId?: string;
 					selectedShortcutLabel?: string;
 					agentAutonomousModeEnabled?: boolean;
+					agentLaunchOptions?: Record<string, unknown>;
 					readyForReviewNotificationsEnabled?: boolean;
 				};
 				expect(globalPayload.selectedAgentId).toBeUndefined();
 				expect(globalPayload.selectedShortcutLabel).toBeUndefined();
-				expect(globalPayload.agentAutonomousModeEnabled).toBeUndefined();
+				expect(globalPayload.agentLaunchOptions).toBeUndefined();
 				expect(globalPayload.readyForReviewNotificationsEnabled).toBeUndefined();
 			});
 		} finally {
@@ -456,19 +463,23 @@ describe.sequential("runtime-config auto agent selection", () => {
 		try {
 			await withTemporaryEnv({ home: tempHome }, async () => {
 				const updated = await updateRuntimeConfig(tempProject, {
-					agentAutonomousModeEnabled: false,
+					agentLaunchOptions: createDefaultAgentLaunchOptions(false),
 				});
-				expect(updated.agentAutonomousModeEnabled).toBe(false);
+				expect(deriveLegacyAutonomousModeEnabled(updated.selectedAgentId, updated.agentLaunchOptions)).toBe(
+					false,
+				);
 
 				const globalPayload = JSON.parse(
 					readFileSync(join(tempHome, RUNTIME_HOME_PARENT_DIR_NAME, "kanban", "config.json"), "utf8"),
 				) as {
-					agentAutonomousModeEnabled?: boolean;
+					agentLaunchOptions?: Record<string, unknown>;
 				};
-				expect(globalPayload.agentAutonomousModeEnabled).toBe(false);
+				expect(globalPayload.agentLaunchOptions).toBeDefined();
 
 				const reloaded = await loadRuntimeConfig(tempProject);
-				expect(reloaded.agentAutonomousModeEnabled).toBe(false);
+				expect(deriveLegacyAutonomousModeEnabled(reloaded.selectedAgentId, reloaded.agentLaunchOptions)).toBe(
+					false,
+				);
 			});
 		} finally {
 			cleanupProject();
@@ -491,16 +502,23 @@ describe.sequential("runtime-config auto agent selection", () => {
 						selectedShortcutLabel: "Ship",
 					}),
 					updateRuntimeConfig(tempProject, {
-						agentAutonomousModeEnabled: false,
+						agentLaunchOptions: createDefaultAgentLaunchOptions(false),
 					}),
 				]);
 
 				expect(shortcutLabelState.selectedShortcutLabel).toBe("Ship");
-				expect(autonomousModeState.agentAutonomousModeEnabled).toBe(false);
+				expect(
+					deriveLegacyAutonomousModeEnabled(
+						autonomousModeState.selectedAgentId,
+						autonomousModeState.agentLaunchOptions,
+					),
+				).toBe(false);
 
 				const reloaded = await loadRuntimeConfig(tempProject);
 				expect(reloaded.selectedShortcutLabel).toBe("Ship");
-				expect(reloaded.agentAutonomousModeEnabled).toBe(false);
+				expect(deriveLegacyAutonomousModeEnabled(reloaded.selectedAgentId, reloaded.agentLaunchOptions)).toBe(
+					false,
+				);
 			});
 		} finally {
 			cleanupProject();

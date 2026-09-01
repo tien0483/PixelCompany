@@ -13,6 +13,11 @@ import { createClineProviderService } from "../cline-sdk/cline-provider-service"
 import { isClineClearSlashCommand } from "../cline-sdk/cline-slash-commands";
 import type { ClineTaskSessionService } from "../cline-sdk/cline-task-session-service";
 import type { RuntimeConfigState } from "../config/runtime-config";
+import {
+	resolveAutonomousModeEnabledForLaunch,
+	resolveConfiguredClaudePermissionMode,
+	resolveGeminiLaunchEntry,
+} from "../config/agent-launch-options";
 import { updateGlobalRuntimeConfig, updateRuntimeConfig } from "../config/runtime-config";
 import type {
 	RuntimeClineReasoningEffort,
@@ -448,13 +453,19 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 					: body.taskLaunchSettings;
 				// Cursor Auto: no CURSOR_API_KEY injection — same auth as interactive
 				// `agent` (`agent login`). Explicit seat pins still inject a key.
+				const agentLaunchOptions = scopedRuntimeConfig.agentLaunchOptions;
 				const summary = await measureTaskStartSpan("startTaskSession.ptyPrepare", () =>
 					terminalManager.startTaskSession({
 						taskId: body.taskId,
 						agentId: resolved.agentId,
 						binary: resolved.binary,
 						args: resolved.args,
-						autonomousModeEnabled: scopedRuntimeConfig.agentAutonomousModeEnabled,
+						autonomousModeEnabled: resolveAutonomousModeEnabledForLaunch(
+							resolved.agentId,
+							agentLaunchOptions,
+						),
+						configuredClaudePermissionMode: resolveConfiguredClaudePermissionMode(agentLaunchOptions),
+						geminiLaunch: resolveGeminiLaunchEntry(agentLaunchOptions),
 						cwd: taskCwd,
 						prompt: launchPrompt,
 						images: body.images,

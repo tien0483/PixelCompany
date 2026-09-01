@@ -4,6 +4,7 @@
 import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
 import type {
 	RuntimeAgentId,
+	RuntimeAgentLaunchOptions,
 	RuntimeClaudeCacheCleanRequest,
 	RuntimeClaudeCacheCleanResponse,
 	RuntimeClaudeCacheStatusResponse,
@@ -62,6 +63,8 @@ export async function saveRuntimeConfig(
 		selectedAgentId?: RuntimeAgentId;
 		selectedShortcutLabel?: string | null;
 		defaultSubagentSeatProviderId?: string | null;
+		agentLaunchOptions?: RuntimeAgentLaunchOptions;
+		/** @deprecated Migrated into agentLaunchOptions on save. */
 		agentAutonomousModeEnabled?: boolean;
 		shortcuts?: RuntimeProjectShortcut[];
 		readyForReviewNotificationsEnabled?: boolean;

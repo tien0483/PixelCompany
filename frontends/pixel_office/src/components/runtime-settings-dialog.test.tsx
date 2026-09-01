@@ -146,8 +146,13 @@ vi.mock("@/runtime/use-runtime-config", () => ({
 	}),
 }));
 
+vi.mock("@/runtime/use-cline-api-seats", () => ({
+	useClineApiSeats: () => ({ seats: [], isLoading: false }),
+}));
+
 vi.mock("@/runtime/runtime-config-query", () => ({
 	openFileOnHost: vi.fn(async () => undefined),
+	fetchClineApiSeats: vi.fn(async () => []),
 }));
 
 const getWorkspaceLocalAssetsMock = vi.fn(async () => ({
@@ -189,6 +194,7 @@ function findButtonByAriaLabel(container: ParentNode, ariaLabel: string): HTMLBu
 const savedClineOauthConfig = {
 	selectedAgentId: "cline",
 	selectedShortcutLabel: null,
+	agentLaunchOptions: { claude: { claudePermissionMode: "auto" }, cline: { autonomousEnabled: true } },
 	agentAutonomousModeEnabled: true,
 	readyForReviewNotificationsEnabled: false,
 	effectiveCommand: "cline",

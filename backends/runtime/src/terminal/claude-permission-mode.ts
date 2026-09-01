@@ -18,6 +18,7 @@
 import { open, readdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import type { ClaudeLaunchPermissionSetting } from "../config/agent-launch-options";
 
 /**
  * Claude Code's permission modes, as its CLI validates them (2.1.231:
@@ -187,6 +188,8 @@ export interface ClaudeLaunchPermissionModeInput {
 	recordedMode: ClaudePermissionMode | null;
 	startInPlanMode: boolean;
 	autonomousModeEnabled: boolean;
+	/** Global Settings value for Claude Code; applied when no recorded mode exists. */
+	configuredPermissionMode?: ClaudeLaunchPermissionSetting;
 	/** True when the caller's args already name a mode (`--permission-mode` / bypass). */
 	hasExplicitModeArg: boolean;
 }
@@ -204,6 +207,20 @@ export function resolveClaudeLaunchPermissionMode(input: ClaudeLaunchPermissionM
 	}
 	if (input.startInPlanMode) {
 		return "plan";
+	}
+	if (input.configuredPermissionMode === "off") {
+		return null;
+	}
+	if (input.configuredPermissionMode !== undefined) {
+		if (input.configuredPermissionMode === "auto") {
+			return "auto";
+		}
+		if (input.configuredPermissionMode === "plan") {
+			return "plan";
+		}
+		if (input.configuredPermissionMode === "acceptEdits") {
+			return "acceptEdits";
+		}
 	}
 	if (input.autonomousModeEnabled && !input.hasExplicitModeArg) {
 		return "auto";

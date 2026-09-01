@@ -2,6 +2,7 @@ import { act, useEffect } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { createDefaultAgentLaunchOptions } from "@runtime-agent-launch-options";
 import { type UseStartupOnboardingResult, useStartupOnboarding } from "@/hooks/use-startup-onboarding";
 import type { RuntimeConfigResponse } from "@/runtime/types";
 import { LocalStorageKey } from "@/storage/local-storage-store";
@@ -20,6 +21,7 @@ function createRuntimeConfigResponse(selectedAgentId: RuntimeConfigResponse["sel
 		selectedShortcutLabel: null,
 		defaultSubagentSeatProviderId: null,
 		defaultSubagentSeatModelId: null,
+		agentLaunchOptions: createDefaultAgentLaunchOptions(true),
 		agentAutonomousModeEnabled: true,
 		effectiveCommand: selectedAgentId,
 		globalConfigPath: "/tmp/.cline/kanban/config.json",

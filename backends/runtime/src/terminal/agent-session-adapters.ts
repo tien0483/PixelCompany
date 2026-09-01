@@ -10,6 +10,7 @@ import type {
 	RuntimeTaskLaunchSettings,
 	RuntimeTaskSessionSummary,
 } from "../core/api-contract";
+import type { ClaudeLaunchPermissionSetting, GeminiLaunchModeSetting } from "../config/agent-launch-options";
 import { buildKanbanCommandParts } from "../core/kanban-command";
 import { quoteShellArg } from "../core/shell";
 import { lockedFileSystem } from "../fs/locked-file-system";
@@ -63,6 +64,11 @@ export interface AgentAdapterLaunchInput {
 	binary?: string;
 	args: string[];
 	autonomousModeEnabled?: boolean;
+	configuredClaudePermissionMode?: ClaudeLaunchPermissionSetting;
+	geminiLaunch?: {
+		skipPermissions: boolean;
+		mode: GeminiLaunchModeSetting;
+	};
 	cwd: string;
 	prompt: string;
 	images?: RuntimeTaskImage[];
@@ -711,6 +717,7 @@ const claudeAdapter: AgentSessionAdapter = {
 			recordedMode,
 			startInPlanMode: input.startInPlanMode === true,
 			autonomousModeEnabled: input.autonomousModeEnabled === true,
+			configuredPermissionMode: input.configuredClaudePermissionMode,
 			hasExplicitModeArg,
 		});
 		if (input.autonomousModeEnabled || permissionMode === "auto") {
@@ -1172,18 +1179,22 @@ const geminiAdapter: AgentSessionAdapter = {
 					args.push("--approval-mode=plan");
 				}
 			}
+		} else if (isAgy) {
+			const geminiLaunch = input.geminiLaunch ?? {
+				skipPermissions: input.autonomousModeEnabled === true,
+				mode: "accept-edits" as const,
+			};
+			if (geminiLaunch.skipPermissions && !hasCliOption(args, "--dangerously-skip-permissions")) {
+				args.push("--dangerously-skip-permissions");
+			}
+			if (geminiLaunch.mode === "accept-edits" && !hasCliOption(args, "--mode")) {
+				args.push("--mode", "accept-edits");
+			} else if (geminiLaunch.mode === "plan" && !hasCliOption(args, "--mode")) {
+				args.push("--mode", "plan");
+			}
 		} else if (input.autonomousModeEnabled) {
-			if (isAgy) {
-				if (!hasCliOption(args, "--dangerously-skip-permissions")) {
-					args.push("--dangerously-skip-permissions");
-				}
-				if (!hasCliOption(args, "--mode")) {
-					args.push("--mode", "accept-edits");
-				}
-			} else {
-				if (!hasCliOption(args, "--yolo") && !hasCliOption(args, "-y")) {
-					args.push("--yolo");
-				}
+			if (!hasCliOption(args, "--yolo") && !hasCliOption(args, "-y")) {
+				args.push("--yolo");
 			}
 		}
 
