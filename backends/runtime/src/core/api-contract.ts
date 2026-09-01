@@ -3196,9 +3196,18 @@ export type RuntimeGitWorktreeInventoryResponse = z.infer<typeof runtimeGitWorkt
  * - `orphaned`: no card on any board owns it. Cards can create worktrees in more
  *   than one repo, so ownership has to be resolved across every workspace.
  * - `unregistered`: a directory under the worktrees root that matches no registry
- *   entry anywhere. Reported, never swept implicitly.
+ *   entry anywhere.
+ * - `stale-branch`: a local `kanban/task-*` branch that is fully merged but has
+ *   no worktree on disk.
  */
-export const runtimeWorktreeReclaimCategorySchema = z.enum(["missing", "merged", "unused", "orphaned", "unregistered"]);
+export const runtimeWorktreeReclaimCategorySchema = z.enum([
+	"missing",
+	"merged",
+	"unused",
+	"orphaned",
+	"unregistered",
+	"stale-branch",
+]);
 export type RuntimeWorktreeReclaimCategory = z.infer<typeof runtimeWorktreeReclaimCategorySchema>;
 
 export const runtimeCleanMergedWorktreesRequestSchema = z.object({
@@ -3210,6 +3219,8 @@ export const runtimeCleanMergedWorktreesRequestSchema = z.object({
 	categories: z.array(runtimeWorktreeReclaimCategorySchema).optional(),
 	/** When set, only these task ids are eligible, letting the UI deselect individual worktrees. */
 	taskIds: z.array(z.string()).optional(),
+	/** Strip real (non-symlink) node_modules trees left inside selected worktrees. */
+	includeOrphanNodeModules: z.boolean().optional(),
 });
 export type RuntimeCleanMergedWorktreesRequest = z.infer<typeof runtimeCleanMergedWorktreesRequestSchema>;
 
@@ -3232,6 +3243,8 @@ export const runtimeWorktreeReclaimEntrySchema = z.object({
 	category: runtimeWorktreeReclaimCategorySchema,
 	sizeBytes: z.number(),
 	reason: z.string(),
+	/** Bytes in real (non-symlink) node_modules trees under this worktree. */
+	orphanNodeModulesBytes: z.number().optional(),
 });
 export type RuntimeWorktreeReclaimEntry = z.infer<typeof runtimeWorktreeReclaimEntrySchema>;
 
@@ -3243,6 +3256,9 @@ export const runtimeCleanMergedWorktreesResponseSchema = z.object({
 	reclaimable: z.array(runtimeWorktreeReclaimEntrySchema).optional(),
 	/** Total bytes of `reclaimable`; on a non-dry run, of what was actually removed. */
 	reclaimableBytes: z.number().optional(),
+	/** node_modules directories removed when `includeOrphanNodeModules` is set. */
+	cleanedNodeModulePaths: z.array(z.string()).optional(),
+	reclaimedNodeModuleBytes: z.number().optional(),
 	error: z.string().optional(),
 });
 export type RuntimeCleanMergedWorktreesResponse = z.infer<typeof runtimeCleanMergedWorktreesResponseSchema>;
@@ -3261,15 +3277,41 @@ export const runtimeClaudeCacheStatusResponseSchema = z.object({
 	 */
 	legacyItemCount: z.number().optional(),
 	legacySizeBytes: z.number().optional(),
+	/** Entire `~/.cache/claude-cli-nodejs` tree — Claude Code recreates entries on demand. */
+	cliCacheItemCount: z.number().optional(),
+	cliCacheSizeBytes: z.number().optional(),
+	/** `DSH_HOME/node_modules` — orchestrator subagent packages; reinstall on next dsh use. */
+	dshPackageItemCount: z.number().optional(),
+	dshPackageSizeBytes: z.number().optional(),
+	/** `~/.cursor` chats, telemetry, and agent transcripts. */
+	cursorCacheItemCount: z.number().optional(),
+	cursorCacheSizeBytes: z.number().optional(),
+	/** `~/.gemini` tmp and Antigravity CLI cache (not OAuth). */
+	geminiCacheItemCount: z.number().optional(),
+	geminiCacheSizeBytes: z.number().optional(),
+	/** Optional standalone `~/.antigravity` cache when present. */
+	antigravityHomeItemCount: z.number().optional(),
+	antigravityHomeSizeBytes: z.number().optional(),
 	error: z.string().optional(),
 });
 export type RuntimeClaudeCacheStatusResponse = z.infer<typeof runtimeClaudeCacheStatusResponseSchema>;
 
 export const runtimeClaudeCacheCleanRequestSchema = z.object({
+	/** Age cutoff in days. `0` deletes every age-gated file regardless of mtime. */
 	days: z.number().optional(),
 	includeTranscripts: z.boolean(),
 	dryRun: z.boolean(),
 	includeLegacy: z.boolean().optional(),
+	/** Wipe all of `~/.cache/claude-cli-nodejs`, not only entries for gone worktrees. */
+	includeEntireCliCache: z.boolean().optional(),
+	/** Remove orchestrator (dsh) subagent packages from DSH_HOME. */
+	includeDshPackages: z.boolean().optional(),
+	/** `~/.cursor` chats, ai-tracking, and aged agent transcripts. */
+	includeCursorCache: z.boolean().optional(),
+	/** `~/.gemini` tmp and Antigravity CLI cache (OAuth untouched). */
+	includeGeminiCache: z.boolean().optional(),
+	/** Standalone `~/.antigravity` cache when that home exists. */
+	includeAntigravityHome: z.boolean().optional(),
 	/**
 	 * The age-gated `~/.claude` tier. Defaults to true so existing callers keep
 	 * their behaviour; the UI sets it false when only legacy leftovers are picked.
@@ -3278,10 +3320,15 @@ export const runtimeClaudeCacheCleanRequestSchema = z.object({
 });
 export type RuntimeClaudeCacheCleanRequest = z.infer<typeof runtimeClaudeCacheCleanRequestSchema>;
 
+export const runtimeClaudeCacheStatusRequestSchema = z.object({
+	days: z.number().optional(),
+});
+export type RuntimeClaudeCacheStatusRequest = z.infer<typeof runtimeClaudeCacheStatusRequestSchema>;
+
 export const runtimeClaudeCacheCleanedItemSchema = z.object({
 	path: z.string(),
 	sizeBytes: z.number(),
-	tier: z.enum(["safe", "transcript", "legacy"]),
+	tier: z.enum(["safe", "transcript", "legacy", "cli-cache", "dsh", "cursor", "gemini", "antigravity"]),
 });
 export type RuntimeClaudeCacheCleanedItem = z.infer<typeof runtimeClaudeCacheCleanedItemSchema>;
 

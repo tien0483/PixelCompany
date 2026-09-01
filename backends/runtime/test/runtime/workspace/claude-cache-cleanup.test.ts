@@ -97,15 +97,27 @@ describe("claude-cache-cleanup", () => {
 		expect(readdirSync(join(claudeHomeDir, "cache"))).not.toContain("old.json");
 	});
 
-	it("surfaces an error instead of a fake success when the claude home directory itself is missing", async () => {
+	it("days: 0 deletes recent safe-tier files too", async () => {
+		const result = await cleanClaudeCache({ claudeHomeDir, days: 0, includeTranscripts: false, dryRun: false });
+		expect(result.ok).toBe(true);
+		expect(readdirSync(join(claudeHomeDir, "shell-snapshots"))).not.toContain("new.sh");
+	});
+
+	it("surfaces agent-home status even when the claude home directory itself is missing", async () => {
 		const missingHomeDir = join(claudeHomeDir, "does-not-exist");
 
 		const status = await getClaudeCacheStatus({ claudeHomeDir: missingHomeDir });
-		expect(status.ok).toBe(false);
-		expect(status.error).toBeTruthy();
+		expect(status.ok).toBe(true);
+		expect(status.safeItemCount).toBe(0);
 
-		const result = await cleanClaudeCache({ claudeHomeDir: missingHomeDir, days: 7, includeTranscripts: false, dryRun: true });
-		expect(result.ok).toBe(false);
-		expect(result.error).toBeTruthy();
+		const result = await cleanClaudeCache({
+			claudeHomeDir: missingHomeDir,
+			days: 7,
+			includeTranscripts: false,
+			includeSafe: false,
+			includeGeminiCache: true,
+			dryRun: true,
+		});
+		expect(result.ok).toBe(true);
 	});
 });

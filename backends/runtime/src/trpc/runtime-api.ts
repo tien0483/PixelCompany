@@ -1049,8 +1049,8 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 		runUpdateNow: async () => {
 			return await deps.runUpdateNow();
 		},
-		getClaudeCacheStatus: async () => {
-			return await getClaudeCacheStatus();
+		getClaudeCacheStatus: async (input) => {
+			return await getClaudeCacheStatus(input);
 		},
 		cleanClaudeCache: async (input) => {
 			return await cleanClaudeCache(input);

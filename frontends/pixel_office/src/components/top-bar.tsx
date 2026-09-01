@@ -972,7 +972,7 @@ export function TopBar({
 									content={
 										hasReclaimableSpace
 											? `Cleanup — about ${formatBytes(cleanupReclaimableBytes ?? 0)} reclaimable`
-											: "Clean up Claude cache and runtime worktrees"
+											: "Free disk space from agent caches and task worktrees"
 									}
 								>
 									<span className="relative ml-2 inline-flex">

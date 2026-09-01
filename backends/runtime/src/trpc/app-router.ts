@@ -8,6 +8,7 @@ import type {
 	RuntimeAgentModelInventory,
 	RuntimeClaudeCacheCleanRequest,
 	RuntimeClaudeCacheCleanResponse,
+	RuntimeClaudeCacheStatusRequest,
 	RuntimeClaudeCacheStatusResponse,
 	RuntimeCleanMergedWorktreesRequest,
 	RuntimeCleanMergedWorktreesResponse,
@@ -321,6 +322,7 @@ import {
 	runtimeAgentModelInventorySchema,
 	runtimeClaudeCacheCleanRequestSchema,
 	runtimeClaudeCacheCleanResponseSchema,
+	runtimeClaudeCacheStatusRequestSchema,
 	runtimeClaudeCacheStatusResponseSchema,
 	runtimeCleanMergedWorktreesRequestSchema,
 	runtimeCleanMergedWorktreesResponseSchema,
@@ -690,7 +692,7 @@ export interface RuntimeTrpcContext {
 		getUpdateStatus: (scope: RuntimeTrpcWorkspaceScope | null) => Promise<RuntimeUpdateStatusResponse>;
 		getHostEnvironment: (scope: RuntimeTrpcWorkspaceScope | null) => Promise<RuntimeHostEnvironmentResponse>;
 		runUpdateNow: (scope: RuntimeTrpcWorkspaceScope | null) => Promise<RuntimeRunUpdateResponse>;
-		getClaudeCacheStatus: () => Promise<RuntimeClaudeCacheStatusResponse>;
+		getClaudeCacheStatus: (input?: RuntimeClaudeCacheStatusRequest) => Promise<RuntimeClaudeCacheStatusResponse>;
 		cleanClaudeCache: (input: RuntimeClaudeCacheCleanRequest) => Promise<RuntimeClaudeCacheCleanResponse>;
 	};
 	workspaceApi: {
@@ -1294,9 +1296,12 @@ export const runtimeAppRouter = t.router({
 		runUpdateNow: t.procedure.output(runtimeRunUpdateResponseSchema).mutation(async ({ ctx }) => {
 			return await ctx.runtimeApi.runUpdateNow(ctx.workspaceScope);
 		}),
-		getClaudeCacheStatus: t.procedure.output(runtimeClaudeCacheStatusResponseSchema).query(async ({ ctx }) => {
-			return await ctx.runtimeApi.getClaudeCacheStatus();
-		}),
+		getClaudeCacheStatus: t.procedure
+			.input(runtimeClaudeCacheStatusRequestSchema.optional())
+			.output(runtimeClaudeCacheStatusResponseSchema)
+			.query(async ({ ctx, input }) => {
+				return await ctx.runtimeApi.getClaudeCacheStatus(input);
+			}),
 		cleanClaudeCache: t.procedure
 			.input(runtimeClaudeCacheCleanRequestSchema)
 			.output(runtimeClaudeCacheCleanResponseSchema)

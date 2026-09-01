@@ -349,9 +349,12 @@ export async function fetchRuntimeWorktrees(
 	return await trpcClient.workspace.listWorktrees.query();
 }
 
-export async function fetchClaudeCacheStatus(workspaceId: string | null): Promise<RuntimeClaudeCacheStatusResponse> {
+export async function fetchClaudeCacheStatus(
+	workspaceId: string | null,
+	options?: { days?: number },
+): Promise<RuntimeClaudeCacheStatusResponse> {
 	const trpcClient = getRuntimeTrpcClient(workspaceId);
-	return await trpcClient.runtime.getClaudeCacheStatus.query();
+	return await trpcClient.runtime.getClaudeCacheStatus.query(options);
 }
 
 export async function cleanClaudeCache(
