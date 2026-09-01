@@ -22,7 +22,9 @@ export function createOrchestratorClient(deps: CreateOrchestratorClientDependenc
 			const flowiseLive = await flowiseClient.status();
 			const subagentsInstalled = await probeDshProductSubagentsInstalled(dshHome);
 			return {
-				installed: binary !== null && patchPath !== null,
+				// `npx` is on virtually every machine, so counting it as an install made the sidebar
+				// report the Custom Agent ready wherever dsh was absent. Only a real binary counts.
+				installed: binary !== null && !binary.viaNpx && patchPath !== null,
 				binary: binary?.path ?? null,
 				dshHome,
 				patchPath,
@@ -41,8 +43,13 @@ function buildHints(input: {
 	subagentsInstalled: boolean;
 }): string[] {
 	const hints: string[] = [];
-	if (input.binary === null) {
+	if (input.binary === null || input.binary.viaNpx) {
 		hints.push("Install dsh: npm install -g @deepseek-ai/dsh (or set PIXELOFFICE_DSH_BINARY).");
+	}
+	if (input.binary?.viaNpx) {
+		hints.push(
+			"Only npx is available — a launch would resolve the whole harness first (minutes, and a V8 heap OOM under the default 2 GB cap). Install dsh properly.",
+		);
 	}
 	if (input.patchPath === null) {
 		hints.push("Missing Custom Agent patch at backends/runtime/config/orchestrator/pixeloffice.patch.yml.");
@@ -53,7 +60,7 @@ function buildHints(input: {
 	if (!input.flowiseOnline) {
 		hints.push("Flowise offline — Agents tab flows unavailable until pnpm run solo starts the studio.");
 	}
-	if (input.binary !== null && input.patchPath !== null) {
+	if (input.binary !== null && !input.binary.viaNpx && input.patchPath !== null) {
 		hints.push("Pick agent Custom Agent (dsh) on a task card for cross-provider delegation.");
 		hints.push("Wire Flowise: pick a deployed flow under Custom agent (flow) on the card — dsh mounts it as a tool.");
 	}

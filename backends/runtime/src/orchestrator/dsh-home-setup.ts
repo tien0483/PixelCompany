@@ -108,6 +108,14 @@ function runDshPluginAdd(dshHome: string): Promise<boolean> {
 	if (binary === null) {
 		return Promise.resolve(false);
 	}
+	if (binary.viaNpx) {
+		// `npx --yes @deepseek-ai/dsh` resolves the harness's ~100-package dependency tree before
+		// running anything: measured here at 219 s to a V8 heap OOM under the default 2 GB cap, and
+		// still unfinished after 10 min with 5 GB. This function runs unawaited on every runtime
+		// boot, so taking that path would burn minutes and gigabytes in the background of every
+		// start on a machine that has no dsh. Fall through to the bounded npm install instead.
+		return Promise.resolve(false);
+	}
 	const { command, args } = buildDshArgv(binary, [
 		"plugin",
 		"--profile",
@@ -132,7 +140,12 @@ function runDshPluginAdd(dshHome: string): Promise<boolean> {
 
 function runNpmInstall(cwd: string): Promise<number> {
 	return new Promise((resolve) => {
-		const child = spawn("npm", ["install", "--legacy-peer-deps", "--omit=dev", "--no-audit", "--no-fund"], {
+		// No `--legacy-peer-deps`: the dsh plugin graph wires itself through *peer* dependencies
+		// (`dsh-app-boot` peer-depends on `@deepseek-ai/cordis-plugin-group`, `-loader`, `-include`,
+		// `cordis`), and that flag makes npm skip peers entirely. Verified here: an install carrying
+		// it produced a tree whose `dsh --version` died with
+		// `ERR_MODULE_NOT_FOUND: Cannot find package '@deepseek-ai/cordis-plugin-group'`.
+		const child = spawn("npm", ["install", "--omit=dev", "--no-audit", "--no-fund"], {
 			cwd,
 			stdio: ["ignore", "pipe", "pipe"],
 			env: process.env,
