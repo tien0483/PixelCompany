@@ -26,6 +26,11 @@ Welcome to this repository. You are an AI agent operating in a workspace that us
    - The file should map the current workspace's folder name to your designated Agent Name. (e.g. `{"akselos-dev-2": "Alice"}`).
    - This ensures the Pixel Office extension displays your identity correctly instead of a generic ID.
 
+6. **Agent Stack & RTK Tooling**
+   Use `rtk` (`backends/agent_stack/bin/rtk`, also on PATH) for token-efficient searches and operations:
+   - Use `rtk grep` or `rtk find` instead of unconstrained broad searches to automatically ignore heavy build artifacts (`.next/`, `node_modules/`) and prevent context timeouts.
+   - Use stack skills from `.agent/skills/` (e.g., `/understand`, `/caveman`) when inspecting architecture or compressing outputs.
+
 ---
 
 # Agent Behavioral Contract

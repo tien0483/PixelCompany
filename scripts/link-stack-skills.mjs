@@ -193,12 +193,22 @@ function ensureUnderstandAnything(sandboxDir, flags) {
 	return warnings;
 }
 
+export const DEFAULT_SKILL_DEST_DIRS = [
+	join(repoRoot, ".claude", "skills"),
+	join(repoRoot, ".agent", "skills"),
+	join(repoRoot, ".cursor", "skills"),
+];
+
 /**
  * Returns a summary instead of exiting, so callers (solo.mjs) can treat a missing
  * sandbox as a non-event: this repo has to stay runnable on a machine that never
  * installed the stack.
  */
-export function linkStackSkills({ sandboxDir = resolveSandboxDir(), destDir = join(repoRoot, ".claude", "skills") } = {}) {
+export function linkStackSkills({
+	sandboxDir = resolveSandboxDir(),
+	destDir,
+	destDirs = destDir ? [destDir] : DEFAULT_SKILL_DEST_DIRS,
+} = {}) {
 	if (!existsSync(sandboxDir)) {
 		return { sandboxDir, present: false, linked: [], existing: [], broken: [], warnings: [] };
 	}
@@ -206,20 +216,25 @@ export function linkStackSkills({ sandboxDir = resolveSandboxDir(), destDir = jo
 	const linked = [];
 	const existing = [];
 	const broken = [];
-	for (const source of collectSources(sandboxDir, flags)) {
-		let result;
-		try {
-			result = linkSkill(source.path, destDir, source.name);
-		} catch (error) {
-			broken.push(`${source.name} (${error.code ?? error.message})`);
-			continue;
-		}
-		if (result === "linked") {
-			linked.push(source.name);
-		} else if (result === "broken") {
-			broken.push(`${source.name} (existing link has no target)`);
-		} else {
-			existing.push(source.name);
+	const sources = collectSources(sandboxDir, flags);
+
+	for (const targetDir of destDirs) {
+		for (const source of sources) {
+			let result;
+			try {
+				result = linkSkill(source.path, targetDir, source.name);
+			} catch (error) {
+				broken.push(`${source.name} -> ${targetDir} (${error.code ?? error.message})`);
+				continue;
+			}
+			const record = `${source.name} [${targetDir.split(/[/\\]/).slice(-2).join("/")}]`;
+			if (result === "linked") {
+				linked.push(record);
+			} else if (result === "broken") {
+				broken.push(`${record} (existing link has no target)`);
+			} else {
+				existing.push(record);
+			}
 		}
 	}
 	return { sandboxDir, present: true, linked, existing, broken, warnings: ensureUnderstandAnything(sandboxDir, flags) };

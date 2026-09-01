@@ -4,6 +4,7 @@ import { type ReactElement, useCallback, useEffect, useRef, useState } from "rea
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { Tooltip } from "@/components/ui/tooltip";
+import { isLightUiTheme, useTheme } from "@/hooks/use-theme";
 import { useHtmlAgentStream } from "@/html/use-html-agent-stream";
 import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
 import type {
@@ -58,15 +59,51 @@ export function UnderstandView({
 	managerAccounts = [],
 	onClose,
 }: UnderstandViewProps): ReactElement {
+	const { themeId } = useTheme();
+	const isLight = isLightUiTheme(themeId);
+	const themeParam = isLight ? "light" : "dark";
+	const presetParam = isLight ? "light-minimal" : "dark-gold";
+
 	const [probe, setProbe] = useState<GraphProbe>({ state: "probing" });
 	const [dashboardUrl, setDashboardUrl] = useState<string | null>(null);
 	const [startError, setStartError] = useState<string | null>(null);
 	const [isStarting, setIsStarting] = useState(false);
 	/** Bumped after a build so the frame remounts onto the regenerated graph. */
 	const [reloadToken, setReloadToken] = useState(0);
-	const logRef = useRef<HTMLDivElement | null>(null);
+	const [isLogDismissed, setIsLogDismissed] = useState(false);
+	const [currentStep, setCurrentStep] = useState<string | null>(null);
 
-	const rebuild = useHtmlAgentStream<RuntimeReviewGraphRebuildRequest>("/api/review/graph-rebuild");
+	const logRef = useRef<HTMLDivElement | null>(null);
+	const iframeRef = useRef<HTMLIFrameElement | null>(null);
+
+	const handleMeta = useCallback((key: string, value: unknown) => {
+		if (key === "step" && value && typeof value === "object") {
+			const step = value as { stepType?: unknown; state?: unknown };
+			if (typeof step.stepType === "string") {
+				setCurrentStep(typeof step.state === "string" ? `${step.stepType} (${step.state})` : step.stepType);
+			}
+		}
+	}, []);
+
+	const rebuild = useHtmlAgentStream<RuntimeReviewGraphRebuildRequest>(
+		"/api/review/graph-rebuild",
+		handleMeta,
+	);
+
+	// Synchronize theme changes to embedded iframe dynamically
+	useEffect(() => {
+		if (!iframeRef.current?.contentWindow) {
+			return;
+		}
+		iframeRef.current.contentWindow.postMessage(
+			{
+				type: "theme-change",
+				theme: themeParam,
+				preset: presetParam,
+			},
+			"*",
+		);
+	}, [presetParam, themeParam]);
 
 	/**
 	 * Cheap presence check before anything is spawned. `getGraphImpact` with no changed
@@ -159,12 +196,19 @@ export function UnderstandView({
 		}
 	}, [rebuildStatus, rebuildDoneAt]);
 
+	// Auto-scroll on text stream and log updates
 	useEffect(() => {
-		if (rebuild.log.length === 0) {
+		if (rebuild.text.length === 0 && rebuild.log.length === 0) {
 			return;
 		}
-		logRef.current?.scrollTo({ top: logRef.current.scrollHeight });
-	}, [rebuild.log]);
+		if (logRef.current) {
+			if (typeof logRef.current.scrollTo === "function") {
+				logRef.current.scrollTo({ top: logRef.current.scrollHeight });
+			} else {
+				logRef.current.scrollTop = logRef.current.scrollHeight;
+			}
+		}
+	}, [rebuild.text, rebuild.log]);
 
 	const isBuilding = rebuild.status === "running";
 
@@ -172,6 +216,8 @@ export function UnderstandView({
 		if (projectPath === null || isBuilding) {
 			return;
 		}
+		setIsLogDismissed(false);
+		setCurrentStep(null);
 		const antigravitySeat = managerAccounts.find(
 			(account) => account.provider === "antigravity" && account.isActive !== false,
 		);
@@ -214,7 +260,8 @@ export function UnderstandView({
 						icon={<ExternalLink size={14} />}
 						aria-label="Open the graph dashboard in a new tab"
 						onClick={() => {
-							window.open(dashboardUrl, "_blank", "noopener,noreferrer");
+							const targetUrl = `${dashboardUrl}${dashboardUrl.includes("?") ? "&" : "?"}theme=${themeParam}&preset=${presetParam}`;
+							window.open(targetUrl, "_blank", "noopener,noreferrer");
 						}}
 					/>
 				</Tooltip>
@@ -225,13 +272,20 @@ export function UnderstandView({
 		</div>
 	);
 
+	const hasOutput = rebuild.text.length > 0 || rebuild.log.length > 0;
+
 	const runLog =
-		rebuild.status === "idle" ? null : (
-			<div className="flex h-40 shrink-0 flex-col gap-1 border-t border-border bg-surface-1 p-2">
+		rebuild.status === "idle" || isLogDismissed ? null : (
+			<div className="flex h-44 shrink-0 flex-col gap-1 border-t border-border bg-surface-1 p-2">
 				<div className="flex items-center gap-2 text-[11px] text-text-secondary">
 					<span className="font-medium text-text-tertiary">Graph build</span>
 					{rebuild.status === "error" && rebuild.error ? (
 						<span className="text-status-red">{rebuild.error}</span>
+					) : isBuilding && currentStep ? (
+						<span className="flex items-center gap-1.5 text-text-secondary">
+							<Spinner size={11} />
+							<span>{currentStep}</span>
+						</span>
 					) : (
 						<span>{rebuild.status}</span>
 					)}
@@ -240,18 +294,44 @@ export function UnderstandView({
 							{notice}
 						</span>
 					))}
+					<div className="flex-1" />
+					<Tooltip content="Close build log">
+						<Button
+							variant="ghost"
+							size="sm"
+							icon={<X size={12} />}
+							aria-label="Close build log"
+							onClick={() => setIsLogDismissed(true)}
+						/>
+					</Tooltip>
 				</div>
 				<div
 					ref={logRef}
 					className="min-h-0 flex-1 overflow-y-auto rounded-md border border-border bg-surface-0 px-2 py-1 font-mono text-[11px] text-text-secondary"
 				>
-					{rebuild.log.length === 0 ? (
-						<span className="text-text-tertiary">No output yet.</span>
+					{!hasOutput ? (
+						<div className="flex items-center gap-2 py-1 text-text-tertiary">
+							{isBuilding ? <Spinner size={12} /> : null}
+							<span>{isBuilding ? (currentStep ? `Running ${currentStep}…` : "Starting rebuild…") : "No output yet."}</span>
+						</div>
 					) : (
-						rebuild.log.map((line, index) => (
-							// biome-ignore lint/suspicious/noArrayIndexKey: log lines are append-only and never reordered.
-							<div key={index}>{line}</div>
-						))
+						<div className="flex flex-col gap-0.5">
+							{rebuild.text ? (
+								<div className="whitespace-pre-wrap break-words">{rebuild.text}</div>
+							) : null}
+							{rebuild.log.map((line, index) => (
+								// biome-ignore lint/suspicious/noArrayIndexKey: log lines are append-only and never reordered.
+								<div key={index} className="text-status-red/90">
+									{line}
+								</div>
+							))}
+							{isBuilding && currentStep ? (
+								<div className="flex items-center gap-1.5 pt-1 text-text-tertiary">
+									<Spinner size={10} />
+									<span>{currentStep}</span>
+								</div>
+							) : null}
+						</div>
 					)}
 				</div>
 			</div>
@@ -293,14 +373,16 @@ export function UnderstandView({
 				</div>
 			);
 		}
+		const iframeSrc = `${dashboardUrl}${dashboardUrl.includes("?") ? "&" : "?"}theme=${themeParam}&preset=${presetParam}`;
 		return (
 			// Keyed on the project (and on the build counter) so a switch remounts rather
 			// than swapping `src`: the viewer holds its own selection/zoom state, and the
 			// token lives in the URL, so a live src swap carries one project's session into
 			// the next.
 			<iframe
+				ref={iframeRef}
 				key={`${projectPath}-${reloadToken}`}
-				src={dashboardUrl}
+				src={iframeSrc}
 				title="Knowledge graph dashboard"
 				className="h-full w-full flex-1 border-0"
 			/>
