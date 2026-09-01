@@ -8,4 +8,6 @@
 	url = https://github.com/diegosouzapw/OmniRoute.git
 [submodule "backends/openmaic"]
 	path = backends/openmaic
-	url = https://github.com/THU-MAIC/OpenMAIC.git
+	url = https://github.com/tien0483/OpenMAIC.git
+	branch = pixeloffice
+
