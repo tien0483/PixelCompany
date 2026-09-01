@@ -87,6 +87,7 @@ function renderPicker(
 		onSubagentSeatChange?: (selection: TaskSubagentSeatSelection) => void;
 		subagentSeatAppliesOnRestart?: boolean;
 		seatPreset?: "fable" | null;
+		allAccounts?: RuntimeManagerAccount[];
 		sessionAccountId?: number | null;
 		sessionAccount?: RuntimeManagerAccount | null;
 	},
@@ -101,6 +102,7 @@ function renderPicker(
 			wrap(
 				<TaskAccountPicker
 					accounts={props.accounts}
+					{...(props.allAccounts ? { allAccounts: props.allAccounts } : {})}
 					apiSeats={props.apiSeats ?? []}
 					value={props.value}
 					clineProviderId={props.clineProviderId ?? null}
@@ -880,7 +882,13 @@ function withCredit(base: RuntimeManagerAccount, remainingUsd: number): RuntimeM
 }
 
 describe("fableSeatAccount", () => {
-	it("prefers the capped seat with credit, matching the runtime picker", () => {
+	it("prefers the seat with more remaining credit", () => {
+		const thin = withCredit({ ...account(1, "claude", "a@x.com"), fiveHourPercent: 99 }, 5);
+		const fat = withCredit({ ...account(2, "claude", "b@x.com"), fiveHourPercent: 5 }, 40);
+		expect(fableSeatAccount([thin, fat])?.id).toBe(2);
+	});
+
+	it("prefers the capped seat when credit is equal, matching the runtime picker", () => {
 		const idle = withCredit({ ...account(1, "claude", "a@x.com"), fiveHourPercent: 5 }, 20);
 		const capped = withCredit({ ...account(2, "claude", "b@x.com"), fiveHourPercent: 99 }, 20);
 		expect(fableSeatAccount([idle, capped])?.id).toBe(2);
@@ -954,6 +962,20 @@ describe("TaskAccountPicker — Fable option", () => {
 			agentId: "claude",
 			seatPreset: "fable",
 		});
+		const select = container.querySelector<HTMLSelectElement>('[data-testid="task-account-picker"]');
+		expect(select?.value).toBe("fable");
+	});
+
+	it("resolves the Fable seat from allAccounts when the visible list is agent-filtered empty", () => {
+		const claudeFleet = [withCredit({ ...account(1, "claude", "fat@x.com"), fiveHourPercent: 5 }, 40)];
+		const container = renderPicker({
+			accounts: [],
+			allAccounts: claudeFleet,
+			agentId: "cursor",
+			seatPreset: "fable",
+		});
+		const option = container.querySelector<HTMLOptionElement>('[data-testid="task-account-picker-fable-option"]');
+		expect(option?.textContent).toContain("fat@x.com");
 		const select = container.querySelector<HTMLSelectElement>('[data-testid="task-account-picker"]');
 		expect(select?.value).toBe("fable");
 	});

@@ -67,6 +67,7 @@ export interface UseTaskEditorResult {
 	setNewTaskBranchRef: Dispatch<SetStateAction<string>>;
 	newTaskAgentId: RuntimeAgentId | undefined;
 	setNewTaskAgentId: Dispatch<SetStateAction<RuntimeAgentId | undefined>>;
+	handleNewTaskAgentIdChange: (next: RuntimeAgentId | undefined) => void;
 	newTaskClineSettings: RuntimeTaskClineSettings | undefined;
 	setNewTaskClineSettings: Dispatch<SetStateAction<RuntimeTaskClineSettings | undefined>>;
 	newTaskLaunchSettings: RuntimeTaskLaunchSettings | undefined;
@@ -96,6 +97,7 @@ export interface UseTaskEditorResult {
 	isEditTaskBaseRefLocked: boolean;
 	editTaskAgentId: RuntimeAgentId | undefined;
 	setEditTaskAgentId: Dispatch<SetStateAction<RuntimeAgentId | undefined>>;
+	handleEditTaskAgentIdChange: (next: RuntimeAgentId | undefined) => void;
 	editTaskClineSettings: RuntimeTaskClineSettings | undefined;
 	setEditTaskClineSettings: Dispatch<SetStateAction<RuntimeTaskClineSettings | undefined>>;
 	editTaskLaunchSettings: RuntimeTaskLaunchSettings | undefined;
@@ -182,6 +184,20 @@ export function useTaskEditor({
 	const [editTaskSeatPreset, setEditTaskSeatPreset] = useState<RuntimeSeatPreset | undefined>(undefined);
 	const [editTaskAutoRunDelayMinutes, setEditTaskAutoRunDelayMinutes] = useState(0);
 	const [editTaskAutoResumeOnUsageLimit, setEditTaskAutoResumeOnUsageLimit] = useState(false);
+
+	const handleNewTaskAgentIdChange = useCallback((next: RuntimeAgentId | undefined) => {
+		setNewTaskAgentId(next);
+		if (next !== "claude") {
+			setNewTaskSeatPreset(undefined);
+		}
+	}, []);
+
+	const handleEditTaskAgentIdChange = useCallback((next: RuntimeAgentId | undefined) => {
+		setEditTaskAgentId(next);
+		if (next !== "claude") {
+			setEditTaskSeatPreset(undefined);
+		}
+	}, []);
 
 	const lastCreatedTaskBranchRef = useMemo(() => {
 		if (!currentProjectId) {
@@ -407,8 +423,9 @@ export function useTaskEditor({
 			if (savedPreset !== undefined) {
 				return setTaskSeatPreset(updated.board, savedTaskId, savedPreset).board;
 			}
+			const clearedPresetBoard = setTaskSeatPreset(updated.board, savedTaskId, null).board;
 			return setTaskManagerAccount(
-				updated.board,
+				clearedPresetBoard,
 				savedTaskId,
 				clearedCrossProviderPin ? null : (editTaskManagerAccountId ?? null),
 			).board;
@@ -678,6 +695,7 @@ export function useTaskEditor({
 		setNewTaskBranchRef,
 		newTaskAgentId,
 		setNewTaskAgentId,
+		handleNewTaskAgentIdChange,
 		newTaskClineSettings,
 		setNewTaskClineSettings,
 		newTaskLaunchSettings,
@@ -705,6 +723,7 @@ export function useTaskEditor({
 		isEditTaskBaseRefLocked,
 		editTaskAgentId,
 		setEditTaskAgentId,
+		handleEditTaskAgentIdChange,
 		editTaskClineSettings,
 		setEditTaskClineSettings,
 		editTaskLaunchSettings,

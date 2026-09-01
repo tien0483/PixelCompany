@@ -471,7 +471,7 @@ export default function App(): ReactElement {
 		newTaskBranchRef,
 		setNewTaskBranchRef,
 		newTaskAgentId,
-		setNewTaskAgentId,
+		handleNewTaskAgentIdChange,
 		newTaskClineSettings,
 		setNewTaskClineSettings,
 		newTaskLaunchSettings,
@@ -498,7 +498,7 @@ export default function App(): ReactElement {
 		setEditTaskBranchRef,
 		isEditTaskBaseRefLocked,
 		editTaskAgentId,
-		setEditTaskAgentId,
+		handleEditTaskAgentIdChange,
 		editTaskClineSettings,
 		setEditTaskClineSettings,
 		editTaskLaunchSettings,
@@ -1217,7 +1217,7 @@ export default function App(): ReactElement {
 			branchSelectDisabled={isEditTaskBaseRefLocked}
 			branchSelectDisabledReason="Base ref is fixed once the task has started."
 			agentId={editTaskAgentId}
-			onAgentIdChange={setEditTaskAgentId}
+			onAgentIdChange={handleEditTaskAgentIdChange}
 			clineSettings={editTaskClineSettings}
 			onClineSettingsChange={setEditTaskClineSettings}
 			taskLaunchSettings={editTaskLaunchSettings}
@@ -1905,7 +1905,7 @@ export default function App(): ReactElement {
 					branchOptions={createTaskBranchOptions}
 					onBranchRefChange={setNewTaskBranchRef}
 					agentId={newTaskAgentId}
-					onAgentIdChange={setNewTaskAgentId}
+					onAgentIdChange={handleNewTaskAgentIdChange}
 					clineSettings={newTaskClineSettings}
 					onClineSettingsChange={setNewTaskClineSettings}
 					taskLaunchSettings={newTaskLaunchSettings}

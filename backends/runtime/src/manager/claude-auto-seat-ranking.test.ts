@@ -225,6 +225,12 @@ describe("extraCreditMonthEndTier", () => {
 });
 
 describe("pickBestFableSeat", () => {
+	it("prefers the seat with more remaining credit", () => {
+		const thin = creditSeat(1, 5, { fiveHourPercent: 99, sevenDayPercent: 80 });
+		const fat = creditSeat(2, 40, { fiveHourPercent: 5, sevenDayPercent: 5 });
+		expect(pickBestFableSeat([thin, fat], NOW)?.id).toBe(2);
+	});
+
 	it("prefers the saturated seat at equal credit — that is where the spend bills to credit", () => {
 		const idle = creditSeat(1, 20, { fiveHourPercent: 5, sevenDayPercent: 5 });
 		const capped = creditSeat(2, 20, { fiveHourPercent: 99, sevenDayPercent: 80 });

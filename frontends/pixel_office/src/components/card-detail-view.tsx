@@ -1285,6 +1285,7 @@ export function CardDetailView({
 									>
 										<TaskAccountPicker
 											accounts={taskManagerAccounts}
+											allAccounts={managerAccounts ?? []}
 											apiSeats={apiSeats}
 											value={selection.card.managerAccountId}
 											{...(onTaskSeatPresetChanged
