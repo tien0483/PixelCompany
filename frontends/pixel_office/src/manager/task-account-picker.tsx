@@ -155,6 +155,11 @@ export function applyTaskSubagentSeatSelection(
 
 export interface TaskAccountPickerProps {
 	accounts: RuntimeManagerAccount[];
+	/**
+	 * Full Manager fleet for Fable seat resolution. Defaults to `accounts`. Use the unfiltered
+	 * list when `accounts` is narrowed by agent so the Fable label matches what launch picks.
+	 */
+	allAccounts?: RuntimeManagerAccount[];
 	/** API-key seats, offered alongside Manager accounts in the same list. */
 	apiSeats?: RuntimeClineApiSeat[];
 	value: number | undefined;
@@ -233,7 +238,7 @@ function parseSeatSelection(
 
 /**
  * The Claude seat the Fable option resolves to: the one with the most spendable extra usage
- * credit, preferring seats whose subscription windows are already capped.
+ * credit, with subscription pressure as a tie-break when credit is equal.
  *
  * Narrows the way the runtime's `pickFableClaudeAccountId` does — enabled and auth-healthy only,
  * deliberately *not* `healthySeatPool`, whose donate-cap stage would drop exactly the capped
@@ -392,6 +397,7 @@ export function runningSeatHint(input: RunningSeatHintInput): string | null {
  */
 export function TaskAccountPicker({
 	accounts,
+	allAccounts,
 	apiSeats = [],
 	value,
 	seatPreset,
@@ -406,6 +412,7 @@ export function TaskAccountPicker({
 	onSubagentSeatChange,
 	subagentSeatAppliesOnRestart = false,
 }: TaskAccountPickerProps): ReactElement {
+	const fableFleet = allAccounts ?? accounts;
 	const fallbackAccount = autoTaskSeatAccount(accounts, activeAccountId, agentId);
 	const autoLabel = fallbackAccount ? autoOptionLabel(fallbackAccount, agentId) : "Auto (active account)";
 	// Orphaned pins (wrong provider after an agent switch) must not stick as a
@@ -421,7 +428,7 @@ export function TaskAccountPicker({
 	// outcome is the launch's "no extra usage credit remaining" refusal.
 	// `undefined` means the caller cannot store a preset (prop omitted); `null` means it can and
 	// none is set. Same omit-to-hide convention as the Subagents row below.
-	const fableAccount = fableSeatAccount(accounts);
+	const fableAccount = fableSeatAccount(fableFleet);
 	const showFableOption =
 		seatPreset !== undefined &&
 		(seatPreset === "fable" || (fableAccount !== null && hasUsableExtraCredit(fableAccount)));
@@ -440,7 +447,7 @@ export function TaskAccountPicker({
 		selectValue = `${API_VALUE_PREFIX}${pinnedSeat.providerId}`;
 	} else if (valueInFleet) {
 		selectValue = `${MANAGER_VALUE_PREFIX}${value}`;
-	} else if (seatPreset === "fable" && showFableOption) {
+	} else if (seatPreset === "fable") {
 		selectValue = FABLE_VALUE;
 	}
 
@@ -468,9 +475,9 @@ export function TaskAccountPicker({
 					}}
 				>
 					<option value={AUTO_VALUE}>{autoLabel}</option>
-					{showFableOption && fableAccount ? (
+					{showFableOption && (fableAccount || seatPreset === "fable") ? (
 						<option value={FABLE_VALUE} data-testid="task-account-picker-fable-option">
-							{fableOptionLabel(fableAccount)}
+							{fableAccount ? fableOptionLabel(fableAccount) : "Fable · no eligible seat"}
 						</option>
 					) : null}
 					{accounts.map((account) => (

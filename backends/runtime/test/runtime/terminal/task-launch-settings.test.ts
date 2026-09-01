@@ -101,15 +101,15 @@ describe("applyModelAndEffortArgs", () => {
 });
 
 describe("applyFableSeatLaunchSettings", () => {
-	it("overwrites whatever model and effort the card stored", () => {
+	it("overwrites the model but preserves the card's effort", () => {
 		expect(applyFableSeatLaunchSettings({ modelId: "opus", effort: "max" })).toEqual({
 			modelId: "claude-fable-5",
-			effort: "medium",
+			effort: "max",
 		});
 	});
 
-	it("fills them in on a card that has neither", () => {
-		expect(applyFableSeatLaunchSettings(undefined)).toEqual({ modelId: "claude-fable-5", effort: "medium" });
+	it("fills in the model on a card that has neither", () => {
+		expect(applyFableSeatLaunchSettings(undefined)).toEqual({ modelId: "claude-fable-5" });
 	});
 
 	it("leaves every other launch tag untouched", () => {
@@ -122,7 +122,6 @@ describe("applyFableSeatLaunchSettings", () => {
 			}),
 		).toEqual({
 			modelId: "claude-fable-5",
-			effort: "medium",
 			skillIds: ["a"],
 			mcpServerIds: ["b"],
 			subagentSeatProviderId: "seat-1",
@@ -131,8 +130,12 @@ describe("applyFableSeatLaunchSettings", () => {
 
 	it("produces args the launch path actually emits", () => {
 		const args: string[] = [];
-		applyModelAndEffortArgs(args, applyFableSeatLaunchSettings({ modelId: "haiku" }), { effortFlag: "--effort" });
-		expect(args).toEqual(["--model", "claude-fable-5", "--effort", "medium"]);
+		applyModelAndEffortArgs(
+			args,
+			applyFableSeatLaunchSettings({ modelId: "haiku", effort: "high" }),
+			{ effortFlag: "--effort" },
+		);
+		expect(args).toEqual(["--model", "claude-fable-5", "--effort", "high"]);
 	});
 });
 

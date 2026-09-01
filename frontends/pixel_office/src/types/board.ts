@@ -57,7 +57,7 @@ export interface BoardCard {
 	/**
 	 * Seat resolution *policy*, when the card asks for a seat to be chosen rather than naming
 	 * one. Mutually exclusive with `managerAccountId`. `fable` also fixes the session's model
-	 * and effort — the runtime enforces that at launch, not just the picker.
+	 * at launch — effort remains configurable on the card.
 	 */
 	seatPreset?: RuntimeSeatPreset;
 	/**

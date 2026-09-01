@@ -125,10 +125,10 @@ export type RuntimeTaskLaunchEffort = z.infer<typeof runtimeTaskLaunchEffortSche
  * A seat *resolution mode* rather than a seat: the card names a policy, and the launch turns it
  * into a concrete Manager account id. Mutually exclusive with an explicit `managerAccountId`.
  *
- * `fable` — run Claude Fable 5 at a fixed effort on whichever Claude seat has the most usable
- * extra usage credit. Extra credit only bills once a seat's subscription windows are capped, so
- * this mode deliberately prefers saturated seats and bypasses the donate-cap launch gate; see
- * `manager/claude-auto-seat-ranking.ts` and `manager/manager-account-pin.ts`.
+ * `fable` — run Claude Fable 5 on whichever Claude seat has the most usable extra usage
+ * credit (effort is set per card). Among equal credit, saturated seats are preferred because
+ * extra credit only bills once subscription windows are capped; this mode bypasses the donate-cap
+ * launch gate. See `manager/claude-auto-seat-ranking.ts` and `manager/manager-account-pin.ts`.
  */
 export const runtimeSeatPresetSchema = z.enum(["fable"]);
 export type RuntimeSeatPreset = z.infer<typeof runtimeSeatPresetSchema>;
@@ -2689,7 +2689,7 @@ export const runtimeTaskSessionStartRequestSchema = z.object({
 	managerAccountId: z.number().int().positive().optional(),
 	/**
 	 * Resolve the seat by policy instead of naming it. Ignored when `managerAccountId` is set.
-	 * `fable` also forces the session's model and effort — see `applyFableSeatLaunchSettings`.
+	 * `fable` also forces the session's model — see `applyFableSeatLaunchSettings`.
 	 */
 	seatPreset: runtimeSeatPresetSchema.optional(),
 	/** Carry the card's auto-resume-on-usage-limit intent onto the session so exits can pause+reschedule. */

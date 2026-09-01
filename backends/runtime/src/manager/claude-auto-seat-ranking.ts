@@ -231,22 +231,23 @@ export function extraCreditMonthEndTier(nowMs: number): number {
 }
 
 /**
- * `[noUsableCredit, monthEndTier, -subscriptionPressure, -creditRemaining]` — smaller wins,
+ * `[noUsableCredit, -creditRemaining, -subscriptionPressure, monthEndTier]` — smaller wins,
  * compared left to right.
  *
  * A seat with no spendable credit sinks below every seat that has some, but is never removed,
  * so a fleet with no credit at all still names a candidate for the launch's gates to report on.
- * Then the month deadline, so credit that is about to expire is spent first. Then subscription
- * pressure — `max(5h%, 7d%)`, **negated**, because the most-capped seat is the one whose next
- * turn actually bills credit. Remaining credit only breaks ties between equally-capped seats.
+ * Remaining credit is ranked first so load spreads across the fattest wallets when reset dates
+ * align. Subscription pressure — `max(5h%, 7d%)`, **negated** — breaks ties: among seats with
+ * equal credit, the most-capped seat is preferred because that is where the spend bills to credit.
+ * Month-end tier is last; it usually cancels out when every seat shares the same billing calendar.
  */
 export function fableSeatSortKey(account: FableSeatRankingInput, nowMs: number): [number, number, number, number] {
 	const remaining = extraCreditRemainingUsd(account);
 	return [
 		remaining === null ? 1 : 0,
-		extraCreditMonthEndTier(nowMs),
-		-Math.max(account.fiveHourPercent ?? 0, account.sevenDayPercent ?? 0),
 		-(remaining ?? 0),
+		-Math.max(account.fiveHourPercent ?? 0, account.sevenDayPercent ?? 0),
+		extraCreditMonthEndTier(nowMs),
 	];
 }
 

@@ -670,7 +670,7 @@ function FableSeatSummaryRow({ accounts }: { accounts: RuntimeManagerAccount[] }
 				<span className="text-[11px] text-status-gold">${fleetCredit.toFixed(2)} credit</span>
 			</div>
 			<p className="mt-0.5 text-[10px] text-text-tertiary">
-				Runs {FABLE_SEAT_MODEL_ID} at {FABLE_SEAT_EFFORT} effort on{" "}
+				Runs {FABLE_SEAT_MODEL_ID} (effort set per card, default {FABLE_SEAT_EFFORT}) on{" "}
 				<span className="text-text-secondary">{seatDisplayName(resolved)}</span> · pool resets{" "}
 				{formatMonthEndCountdown()}
 			</p>

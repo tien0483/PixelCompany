@@ -420,7 +420,7 @@ export function TaskLaunchSettingsPicker({
 	// A Fable card shows the launch's values, not the card's — the runtime overwrites them
 	// anyway, and rendering the stored ones would advertise a model that will not run.
 	const shownModelId = isFableSeat ? FABLE_SEAT_MODEL_ID : (draft?.modelId ?? "");
-	const shownEffort = isFableSeat ? FABLE_SEAT_EFFORT : (draft?.effort ?? "");
+	const shownEffort = isFableSeat ? (draft?.effort ?? FABLE_SEAT_EFFORT) : (draft?.effort ?? "");
 
 	const selectedModelLabel = useMemo(() => {
 		if (!shownModelId) {
@@ -597,7 +597,6 @@ export function TaskLaunchSettingsPicker({
 				<label className="flex flex-col gap-1 text-[11px] text-text-secondary">
 					Effort
 					<NativeSelect
-						disabled={isFableSeat}
 						value={shownEffort}
 						onChange={(event) => {
 							const next = event.target.value as RuntimeTaskLaunchEffort | "";
@@ -622,8 +621,8 @@ export function TaskLaunchSettingsPicker({
 			) : null}
 			{isFableSeat ? (
 				<p className="text-[10px] text-text-tertiary" data-testid="task-launch-settings-fable-lock">
-					Fixed by the Fable seat, which spends extra usage credit on Claude&nbsp;Fable&nbsp;5. Switch the
-					card&apos;s Account away from Fable to change them.
+					Model is fixed to Claude&nbsp;Fable&nbsp;5 by the Fable seat, which spends extra usage credit.
+					Effort is yours to choose; switch Account away from Fable to change the model.
 				</p>
 			) : null}
 

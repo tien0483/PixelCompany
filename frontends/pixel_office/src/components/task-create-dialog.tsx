@@ -643,6 +643,7 @@ export function TaskCreateDialog({
 					{onManagerAccountIdChange && (eligibleManagerAccounts.length > 0 || apiSeats.length > 0) ? (
 						<TaskAccountPicker
 							accounts={eligibleManagerAccounts}
+							allAccounts={managerAccounts}
 							apiSeats={apiSeats}
 							value={managerAccountId}
 							{...(onSeatPresetChange ? { seatPreset: seatPreset ?? null } : {})}

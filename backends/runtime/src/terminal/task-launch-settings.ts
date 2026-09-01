@@ -16,7 +16,7 @@ import type {
 	RuntimeTaskLaunchSettings,
 } from "../core/api-contract";
 import type { FlowiseClient } from "../flowise/flowise-client";
-import { FABLE_SEAT_EFFORT, FABLE_SEAT_MODEL_ID } from "../manager/claude-auto-seat-ranking";
+import { FABLE_SEAT_MODEL_ID } from "../manager/claude-auto-seat-ranking";
 import { mergeFlowiseMcpInventory } from "../flowise/flowise-mcp";
 import { resolveMcpAllowlistServers } from "./agent-mcp-launch";
 import { getRuntimeHomePath } from "../state/workspace-state";
@@ -138,24 +138,17 @@ export function hasClaudeScopedConfigAllowlist(settings?: RuntimeTaskLaunchSetti
 }
 
 /**
- * The Fable preset's effort, bound to the launch-effort enum. The constant itself lives in
- * `claude-auto-seat-ranking.ts` (the only module the frontend picker can also import); this
- * annotation is what fails the build if the enum ever stops containing it.
- */
-const FABLE_SEAT_LAUNCH_EFFORT: RuntimeTaskLaunchEffort = FABLE_SEAT_EFFORT;
-
-/**
- * Overwrites a card's model/effort with the Fable preset's.
+ * Overwrites a card's model with the Fable preset's.
  *
  * Applied server-side at launch rather than only in the picker, so a card saved before the
  * preset existed — or a `kanban start` invocation that never opened the UI — cannot launch
- * Fable's seat on some other model. Every other launch setting (allowlists, subagent seat)
- * passes through untouched.
+ * Fable's seat on some other model. Effort is left to the card (or the CLI default when
+ * unset). Every other launch setting (allowlists, subagent seat) passes through untouched.
  */
 export function applyFableSeatLaunchSettings(
 	settings: RuntimeTaskLaunchSettings | undefined,
 ): RuntimeTaskLaunchSettings {
-	return { ...settings, modelId: FABLE_SEAT_MODEL_ID, effort: FABLE_SEAT_LAUNCH_EFFORT };
+	return { ...settings, modelId: FABLE_SEAT_MODEL_ID };
 }
 
 export function applyModelAndEffortArgs(
