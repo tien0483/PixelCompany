@@ -67,6 +67,7 @@ import type {
 	RuntimeAgentId,
 	RuntimeAgentLaunchOptionEntry,
 	RuntimeAgentLaunchOptions,
+	RuntimeClineApiSeat,
 	RuntimeClineMcpServerAuthStatus,
 	RuntimeConfigResponse,
 	RuntimeProjectShortcut,
@@ -157,7 +158,17 @@ const GIT_TRAILER_MODE_OPTIONS: Array<{ value: TaskGitCommitTrailerMode; label: 
 
 export type RuntimeSettingsSection = "shortcuts";
 
-const SETTINGS_AGENT_ORDER: readonly RuntimeAgentId[] = ["cline", "claude", "cursor", "codex", "droid", "kiro"];
+const SETTINGS_AGENT_ORDER: readonly RuntimeAgentId[] = [
+	"cline",
+	"claude",
+	"cursor",
+	"gemini",
+	"orchestrator",
+	"codex",
+	"droid",
+	"kiro",
+	"opencode",
+];
 
 type SettingsNavId = "general" | "cline" | "git-prompts" | "notifications" | "appearance" | "project";
 
@@ -212,17 +223,23 @@ function AgentLaunchOptionsPanel({
 	options,
 	onChange,
 	disabled,
+	apiSeats = [],
+	defaultSubagentSeatProviderId,
+	onDefaultSubagentSeatProviderIdChange,
 }: {
 	agentId: RuntimeAgentId;
 	options: RuntimeAgentLaunchOptions;
 	onChange: (next: RuntimeAgentLaunchOptions) => void;
 	disabled: boolean;
+	apiSeats?: RuntimeClineApiSeat[];
+	defaultSubagentSeatProviderId?: string | null;
+	onDefaultSubagentSeatProviderIdChange?: (next: string | null) => void;
 }): React.ReactElement | null {
 	const entry = getAgentLaunchOptionEntry(agentId, options);
 	if (agentId === "claude") {
 		const mode = entry.claudePermissionMode ?? "auto";
 		return (
-			<div className="mt-3 ml-6 border-l border-border pl-3">
+			<div className="mt-2.5 ml-6 border-l border-border pl-3 flex flex-col gap-2.5">
 				<label className="flex flex-col gap-1 text-[12px] text-text-secondary">
 					<span>Claude permission mode</span>
 					<NativeSelect
@@ -243,6 +260,28 @@ function AgentLaunchOptionsPanel({
 						<option value="acceptEdits">Accept edits — approve file edits only</option>
 					</NativeSelect>
 				</label>
+				<label className="flex flex-col gap-1 text-[12px] text-text-secondary">
+					<span>Default subagent seat</span>
+					<NativeSelect
+						size="sm"
+						aria-label="Default API seat this task's subagents run on"
+						disabled={disabled || apiSeats.length === 0}
+						value={defaultSubagentSeatProviderId ?? ""}
+						onChange={(event) => {
+							onDefaultSubagentSeatProviderIdChange?.(event.target.value || null);
+						}}
+					>
+						<option value="">Same seat as the task (no split)</option>
+						{apiSeats.map((seat) => (
+							<option key={seat.providerId} value={seat.providerId}>
+								{apiSeatLabel(seat)}
+							</option>
+						))}
+					</NativeSelect>
+					<span className="text-[11px] text-text-tertiary">
+						Applies to Claude Code tasks when no card pins a subagent seat.
+					</span>
+				</label>
 			</div>
 		);
 	}
@@ -250,8 +289,8 @@ function AgentLaunchOptionsPanel({
 		const mode = entry.geminiMode ?? "accept-edits";
 		const skipPermissions = entry.geminiSkipPermissions ?? true;
 		return (
-			<div className="mt-3 ml-6 border-l border-border pl-3 flex flex-col gap-2">
-				<label className="flex items-center gap-2 text-[13px] text-text-primary cursor-pointer">
+			<div className="mt-2.5 ml-6 border-l border-border pl-3 flex flex-col gap-2">
+				<label className="flex items-center gap-2 text-[13px] text-text-primary cursor-pointer select-none">
 					<RadixCheckbox.Root
 						checked={skipPermissions}
 						disabled={disabled}
@@ -298,9 +337,10 @@ function AgentLaunchOptionsPanel({
 			return null;
 		}
 		const enabled = entry.autonomousEnabled ?? true;
+		const argsLabel = catalogEntry.autonomousArgs.join(" ");
 		return (
-			<div className="mt-3 ml-6 border-l border-border pl-3">
-				<label className="flex items-center gap-2 text-[13px] text-text-primary cursor-pointer">
+			<div className="mt-2.5 ml-6 border-l border-border pl-3">
+				<label className="flex items-center gap-2 text-[13px] text-text-primary cursor-pointer select-none">
 					<RadixCheckbox.Root
 						checked={enabled}
 						disabled={disabled}
@@ -317,7 +357,9 @@ function AgentLaunchOptionsPanel({
 							<Check size={12} className="text-white" />
 						</RadixCheckbox.Indicator>
 					</RadixCheckbox.Root>
-					<span>Append autonomous launch flags</span>
+					<span>
+						Append autonomous launch flags {argsLabel ? <span className="font-mono text-xs text-text-secondary">({argsLabel})</span> : null}
+					</span>
 				</label>
 			</div>
 		);
@@ -638,12 +680,9 @@ export function RuntimeSettingsDialog({
 		});
 		return orderedAgents.map((agent) => ({
 			...agent,
-			command:
-				agent.id === selectedAgentId
-					? buildDisplayedAgentCommand(agent.id, agent.binary, agentLaunchOptions)
-					: "",
+			command: buildDisplayedAgentCommand(agent.id, agent.binary, agentLaunchOptions),
 		}));
-	}, [agentLaunchOptions, config?.agents, selectedAgentId]);
+	}, [agentLaunchOptions, config?.agents]);
 	const displayedAgents = useMemo(() => supportedAgents, [supportedAgents]);
 	const navItems = useMemo(() => SETTINGS_NAV_ITEMS, []);
 	const configuredAgentId = config?.selectedAgentId ?? null;
@@ -1192,53 +1231,35 @@ export function RuntimeSettingsDialog({
 							</h6>
 							<span className="text-[10px] text-text-tertiary uppercase tracking-wide">Global</span>
 						</div>
-						<p className="text-text-secondary text-[13px] mt-0 mb-2">
+						<p className="text-text-secondary text-[13px] mt-0 mb-3">
 							Each task can override this on the card. Running sessions keep their launch flags until
 							restart.
 						</p>
-						<div role="radiogroup" aria-label="Default agent for new tasks">
+						<div role="radiogroup" aria-label="Default agent for new tasks" className="flex flex-col divide-y divide-border/40">
 						{displayedAgents.map((agent) => (
-							<AgentRow
-								key={agent.id}
-								agent={agent}
-								isSelected={agent.id === selectedAgentId}
-								onSelect={() => setSelectedAgentId(agent.id)}
-								disabled={controlsDisabled}
-								showCommandPreview={agent.id === selectedAgentId}
-							/>
+							<div key={agent.id} className="py-2.5 first:pt-0 last:pb-0">
+								<AgentRow
+									agent={agent}
+									isSelected={agent.id === selectedAgentId}
+									onSelect={() => setSelectedAgentId(agent.id)}
+									disabled={controlsDisabled}
+									showCommandPreview={Boolean(agent.command)}
+								/>
+								<AgentLaunchOptionsPanel
+									agentId={agent.id}
+									options={agentLaunchOptions}
+									onChange={setAgentLaunchOptions}
+									disabled={controlsDisabled}
+									apiSeats={apiSeats}
+									defaultSubagentSeatProviderId={defaultSubagentSeatProviderId}
+									onDefaultSubagentSeatProviderIdChange={setDefaultSubagentSeatProviderId}
+								/>
+							</div>
 						))}
 						</div>
 						{config === null ? (
 							<p className="text-text-secondary py-2">Checking which CLIs are installed for this project...</p>
 						) : null}
-						<AgentLaunchOptionsPanel
-							agentId={selectedAgentId}
-							options={agentLaunchOptions}
-							onChange={setAgentLaunchOptions}
-							disabled={controlsDisabled}
-						/>
-						<label className="flex min-w-0 items-center gap-1.5 text-[13px] text-text-primary mt-3">
-							<span className="shrink-0 text-text-secondary">Default subagent seat</span>
-							<NativeSelect
-								size="sm"
-								aria-label="Default API seat this task's subagents run on"
-								disabled={controlsDisabled || apiSeats.length === 0}
-								value={defaultSubagentSeatProviderId ?? ""}
-								onChange={(event) => {
-									setDefaultSubagentSeatProviderId(event.target.value || null);
-								}}
-							>
-								<option value="">Same seat as the task (no split)</option>
-								{apiSeats.map((seat) => (
-									<option key={seat.providerId} value={seat.providerId}>
-										{apiSeatLabel(seat)}
-									</option>
-								))}
-							</NativeSelect>
-						</label>
-						<p className="text-text-secondary text-[12px] mt-1 mb-0">
-							Applies to Claude Code tasks when no card pins a subagent seat.
-						</p>
 					</div>
 
 					<div className="rounded-lg border border-border bg-surface-0 px-4 py-3 mb-4">

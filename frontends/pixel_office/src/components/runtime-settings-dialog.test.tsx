@@ -75,19 +75,30 @@ vi.mock("@radix-ui/react-select", () => ({
 }));
 
 const resetLayoutCustomizationsMock = vi.hoisted(() => vi.fn());
+const saveRuntimeConfigMock = vi.hoisted(() => vi.fn(async () => true));
 const clineSetupSectionOnSavedRef = vi.hoisted(() => ({
 	onSaved: null as null | (() => void),
 }));
 
 vi.mock("@runtime-agent-catalog", () => ({
-	getRuntimeAgentCatalogEntry: vi.fn((agentId: string) => ({
-		id: agentId,
-		installUrl: null,
-		autonomousArgs: [],
-	})),
+	getRuntimeAgentCatalogEntry: vi.fn((agentId: string) => {
+		if (agentId === "cursor") {
+			return { id: "cursor", installUrl: null, autonomousArgs: ["--force", "--trust"] };
+		}
+		if (agentId === "gemini") {
+			return { id: "gemini", installUrl: null, autonomousArgs: ["--dangerously-skip-permissions", "--mode", "accept-edits"] };
+		}
+		return {
+			id: agentId,
+			installUrl: null,
+			autonomousArgs: [],
+		};
+	}),
 	getRuntimeLaunchSupportedAgentCatalog: vi.fn(() => [
 		{ id: "cline", label: "Cline", binary: "cline" },
 		{ id: "claude", label: "Claude Code", binary: "claude" },
+		{ id: "cursor", label: "Cursor Agent", binary: "cursor-agent" },
+		{ id: "gemini", label: "Antigravity CLI", binary: "agy" },
 	]),
 }));
 
@@ -142,7 +153,7 @@ vi.mock("@/runtime/use-runtime-config", () => ({
 		isLoading: false,
 		isSaving: false,
 		refresh: vi.fn(),
-		save: vi.fn(async () => true),
+		save: saveRuntimeConfigMock,
 	}),
 }));
 
@@ -194,7 +205,12 @@ function findButtonByAriaLabel(container: ParentNode, ariaLabel: string): HTMLBu
 const savedClineOauthConfig = {
 	selectedAgentId: "cline",
 	selectedShortcutLabel: null,
-	agentLaunchOptions: { claude: { claudePermissionMode: "auto" }, cline: { autonomousEnabled: true } },
+	agentLaunchOptions: {
+		claude: { claudePermissionMode: "auto" },
+		cline: { autonomousEnabled: true },
+		cursor: { autonomousEnabled: true },
+		gemini: { geminiSkipPermissions: true, geminiMode: "accept-edits" },
+	},
 	agentAutonomousModeEnabled: true,
 	readyForReviewNotificationsEnabled: false,
 	effectiveCommand: "cline",
@@ -219,6 +235,20 @@ const savedClineOauthConfig = {
 			label: "Claude Code",
 			binary: "claude",
 			command: "claude",
+			installed: true,
+		},
+		{
+			id: "cursor",
+			label: "Cursor Agent",
+			binary: "cursor-agent",
+			command: "cursor-agent",
+			installed: true,
+		},
+		{
+			id: "gemini",
+			label: "Antigravity CLI",
+			binary: "agy",
+			command: "agy",
 			installed: true,
 		},
 	],
@@ -416,6 +446,81 @@ describe("RuntimeSettingsDialog", () => {
 		});
 
 		expect(handleSaved).toHaveBeenCalledTimes(1);
+	});
+
+	it("renders per-agent initial configuration controls and command previews", async () => {
+		await act(async () => {
+			root.render(
+				<RuntimeSettingsDialog
+					open={true}
+					workspaceId={"workspace-1"}
+					initialConfig={savedClineOauthConfig}
+					onOpenChange={() => {}}
+				/>,
+			);
+		});
+
+		// Check that each agent row and its controls are present
+		expect(document.body.textContent).toContain("Claude permission mode");
+		expect(document.body.textContent).toContain("Default subagent seat");
+		expect(document.body.textContent).toContain("Skip permission prompts (--dangerously-skip-permissions)");
+		expect(document.body.textContent).toContain("Antigravity mode");
+		expect(document.body.textContent).toContain("Append autonomous launch flags");
+
+		// Command previews
+		expect(document.body.textContent).toContain("claude --permission-mode auto");
+		expect(document.body.textContent).toContain("cursor-agent --force --trust");
+		expect(document.body.textContent).toContain("agy --dangerously-skip-permissions --mode accept-edits");
+	});
+
+	it("updates launch options for agents independently of which agent is default", async () => {
+		const handleOpenChange = vi.fn();
+		saveRuntimeConfigMock.mockClear();
+
+		await act(async () => {
+			root.render(
+				<RuntimeSettingsDialog
+					open={true}
+					workspaceId={"workspace-1"}
+					initialConfig={savedClineOauthConfig}
+					onOpenChange={handleOpenChange}
+				/>,
+			);
+		});
+
+		const saveButton = findButtonByText(document.body, "Save");
+		expect(saveButton?.disabled).toBe(true);
+
+		// Find the Antigravity skip permissions checkbox
+		const skipPermissionsCheckbox = Array.from(
+			document.body.querySelectorAll('button[role="checkbox"]'),
+		).find((btn) => btn.closest("label")?.textContent?.includes("Skip permission prompts"));
+		expect(skipPermissionsCheckbox).toBeTruthy();
+
+		await act(async () => {
+			skipPermissionsCheckbox?.click();
+		});
+
+		expect(saveButton?.disabled).toBe(false);
+
+		// Preview should now omit --dangerously-skip-permissions
+		expect(document.body.textContent).toContain("agy --mode accept-edits");
+
+		await act(async () => {
+			saveButton?.click();
+		});
+
+		expect(saveRuntimeConfigMock).toHaveBeenCalledTimes(1);
+		expect(saveRuntimeConfigMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				selectedAgentId: "cline",
+				agentLaunchOptions: expect.objectContaining({
+					gemini: expect.objectContaining({
+						geminiSkipPermissions: false,
+					}),
+				}),
+			}),
+		);
 	});
 });
 
