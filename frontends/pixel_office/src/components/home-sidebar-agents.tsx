@@ -117,7 +117,7 @@ function OrchestratorStatusPanel({
 	if (status === null) {
 		return (
 			<p className="text-[11px] text-text-secondary" style={{ padding: "4px 0" }}>
-				Orchestrator status unavailable.
+				Custom Agent status unavailable.
 			</p>
 		);
 	}
@@ -130,7 +130,7 @@ function OrchestratorStatusPanel({
 		>
 			<div className="flex items-center gap-1.5 text-text-primary font-medium">
 				<Network size={14} className="shrink-0 text-text-tertiary" />
-				Orchestrator (dsh)
+				Custom Agent (dsh)
 			</div>
 			<ul className="flex flex-col gap-1 text-[11px] text-text-secondary">
 				<li>
@@ -170,9 +170,10 @@ function OrchestratorStatusPanel({
 			</ul>
 			{ready ? (
 				<p className="text-[11px] text-text-secondary">
-					Pick <strong className="font-medium text-text-primary">Orchestrator (dsh)</strong> on a task card.
-					Attach <code className="text-[10px]">flowise-*</code> MCP — Cursor children auto-read{" "}
-					<code className="text-[10px]">.cursor/mcp.json</code> in the worktree.
+					Pick <strong className="font-medium text-text-primary">Custom Agent (dsh)</strong> on a task card,
+					then choose a deployed flow under <strong className="font-medium text-text-primary">Custom agent
+					(flow)</strong> — dsh mounts it as an <code className="text-[10px]">mcp__*</code> tool, and Cursor
+					children still read <code className="text-[10px]">.cursor/mcp.json</code> in the worktree.
 				</p>
 			) : null}
 			{(status.hints?.length ?? 0) > 0 ? (

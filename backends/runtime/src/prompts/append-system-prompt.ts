@@ -69,7 +69,7 @@ function renderLinearSetupGuidanceForAgent(agentId: RuntimeAgentId | null): stri
 		case "gemini":
 			return "- If Linear MCP is not available in the current agent (Gemini CLI), suggest running: `gemini mcp add linear https://mcp.linear.app/mcp --transport http --scope user`";
 		case "orchestrator":
-			return "- If delegation tools are missing, check runtime.orchestrator.status in the Agents sidebar — dsh subagents auto-install into DSH_HOME; attach flowise-* MCP on the card for cursor_agent.";
+			return "- If delegation tools are missing, check runtime.orchestrator.status in the Agents sidebar — dsh plugins auto-install into $DSH_HOME/profiles/headless; pick a deployed flow under Custom agent (flow) on the card to mount it as an mcp__* tool.";
 		case "opencode":
 			return "- If Linear MCP is not available in the current agent (OpenCode), suggest running `opencode mcp add`, then use name `linear` and URL `https://mcp.linear.app/mcp`.";
 		case "droid":

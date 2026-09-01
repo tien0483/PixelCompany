@@ -16,6 +16,7 @@
       "@runtime-agent-catalog": ["../../backends/runtime/src/core/agent-catalog.ts"],
       "@runtime-cline-tool-call-display": ["../../backends/runtime/src/cline-sdk/cline-tool-call-display.ts"],
       "@runtime-contract": ["../../backends/runtime/src/core/api-contract.ts"],
+      "@runtime-flowise-mcp-id": ["../../backends/runtime/src/flowise/flowise-mcp-id.ts"],
       "@runtime-home-agent-session": ["../../backends/runtime/src/core/home-agent-session.ts"],
       "@runtime-manager-seat-ranking": ["../../backends/runtime/src/manager/claude-auto-seat-ranking.ts"],
       "@runtime-trpc": ["../../backends/runtime/src/trpc/app-router.ts"],

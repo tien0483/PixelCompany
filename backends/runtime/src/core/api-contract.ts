@@ -148,6 +148,12 @@ export const runtimeTaskLaunchSettingsSchema = z.object({
 	workflowIds: z.array(z.string().min(1)).optional(),
 	mcpServerIds: z.array(z.string().min(1)).optional(),
 	/**
+	 * Deployed Flowise flows backing a Custom Agent card, as `flowise-<id>` inventory ids.
+	 * Orchestrator (dsh) only: each one becomes a `@deepseek-ai/dsh-mcp-client` row in a
+	 * per-launch patch overlay, so the harness itself holds the flow as a native tool.
+	 */
+	customAgentFlowIds: z.array(z.string().min(1)).optional(),
+	/**
 	 * API seat the session's subagents bill instead of the card's own seat, as a Cline
 	 * provider id from `listClineApiSeats`. Claude Code only: the split rides on
 	 * `CLAUDE_CODE_SUBAGENT_MODEL`, which no other CLI reads. Omitted = subagents inherit

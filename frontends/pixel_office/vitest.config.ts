@@ -19,6 +19,7 @@ export default defineConfig({
 			"@": resolve(__dirname, "src"),
 			"@runtime-agent-catalog": resolve(runtimeSrc, "core/agent-catalog.ts"),
 			"@runtime-cline-tool-call-display": resolve(runtimeSrc, "cline-sdk/cline-tool-call-display.ts"),
+			"@runtime-flowise-mcp-id": resolve(runtimeSrc, "flowise/flowise-mcp-id.ts"),
 			"@runtime-home-agent-session": resolve(runtimeSrc, "core/home-agent-session.ts"),
 			"@runtime-manager-seat-ranking": resolve(runtimeSrc, "manager/claude-auto-seat-ranking.ts"),
 			"@runtime-shortcuts": resolve(runtimeSrc, "config/shortcut-utils.ts"),

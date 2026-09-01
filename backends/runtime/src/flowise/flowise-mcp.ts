@@ -2,45 +2,23 @@
 // task card picker. A zero-dependency stdio shim calls the studio's prediction API so
 // Claude Code can invoke a canvas agent as a tool — no hand-edited ~/.claude/settings.json.
 import { existsSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import type { RuntimeFlowiseFlow, RuntimeMcpInventory, RuntimeMcpInventoryItem } from "../core/api-contract";
 import type { FlowiseClient } from "./flowise-client";
 import { resolveFlowiseBaseUrl } from "./flowise-endpoint";
+import { buildFlowiseMcpServerId, parseFlowiseMcpServerId, sanitizeFlowiseToolName } from "./flowise-mcp-id";
 
-/** Prefix for auto-generated MCP inventory ids — must stay in sync with the UI picker. */
-export const FLOWISE_MCP_SERVER_ID_PREFIX = "flowise-";
-
-const DEFAULT_TOOL_NAME = "run_agent";
-
-export function isFlowiseMcpServerId(serverId: string): boolean {
-	return serverId.startsWith(FLOWISE_MCP_SERVER_ID_PREFIX);
-}
-
-/** Returns the chatflow id embedded in a synthetic inventory id, or null when malformed. */
-export function parseFlowiseMcpServerId(serverId: string): string | null {
-	if (!isFlowiseMcpServerId(serverId)) {
-		return null;
-	}
-	const flowId = serverId.slice(FLOWISE_MCP_SERVER_ID_PREFIX.length).trim();
-	return flowId.length > 0 ? flowId : null;
-}
-
-export function buildFlowiseMcpServerId(flowId: string): string {
-	return `${FLOWISE_MCP_SERVER_ID_PREFIX}${flowId}`;
-}
-
-/** MCP tool names: alphanumeric, underscore, hyphen, max 64 — same rule Flowise uses. */
-export function sanitizeFlowiseToolName(raw: string): string {
-	const sanitized = raw
-		.toLowerCase()
-		.replace(/[^a-z0-9_-]/g, "_")
-		.replace(/_+/g, "_")
-		.replace(/^_|_$/g, "")
-		.slice(0, 64);
-	return sanitized.length > 0 ? sanitized : DEFAULT_TOOL_NAME;
-}
+// Re-exported so existing runtime importers keep one entry point; the browser imports the
+// filesystem-free `flowise-mcp-id` module directly.
+export {
+	buildFlowiseMcpServerId,
+	FLOWISE_MCP_SERVER_ID_PREFIX,
+	isFlowiseMcpServerId,
+	parseFlowiseMcpServerId,
+	sanitizeFlowiseToolName,
+} from "./flowise-mcp-id";
 
 /**
  * Locates `scripts/flowise-mcp-shim.mjs` from monorepo source, tsc output, or bundled
@@ -116,13 +94,24 @@ export interface BuildFlowiseMcpServerEntryInput {
 	shimPath: string;
 }
 
-/** Stdio MCP entry Claude Code launches for one deployed flow. */
-export function buildFlowiseMcpServerEntry(input: BuildFlowiseMcpServerEntryInput): Record<string, unknown> {
+/** How to spawn the stdio shim for one deployed flow — shared by every MCP host we target. */
+export interface FlowiseShimSpec {
+	command: string;
+	args: string[];
+	env: Record<string, string>;
+	toolName: string;
+	description: string;
+}
+
+export function describeFlowiseFlow(flow: RuntimeFlowiseFlow): string {
+	return flow.type?.toUpperCase() === "AGENTFLOW"
+		? `Run the "${flow.name}" AgentFlow canvas`
+		: `Run the "${flow.name}" Flowise chatflow`;
+}
+
+export function buildFlowiseShimSpec(input: BuildFlowiseMcpServerEntryInput): FlowiseShimSpec {
 	const toolName = sanitizeFlowiseToolName(input.flow.name);
-	const description =
-		input.flow.type?.toUpperCase() === "AGENTFLOW"
-			? `Run the "${input.flow.name}" AgentFlow canvas`
-			: `Run the "${input.flow.name}" Flowise chatflow`;
+	const description = describeFlowiseFlow(input.flow);
 	return {
 		command: process.execPath,
 		args: [input.shimPath],
@@ -132,7 +121,15 @@ export function buildFlowiseMcpServerEntry(input: BuildFlowiseMcpServerEntryInpu
 			PIXELOFFICE_FLOWISE_TOOL_NAME: toolName,
 			PIXELOFFICE_FLOWISE_TOOL_DESCRIPTION: description,
 		},
+		toolName,
+		description,
 	};
+}
+
+/** Stdio MCP entry Claude Code launches for one deployed flow. */
+export function buildFlowiseMcpServerEntry(input: BuildFlowiseMcpServerEntryInput): Record<string, unknown> {
+	const spec = buildFlowiseShimSpec(input);
+	return { command: spec.command, args: spec.args, env: spec.env };
 }
 
 export interface ResolveFlowiseMcpAllowlistEntriesInput {
@@ -141,41 +138,71 @@ export interface ResolveFlowiseMcpAllowlistEntriesInput {
 	warn?: (message: string) => void;
 }
 
-/** Materializes stdio MCP configs for selected `flowise-*` ids. Skips offline/missing flows. */
-export async function resolveFlowiseMcpAllowlistEntries(
+/** A selected `flowise-*` id resolved to a live, deployed flow plus the shim that runs it. */
+export interface ResolvedFlowiseMcpSelection {
+	flows: RuntimeFlowiseFlow[];
+	baseUrl: string;
+	shimPath: string;
+}
+
+/**
+ * Shared resolution for every consumer of card-selected `flowise-*` ids — Claude's
+ * `--mcp-config`, the Cursor/Antigravity project config, and the orchestrator's dsh patch
+ * overlay. Returns null (never throws) when nothing is usable, so a launch degrades to
+ * "no Flowise tools" rather than failing.
+ */
+export async function resolveFlowiseMcpSelection(
 	input: ResolveFlowiseMcpAllowlistEntriesInput,
-): Promise<Record<string, unknown>> {
+): Promise<ResolvedFlowiseMcpSelection | null> {
 	const flowiseIds = [...input.allowedIds].map(parseFlowiseMcpServerId).filter((id): id is string => id !== null);
 	if (flowiseIds.length === 0) {
-		return {};
+		return null;
 	}
 	const shimPath = resolveFlowiseMcpShimPath();
 	if (shimPath === null) {
 		input.warn?.("Flowise MCP shim missing (scripts/flowise-mcp-shim.mjs) — flowise-* servers were skipped.");
-		return {};
+		return null;
 	}
 	const live = await input.client.status();
 	if (!live.online) {
 		input.warn?.("Flowise studio is offline — flowise-* MCP servers were skipped.");
-		return {};
+		return null;
 	}
-	const flows = await input.client.listFlows();
-	if (flows === null) {
+	const allFlows = await input.client.listFlows();
+	if (allFlows === null) {
 		input.warn?.("Could not read Flowise flows — flowise-* MCP servers were skipped.");
-		return {};
+		return null;
 	}
-	const byId = new Map(flows.filter((flow) => flow.deployed).map((flow) => [flow.id, flow]));
-	const entries: Record<string, unknown> = {};
+	const byId = new Map(allFlows.filter((flow) => flow.deployed).map((flow) => [flow.id, flow]));
+	const flows: RuntimeFlowiseFlow[] = [];
 	for (const flowId of flowiseIds) {
 		const flow = byId.get(flowId);
 		if (flow === undefined) {
 			input.warn?.(`Flowise flow ${flowId} is not deployed or missing — skipped for this launch.`);
 			continue;
 		}
-		entries[buildFlowiseMcpServerId(flowId)] = buildFlowiseMcpServerEntry({
+		flows.push(flow);
+	}
+	if (flows.length === 0) {
+		return null;
+	}
+	return { flows, baseUrl: live.baseUrl || resolveFlowiseBaseUrl(undefined), shimPath };
+}
+
+/** Materializes stdio MCP configs for selected `flowise-*` ids. Skips offline/missing flows. */
+export async function resolveFlowiseMcpAllowlistEntries(
+	input: ResolveFlowiseMcpAllowlistEntriesInput,
+): Promise<Record<string, unknown>> {
+	const selection = await resolveFlowiseMcpSelection(input);
+	if (selection === null) {
+		return {};
+	}
+	const entries: Record<string, unknown> = {};
+	for (const flow of selection.flows) {
+		entries[buildFlowiseMcpServerId(flow.id)] = buildFlowiseMcpServerEntry({
 			flow,
-			baseUrl: live.baseUrl || resolveFlowiseBaseUrl(undefined),
-			shimPath,
+			baseUrl: selection.baseUrl,
+			shimPath: selection.shimPath,
 		});
 	}
 	return entries;

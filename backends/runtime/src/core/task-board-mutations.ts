@@ -88,10 +88,18 @@ function cloneTaskLaunchSettings(
 		settings.commandIds === undefined
 			? undefined
 			: [...new Set(settings.commandIds.map((id) => id.trim()).filter((id) => id.length > 0))];
+	const workflowIds =
+		settings.workflowIds === undefined
+			? undefined
+			: [...new Set(settings.workflowIds.map((id) => id.trim()).filter((id) => id.length > 0))];
 	const mcpServerIds =
 		settings.mcpServerIds === undefined
 			? undefined
 			: [...new Set(settings.mcpServerIds.map((id) => id.trim()).filter((id) => id.length > 0))];
+	const customAgentFlowIds =
+		settings.customAgentFlowIds === undefined
+			? undefined
+			: [...new Set(settings.customAgentFlowIds.map((id) => id.trim()).filter((id) => id.length > 0))];
 	const subagentSeatProviderId = settings.subagentSeatProviderId?.trim();
 	const subagentSeatModelId = settings.subagentSeatModelId?.trim();
 	const next: RuntimeTaskLaunchSettings = {
@@ -100,7 +108,9 @@ function cloneTaskLaunchSettings(
 		...(skillIds && skillIds.length > 0 ? { skillIds } : {}),
 		...(agentIds && agentIds.length > 0 ? { agentIds } : {}),
 		...(commandIds && commandIds.length > 0 ? { commandIds } : {}),
+		...(workflowIds && workflowIds.length > 0 ? { workflowIds } : {}),
 		...(mcpServerIds && mcpServerIds.length > 0 ? { mcpServerIds } : {}),
+		...(customAgentFlowIds && customAgentFlowIds.length > 0 ? { customAgentFlowIds } : {}),
 		...(subagentSeatProviderId ? { subagentSeatProviderId } : {}),
 		...(subagentSeatProviderId && subagentSeatModelId ? { subagentSeatModelId } : {}),
 	};
@@ -110,7 +120,9 @@ function cloneTaskLaunchSettings(
 		next.skillIds === undefined &&
 		next.agentIds === undefined &&
 		next.commandIds === undefined &&
+		next.workflowIds === undefined &&
 		next.mcpServerIds === undefined &&
+		next.customAgentFlowIds === undefined &&
 		next.subagentSeatProviderId === undefined
 	) {
 		return undefined;
