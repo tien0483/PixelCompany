@@ -3,12 +3,14 @@ import { describe, expect, it, vi } from "vitest";
 import {
 	CLAUDE_CONFIG_DIR_ENV,
 	CURSOR_API_KEY_ENV,
+	isFableSeatCreditExhausted,
 	isManagerAccountAuthBroken,
 	isManagerAccountDisabled,
 	isManagerAccountDonateExhausted,
 	isManagerAccountDonatePinBlocked,
 	pickDefaultClaudeAccountId,
 	pickDefaultCursorAccountId,
+	pickFableClaudeAccountId,
 	pickLeastUsedClaudeAccountId,
 	resolveManagerAccountPin,
 	toManagerDonateAccount,
@@ -992,5 +994,178 @@ describe("resolveManagerAccountPin", () => {
 		expect(pin.env).toEqual({});
 		expect(pin.accountId).toBeNull();
 		expect(pin.warning).toContain("claude account");
+	});
+});
+
+const CREDIT = { isEnabled: true, monthlyLimitUsd: 100, usedCreditsUsd: 60, utilization: 60 };
+const NO_CREDIT = { isEnabled: true, monthlyLimitUsd: 100, usedCreditsUsd: 100, utilization: 100 };
+
+describe("isFableSeatCreditExhausted", () => {
+	it("is exhausted when the pool is drained, disabled or absent", () => {
+		expect(isFableSeatCreditExhausted({ id: 1, provider: "claude", extraUsage: NO_CREDIT })).toBe(true);
+		expect(
+			isFableSeatCreditExhausted({ id: 1, provider: "claude", extraUsage: { ...CREDIT, isEnabled: false } }),
+		).toBe(true);
+		expect(isFableSeatCreditExhausted({ id: 1, provider: "claude" })).toBe(true);
+	});
+
+	it("is not exhausted while credit remains", () => {
+		expect(isFableSeatCreditExhausted({ id: 1, provider: "claude", extraUsage: CREDIT })).toBe(false);
+	});
+});
+
+describe("pickFableClaudeAccountId", () => {
+	it("takes the capped seat with credit over the idle one — that is where credit bills", () => {
+		expect(
+			pickFableClaudeAccountId({
+				accounts: [
+					{ id: 1, provider: "claude", fiveHourPercent: 5, extraUsage: CREDIT },
+					{ id: 2, provider: "claude", fiveHourPercent: 99, extraUsage: CREDIT },
+				],
+			}),
+		).toBe(2);
+	});
+
+	it("does NOT filter out over-donate-cap seats, unlike the Auto picker", () => {
+		const accounts = [
+			{ id: 1, provider: "claude" as const, fiveHourPercent: 99, donateLimitPercent: 90, extraUsage: CREDIT },
+			{ id: 2, provider: "claude" as const, fiveHourPercent: 10, donateLimitPercent: 90, extraUsage: NO_CREDIT },
+		];
+		expect(pickLeastUsedClaudeAccountId({ accounts })).toBe(2);
+		expect(pickFableClaudeAccountId({ accounts })).toBe(1);
+	});
+
+	it("skips disabled and auth-broken seats even when they hold the credit", () => {
+		expect(
+			pickFableClaudeAccountId({
+				accounts: [
+					{ id: 1, provider: "claude", isActive: false, extraUsage: CREDIT },
+					{ id: 2, provider: "claude", ccNeedsAuth: true, extraUsage: CREDIT },
+					{ id: 3, provider: "claude", extraUsage: NO_CREDIT },
+				],
+			}),
+		).toBe(3);
+	});
+
+	it("returns null when no Claude seat exists", () => {
+		expect(pickFableClaudeAccountId({ accounts: [{ id: 1, provider: "cursor", extraUsage: CREDIT }] })).toBeNull();
+	});
+});
+
+describe("resolveManagerAccountPin — fable preset", () => {
+	it("launches on a seat that is over its donate cap, which the pin gate would otherwise refuse", async () => {
+		const getAccountLaunchDir = vi.fn().mockResolvedValue({ configDir: "/home/u/.claude/accounts/4" });
+		const cappedSeatWithCredit = {
+			id: 4,
+			provider: "claude" as const,
+			fiveHourPercent: 99,
+			sevenDayPercent: 95,
+			donateLimitPercent: 80,
+			donateLimitLocked: true,
+			extraUsage: CREDIT,
+		};
+
+		const pin = await resolveManagerAccountPin({
+			agentId: "claude",
+			managerAccountId: undefined,
+			seatPreset: "fable",
+			getAccountLaunchDir,
+			resolveFableClaudeAccountId: async () => 4,
+			getPinnedAccount: async () => cappedSeatWithCredit,
+		});
+
+		expect(pin.blocked).toBeUndefined();
+		expect(pin.accountId).toBe(4);
+		expect(pin.env).toEqual({ [CLAUDE_CONFIG_DIR_ENV]: "/home/u/.claude/accounts/4" });
+
+		// Same seat, no preset: the donate gate refuses it. That contrast is the feature.
+		const withoutPreset = await resolveManagerAccountPin({
+			agentId: "claude",
+			managerAccountId: 4,
+			getAccountLaunchDir: vi.fn(),
+			getPinnedAccount: async () => cappedSeatWithCredit,
+		});
+		expect(withoutPreset.blocked).toBe(true);
+		expect(withoutPreset.warning).toContain("donate cap");
+	});
+
+	it("refuses when the fleet has no extra credit left, rather than billing Fable to a subscription", async () => {
+		const getAccountLaunchDir = vi.fn();
+
+		const pin = await resolveManagerAccountPin({
+			agentId: "claude",
+			managerAccountId: undefined,
+			seatPreset: "fable",
+			getAccountLaunchDir,
+			resolveFableClaudeAccountId: async () => 5,
+			getPinnedAccount: async () => ({ id: 5, provider: "claude", extraUsage: NO_CREDIT }),
+		});
+
+		expect(pin.blocked).toBe(true);
+		expect(pin.accountId).toBeNull();
+		expect(pin.warning).toContain("extra usage credit");
+		expect(getAccountLaunchDir).not.toHaveBeenCalled();
+	});
+
+	it("refuses when no seat can be resolved at all", async () => {
+		const pin = await resolveManagerAccountPin({
+			agentId: "claude",
+			managerAccountId: undefined,
+			seatPreset: "fable",
+			getAccountLaunchDir: vi.fn(),
+			resolveFableClaudeAccountId: async () => null,
+			// Must not silently fall through to the Auto seat, which has no credit rule.
+			resolveAutoClaudeAccountId: async () => 9,
+		});
+
+		expect(pin.blocked).toBe(true);
+		expect(pin.warning).toContain("extra usage credit");
+	});
+
+	it("still refuses a disabled or auth-broken seat", async () => {
+		for (const broken of [{ isActive: false }, { ccNeedsAuth: true }]) {
+			const pin = await resolveManagerAccountPin({
+				agentId: "claude",
+				managerAccountId: undefined,
+				seatPreset: "fable",
+				getAccountLaunchDir: vi.fn(),
+				resolveFableClaudeAccountId: async () => 6,
+				getPinnedAccount: async () => ({ id: 6, provider: "claude", extraUsage: CREDIT, ...broken }),
+			});
+			expect(pin.blocked).toBe(true);
+		}
+	});
+
+	it("ignores the preset when the card also names a seat — an explicit pin wins", async () => {
+		const resolveFableClaudeAccountId = vi.fn(async () => 4);
+		const getAccountLaunchDir = vi.fn().mockResolvedValue({ configDir: "/home/u/.claude/accounts/7" });
+
+		const pin = await resolveManagerAccountPin({
+			agentId: "claude",
+			managerAccountId: 7,
+			seatPreset: "fable",
+			getAccountLaunchDir,
+			resolveFableClaudeAccountId,
+			getPinnedAccount: async () => ({ id: 7, provider: "claude", extraUsage: CREDIT }),
+		});
+
+		expect(resolveFableClaudeAccountId).not.toHaveBeenCalled();
+		expect(pin.accountId).toBe(7);
+	});
+
+	it("does not apply to non-Claude agents", async () => {
+		const resolveFableClaudeAccountId = vi.fn(async () => 4);
+
+		const pin = await resolveManagerAccountPin({
+			agentId: "cursor",
+			managerAccountId: undefined,
+			seatPreset: "fable",
+			getAccountLaunchDir: vi.fn(),
+			getAccountLaunchCredential: vi.fn(),
+			resolveFableClaudeAccountId,
+		});
+
+		expect(resolveFableClaudeAccountId).not.toHaveBeenCalled();
+		expect(pin.accountId).toBeNull();
 	});
 });

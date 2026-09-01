@@ -1,3 +1,5 @@
+import { extraCreditRemainingUsd } from "@runtime-manager-seat-ranking";
+
 import type { RuntimeManagerAccount, RuntimeManagerProvider } from "@/runtime/types";
 
 const PROVIDER_LABELS: Record<RuntimeManagerProvider, string> = {
@@ -102,6 +104,36 @@ export function formatResetCountdown(iso: string | null | undefined, nowMs: numb
 		return `${hours}h`;
 	}
 	return `${Math.round(hours / 24)}d`;
+}
+
+/**
+ * Extra usage credit as a dollar label (`$12.40`). Null when the seat has none to spend —
+ * the pool is off, unreported, or drained.
+ *
+ * The remaining figure itself comes from the runtime's `extraCreditRemainingUsd`, the same
+ * function the Fable seat ranks with, so a label and the launch's pick cannot disagree.
+ */
+export function formatExtraCreditRemaining(account: Pick<RuntimeManagerAccount, "extraUsage">): string | null {
+	const remaining = extraCreditRemainingUsd(account);
+	return remaining === null ? null : `$${remaining.toFixed(2)}`;
+}
+
+/** True when the seat has extra usage credit the Fable preset could actually spend. */
+export function hasUsableExtraCredit(account: Pick<RuntimeManagerAccount, "extraUsage">): boolean {
+	return extraCreditRemainingUsd(account) !== null;
+}
+
+/**
+ * Days until the extra-credit pool rolls over, as `6d` / `today`.
+ *
+ * Derived from the UTC calendar month, not from provider data — Manager reports no reset
+ * timestamp for extra usage. Mirrors `extraCreditMonthEndTier`'s assumption.
+ */
+export function formatMonthEndCountdown(nowMs: number = Date.now()): string {
+	const now = new Date(nowMs);
+	const monthEndMs = Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1);
+	const days = Math.floor((monthEndMs - nowMs) / 86_400_000);
+	return days <= 0 ? "today" : `${days}d`;
 }
 
 /** Short cache-age label from unix seconds (`just now` / `5m ago` / `never`). */

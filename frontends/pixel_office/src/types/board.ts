@@ -1,6 +1,7 @@
 import type {
 	RuntimeAgentId,
 	RuntimeBoardColumnId,
+	RuntimeSeatPreset,
 	RuntimeTaskAutoReviewMode,
 	RuntimeTaskClineSettings,
 	RuntimeTaskImage,
@@ -53,6 +54,12 @@ export interface BoardCard {
 	 * follows jacked's globally active account and its auto-swap rotation.
 	 */
 	managerAccountId?: number;
+	/**
+	 * Seat resolution *policy*, when the card asks for a seat to be chosen rather than naming
+	 * one. Mutually exclusive with `managerAccountId`. `fable` also fixes the session's model
+	 * and effort — the runtime enforces that at launch, not just the picker.
+	 */
+	seatPreset?: RuntimeSeatPreset;
 	/**
 	 * When true, a session that hits the Claude usage limit parks as "Paused" and the runtime
 	 * auto-resumes it (--continue) once its window resets, instead of stopping in Review.

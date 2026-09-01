@@ -61,6 +61,7 @@ import {
 import {
 	pickDefaultClaudeAccountId,
 	pickDefaultCursorAccountId,
+	pickFableClaudeAccountId,
 	pickLeastUsedClaudeAccountId,
 	toManagerDonateAccount,
 } from "../manager/manager-account-pin";
@@ -505,6 +506,16 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 				return null;
 			}
 			return pickLeastUsedClaudeAccountId({ accounts: snapshot.accounts });
+		},
+		// `seatPreset: "fable"` cards: the seat with the most spendable extra usage credit,
+		// preferring seats whose subscription windows are already capped (that is where credit
+		// actually bills). Ranks over a different pool than Auto — see pickFableClaudeAccountId.
+		resolveFableClaudemanagerAccountId: async () => {
+			const snapshot = deps.manager.monitor.getState();
+			if (!snapshot) {
+				return null;
+			}
+			return pickFableClaudeAccountId({ accounts: snapshot.accounts });
 		},
 		resolveLiveActiveClaudemanagerAccountId: async () => deps.manager.monitor.getState()?.activeAccountId ?? null,
 		getPinnedManagerAccount: async (accountId) => {

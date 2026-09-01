@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { TASK_START_IN_PLAN_MODE_STORAGE_KEY } from "@/hooks/app-utils";
 import type {
 	RuntimeAgentId,
+	RuntimeSeatPreset,
 	RuntimeTaskClineSettings,
 	RuntimeTaskLaunchSettings,
 	RuntimeTaskWorkspaceInfoResponse,
@@ -13,6 +14,7 @@ import {
 	addTaskToColumnWithResult,
 	findCardSelection,
 	setTaskManagerAccount,
+	setTaskSeatPreset,
 	updateTask,
 	updateTaskTitle,
 } from "@/state/board-state";
@@ -72,6 +74,9 @@ export interface UseTaskEditorResult {
 	/** Explicit Manager seat pin for the new task; undefined means Auto. */
 	newTaskManagerAccountId: number | undefined;
 	setNewTaskManagerAccountId: Dispatch<SetStateAction<number | undefined>>;
+	/** Seat resolution mode for the new task; mutually exclusive with the pin above. */
+	newTaskSeatPreset: RuntimeSeatPreset | undefined;
+	setNewTaskSeatPreset: Dispatch<SetStateAction<RuntimeSeatPreset | undefined>>;
 	editingTaskId: string | null;
 	editTaskPrompt: string;
 	setEditTaskPrompt: Dispatch<SetStateAction<string>>;
@@ -98,6 +103,8 @@ export interface UseTaskEditorResult {
 	/** Explicit Manager seat pin for the edited task; undefined means Auto. */
 	editTaskManagerAccountId: number | undefined;
 	setEditTaskManagerAccountId: Dispatch<SetStateAction<number | undefined>>;
+	editTaskSeatPreset: RuntimeSeatPreset | undefined;
+	setEditTaskSeatPreset: Dispatch<SetStateAction<RuntimeSeatPreset | undefined>>;
 	/** Minutes until the edited backlog card auto-starts; 0 = off. Seeded from its remaining countdown. */
 	editTaskAutoRunDelayMinutes: number;
 	setEditTaskAutoRunDelayMinutes: Dispatch<SetStateAction<number>>;
@@ -165,12 +172,14 @@ export function useTaskEditor({
 	const [newTaskClineSettings, setNewTaskClineSettings] = useState<RuntimeTaskClineSettings | undefined>(undefined);
 	const [newTaskLaunchSettings, setNewTaskLaunchSettings] = useState<RuntimeTaskLaunchSettings | undefined>(undefined);
 	const [newTaskManagerAccountId, setNewTaskManagerAccountId] = useState<number | undefined>(undefined);
+	const [newTaskSeatPreset, setNewTaskSeatPreset] = useState<RuntimeSeatPreset | undefined>(undefined);
 	const [editTaskAgentId, setEditTaskAgentId] = useState<RuntimeAgentId | undefined>(undefined);
 	const [editTaskClineSettings, setEditTaskClineSettings] = useState<RuntimeTaskClineSettings | undefined>(undefined);
 	const [editTaskLaunchSettings, setEditTaskLaunchSettings] = useState<RuntimeTaskLaunchSettings | undefined>(
 		undefined,
 	);
 	const [editTaskManagerAccountId, setEditTaskManagerAccountId] = useState<number | undefined>(undefined);
+	const [editTaskSeatPreset, setEditTaskSeatPreset] = useState<RuntimeSeatPreset | undefined>(undefined);
 	const [editTaskAutoRunDelayMinutes, setEditTaskAutoRunDelayMinutes] = useState(0);
 	const [editTaskAutoResumeOnUsageLimit, setEditTaskAutoResumeOnUsageLimit] = useState(false);
 
@@ -266,6 +275,7 @@ export function useTaskEditor({
 				: undefined,
 		);
 		setNewTaskManagerAccountId(undefined);
+		setNewTaskSeatPreset(undefined);
 		setIsInlineTaskCreateOpen(true);
 	}, [defaultSubagentSeatProviderId, selectedAgentId]);
 
@@ -279,6 +289,7 @@ export function useTaskEditor({
 		setNewTaskClineSettings(undefined);
 		setNewTaskLaunchSettings(undefined);
 		setNewTaskManagerAccountId(undefined);
+		setNewTaskSeatPreset(undefined);
 		setNewTaskPlanFilePath(null);
 	}, [resolvedDefaultTaskBranchRef]);
 
@@ -307,6 +318,7 @@ export function useTaskEditor({
 			setEditTaskClineSettings(task.clineSettings);
 			setEditTaskLaunchSettings(task.taskLaunchSettings);
 			setEditTaskManagerAccountId(task.managerAccountId);
+			setEditTaskSeatPreset(task.seatPreset);
 			setEditTaskAutoRunDelayMinutes(autoRunDelayMinutesFrom(task.autoRunAt));
 			setEditTaskAutoResumeOnUsageLimit(task.autoResumeOnUsageLimit === true);
 
@@ -340,6 +352,7 @@ export function useTaskEditor({
 		setEditTaskBranchRef("");
 		setIsEditTaskBaseRefLocked(false);
 		setEditTaskManagerAccountId(undefined);
+		setEditTaskSeatPreset(undefined);
 		setEditTaskAutoRunDelayMinutes(0);
 		setEditTaskAutoResumeOnUsageLimit(false);
 	}, []);
@@ -388,6 +401,12 @@ export function useTaskEditor({
 			const clearedCrossProviderPin =
 				currentCard?.managerAccountId !== undefined &&
 				findCardSelection(updated.board, savedTaskId)?.card.managerAccountId === undefined;
+			// A preset and a pin are the same field: apply whichever the editor holds, and let
+			// the cross-provider clearing above win over both.
+			const savedPreset = clearedCrossProviderPin ? undefined : editTaskSeatPreset;
+			if (savedPreset !== undefined) {
+				return setTaskSeatPreset(updated.board, savedTaskId, savedPreset).board;
+			}
 			return setTaskManagerAccount(
 				updated.board,
 				savedTaskId,
@@ -407,6 +426,7 @@ export function useTaskEditor({
 		setEditTaskClineSettings(undefined);
 		setEditTaskLaunchSettings(undefined);
 		setEditTaskManagerAccountId(undefined);
+		setEditTaskSeatPreset(undefined);
 		setEditTaskAutoRunDelayMinutes(0);
 		setEditTaskAutoResumeOnUsageLimit(false);
 		return savedTaskId;
@@ -420,6 +440,7 @@ export function useTaskEditor({
 		editTaskClineSettings,
 		editTaskLaunchSettings,
 		editTaskManagerAccountId,
+		editTaskSeatPreset,
 		editTaskPrompt,
 		editTaskImages,
 		editTaskPlanFilePath,
@@ -468,6 +489,7 @@ export function useTaskEditor({
 				// Stamp the effective agent onto the card so launches do not silently
 				// fall back to Claude when Settings still points at the old default.
 				agentId: newTaskAgentId ?? selectedAgentId ?? undefined,
+				...(newTaskSeatPreset !== undefined ? { seatPreset: newTaskSeatPreset } : {}),
 				...(typeof newTaskManagerAccountId === "number"
 					? { managerAccountId: newTaskManagerAccountId }
 					: {}),
@@ -496,6 +518,7 @@ export function useTaskEditor({
 			setNewTaskClineSettings(undefined);
 			setNewTaskLaunchSettings(undefined);
 			setNewTaskManagerAccountId(undefined);
+			setNewTaskSeatPreset(undefined);
 			setNewTaskPlanFilePath(null);
 			setNewTaskAutoRunDelayMinutes(0);
 			if (!options?.keepDialogOpen) {
@@ -513,6 +536,7 @@ export function useTaskEditor({
 			newTaskClineSettings,
 			newTaskLaunchSettings,
 			newTaskManagerAccountId,
+			newTaskSeatPreset,
 			newTaskImages,
 			newTaskPlanFilePath,
 			newTaskPrompt,
@@ -547,6 +571,7 @@ export function useTaskEditor({
 					autoReviewMode: "commit",
 					images: newTaskImages,
 					agentId: newTaskAgentId ?? selectedAgentId ?? undefined,
+					...(newTaskSeatPreset !== undefined ? { seatPreset: newTaskSeatPreset } : {}),
 					...(typeof newTaskManagerAccountId === "number"
 						? { managerAccountId: newTaskManagerAccountId }
 						: {}),
@@ -580,6 +605,7 @@ export function useTaskEditor({
 			setNewTaskClineSettings(undefined);
 			setNewTaskLaunchSettings(undefined);
 			setNewTaskManagerAccountId(undefined);
+			setNewTaskSeatPreset(undefined);
 			setNewTaskPlanFilePath(null);
 			setNewTaskAutoRunDelayMinutes(0);
 			if (!options?.keepDialogOpen) {
@@ -597,6 +623,7 @@ export function useTaskEditor({
 			newTaskClineSettings,
 			newTaskLaunchSettings,
 			newTaskManagerAccountId,
+			newTaskSeatPreset,
 			newTaskImages,
 			newTaskPlanFilePath,
 			newTaskStartInPlanMode,
@@ -630,6 +657,7 @@ export function useTaskEditor({
 		setNewTaskClineSettings(undefined);
 		setNewTaskLaunchSettings(undefined);
 		setNewTaskManagerAccountId(undefined);
+		setNewTaskSeatPreset(undefined);
 		setNewTaskPlanFilePath(null);
 	}, []);
 
@@ -656,6 +684,8 @@ export function useTaskEditor({
 		setNewTaskLaunchSettings,
 		newTaskManagerAccountId,
 		setNewTaskManagerAccountId,
+		newTaskSeatPreset,
+		setNewTaskSeatPreset,
 		editingTaskId,
 		editTaskPrompt,
 		setEditTaskPrompt,
@@ -681,6 +711,8 @@ export function useTaskEditor({
 		setEditTaskLaunchSettings,
 		editTaskManagerAccountId,
 		setEditTaskManagerAccountId,
+		editTaskSeatPreset,
+		setEditTaskSeatPreset,
 		editTaskAutoRunDelayMinutes,
 		setEditTaskAutoRunDelayMinutes,
 		editTaskAutoResumeOnUsageLimit,

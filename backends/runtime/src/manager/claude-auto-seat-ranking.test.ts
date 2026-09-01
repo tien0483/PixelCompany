@@ -2,10 +2,14 @@ import { describe, expect, it } from "vitest";
 
 import {
 	type ClaudeAutoSeatRankingInput,
+	extraCreditMonthEndTier,
+	extraCreditRemainingUsd,
+	type FableSeatRankingInput,
 	FIVE_HOUR_SATURATED_PERCENT,
 	isFiveHourSaturated,
 	NO_SEVEN_DAY_DATA_TIER,
 	pickBestClaudeAutoSeat,
+	pickBestFableSeat,
 	sevenDayResetTier,
 } from "./claude-auto-seat-ranking";
 
@@ -152,5 +156,106 @@ describe("pickBestClaudeAutoSeat", () => {
 		const second = seat(2, { sevenDayPercent: 30, sevenDayResetsAt: inHours(20) });
 		expect(pickBestClaudeAutoSeat([first, second], NOW)?.id).toBe(1);
 		expect(pickBestClaudeAutoSeat([second, first], NOW)?.id).toBe(2);
+	});
+});
+
+// --- Fable seat ---------------------------------------------------------------
+
+interface CreditSeat extends FableSeatRankingInput {
+	id: number;
+}
+
+function creditSeat(id: number, remainingUsd: number | null, overrides: ClaudeAutoSeatRankingInput = {}): CreditSeat {
+	return {
+		id,
+		fiveHourPercent: 0,
+		sevenDayPercent: 0,
+		...overrides,
+		extraUsage:
+			remainingUsd === null
+				? null
+				: { isEnabled: true, monthlyLimitUsd: 100, usedCreditsUsd: 100 - remainingUsd, utilization: null },
+	};
+}
+
+describe("extraCreditRemainingUsd", () => {
+	it("subtracts spend from the monthly ceiling", () => {
+		expect(extraCreditRemainingUsd(creditSeat(1, 12.5))).toBe(12.5);
+	});
+
+	it("treats a disabled pool as nothing to spend", () => {
+		expect(
+			extraCreditRemainingUsd({
+				extraUsage: { isEnabled: false, monthlyLimitUsd: 100, usedCreditsUsd: 0, utilization: null },
+			}),
+		).toBeNull();
+	});
+
+	it("treats a missing pool, a missing ceiling and a drained pool alike", () => {
+		expect(extraCreditRemainingUsd({})).toBeNull();
+		expect(extraCreditRemainingUsd({ extraUsage: null })).toBeNull();
+		expect(
+			extraCreditRemainingUsd({
+				extraUsage: { isEnabled: true, monthlyLimitUsd: null, usedCreditsUsd: 5, utilization: null },
+			}),
+		).toBeNull();
+		expect(extraCreditRemainingUsd(creditSeat(1, 0))).toBeNull();
+		expect(extraCreditRemainingUsd(creditSeat(1, -3))).toBeNull();
+	});
+
+	it("counts an unreported spend as zero rather than discarding the pool", () => {
+		expect(
+			extraCreditRemainingUsd({
+				extraUsage: { isEnabled: true, monthlyLimitUsd: 40, usedCreditsUsd: null, utilization: null },
+			}),
+		).toBe(40);
+	});
+});
+
+describe("extraCreditMonthEndTier", () => {
+	it("buckets by days to the UTC month end, boundaries belonging to the less urgent tier", () => {
+		// August has 31 days, so the rollover is 2026-09-01T00:00:00Z.
+		expect(extraCreditMonthEndTier(NOW)).toBe(0); // 0.5 days left
+		expect(extraCreditMonthEndTier(Date.parse("2026-08-30T00:00:00Z"))).toBe(1); // 2 days — boundary
+		expect(extraCreditMonthEndTier(Date.parse("2026-08-25T00:00:00Z"))).toBe(2); // 7 days — boundary
+		expect(extraCreditMonthEndTier(Date.parse("2026-08-18T00:00:00Z"))).toBe(3); // 14 days — boundary
+		expect(extraCreditMonthEndTier(Date.parse("2026-08-20T00:00:00Z"))).toBe(2); // 12 days
+		expect(extraCreditMonthEndTier(Date.parse("2026-08-01T00:00:00Z"))).toBe(3); // a full month
+	});
+});
+
+describe("pickBestFableSeat", () => {
+	it("prefers the saturated seat at equal credit — that is where the spend bills to credit", () => {
+		const idle = creditSeat(1, 20, { fiveHourPercent: 5, sevenDayPercent: 5 });
+		const capped = creditSeat(2, 20, { fiveHourPercent: 99, sevenDayPercent: 80 });
+		expect(pickBestFableSeat([idle, capped], NOW)?.id).toBe(2);
+	});
+
+	it("prefers more remaining credit once saturation ties", () => {
+		const thin = creditSeat(1, 1, { fiveHourPercent: 95 });
+		const fat = creditSeat(2, 40, { fiveHourPercent: 95 });
+		expect(pickBestFableSeat([thin, fat], NOW)?.id).toBe(2);
+	});
+
+	it("sinks a seat with no spendable credit below one with any, however loaded", () => {
+		const drained = creditSeat(1, null, { fiveHourPercent: 100, sevenDayPercent: 100 });
+		const funded = creditSeat(2, 1, { fiveHourPercent: 0, sevenDayPercent: 0 });
+		expect(pickBestFableSeat([drained, funded], NOW)?.id).toBe(2);
+	});
+
+	it("still names a candidate when the whole fleet is out of credit", () => {
+		const pool = [creditSeat(1, null), creditSeat(2, null)];
+		expect(pickBestFableSeat(pool, NOW)?.id).toBe(1);
+	});
+
+	it("returns null for an empty pool", () => {
+		expect(pickBestFableSeat([], NOW)).toBeNull();
+	});
+
+	it("inverts the Auto ranking on the same fleet — Auto avoids the capped seat, Fable seeks it", () => {
+		const idle = creditSeat(1, 20, { fiveHourPercent: 5, sevenDayResetsAt: inHours(30) });
+		const capped = creditSeat(2, 20, { fiveHourPercent: 99, sevenDayResetsAt: inHours(30) });
+		expect(pickBestClaudeAutoSeat([idle, capped], NOW)?.id).toBe(1);
+		expect(pickBestFableSeat([idle, capped], NOW)?.id).toBe(2);
 	});
 });
