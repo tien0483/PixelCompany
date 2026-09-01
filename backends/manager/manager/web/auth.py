@@ -857,8 +857,12 @@ async def fetch_usage(
     now = time.time()
     state = _get_usage_state(account_id)
 
-    # 429 backoff check
-    if now < state["backoff_until"]:
+    # 429 backoff check. Manual (user-initiated Refresh) clicks bypass this —
+    # otherwise a stuck account (e.g. the active seat, which never gets the
+    # 429-rotation self-heal below) has no way to recover before the 900s
+    # ceiling expires on its own. The _USAGE_MANUAL_FLOOR_SECONDS floor below
+    # still caps how often a manual click can actually hit the upstream API.
+    if now < state["backoff_until"] and not manual:
         logger.info(
             f"Usage fetch backed off for account {account_id} "
             f"({int(state['backoff_until'] - now)}s remaining, manual={manual})"
