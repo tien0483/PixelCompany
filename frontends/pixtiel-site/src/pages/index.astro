@@ -1,6 +1,6 @@
 ---
 import BaseLayout from "../layouts/BaseLayout.astro";
-import ScreenshotPlaceholder from "../components/ScreenshotPlaceholder.astro";
+import ScreenshotFrame from "../components/ScreenshotFrame.astro";
 import TerminalMockup from "../components/TerminalMockup.astro";
 ---
 
@@ -37,11 +37,13 @@ import TerminalMockup from "../components/TerminalMockup.astro";
 
 		<!-- Hero Visual: Browser-framed board screenshot slot -->
 		<div class="w-full max-w-5xl mx-auto">
-			<ScreenshotPlaceholder
+			<ScreenshotFrame
 				id="slot-hero-board"
+				src="/screenshots/board-hero.png"
+				alt="PIXTiel Multi-Agent Kanban Board"
 				title="PIXTiel Kanban Board — Multi-Agent Workspace"
-				description="Active kanban board running parallel isolated agents across git worktrees"
 				aspectRatio="aspect-16/10"
+				loading="eager"
 			/>
 		</div>
 	</section>
@@ -166,10 +168,11 @@ import TerminalMockup from "../components/TerminalMockup.astro";
 					</p>
 				</div>
 				<div class="lg:col-span-7">
-					<ScreenshotPlaceholder
+					<ScreenshotFrame
 						id="slot-feature-board"
+						src="/screenshots/board-feature.png"
+						alt="Board and Task Agents"
 						title="Board & Sandboxed Task Agents"
-						description="Kanban interface showing live agents executing across dedicated git worktrees"
 					/>
 				</div>
 			</div>
@@ -177,10 +180,11 @@ import TerminalMockup from "../components/TerminalMockup.astro";
 			<!-- Showcase 2: Plan editor (alternating layout) -->
 			<div class="grid grid-cols-1 lg:grid-cols-12 gap-12 items-center">
 				<div class="lg:col-span-7 order-2 lg:order-1">
-					<ScreenshotPlaceholder
+					<ScreenshotFrame
 						id="slot-feature-plan-editor"
+						src="/screenshots/plan-editor.png"
+						alt="Interactive Plan Editor"
 						title="Interactive Plan Editor"
-						description="Live HTML planning interface with AI-assisted refine and revision diffs"
 					/>
 				</div>
 				<div class="lg:col-span-5 space-y-4 order-1 lg:order-2">
@@ -210,10 +214,11 @@ import TerminalMockup from "../components/TerminalMockup.astro";
 					</p>
 				</div>
 				<div class="lg:col-span-7">
-					<ScreenshotPlaceholder
+					<ScreenshotFrame
 						id="slot-feature-review-tab"
+						src="/screenshots/review-tab.png"
+						alt="GitLab-Style Review Diff Viewer"
 						title="GitLab-Style Review Diff Viewer"
-						description="Side-by-side branch diff viewer with inline line comments routed directly to agents"
 					/>
 				</div>
 			</div>
@@ -221,10 +226,11 @@ import TerminalMockup from "../components/TerminalMockup.astro";
 			<!-- Showcase 4: Agent Studio (alternating layout) -->
 			<div class="grid grid-cols-1 lg:grid-cols-12 gap-12 items-center">
 				<div class="lg:col-span-7 order-2 lg:order-1">
-					<ScreenshotPlaceholder
+					<ScreenshotFrame
 						id="slot-feature-agent-studio"
+						src="/screenshots/agent-studio.png"
+						alt="Flowise Agent Studio"
 						title="Flowise Agent Studio"
-						description="Visual drag-and-drop canvas for composing multi-agent tool chains and LLM nodes"
 					/>
 				</div>
 				<div class="lg:col-span-5 space-y-4 order-1 lg:order-2">
@@ -254,10 +260,11 @@ import TerminalMockup from "../components/TerminalMockup.astro";
 					</p>
 				</div>
 				<div class="lg:col-span-7">
-					<ScreenshotPlaceholder
+					<ScreenshotFrame
 						id="slot-feature-learning"
+						src="/screenshots/learning.png"
+						alt="OpenMAIC Learning Classroom"
 						title="OpenMAIC Learning Classroom"
-						description="Multi-agent knowledge synthesis and collaborative classroom environment"
 					/>
 				</div>
 			</div>

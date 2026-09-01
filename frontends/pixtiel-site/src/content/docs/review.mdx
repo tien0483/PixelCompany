@@ -1,0 +1,73 @@
+---
+title: "Merge Requests & Review"
+description: "GitLab-style whole-branch diff viewer, line comment routing back to agents, and knowledge-graph blast-radius analysis."
+order: 5
+---
+
+# Merge Requests & Code Review
+
+Reviewing AI-generated code should not happen in a chat transcript. PIXTiel brings the full GitLab/GitHub merge request review workflow directly into the board, transforming review into an active quality gate with automated feedback loops.
+
+---
+
+## Why Review as a Diff?
+
+In chat interfaces, evaluating code changes requires scrolling through walls of markdown explanations and speculative file summaries. 
+
+In PIXTiel:
+- The **Review Tab** computes a real whole-branch git diff against the card's locked base branch.
+- You review file-by-file with syntax highlighting, hunk folding, and change stats.
+- Comments left on specific lines are routed directly back into the agent's worktree as scoped revision tasks.
+
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│ Review: [Branch: feat/vault-store] ──► [Base: main]   (+240 / -18)     │
+├────────────────────────────────────────────────────────────────────────┤
+│ ▼ src/security/vault-store.ts                                          │
+│   42:  export async function writeSecret(key: string, val: string) {   │
+│   43:    const cipher = crypto.createCipheriv('aes-256-gcm', key, iv); │
+│ + 44:    // User comment: "Ensure IV is generated with randomBytes"    │
+│ + 45:    // Agent Action: Refactoring hunk to use crypto.randomBytes   │
+└────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## GitLab & GitHub Connect
+
+PIXTiel integrates directly with your remote Git forge:
+
+1. **Personal Access Token (PAT) Storage**: Connect your GitLab or GitHub account via Personal Access Tokens.
+2. **Vault Security**: All tokens are encrypted and stored locally in the secure credential store (`0600` permissions on disk) and never exposed in logs or git commits.
+3. **Remote Sync**: Push branches, create remote Merge Requests, or fetch existing PR comments without leaving the review interface.
+
+---
+
+## Inline Line Comments & Agent Revision Loop
+
+When you find an issue in a diff:
+
+1. Click any line number in the diff viewer.
+2. Type your review comment (e.g., *"Handle edge case when token is expired"*).
+3. Click **Send to Agent**.
+4. PIXTiel dispatches a focused revision instruction directly to the agent in that worktree. The agent reads the exact hunk, applies the fix, runs test suites, and updates the branch diff.
+
+---
+
+## Blast-Radius & Knowledge Graph Impact
+
+Before approving a merge, evaluate the structural impact on the rest of your codebase:
+
+- **Understand Knowledge Graph**: PIXTiel analyzes AST call graphs, module dependencies, and exported symbols.
+- **Blast-Radius Indicator**: Identifies which downstream files, endpoints, or tests are affected by the diff.
+- **Automated Sanity Check**: Runs targeted test suites against affected modules before allowing merge to `main`.
+
+---
+
+## Landing the Card
+
+Once the diff meets quality standards:
+
+- **Merge to Base**: Merges the card's worktree branch into your local `main` branch with clean git history.
+- **Push to Remote**: Pushes the branch upstream to trigger CI/CD pipelines.
+- **Archive Worktree**: Automatically cleans up the ephemeral git worktree while preserving turn checkpoints and audit logs in `refs/kanban/checkpoints/`.
