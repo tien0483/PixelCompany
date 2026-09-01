@@ -5,9 +5,12 @@
 
 [submodule "backends/OmniRoute"]
 	path = backends/OmniRoute
-	url = https://github.com/diegosouzapw/OmniRoute.git
+	url = https://github.com/tien0483/OmniRoute.git
+	branch = release/v3.8.51
+
 [submodule "backends/openmaic"]
 	path = backends/openmaic
 	url = https://github.com/tien0483/OpenMAIC.git
 	branch = pixeloffice
+
 
