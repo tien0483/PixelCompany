@@ -421,6 +421,7 @@ async function startServer(): Promise<{
 		{ createFlowiseClient },
 		{ resolveFlowiseDataDir, seedFlowiseEmbedAccount },
 		{ startFlowiseProcess },
+		{ startOpenmaicProcess },
 		{ createOrchestratorClient },
 		{ startOrchestratorProcess },
 		{ resolveDefaultDshHome },
@@ -452,6 +453,7 @@ async function startServer(): Promise<{
 		import("./flowise/flowise-client.js"),
 		import("./flowise/flowise-credential.js"),
 		import("./flowise/flowise-process.js"),
+		import("./openmaic/openmaic-process.js"),
 		import("./orchestrator/orchestrator-client.js"),
 		import("./orchestrator/orchestrator-process.js"),
 		import("./orchestrator/dsh-endpoint.js"),
@@ -716,6 +718,16 @@ async function startServer(): Promise<{
 			console.warn(`[kanban] ${message}`);
 		},
 	});
+	// The Learning tab's classroom (`backends/openmaic`). Same posture as the studio above:
+	// absent or unbuilt is logged, not warned about, and the tab explains itself.
+	const OpenmaicProcess = await startOpenmaicProcess({
+		warn: (message) => {
+			console.warn(`[kanban] ${message}`);
+		},
+		log: (message) => {
+			console.log(`[kanban] ${message}`);
+		},
+	});
 	const OrchestratorProcess = await startOrchestratorProcess({
 		warn: (message) => {
 			console.warn(`[kanban] ${message}`);
@@ -876,6 +888,8 @@ async function startServer(): Promise<{
 		// Only stops a studio this runtime spawned; one started by hand in the submodule keeps
 		// the port and is left alone (`startFlowiseProcess` adopts rather than fights for it).
 		await FlowiseProcess.close();
+		// Likewise only stops a classroom this runtime spawned.
+		await OpenmaicProcess.close();
 		await OrchestratorProcess.close();
 	};
 

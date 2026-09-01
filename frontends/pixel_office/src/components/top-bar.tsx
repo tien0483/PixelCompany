@@ -18,7 +18,9 @@ import {
 	GitCommitHorizontal,
 	GitMerge,
 	GitPullRequestArrow,
+	GraduationCap,
 	Menu,
+	Network,
 	Play,
 	Plus,
 	Settings,
@@ -476,6 +478,10 @@ export function TopBar({
 	isOfficeOpen,
 	onToggleDocs,
 	isDocsOpen,
+	onToggleLearning,
+	isLearningOpen,
+	onToggleUnderstand,
+	isUnderstandOpen,
 	onOpenSettings,
 	showDebugButton,
 	onOpenDebugDialog,
@@ -528,6 +534,10 @@ export function TopBar({
 	isOfficeOpen?: boolean;
 	onToggleDocs?: () => void;
 	isDocsOpen?: boolean;
+	onToggleLearning?: () => void;
+	isLearningOpen?: boolean;
+	onToggleUnderstand?: () => void;
+	isUnderstandOpen?: boolean;
 	onOpenSettings?: (section?: SettingsSection) => void;
 	showDebugButton?: boolean;
 	onOpenDebugDialog?: () => void;
@@ -921,6 +931,41 @@ export function TopBar({
 									</Button>
 								</Tooltip>
 							) : null}
+							{onToggleLearning ? (
+								<Tooltip side="bottom" content="Toggle the learning classroom">
+									<Button
+										variant={isLearningOpen ? "primary" : "ghost"}
+										size="sm"
+										icon={<GraduationCap size={16} />}
+										onClick={onToggleLearning}
+										aria-label={isLearningOpen ? "Hide learning" : "Show learning"}
+										data-testid="toggle-learning-button"
+										className="ml-2"
+									>
+										<span className="hidden sm:inline">Learning</span>
+									</Button>
+								</Tooltip>
+							) : null}
+							{onToggleUnderstand ? (
+								<Tooltip
+									side="bottom"
+									content="Toggle the knowledge graph for this project"
+								>
+									<Button
+										variant={isUnderstandOpen ? "primary" : "ghost"}
+										size="sm"
+										icon={<Network size={16} />}
+										onClick={onToggleUnderstand}
+										aria-label={
+											isUnderstandOpen ? "Hide understand" : "Show understand"
+										}
+										data-testid="toggle-understand-button"
+										className="ml-2"
+									>
+										<span className="hidden sm:inline">Understand</span>
+									</Button>
+								</Tooltip>
+							) : null}
 							{onOpenCleanup ? (
 								<Tooltip
 									side="bottom"
@@ -1026,6 +1071,28 @@ export function TopBar({
 									icon={<BookOpen size={16} />}
 									onClick={onToggleDocs}
 									aria-label={isDocsOpen ? "Hide docs" : "Show docs"}
+									className={MOBILE_TOUCH_TARGET}
+								/>
+							) : null}
+							{onToggleLearning ? (
+								<Button
+									variant={isLearningOpen ? "primary" : "ghost"}
+									size="sm"
+									icon={<GraduationCap size={16} />}
+									onClick={onToggleLearning}
+									aria-label={isLearningOpen ? "Hide learning" : "Show learning"}
+									className={MOBILE_TOUCH_TARGET}
+								/>
+							) : null}
+							{onToggleUnderstand ? (
+								<Button
+									variant={isUnderstandOpen ? "primary" : "ghost"}
+									size="sm"
+									icon={<Network size={16} />}
+									onClick={onToggleUnderstand}
+									aria-label={
+										isUnderstandOpen ? "Hide understand" : "Show understand"
+									}
 									className={MOBILE_TOUCH_TARGET}
 								/>
 							) : null}
