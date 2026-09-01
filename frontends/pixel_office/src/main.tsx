@@ -3,7 +3,7 @@ import { Toaster } from "sonner";
 
 import App from "@/App";
 import { AppErrorBoundary } from "@/components/app-error-boundary";
-import { PasscodeGateProvider } from "@/components/passcode-gate";
+import { LoginGateProvider } from "@/components/login-gate";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { isThemeId } from "@/hooks/use-theme";
 import { isOfficeE2eHarnessEnabled, OfficeE2eHarness } from "@/office/office-e2e-harness";
@@ -33,7 +33,7 @@ const rootTree = isOfficeE2eHarnessEnabled() ? (
 		<OfficeE2eHarness />
 	</TooltipProvider>
 ) : (
-	<PasscodeGateProvider>
+	<LoginGateProvider>
 		<TelemetryProvider>
 			<AppErrorBoundary>
 				<TooltipProvider>
@@ -54,7 +54,7 @@ const rootTree = isOfficeE2eHarnessEnabled() ? (
 				</TooltipProvider>
 			</AppErrorBoundary>
 		</TelemetryProvider>
-	</PasscodeGateProvider>
+	</LoginGateProvider>
 );
 
 ReactDOM.createRoot(root).render(rootTree);

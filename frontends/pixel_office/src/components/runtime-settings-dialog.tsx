@@ -33,6 +33,7 @@ import { showAppToast } from "@/components/app-toaster";
 import { DEFAULT_MAX_RUNNING_TASKS } from "@/storage/local-storage-store";
 import { AccountOrganizationSection } from "@/components/shared/account-organization-section";
 import { ClineSetupSection } from "@/components/shared/cline-setup-section";
+import { SessionAuthSection } from "@/components/login-gate";
 import { VaultSection } from "@/components/vault/vault-section";
 import { apiSeatLabel } from "@/manager/task-account-picker";
 import {
@@ -1296,6 +1297,7 @@ export function RuntimeSettingsDialog({
 							Credentials
 						</h2>
 					</div>
+					<SessionAuthSection />
 					<VaultSection />
 
 					{/* ---- Cline ---- */}
