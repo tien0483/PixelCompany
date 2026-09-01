@@ -522,6 +522,48 @@ describe("RuntimeSettingsDialog", () => {
 			}),
 		);
 	});
+
+	it("allows changing the default agent via dropdown", async () => {
+		const handleOpenChange = vi.fn();
+		saveRuntimeConfigMock.mockClear();
+
+		await act(async () => {
+			root.render(
+				<RuntimeSettingsDialog
+					open={true}
+					workspaceId={"workspace-1"}
+					initialConfig={savedClineOauthConfig}
+					onOpenChange={handleOpenChange}
+				/>,
+			);
+		});
+
+		const select = document.body.querySelector(
+			'select[aria-label="Default agent for new tasks"]',
+		) as HTMLSelectElement | null;
+		expect(select).toBeTruthy();
+		expect(select?.value).toBe("cline");
+
+		await act(async () => {
+			if (select) {
+				select.value = "claude";
+				select.dispatchEvent(new Event("change", { bubbles: true }));
+			}
+		});
+
+		const saveButton = findButtonByText(document.body, "Save");
+		expect(saveButton?.disabled).toBe(false);
+
+		await act(async () => {
+			saveButton?.click();
+		});
+
+		expect(saveRuntimeConfigMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				selectedAgentId: "claude",
+			}),
+		);
+	});
 });
 
 /**

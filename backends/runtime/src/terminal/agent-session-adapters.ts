@@ -1239,33 +1239,66 @@ const geminiAdapter: AgentSessionAdapter = {
 		const hooks = resolveHookContext(input);
 		if (hooks) {
 			const configPath = join(getHookAgentDirectory("gemini"), "settings.json");
-			const geminiHookCommand = buildHooksCommand(["gemini-hook"]);
+			const stopHookCommand = buildHooksCommand(["gemini-hook", "--event", "to_review"]);
+			const preToolHookCommand = buildHooksCommand(["gemini-hook", "--event", "activity"]);
+			const postToolHookCommand = buildHooksCommand(["gemini-hook", "--event", "to_in_progress"]);
+			const preInvocationHookCommand = buildHooksCommand(["gemini-hook", "--event", "to_in_progress"]);
 
 			const config = {
 				hooks: {
-					BeforeTool: [
+					Stop: [
 						{
-							hooks: [{ type: "command", command: geminiHookCommand }],
+							hooks: [{ type: "command", command: stopHookCommand }],
 						},
 					],
-					AfterTool: [
+					PreToolUse: [
 						{
-							hooks: [{ type: "command", command: geminiHookCommand }],
+							matcher: "*",
+							hooks: [{ type: "command", command: preToolHookCommand }],
+						},
+					],
+					PostToolUse: [
+						{
+							matcher: "*",
+							hooks: [{ type: "command", command: postToolHookCommand }],
+						},
+					],
+					PreInvocation: [
+						{
+							hooks: [{ type: "command", command: preInvocationHookCommand }],
+						},
+					],
+					PostInvocation: [
+						{
+							hooks: [{ type: "command", command: stopHookCommand }],
 						},
 					],
 					AfterAgent: [
 						{
-							hooks: [{ type: "command", command: geminiHookCommand }],
+							hooks: [{ type: "command", command: stopHookCommand }],
 						},
 					],
 					BeforeAgent: [
 						{
-							hooks: [{ type: "command", command: geminiHookCommand }],
+							hooks: [{ type: "command", command: preInvocationHookCommand }],
+						},
+					],
+					BeforeTool: [
+						{
+							matcher: "*",
+							hooks: [{ type: "command", command: preToolHookCommand }],
+						},
+					],
+					AfterTool: [
+						{
+							matcher: "*",
+							hooks: [{ type: "command", command: postToolHookCommand }],
 						},
 					],
 					Notification: [
 						{
-							hooks: [{ type: "command", command: geminiHookCommand }],
+							matcher: "*",
+							hooks: [{ type: "command", command: preToolHookCommand }],
 						},
 					],
 				},
