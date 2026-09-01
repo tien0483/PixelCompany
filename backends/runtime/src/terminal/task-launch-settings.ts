@@ -5,7 +5,7 @@
  * allowlists applied at Claude launch (scoped CLAUDE_CONFIG_DIR + mcp-config).
  * Cursor gets model/effort flags when supported and a prompt preface for tags.
  */
-import { access, copyFile, cp, mkdir, readdir, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { access, chmod, copyFile, cp, mkdir, readdir, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 
@@ -20,6 +20,7 @@ import { FABLE_SEAT_MODEL_ID } from "../manager/claude-auto-seat-ranking";
 import { mergeFlowiseMcpInventory } from "../flowise/flowise-mcp";
 import { resolveMcpAllowlistServers } from "./agent-mcp-launch";
 import { getRuntimeHomePath } from "../state/workspace-state";
+import { collectVaultLaunchEnv } from "../vault";
 
 export { buildCursorLaunchTagPreface, buildLaunchTagAllowlistUpdateNotice } from "./task-launch-tag-messages";
 
@@ -761,10 +762,23 @@ export async function prepareClaudeMcpAllowlistConfig(input: {
 		},
 	});
 
+	const { mcpEnvByServerId } = await collectVaultLaunchEnv(input.mcpServerIds);
+	for (const [serverId, rawConfig] of Object.entries(filtered)) {
+		const vaultEnv = mcpEnvByServerId[serverId];
+		if (vaultEnv && Object.keys(vaultEnv).length > 0 && rawConfig && typeof rawConfig === "object") {
+			const serverConfig = rawConfig as Record<string, unknown>;
+			serverConfig.env = {
+				...((serverConfig.env as Record<string, string> | undefined) ?? {}),
+				...vaultEnv,
+			};
+		}
+	}
+
 	const scratch = taskLaunchScratchDir(input.taskId);
 	await mkdir(scratch, { recursive: true });
 	const mcpConfigPath = join(scratch, "mcp.allowlist.json");
 	await writeFile(mcpConfigPath, JSON.stringify({ mcpServers: filtered }, null, 2), "utf8");
+	await chmod(mcpConfigPath, 0o600).catch(() => {});
 	return {
 		mcpConfigPath,
 		cleanup: async () => {
