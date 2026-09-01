@@ -33,9 +33,10 @@ const CUSTOM_AGENT_PREFACE = [
 	"PixelOffice Custom Agent session (DeepSeek Harness headless).",
 	"You may delegate to product subagents when appropriate:",
 	"- cursor_agent — Cursor CLI (ACP); use for repo edits and Cursor MCP.",
+	"- gemini_agent — Antigravity / Gemini CLI (ACP); uses your Gemini subscription for search, reasoning and Google tools.",
 	"- subagent_claude_code — Claude Code CLI; org MCP policy applies to the child.",
 	"- subagent_codex — OpenAI Codex CLI.",
-	"Implement final changes in the task worktree. Prefer cursor_agent for coding when Cursor MCP is configured.",
+	"Implement final changes in the task worktree. Prefer cursor_agent or gemini_agent for coding when appropriate.",
 ].join("\n");
 
 /** Appended only when the card actually wired a Flowise flow, so the names are never invented. */
