@@ -65,6 +65,7 @@ export interface BoardCard {
 	 * auto-resumes it (--continue) once its window resets, instead of stopping in Review.
 	 */
 	autoResumeOnUsageLimit?: boolean;
+	autoFailoverOnUsageLimit?: boolean;
 	/**
 	 * Epoch ms at which this backlog card should auto-start (a countdown set at create time).
 	 * The client-side auto-run scheduler starts it once the time passes and a running slot is free.

@@ -1,5 +1,5 @@
 import { isRuntimeAgentLaunchSupported } from "@runtime-agent-catalog";
-import { pickBestClaudeAutoSeat, pickBestFableSeat } from "@runtime-manager-seat-ranking";
+import { describeAutoPickReason, type AutoSeatPickReasonCode, pickBestClaudeAutoSeatWithReason, pickBestFableSeat } from "@runtime-manager-seat-ranking";
 import type { ReactElement } from "react";
 
 import type {
@@ -16,7 +16,6 @@ import {
 	formatExtraCreditRemaining,
 	formatMonthEndCountdown,
 	formatPercent,
-	formatResetCountdown,
 	hasUsableExtraCredit,
 	isAuthBroken,
 	isDonateExhausted,
@@ -287,7 +286,15 @@ function healthySeatPool(accounts: RuntimeManagerAccount[]): RuntimeManagerAccou
  * the launch pins another. Only the pool narrowing is duplicated (`healthySeatPool`).
  */
 export function autoBestSeatAccount(accounts: RuntimeManagerAccount[]): RuntimeManagerAccount | null {
-	return pickBestClaudeAutoSeat(healthySeatPool(accounts));
+	return pickBestClaudeAutoSeatWithReason(healthySeatPool(accounts))?.seat ?? null;
+}
+
+/** Weight breakdown for the Auto preview label — null when no seat qualifies. */
+export function autoBestSeatPick(
+	accounts: RuntimeManagerAccount[],
+	nowMs: number = Date.now(),
+) {
+	return pickBestClaudeAutoSeatWithReason(healthySeatPool(accounts), nowMs);
 }
 
 /**
@@ -329,22 +336,21 @@ export function autoTaskSeatAccount(
 }
 
 /**
- * Label for the resolved Auto seat. Claude cards append the winning seat's 7d runway,
- * because that deadline — not the 5h reading the option rows show — is what decided the
- * pick, and an otherwise-unexplained "Auto · bob" reads as arbitrary. Cursor and
- * Antigravity Auto follows their provider-active seat, so there is nothing to explain.
+ * Label for the resolved Auto seat. Claude cards append why Auto picked that seat
+ * (7d expiry, 5h room, donate headroom, etc.) so shared-seat choices are explainable.
  */
 export function autoOptionLabel(
 	account: RuntimeManagerAccount,
 	agentId: RuntimeAgentId | null,
 	nowMs: number = Date.now(),
+	pickReason?: AutoSeatPickReasonCode,
 ): string {
 	const name = seatDisplayName(account);
 	if (agentId === "cursor" || agentId === "gemini") {
 		return `Auto · ${name}`;
 	}
-	const runway = formatResetCountdown(account.sevenDayResetsAt, nowMs);
-	return runway ? `Auto · ${name} · 7d in ${runway}` : `Auto · ${name}`;
+	const reasonLabel = pickReason ? describeAutoPickReason(account, pickReason, nowMs) : null;
+	return reasonLabel ? `Auto · ${name} · ${reasonLabel}` : `Auto · ${name}`;
 }
 
 export interface RunningSeatHintInput {
@@ -413,8 +419,11 @@ export function TaskAccountPicker({
 	subagentSeatAppliesOnRestart = false,
 }: TaskAccountPickerProps): ReactElement {
 	const fableFleet = allAccounts ?? accounts;
+	const claudeAutoPick = agentId === "claude" ? autoBestSeatPick(accounts) : null;
 	const fallbackAccount = autoTaskSeatAccount(accounts, activeAccountId, agentId);
-	const autoLabel = fallbackAccount ? autoOptionLabel(fallbackAccount, agentId) : "Auto (active account)";
+	const autoLabel = fallbackAccount
+		? autoOptionLabel(fallbackAccount, agentId, Date.now(), claudeAutoPick?.weight.dominantReason)
+		: "Auto (active account)";
 	// Orphaned pins (wrong provider after an agent switch) must not stick as a
 	// select value — fall back to Auto so the next start can resolve correctly.
 	const pinnedSeat =

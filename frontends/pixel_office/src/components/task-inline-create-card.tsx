@@ -112,6 +112,8 @@ export function TaskInlineCreateCard({
 	onAutoRunDelayMinutesChange,
 	autoResumeOnUsageLimit = false,
 	onAutoResumeOnUsageLimitChange,
+	autoFailoverOnUsageLimit = false,
+	onAutoFailoverOnUsageLimitChange,
 }: {
 	title?: string;
 	onTitleChange?: (value: string) => void;
@@ -167,11 +169,14 @@ export function TaskInlineCreateCard({
 	onAutoRunDelayMinutesChange?: (value: number) => void;
 	autoResumeOnUsageLimit?: boolean;
 	onAutoResumeOnUsageLimitChange?: (value: boolean) => void;
+	autoFailoverOnUsageLimit?: boolean;
+	onAutoFailoverOnUsageLimitChange?: (value: boolean) => void;
 }): ReactElement {
 	const promptId = `${idPrefix}-prompt-input`;
 	const planModeId = `${idPrefix}-plan-mode-toggle`;
 	const autoCommitOptInId = `${idPrefix}-auto-commit-opt-in`;
 	const autoResumeOnUsageLimitId = `${idPrefix}-auto-resume-usage-limit`;
+	const autoFailoverOnUsageLimitId = `${idPrefix}-auto-failover-usage-limit`;
 	const branchSelectId = `${idPrefix}-branch-select`;
 	const actionLabel = mode === "edit" ? "Save" : "Create";
 	const [measureRef, cardRect] = useMeasure<HTMLDivElement>();
@@ -417,6 +422,28 @@ export function TaskInlineCreateCard({
 							</RadixCheckbox.Indicator>
 						</RadixCheckbox.Root>
 						<span>Auto-resume on usage limit</span>
+					</label>
+				) : null}
+
+				{onAutoFailoverOnUsageLimitChange ? (
+					<label
+						htmlFor={autoFailoverOnUsageLimitId}
+						className="flex items-center gap-2 text-[12px] text-text-primary cursor-pointer select-none"
+						title="If this task hits the Claude usage limit, restart on another healthy seat with --continue before waiting for a reset."
+					>
+						<RadixCheckbox.Root
+							id={autoFailoverOnUsageLimitId}
+							aria-label="Auto-failover on usage limit"
+							checked={autoFailoverOnUsageLimit}
+							disabled={!enabled}
+							onCheckedChange={(checked) => onAutoFailoverOnUsageLimitChange(checked === true)}
+							className="flex h-3.5 w-3.5 cursor-pointer items-center justify-center rounded-sm border border-border-bright bg-surface-3 data-[state=checked]:bg-accent data-[state=checked]:border-accent disabled:cursor-default disabled:opacity-40"
+						>
+							<RadixCheckbox.Indicator>
+								<Check size={10} className="text-white" />
+							</RadixCheckbox.Indicator>
+						</RadixCheckbox.Root>
+						<span>Auto-failover on usage limit</span>
 					</label>
 				) : null}
 

@@ -230,6 +230,11 @@ export const runtimeBoardCardSchema = z.preprocess(
 			 */
 			autoResumeOnUsageLimit: z.boolean().optional(),
 			/**
+			 * When true, a session that hits the Claude usage limit auto-restarts on another healthy
+			 * seat with --continue before falling back to same-seat pause/resume.
+			 */
+			autoFailoverOnUsageLimit: z.boolean().optional(),
+			/**
 			 * Epoch ms at which this backlog card should auto-start (a countdown set at create time).
 			 * The client-side auto-run scheduler starts it once the time passes and a running slot is
 			 * free (respecting `maxRunningTasks`); unset means no scheduled auto-run.
@@ -621,6 +626,8 @@ export const runtimeTaskSessionSummarySchema = z.object({
 	subagentSeatProviderId: z.string().min(1).nullable().optional(),
 	/** Carried from the card: when true, a usage-limit exit parks as "usage_paused" and auto-resumes. */
 	autoResumeOnUsageLimit: z.boolean().optional(),
+	/** Carried from the card: when true, a usage-limit exit cross-seat restarts before same-seat pause. */
+	autoFailoverOnUsageLimit: z.boolean().optional(),
 	/**
 	 * Epoch ms at which a usage-limit-paused session should auto-resume (its window's reset).
 	 * Set only alongside reviewReason "usage_paused"; the usage-resume scheduler reads it and
@@ -2694,6 +2701,8 @@ export const runtimeTaskSessionStartRequestSchema = z.object({
 	seatPreset: runtimeSeatPresetSchema.optional(),
 	/** Carry the card's auto-resume-on-usage-limit intent onto the session so exits can pause+reschedule. */
 	autoResumeOnUsageLimit: z.boolean().optional(),
+	/** Carry the card's cross-seat failover intent onto the session for usage-limit exits. */
+	autoFailoverOnUsageLimit: z.boolean().optional(),
 });
 export type RuntimeTaskSessionStartRequest = z.infer<typeof runtimeTaskSessionStartRequestSchema>;
 

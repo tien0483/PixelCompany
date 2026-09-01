@@ -408,13 +408,13 @@ describe("runningSeatHint", () => {
 });
 
 describe("autoOptionLabel", () => {
-	it("explains a Claude Auto pick with the winning seat's 7d runway", () => {
+	it("explains a Claude Auto pick with the dominant reason", () => {
 		const seat = account(1, "claude", "seat@example.com");
 		seat.sevenDayResetsAt = isoInHours(19);
-		expect(autoOptionLabel(seat, "claude")).toBe("Auto · seat@example.com · 7d in 19h");
+		expect(autoOptionLabel(seat, "claude", Date.now(), "7d_expiring")).toMatch(/7d expiring/);
 	});
 
-	it("omits the runway when the seat has no usable 7d reset", () => {
+	it("omits the reason when none is supplied", () => {
 		const seat = account(1, "claude", "seat@example.com");
 		expect(autoOptionLabel(seat, "claude")).toBe("Auto · seat@example.com");
 	});

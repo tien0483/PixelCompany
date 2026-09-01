@@ -24,12 +24,61 @@
 
 /** The usage fields this ranking reads. Structurally satisfied by `RuntimeManagerAccount`. */
 export interface ClaudeAutoSeatRankingInput {
+	id?: number;
 	fiveHourPercent?: number | null;
 	sevenDayPercent?: number | null;
 	/** ISO-8601, stored verbatim from Anthropic — mixed `Z` and explicit-offset forms. */
 	fiveHourResetsAt?: string | null;
 	sevenDayResetsAt?: string | null;
+	donateLimitPercent?: number;
 }
+
+/** Why Auto picked a seat — surfaced next to the Auto label in the picker. */
+export type AutoSeatPickReasonCode =
+	| "7d_expiring"
+	| "7d_headroom"
+	| "5h_room"
+	| "donate_headroom"
+	| "load_balance";
+
+export interface AutoSeatWeightComponents {
+	urgency7d: number;
+	deficit7d: number;
+	urgency5h: number;
+	headroom5h: number;
+	donateBudget: number;
+	loadPenalty: number;
+}
+
+export interface AutoSeatWeightResult {
+	total: number;
+	components: AutoSeatWeightComponents;
+	dominantReason: AutoSeatPickReasonCode;
+}
+
+export interface AutoSeatFleetContext {
+	/** Active Claude task count per seat id. */
+	seatLoad?: Readonly<Record<number, number>>;
+}
+
+export interface AutoSeatPickResult<T extends ClaudeAutoSeatRankingInput> {
+	seat: T;
+	weight: AutoSeatWeightResult;
+}
+
+/** Tunable coefficients for the unified Auto seat scorer (runtime + Manager mirror). */
+export const AUTO_SEAT_WEIGHTS = {
+	w7dUrgency: 50,
+	w7dDeficit: 0.8,
+	w5hUrgency: 100,
+	wDonate: 18,
+	wLoad: 15,
+} as const;
+
+const TAU_7D_HOURS = 48;
+const TIER_URGENCY_BOOST = [1.0, 0.85, 0.6, 0.35] as const;
+const T1_TARGET_PERCENT = 90;
+const T2_LEAD_PERCENT = 5;
 
 /** Adds the extra-credit pool that the Fable seat ranks on. Also satisfied by `RuntimeManagerAccount`. */
 export interface FableSeatRankingInput extends ClaudeAutoSeatRankingInput {
@@ -145,16 +194,259 @@ function compareSortKeys(a: readonly number[], b: readonly number[]): number {
 	return 0;
 }
 
+function usagePressurePercent(account: ClaudeAutoSeatRankingInput): number {
+	return Math.max(account.fiveHourPercent ?? 0, account.sevenDayPercent ?? 0);
+}
+
+function tierUrgencyBoost(tier: number): number {
+	if (tier >= NO_SEVEN_DAY_DATA_TIER) {
+		return 0.1;
+	}
+	return TIER_URGENCY_BOOST[tier] ?? 0.1;
+}
+
+/** Wall-clock elapsed fraction (0–1) of the 7d window — mirrors `tiers.white_bar`. */
+function whiteBar(account: ClaudeAutoSeatRankingInput, nowMs: number): number | null {
+	const resetAt = resetToEpochMs(account.sevenDayResetsAt);
+	if (resetAt === null) {
+		return null;
+	}
+	const elapsed = (nowMs - (resetAt - 7 * MS_PER_DAY)) / (7 * MS_PER_DAY);
+	return Math.max(0, Math.min(1, elapsed));
+}
+
+/** Tier-based 7d usage target (0–100). Simplified T1 uses the 90% floor. */
+function targetForTier(tier: number, account: ClaudeAutoSeatRankingInput, nowMs: number): number | null {
+	if (tier === NO_SEVEN_DAY_DATA_TIER) {
+		return null;
+	}
+	if (tier === 0) {
+		return 100;
+	}
+	if (tier === 1) {
+		return T1_TARGET_PERCENT;
+	}
+	const wb = whiteBar(account, nowMs);
+	if (wb === null) {
+		return null;
+	}
+	if (tier === 2) {
+		return Math.min(100, wb * 100 + T2_LEAD_PERCENT);
+	}
+	return wb * 100;
+}
+
+function computeUrgency7d(account: ClaudeAutoSeatRankingInput, nowMs: number): number {
+	const resetAt = resetToEpochMs(account.sevenDayResetsAt);
+	if (resetAt === null || resetAt <= nowMs) {
+		return 0;
+	}
+	const hoursLeft = (resetAt - nowMs) / MS_PER_HOUR;
+	const tier = sevenDayResetTier(account, nowMs);
+	return Math.exp(-hoursLeft / TAU_7D_HOURS) * tierUrgencyBoost(tier);
+}
+
+function computeDeficit7d(account: ClaudeAutoSeatRankingInput, nowMs: number): number {
+	const tier = sevenDayResetTier(account, nowMs);
+	const target = targetForTier(tier, account, nowMs);
+	if (target === null) {
+		return 0;
+	}
+	return Math.max(0, target - (account.sevenDayPercent ?? 0));
+}
+
+function computeHeadroom5h(account: ClaudeAutoSeatRankingInput, donateLimit: number, nowMs: number): number {
+	if (isFiveHourSaturated(account, nowMs)) {
+		return 0;
+	}
+	const cap = Math.min(donateLimit, 100);
+	return Math.max(0, cap - (account.fiveHourPercent ?? 0));
+}
+
+function computeUrgency5h(account: ClaudeAutoSeatRankingInput, donateLimit: number, nowMs: number): number {
+	const headroom = computeHeadroom5h(account, donateLimit, nowMs);
+	if (headroom <= 0) {
+		return 0;
+	}
+	const headroomNorm = headroom / 100;
+	const resetAt = resetToEpochMs(account.fiveHourResetsAt);
+	if (resetAt === null) {
+		return headroomNorm * 0.5;
+	}
+	const minutesLeft = (resetAt - nowMs) / MS_PER_MINUTE;
+	if (minutesLeft <= 0) {
+		return headroomNorm;
+	}
+	// Rises as the 5h window nears its reset — spend headroom before it evaporates.
+	const windowMinutes = 5 * 60;
+	const timePressure = 1 - Math.min(1, minutesLeft / windowMinutes);
+	return headroomNorm * timePressure;
+}
+
+function computeDonateBudget(account: ClaudeAutoSeatRankingInput): number {
+	const limit = account.donateLimitPercent ?? 100;
+	const pressure = usagePressurePercent(account);
+	if (limit <= 0 || pressure >= limit) {
+		return 0;
+	}
+	return (limit - pressure) / limit;
+}
+
+function resolveSeatLoad(account: ClaudeAutoSeatRankingInput, fleetContext?: AutoSeatFleetContext): number {
+	if (account.id === undefined || fleetContext?.seatLoad === undefined) {
+		return 0;
+	}
+	return fleetContext.seatLoad[account.id] ?? 0;
+}
+
+function dominantReasonFromWeightedTerms(
+	terms: Readonly<Record<AutoSeatPickReasonCode, number>>,
+	account: ClaudeAutoSeatRankingInput,
+	nowMs: number,
+): AutoSeatPickReasonCode {
+	const tier = sevenDayResetTier(account, nowMs);
+	if (tier === 0 && terms["7d_expiring"] >= terms["5h_room"]) {
+		return "7d_expiring";
+	}
+	let best: AutoSeatPickReasonCode = "7d_headroom";
+	let bestValue = Number.NEGATIVE_INFINITY;
+	for (const code of ["7d_expiring", "7d_headroom", "5h_room", "donate_headroom", "load_balance"] as const) {
+		const value = terms[code];
+		if (value > bestValue) {
+			best = code;
+			bestValue = value;
+		}
+	}
+	return best;
+}
+
+/**
+ * Scalar weight for an Auto seat (higher = better). Balances 7d/5h expiry urgency,
+ * tier deficit, shared donate cap headroom, and fleet load.
+ */
+export function computeAutoSeatWeight(
+	account: ClaudeAutoSeatRankingInput,
+	nowMs: number = Date.now(),
+	fleetContext?: AutoSeatFleetContext,
+): AutoSeatWeightResult {
+	const donateLimit = account.donateLimitPercent ?? 100;
+	const urgency7d = computeUrgency7d(account, nowMs);
+	const deficit7d = computeDeficit7d(account, nowMs);
+	const headroom5h = computeHeadroom5h(account, donateLimit, nowMs);
+	const urgency5h = computeUrgency5h(account, donateLimit, nowMs);
+	const donateBudget = computeDonateBudget(account);
+	const loadPenalty = resolveSeatLoad(account, fleetContext);
+
+	const saturatedPenalty = isFiveHourSaturated(account, nowMs) ? -1_000 : 0;
+	const noSevenDayPenalty =
+		sevenDayResetTier(account, nowMs) === NO_SEVEN_DAY_DATA_TIER ? -50 : 0;
+
+	const weightedTerms: Record<AutoSeatPickReasonCode, number> = {
+		"7d_expiring": AUTO_SEAT_WEIGHTS.w7dUrgency * urgency7d,
+		"7d_headroom": AUTO_SEAT_WEIGHTS.w7dDeficit * deficit7d,
+		"5h_room": AUTO_SEAT_WEIGHTS.w5hUrgency * urgency5h,
+		"donate_headroom": AUTO_SEAT_WEIGHTS.wDonate * donateBudget,
+		"load_balance": -AUTO_SEAT_WEIGHTS.wLoad * loadPenalty,
+	};
+
+	const total =
+		weightedTerms["7d_expiring"] +
+		weightedTerms["7d_headroom"] +
+		weightedTerms["5h_room"] +
+		weightedTerms["donate_headroom"] +
+		weightedTerms["load_balance"] +
+		saturatedPenalty +
+		noSevenDayPenalty;
+
+	return {
+		total,
+		components: {
+			urgency7d,
+			deficit7d,
+			urgency5h,
+			headroom5h,
+			donateBudget,
+			loadPenalty,
+		},
+		dominantReason: dominantReasonFromWeightedTerms(weightedTerms, account, nowMs),
+	};
+}
+
+/** Short reason fragment for the Auto picker label (without seat name). */
+export function describeAutoPickReason(
+	account: ClaudeAutoSeatRankingInput,
+	code: AutoSeatPickReasonCode,
+	nowMs: number = Date.now(),
+): string {
+	switch (code) {
+		case "7d_expiring": {
+			const resetAt = resetToEpochMs(account.sevenDayResetsAt);
+			if (resetAt !== null && resetAt > nowMs) {
+				const hours = Math.round((resetAt - nowMs) / MS_PER_HOUR);
+				if (hours < 48) {
+					return `7d expiring (${hours}h)`;
+				}
+				return `7d expiring (${Math.round(hours / 24)}d)`;
+			}
+			return "7d expiring";
+		}
+		case "7d_headroom":
+			return "7d headroom";
+		case "5h_room": {
+			const resetAt = resetToEpochMs(account.fiveHourResetsAt);
+			if (resetAt !== null && resetAt > nowMs) {
+				const d = new Date(resetAt);
+				const time = d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+				return `5h room (resets ${time})`;
+			}
+			return "5h room";
+		}
+		case "donate_headroom": {
+			const limit = account.donateLimitPercent ?? 100;
+			const under = Math.max(0, Math.round(limit - usagePressurePercent(account)));
+			return `${under}% under cap`;
+		}
+		case "load_balance":
+			return "least loaded";
+	}
+}
+
+/**
+ * The best-ranked seat in an already-narrowed pool with the weight breakdown, or null
+ * when the pool is empty. Ties keep the earlier candidate, then lower account id.
+ */
+export function pickBestClaudeAutoSeatWithReason<T extends ClaudeAutoSeatRankingInput>(
+	pool: ReadonlyArray<T>,
+	nowMs: number = Date.now(),
+	fleetContext?: AutoSeatFleetContext,
+): AutoSeatPickResult<T> | null {
+	let best: AutoSeatPickResult<T> | null = null;
+	for (const account of pool) {
+		const weight = computeAutoSeatWeight(account, nowMs, fleetContext);
+		if (best === null) {
+			best = { seat: account, weight };
+			continue;
+		}
+		if (weight.total > best.weight.total) {
+			best = { seat: account, weight };
+			continue;
+		}
+		if (weight.total === best.weight.total && (account.id ?? Number.POSITIVE_INFINITY) < (best.seat.id ?? Number.POSITIVE_INFINITY)) {
+			best = { seat: account, weight };
+		}
+	}
+	return best;
+}
+
 /**
  * The best-ranked seat in an already-narrowed pool, or null when the pool is empty.
- * Ties keep the earlier candidate, matching the determinism of the `reduce`-based picker
- * this replaced.
  */
 export function pickBestClaudeAutoSeat<T extends ClaudeAutoSeatRankingInput>(
 	pool: ReadonlyArray<T>,
 	nowMs: number = Date.now(),
+	fleetContext?: AutoSeatFleetContext,
 ): T | null {
-	return pickBestByKey(pool, claudeAutoSeatSortKey, nowMs);
+	return pickBestClaudeAutoSeatWithReason(pool, nowMs, fleetContext)?.seat ?? null;
 }
 
 // ---------------------------------------------------------------------------

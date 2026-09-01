@@ -71,6 +71,9 @@ describe("isUsageResumeCandidate", () => {
 		expect(
 			isUsageResumeCandidate(summary({ taskId: "b", reviewReason: "error", autoResumeOnUsageLimit: false })),
 		).toBe(false);
+		expect(
+			isUsageResumeCandidate(summary({ taskId: "g", reviewReason: "error", autoFailoverOnUsageLimit: true })),
+		).toBe(true);
 		expect(isUsageResumeCandidate(summary({ taskId: "c", reviewReason: "usage_paused", resumeAt: FUTURE }))).toBe(
 			true,
 		);
@@ -147,6 +150,72 @@ describe("evaluateSession", () => {
 			warningMessage: "503 Service Unavailable",
 		});
 		expect(evaluateSession(s, snapshot(HEADROOM), NOW)).toEqual({ action: "none" });
+	});
+
+	it("failovers before pausing when another seat has headroom", () => {
+		const s = summary({
+			taskId: "a",
+			reviewReason: "error",
+			agentId: "claude",
+			managerAccountId: 1,
+			autoFailoverOnUsageLimit: true,
+			autoResumeOnUsageLimit: true,
+			warningMessage: "You've hit your usage limit",
+		});
+		const snap = snapshot(HEADROOM);
+		snap.accounts = [
+			{
+				id: 1,
+				provider: "claude",
+				email: "a@x.com",
+				displayName: null,
+				organizationName: null,
+				isActive: true,
+				fiveHourPercent: 95,
+				sevenDayPercent: 10,
+				fiveHourResetsAt: null,
+				sevenDayResetsAt: null,
+				usageCachedAt: null,
+				subscriptionType: null,
+				donateLimitPercent: 100,
+				pressure: 0,
+				nextRefreshAt: null,
+				canAutoSwap: true,
+				canTrackUsage: true,
+				hasCcToken: true,
+				ccNeedsAuth: false,
+				donateLimitLocked: false,
+				isActiveForProvider: true,
+				validationStatus: null,
+				lastError: null,
+			},
+			{
+				id: 2,
+				provider: "claude",
+				email: "b@x.com",
+				displayName: null,
+				organizationName: null,
+				isActive: true,
+				fiveHourPercent: 20,
+				sevenDayPercent: 10,
+				fiveHourResetsAt: null,
+				sevenDayResetsAt: null,
+				usageCachedAt: null,
+				subscriptionType: null,
+				donateLimitPercent: 100,
+				pressure: 0,
+				nextRefreshAt: null,
+				canAutoSwap: true,
+				canTrackUsage: true,
+				hasCcToken: true,
+				ccNeedsAuth: false,
+				donateLimitLocked: false,
+				isActiveForProvider: true,
+				validationStatus: null,
+				lastError: null,
+			},
+		];
+		expect(evaluateSession(s, snap, NOW)).toEqual({ action: "failover", nextAccountId: 2 });
 	});
 });
 

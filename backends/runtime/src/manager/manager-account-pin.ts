@@ -17,7 +17,7 @@ import type {
 	RuntimeSeatPreset,
 } from "../core/api-contract";
 import { resolveHostPath } from "../terminal/task-launch-settings";
-import { extraCreditRemainingUsd, pickBestClaudeAutoSeat, pickBestFableSeat } from "./claude-auto-seat-ranking";
+import { extraCreditRemainingUsd, pickBestClaudeAutoSeat, pickBestFableSeat, type AutoSeatFleetContext } from "./claude-auto-seat-ranking";
 
 export const CLAUDE_CONFIG_DIR_ENV = "CLAUDE_CONFIG_DIR";
 export const CURSOR_API_KEY_ENV = "CURSOR_API_KEY";
@@ -271,6 +271,7 @@ export function pickDefaultCursorAccountId(input: {
 export function pickDefaultClaudeAccountId(input: {
 	accounts: ReadonlyArray<ManagerDonateAccountLike>;
 	activeAccountId: number | null;
+	fleetContext?: AutoSeatFleetContext;
 }): number | null {
 	const claudeAccounts = input.accounts.filter(
 		(account) => account.provider === "claude" && account.isActive !== false,
@@ -282,7 +283,7 @@ export function pickDefaultClaudeAccountId(input: {
 	if (input.activeAccountId !== null && pool.some((account) => account.id === input.activeAccountId)) {
 		return input.activeAccountId;
 	}
-	return pickBestClaudeAutoSeat(pool)?.id ?? null;
+	return pickBestClaudeAutoSeat(pool, Date.now(), input.fleetContext)?.id ?? null;
 }
 
 /**
@@ -298,6 +299,7 @@ export function pickDefaultClaudeAccountId(input: {
  */
 export function pickLeastUsedClaudeAccountId(input: {
 	accounts: ReadonlyArray<ManagerDonateAccountLike>;
+	fleetContext?: AutoSeatFleetContext;
 }): number | null {
 	const claudeAccounts = input.accounts.filter(
 		(account) => account.provider === "claude" && account.isActive !== false,
@@ -305,7 +307,7 @@ export function pickLeastUsedClaudeAccountId(input: {
 	if (claudeAccounts.length === 0) {
 		return null;
 	}
-	return pickBestClaudeAutoSeat(pickHealthyPool(claudeAccounts))?.id ?? null;
+	return pickBestClaudeAutoSeat(pickHealthyPool(claudeAccounts), Date.now(), input.fleetContext)?.id ?? null;
 }
 
 /**

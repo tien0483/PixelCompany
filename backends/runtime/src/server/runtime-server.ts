@@ -59,12 +59,18 @@ import {
 	type PausableSession,
 } from "../jacked/usage-resume-scheduler";
 import {
+	buildAuthFailoverRequest,
+	createAuthFailoverGuard,
+} from "../terminal/auth-failover";
+import {
 	pickDefaultClaudeAccountId,
 	pickDefaultCursorAccountId,
 	pickFableClaudeAccountId,
 	pickLeastUsedClaudeAccountId,
 	toManagerDonateAccount,
 } from "../manager/manager-account-pin";
+import type { AutoSeatFleetContext } from "../manager/claude-auto-seat-ranking";
+import { buildClaudeSeatLoadFromSummaries, toAutoSeatFleetContext } from "../manager/manager-seat-load";
 import type { ManagerClient } from "../manager/manager-client";
 import type { ManagerMonitor } from "../manager/manager-monitor";
 import {
@@ -106,6 +112,7 @@ import { findSavedPlanById, readSavedPlanAsset, resolvePlanImageAssets } from ".
 import { loadWorkspaceContextById, loadWorkspaceState } from "../state/workspace-state";
 import { runAgentOneShot } from "../terminal/agent-oneshot";
 import type { TerminalSessionManager } from "../terminal/session-manager";
+import { resolveHostPath } from "../terminal/task-launch-settings";
 import { createTerminalWebSocketBridge } from "../terminal/ws-server";
 import { type RuntimeTrpcContext, type RuntimeTrpcWorkspaceScope, runtimeAppRouter } from "../trpc/app-router";
 import { createClaudeUsageApi } from "../trpc/claude-usage-api";
@@ -306,6 +313,21 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 	const disposeClineTaskSessionService = (workspaceId: string): void => {
 		void disposeClineTaskSessionServiceAsync(workspaceId);
 	};
+	const collectClaudeFleetContext = (): AutoSeatFleetContext => {
+		const merged: Record<number, number> = {};
+		for (const { terminalManager } of deps.workspaceRegistry.listManagedWorkspaces()) {
+			const partial = buildClaudeSeatLoadFromSummaries(terminalManager.listSummaries());
+			for (const [accountId, count] of Object.entries(partial)) {
+				const id = Number(accountId);
+				merged[id] = (merged[id] ?? 0) + count;
+			}
+		}
+		return toAutoSeatFleetContext(merged);
+	};
+	const reportClaudeSeatLoad = (fleetContext: AutoSeatFleetContext): void => {
+		const load = fleetContext.seatLoad ?? {};
+		void deps.manager.client.pushSeatLoad(load).catch(() => undefined);
+	};
 	const prepareForStateReset = async (): Promise<void> => {
 		const workspaceIds = new Set<string>();
 		for (const { workspaceId } of deps.workspaceRegistry.listManagedWorkspaces()) {
@@ -492,9 +514,12 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 			if (!snapshot) {
 				return null;
 			}
+			const fleetContext = collectClaudeFleetContext();
+			reportClaudeSeatLoad(fleetContext);
 			return pickDefaultClaudeAccountId({
 				accounts: snapshot.accounts,
 				activeAccountId: snapshot.activeAccountId,
+				fleetContext,
 			});
 		},
 		// Auto (unpinned) board tasks: the least-used healthy seat, chosen without
@@ -505,7 +530,9 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 			if (!snapshot) {
 				return null;
 			}
-			return pickLeastUsedClaudeAccountId({ accounts: snapshot.accounts });
+			const fleetContext = collectClaudeFleetContext();
+			reportClaudeSeatLoad(fleetContext);
+			return pickLeastUsedClaudeAccountId({ accounts: snapshot.accounts, fleetContext });
 		},
 		// `seatPreset: "fable"` cards: the seat with the most spendable extra usage credit,
 		// preferring seats whose subscription windows are already capped (that is where credit
@@ -543,6 +570,8 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 	// per-request instances so it never depends on an inbound HTTP request being in flight.
 	const usageResumeRuntimeApi = createRuntimeApi(runtimeApiDeps);
 
+	const usageFailoverGuard = createAuthFailoverGuard();
+
 	const resumeUsagePausedTask = async (scope: RuntimeTrpcWorkspaceScope, taskId: string): Promise<void> => {
 		// The resume needs the card's baseRef (+ its pin/flag so they persist across the relaunch).
 		const workspaceState = await loadWorkspaceState(scope.workspacePath).catch(() => null);
@@ -555,11 +584,47 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 			...(card?.agentId ? { agentId: card.agentId } : {}),
 			...(card?.managerAccountId ? { managerAccountId: card.managerAccountId } : {}),
 			autoResumeOnUsageLimit: card?.autoResumeOnUsageLimit ?? true,
+			autoFailoverOnUsageLimit: card?.autoFailoverOnUsageLimit ?? false,
 			taskLaunchSettings: card?.taskLaunchSettings,
 		});
 		if (!response.ok) {
 			throw new Error(response.error ?? "usage-resume relaunch failed");
 		}
+	};
+
+	const failoverUsageLimitedTask = async (
+		scope: RuntimeTrpcWorkspaceScope,
+		taskId: string,
+		nextAccountId: number,
+	): Promise<void> => {
+		if (!usageFailoverGuard.shouldAttempt(taskId, Date.now())) {
+			throw new Error("usage failover cap reached");
+		}
+		const terminalManager = await deps.ensureTerminalManagerForWorkspace(
+			scope.workspaceId,
+			scope.workspacePath,
+		);
+		const retryRequest = terminalManager.getRestartRequest(taskId);
+		const launchDir = await deps.manager.client.fetchAccountLaunchDir(nextAccountId).catch(() => null);
+		if (!launchDir || launchDir.configDir.trim().length === 0) {
+			throw new Error("seat prep failed");
+		}
+		const workspaceState = await loadWorkspaceState(scope.workspacePath).catch(() => null);
+		const card = workspaceState?.board.columns.flatMap((column) => column.cards).find((c) => c.id === taskId) ?? null;
+		const rebuilt = buildAuthFailoverRequest(
+			retryRequest,
+			nextAccountId,
+			resolveHostPath(launchDir.configDir),
+		);
+		if (rebuilt === null) {
+			throw new Error("no restart request for failover");
+		}
+		usageFailoverGuard.recordAttempt(taskId, Date.now());
+		await terminalManager.startTaskSession({
+			...rebuilt,
+			autoResumeOnUsageLimit: card?.autoResumeOnUsageLimit ?? true,
+			autoFailoverOnUsageLimit: card?.autoFailoverOnUsageLimit ?? false,
+		});
 	};
 
 	const usageResumeScheduler = createUsageResumeScheduler({
@@ -573,6 +638,7 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 				scope: RuntimeTrpcWorkspaceScope,
 				summaries: RuntimeTaskSessionSummary[],
 				mark: (taskId: string, resumeAt: number) => void,
+				withFailover: boolean,
 			): void => {
 				for (const summary of summaries) {
 					if (seen.has(summary.taskId) || !isUsageResumeCandidate(summary)) {
@@ -584,6 +650,12 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 						summary,
 						markUsagePaused: (resumeAt: number) => mark(summary.taskId, resumeAt),
 						resume: () => resumeUsagePausedTask(scope, summary.taskId),
+						...(withFailover
+							? {
+									failover: (nextAccountId: number) =>
+										failoverUsageLimitedTask(scope, summary.taskId, nextAccountId),
+								}
+							: {}),
 					});
 				}
 			};
@@ -592,13 +664,19 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 					continue;
 				}
 				const scope: RuntimeTrpcWorkspaceScope = { workspaceId, workspacePath };
-				addFrom(scope, terminalManager.listSummaries(), (taskId, resumeAt) =>
-					terminalManager.markUsagePaused(taskId, resumeAt),
+				addFrom(
+					scope,
+					terminalManager.listSummaries(),
+					(taskId, resumeAt) => terminalManager.markUsagePaused(taskId, resumeAt),
+					true,
 				);
 				const clineService = clineTaskSessionServiceByWorkspaceId.get(workspaceId);
 				if (clineService) {
-					addFrom(scope, clineService.listSummaries(), (taskId, resumeAt) =>
-						clineService.markUsagePaused(taskId, resumeAt),
+					addFrom(
+						scope,
+						clineService.listSummaries(),
+						(taskId, resumeAt) => clineService.markUsagePaused(taskId, resumeAt),
+						false,
 					);
 				}
 			}

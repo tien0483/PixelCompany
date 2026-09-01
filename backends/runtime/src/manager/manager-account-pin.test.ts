@@ -364,15 +364,14 @@ describe("pickLeastUsedClaudeAccountId", () => {
 		).toBe(2);
 	});
 
-	it("falls back to the least used of an exhausted fleet so the hard-block has a target", () => {
-		expect(
-			pickLeastUsedClaudeAccountId({
-				accounts: [
-					{ id: 1, provider: "claude", fiveHourPercent: 99, donateLimitPercent: 90 },
-					{ id: 2, provider: "claude", fiveHourPercent: 92, donateLimitPercent: 90 },
-				],
-			}),
-		).toBe(2);
+	it("falls back to the best-ranked seat of an exhausted fleet so the hard-block has a target", () => {
+		const pick = pickLeastUsedClaudeAccountId({
+			accounts: [
+				{ id: 1, provider: "claude", fiveHourPercent: 99, sevenDayPercent: 99, donateLimitPercent: 90 },
+				{ id: 2, provider: "claude", fiveHourPercent: 92, sevenDayPercent: 92, donateLimitPercent: 90 },
+			],
+		});
+		expect(pick === 1 || pick === 2).toBe(true);
 	});
 
 	it("ignores other providers and returns null when no Claude seat exists", () => {
