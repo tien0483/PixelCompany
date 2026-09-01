@@ -1,0 +1,38 @@
+---
+interface Props {
+	class?: string;
+}
+
+const { class: className } = Astro.props;
+---
+
+<nav class={`w-full border-b border-[#30363D] bg-[#1F2428]/80 backdrop-blur-md sticky top-0 z-50 ${className ?? ""}`}>
+	<div class="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
+		<a href="/" class="flex items-center gap-2.5 text-[#E6EDF3] hover:text-white transition-colors group">
+			<!-- TODO: Replace with B0 SVG wordmark when merged -->
+			<div class="w-8 h-8 rounded-md bg-[#0084FF] flex items-center justify-center font-bold text-white shadow-sm group-hover:bg-[#339DFF] transition-colors">
+				P
+			</div>
+			<span class="font-bold text-lg tracking-tight">PIXTiel</span>
+		</a>
+
+		<div class="flex items-center gap-6 text-sm font-medium text-[#8B949E]">
+			<a href="/#features" class="hover:text-[#E6EDF3] transition-colors">Product</a>
+			<a href="/#install" class="hover:text-[#E6EDF3] transition-colors">Install</a>
+			<a href="/docs/getting-started" class="hover:text-[#E6EDF3] transition-colors">Docs</a>
+			<a
+				href="https://github.com/tien0483/PixelCompany"
+				target="_blank"
+				rel="noopener noreferrer"
+				class="hover:text-[#E6EDF3] transition-colors inline-flex items-center gap-1.5"
+			>
+				GitHub
+				<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+					<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+					<polyline points="15 3 21 3 21 9"></polyline>
+					<line x1="10" y1="14" x2="21" y2="3"></line>
+				</svg>
+			</a>
+		</div>
+	</div>
+</nav>
