@@ -68,6 +68,7 @@ import { listAgentModelInventory } from "../terminal/agent-model-inventory";
 import { buildRuntimeConfigResponse, resolveAgentCommand } from "../terminal/agent-registry";
 import type { TerminalSessionManager } from "../terminal/session-manager";
 import {
+	applyFableSeatLaunchSettings,
 	hasClaudeScopedConfigAllowlist,
 	listClaudeMcpInventory,
 	listClaudeSkillInventory,
@@ -103,6 +104,8 @@ export interface CreateRuntimeApiDependencies {
 	resolveActiveClaudemanagerAccountId?: () => Promise<number | null>;
 	/** Auto (unpinned) Claude tasks: the least-used healthy seat, pinned like an explicit one. */
 	resolveAutoClaudemanagerAccountId?: () => Promise<number | null>;
+	/** `seatPreset: "fable"` tasks: the Claude seat with the most spendable extra usage credit. */
+	resolveFableClaudemanagerAccountId?: () => Promise<number | null>;
 	/** Jacked's live active Claude seat, unfiltered — used to detect a revoked live seat and redirect Auto launches. */
 	resolveLiveActiveClaudemanagerAccountId?: () => Promise<number | null>;
 	/** Donate state of a pinned account — lets a locked over-cap seat hard-block the launch. */
@@ -418,6 +421,8 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 						resolveDefaultCursorAccountId: deps.resolveDefaultCursormanagerAccountId,
 						resolveActiveClaudeAccountId: deps.resolveActiveClaudemanagerAccountId,
 						resolveAutoClaudeAccountId: deps.resolveAutoClaudemanagerAccountId,
+						seatPreset: body.seatPreset,
+						resolveFableClaudeAccountId: deps.resolveFableClaudemanagerAccountId,
 						resolveLiveActiveClaudeAccountId: deps.resolveLiveActiveClaudemanagerAccountId,
 						getPinnedAccount: deps.getPinnedManagerAccount,
 						needsClaudeConfigDirForLaunchTags:
@@ -432,6 +437,13 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 						error: accountPin.warning ?? "This seat is over its locked donate cap; the task was not launched.",
 					};
 				}
+				// The Fable preset's model/effort are imposed here rather than trusted from the
+				// card, so a card stored before the preset existed — or a CLI `start` that never
+				// opened the picker — still launches the model the seat's credit was chosen for.
+				const launchSettings =
+					body.seatPreset === "fable" && resolved.agentId === "claude"
+						? applyFableSeatLaunchSettings(body.taskLaunchSettings)
+						: body.taskLaunchSettings;
 				// Cursor Auto: no CURSOR_API_KEY injection — same auth as interactive
 				// `agent` (`agent login`). Explicit seat pins still inject a key.
 				const summary = await measureTaskStartSpan("startTaskSession.ptyPrepare", () =>
@@ -450,7 +462,7 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 						cols: body.cols,
 						rows: body.rows,
 						workspaceId: workspaceScope.workspaceId,
-						taskLaunchSettings: body.taskLaunchSettings,
+						taskLaunchSettings: launchSettings,
 						autoResumeOnUsageLimit: body.autoResumeOnUsageLimit ?? false,
 						...(Object.keys(accountPin.env).length > 0 ? { env: accountPin.env } : {}),
 						...(accountPin.accountId === null ? {} : { managerAccountId: accountPin.accountId }),

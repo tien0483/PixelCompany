@@ -14,10 +14,13 @@ import {
 	autoFallbackAccount,
 	autoOptionLabel,
 	autoTaskSeatAccount,
+	fableOptionLabel,
+	fableSeatAccount,
 	filterManagerAccountsForAgent,
 	managerProviderForAgent,
 	resolveActiveManagerSeat,
 	resolveCreateTaskDefaultAgentId,
+	runningSeatHint,
 	shouldClearManagerAccountPin,
 } from "@/manager/task-account-picker";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -83,6 +86,9 @@ function renderPicker(
 		subagentSeatProviderId?: string | null;
 		onSubagentSeatChange?: (selection: TaskSubagentSeatSelection) => void;
 		subagentSeatAppliesOnRestart?: boolean;
+		seatPreset?: "fable" | null;
+		sessionAccountId?: number | null;
+		sessionAccount?: RuntimeManagerAccount | null;
 	},
 ): HTMLElement {
 	const container = document.createElement("div");
@@ -101,9 +107,12 @@ function renderPicker(
 					activeAccountId={props.activeAccountId ?? null}
 					agentId={props.agentId}
 					onChange={props.onChange ?? (() => {})}
+					sessionAccountId={props.sessionAccountId ?? null}
+					sessionAccount={props.sessionAccount ?? null}
 					subagentSeatProviderId={props.subagentSeatProviderId ?? null}
 					subagentSeatAppliesOnRestart={props.subagentSeatAppliesOnRestart ?? false}
 					{...(props.onSubagentSeatChange ? { onSubagentSeatChange: props.onSubagentSeatChange } : {})}
+				{...(props.seatPreset !== undefined ? { seatPreset: props.seatPreset } : {})}
 				/>,
 			),
 		);
@@ -323,6 +332,79 @@ describe("autoTaskSeatAccount", () => {
 	});
 });
 
+describe("runningSeatHint", () => {
+	const live = account(4, "claude", "live@example.com");
+	const predicted = account(2, "claude", "predicted@example.com");
+
+	it("says nothing when no session is running", () => {
+		expect(
+			runningSeatHint({
+				sessionAccountId: null,
+				sessionAccount: null,
+				pinnedAccountId: undefined,
+				autoAccount: predicted,
+			}),
+		).toBeNull();
+	});
+
+	it("says nothing when the pinned seat is the one running", () => {
+		expect(
+			runningSeatHint({
+				sessionAccountId: 4,
+				sessionAccount: live,
+				pinnedAccountId: 4,
+				autoAccount: predicted,
+			}),
+		).toBeNull();
+	});
+
+	// The regression this exists for: Auto stores no seat, so the option label predicts one
+	// from live usage and drifts away from the seat the launch actually pinned.
+	it("names the live seat and the seat a restart would pick for an Auto card", () => {
+		expect(
+			runningSeatHint({
+				sessionAccountId: 4,
+				sessionAccount: live,
+				pinnedAccountId: undefined,
+				autoAccount: predicted,
+			}),
+		).toBe("Running on live@example.com · restarts on predicted@example.com");
+	});
+
+	it("drops the restart clause when Auto still predicts the running seat", () => {
+		expect(
+			runningSeatHint({
+				sessionAccountId: 4,
+				sessionAccount: live,
+				pinnedAccountId: undefined,
+				autoAccount: live,
+			}),
+		).toBe("Running on live@example.com");
+	});
+
+	it("names the live seat for a pinned card the session drifted away from", () => {
+		expect(
+			runningSeatHint({
+				sessionAccountId: 4,
+				sessionAccount: live,
+				pinnedAccountId: 2,
+				autoAccount: predicted,
+			}),
+		).toBe("Running on live@example.com");
+	});
+
+	it("falls back to the account id when the seat is gone from the snapshot", () => {
+		expect(
+			runningSeatHint({
+				sessionAccountId: 9,
+				sessionAccount: null,
+				pinnedAccountId: undefined,
+				autoAccount: predicted,
+			}),
+		).toBe("Running on account 9 · restarts on predicted@example.com");
+	});
+});
+
 describe("autoOptionLabel", () => {
 	it("explains a Claude Auto pick with the winning seat's 7d runway", () => {
 		const seat = account(1, "claude", "seat@example.com");
@@ -473,6 +555,37 @@ describe("TaskAccountPicker", () => {
 		});
 		const option = container.querySelector('option[value="manager:1"]');
 		expect(option?.textContent).toContain("needs re-auth");
+	});
+
+	it("names the running seat under an Auto select that predicts a different one", () => {
+		const hot = account(1, "claude", "hot@example.com");
+		hot.fiveHourPercent = 90;
+		const cool = account(2, "claude", "cool@example.com");
+		cool.fiveHourPercent = 1;
+		const container = renderPicker({
+			accounts: [hot, cool],
+			agentId: "claude",
+			activeAccountId: 1,
+			sessionAccountId: 1,
+			sessionAccount: hot,
+		});
+		const select = container.querySelector<HTMLSelectElement>('[data-testid="task-account-picker"]');
+		expect(select?.value).toBe("auto");
+		const hint = container.querySelector('[data-testid="task-session-account-hint"]');
+		expect(hint?.textContent).toBe("Running on hot@example.com · restarts on cool@example.com");
+	});
+
+	it("shows no running-seat hint when the select already names that seat", () => {
+		const seat = account(1, "claude", "claude@example.com");
+		const container = renderPicker({
+			accounts: [seat],
+			agentId: "claude",
+			activeAccountId: 1,
+			value: 1,
+			sessionAccountId: 1,
+			sessionAccount: seat,
+		});
+		expect(container.querySelector('[data-testid="task-session-account-hint"]')).toBeNull();
 	});
 
 	it("lists API seats alongside Manager accounts", () => {
@@ -749,5 +862,138 @@ describe("applyTaskSubagentSeatSelection", () => {
 		expect(
 			applyTaskSubagentSeatSelection(null, { subagentSeatProviderId: "openrouter" }),
 		).toBeUndefined();
+	});
+});
+
+// --- Fable seat ---------------------------------------------------------------
+
+function withCredit(base: RuntimeManagerAccount, remainingUsd: number): RuntimeManagerAccount {
+	return {
+		...base,
+		extraUsage: {
+			isEnabled: true,
+			monthlyLimitUsd: 100,
+			usedCreditsUsd: 100 - remainingUsd,
+			utilization: 100 - remainingUsd,
+		},
+	};
+}
+
+describe("fableSeatAccount", () => {
+	it("prefers the capped seat with credit, matching the runtime picker", () => {
+		const idle = withCredit({ ...account(1, "claude", "a@x.com"), fiveHourPercent: 5 }, 20);
+		const capped = withCredit({ ...account(2, "claude", "b@x.com"), fiveHourPercent: 99 }, 20);
+		expect(fableSeatAccount([idle, capped])?.id).toBe(2);
+	});
+
+	it("excludes disabled and auth-broken seats", () => {
+		const disabled = withCredit({ ...account(1, "claude", "a@x.com"), isActive: false }, 50);
+		const broken = withCredit({ ...account(2, "claude", "b@x.com"), ccNeedsAuth: true }, 50);
+		const ok = withCredit(account(3, "claude", "c@x.com"), 1);
+		expect(fableSeatAccount([disabled, broken, ok])?.id).toBe(3);
+	});
+
+	it("ignores non-Claude seats", () => {
+		expect(fableSeatAccount([withCredit(account(1, "cursor", "a@x.com"), 50)])).toBeNull();
+	});
+});
+
+describe("fableOptionLabel", () => {
+	it("names the seat, its spendable credit and the rollover", () => {
+		const label = fableOptionLabel(withCredit(account(1, "claude", "seat@x.com"), 12.5));
+		expect(label).toContain("Fable · seat@x.com");
+		expect(label).toContain("$12.50 credit");
+		expect(label).toContain("resets");
+	});
+});
+
+describe("TaskAccountPicker — Fable option", () => {
+	it("offers the option when a Claude seat has credit, naming the seat the launch will pick", () => {
+		const accounts = [
+			withCredit({ ...account(1, "claude", "idle@x.com"), fiveHourPercent: 5 }, 20),
+			withCredit({ ...account(2, "claude", "capped@x.com"), fiveHourPercent: 99 }, 20),
+		];
+		const container = renderPicker({ accounts, agentId: "claude", seatPreset: null });
+		const option = container.querySelector<HTMLOptionElement>('[data-testid="task-account-picker-fable-option"]');
+		expect(option).not.toBeNull();
+		expect(option?.textContent).toContain("capped@x.com");
+		expect(fableSeatAccount(accounts)?.email).toBe("capped@x.com");
+	});
+
+	it("hides the option when no seat has credit — its only outcome would be the launch refusal", () => {
+		const container = renderPicker({
+			accounts: [account(1, "claude", "a@x.com")],
+			agentId: "claude",
+			seatPreset: null,
+		});
+		expect(container.querySelector('[data-testid="task-account-picker-fable-option"]')).toBeNull();
+	});
+
+	it("hides the option for callers that cannot persist a preset (prop omitted)", () => {
+		const container = renderPicker({
+			accounts: [withCredit(account(1, "claude", "a@x.com"), 20)],
+			agentId: "claude",
+		});
+		expect(container.querySelector('[data-testid="task-account-picker-fable-option"]')).toBeNull();
+	});
+
+	// Otherwise the select would hold a value with no matching option and silently
+	// render as Auto, which is not what the card would launch on.
+	it("keeps the option visible for a card already on Fable even if its credit ran out", () => {
+		const container = renderPicker({
+			accounts: [account(1, "claude", "a@x.com")],
+			agentId: "claude",
+			seatPreset: "fable",
+		});
+		expect(container.querySelector('[data-testid="task-account-picker-fable-option"]')).not.toBeNull();
+	});
+
+	it("selects the Fable value when the card carries the preset", () => {
+		const container = renderPicker({
+			accounts: [withCredit(account(1, "claude", "a@x.com"), 20)],
+			agentId: "claude",
+			seatPreset: "fable",
+		});
+		const select = container.querySelector<HTMLSelectElement>('[data-testid="task-account-picker"]');
+		expect(select?.value).toBe("fable");
+	});
+});
+
+describe("applyTaskSeatSelection — fable preset", () => {
+	it("clears the pin, forces Claude, and stores the preset", () => {
+		const calls: Record<string, unknown> = {};
+		applyTaskSeatSelection(
+			{ kind: "preset", preset: "fable" },
+			{
+				currentAgentId: "cursor",
+				onManagerAccountIdChange: (value) => {
+					calls.managerAccountId = value;
+				},
+				onAgentIdChange: (value) => {
+					calls.agentId = value;
+				},
+				onSeatPresetChange: (value) => {
+					calls.seatPreset = value;
+				},
+			},
+		);
+		expect(calls).toEqual({ managerAccountId: undefined, agentId: "claude", seatPreset: "fable" });
+	});
+
+	it("clears the preset when any other seat kind is chosen", () => {
+		for (const selection of [
+			{ kind: "auto" } as const,
+			{ kind: "manager", accountId: 3, provider: "claude" } as const,
+			{ kind: "api", providerId: "p", modelId: null } as const,
+		]) {
+			let cleared: unknown = "untouched";
+			applyTaskSeatSelection(selection, {
+				currentAgentId: "claude",
+				onSeatPresetChange: (value) => {
+					cleared = value;
+				},
+			});
+			expect(cleared).toBeUndefined();
+		}
 	});
 });

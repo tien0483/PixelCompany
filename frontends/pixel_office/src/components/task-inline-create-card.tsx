@@ -32,6 +32,7 @@ import type {
 	RuntimeClineReasoningEffort,
 	RuntimeManagerAccount,
 	RuntimeSavedPlan,
+	RuntimeSeatPreset,
 	RuntimeTaskClineSettings,
 	RuntimeTaskLaunchSettings,
 } from "@/runtime/types";
@@ -105,6 +106,8 @@ export function TaskInlineCreateCard({
 	managerActiveAccountId = null,
 	managerAccountId,
 	onManagerAccountIdChange,
+	seatPreset,
+	onSeatPresetChange,
 	autoRunDelayMinutes = 0,
 	onAutoRunDelayMinutesChange,
 	autoResumeOnUsageLimit = false,
@@ -156,6 +159,9 @@ export function TaskInlineCreateCard({
 	managerActiveAccountId?: number | null;
 	managerAccountId?: number | undefined;
 	onManagerAccountIdChange?: (value: number | undefined) => void;
+	/** Omit both to hide the seat-preset options; `null` means "supported, none chosen". */
+	seatPreset?: RuntimeSeatPreset | null;
+	onSeatPresetChange?: (value: RuntimeSeatPreset | undefined) => void;
 	/** Minutes until the backlog card auto-starts; 0 = off. Omit the callback to hide the field. */
 	autoRunDelayMinutes?: number;
 	onAutoRunDelayMinutesChange?: (value: number) => void;
@@ -460,6 +466,7 @@ export function TaskInlineCreateCard({
 						accounts={eligibleManagerAccounts}
 						apiSeats={apiSeats}
 						value={managerAccountId}
+						{...(onSeatPresetChange ? { seatPreset: seatPreset ?? null } : {})}
 						clineProviderId={clineSettings?.providerId ?? null}
 						activeAccountId={managerActiveAccountId}
 						agentId={effectiveAgentId}
@@ -468,6 +475,7 @@ export function TaskInlineCreateCard({
 								onManagerAccountIdChange,
 								onAgentIdChange,
 								onClineSettingsChange,
+								onSeatPresetChange,
 								currentAgentId: effectiveAgentId,
 							});
 						}}
@@ -490,6 +498,7 @@ export function TaskInlineCreateCard({
 						defaultAgentId={defaultAgentId}
 						workspaceId={workspaceId}
 						value={taskLaunchSettings}
+						seatPreset={seatPreset ?? null}
 						onChange={onTaskLaunchSettingsChange}
 					/>
 				) : null}

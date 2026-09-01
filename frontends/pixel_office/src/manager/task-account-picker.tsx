@@ -1,19 +1,29 @@
 import { isRuntimeAgentLaunchSupported } from "@runtime-agent-catalog";
-import { pickBestClaudeAutoSeat } from "@runtime-manager-seat-ranking";
+import { pickBestClaudeAutoSeat, pickBestFableSeat } from "@runtime-manager-seat-ranking";
 import type { ReactElement } from "react";
 
 import type {
 	RuntimeAgentId,
 	RuntimeClineApiSeat,
 	RuntimeManagerAccount,
+	RuntimeSeatPreset,
 	RuntimeTaskClineSettings,
 	RuntimeTaskLaunchSettings,
 } from "@/runtime/types";
 
 import { NativeSelect } from "@/components/ui/native-select";
-import { formatPercent, formatResetCountdown, isAuthBroken, isDonateExhausted } from "@/manager/manager-format";
+import {
+	formatExtraCreditRemaining,
+	formatMonthEndCountdown,
+	formatPercent,
+	formatResetCountdown,
+	hasUsableExtraCredit,
+	isAuthBroken,
+	isDonateExhausted,
+} from "@/manager/manager-format";
 
 const AUTO_VALUE = "auto";
+const FABLE_VALUE = "fable";
 const MANAGER_VALUE_PREFIX = "manager:";
 const API_VALUE_PREFIX = "api:";
 
@@ -24,6 +34,8 @@ const API_VALUE_PREFIX = "api:";
  */
 export type TaskSeatSelection =
 	| { kind: "auto" }
+	/** A resolution *policy* rather than a seat; the launch turns it into a concrete account. */
+	| { kind: "preset"; preset: RuntimeSeatPreset }
 	| { kind: "manager"; accountId: number; provider: RuntimeManagerAccount["provider"] }
 	| { kind: "api"; providerId: string; modelId: string | null };
 
@@ -32,6 +44,8 @@ export interface ApplyTaskSeatSelectionHandlers {
 	onManagerAccountIdChange?: (value: number | undefined) => void;
 	onAgentIdChange?: (value: RuntimeAgentId | undefined) => void;
 	onClineSettingsChange?: (value: RuntimeTaskClineSettings | undefined) => void;
+	/** Omit on callers that do not persist a seat preset; the Fable option is then never offered. */
+	onSeatPresetChange?: (value: RuntimeSeatPreset | undefined) => void;
 	accounts?: RuntimeManagerAccount[];
 	activeAccountId?: number | null;
 }
@@ -50,9 +64,17 @@ export function applyTaskSeatSelection(
 		onManagerAccountIdChange,
 		onAgentIdChange,
 		onClineSettingsChange,
+		onSeatPresetChange,
 		accounts,
 		activeAccountId,
 	} = handlers;
+
+	// A preset and an explicit account are two answers to the same question, so every branch
+	// below clears whichever one it is not setting. Leaving a stale preset behind would let the
+	// launch re-resolve a seat the user has since pinned by hand.
+	if (selection.kind !== "preset") {
+		onSeatPresetChange?.(undefined);
+	}
 
 	if (selection.kind === "api") {
 		onManagerAccountIdChange?.(undefined);
@@ -61,6 +83,20 @@ export function applyTaskSeatSelection(
 			providerId: selection.providerId,
 			...(selection.modelId ? { modelId: selection.modelId } : {}),
 		});
+		return;
+	}
+
+	// The Fable preset is Claude-only: its model is a Claude model and its seat pool is the
+	// Claude fleet, so choosing it moves the card onto Claude the way an account pin does.
+	if (selection.kind === "preset") {
+		onManagerAccountIdChange?.(undefined);
+		if (currentAgentId === "cline") {
+			onClineSettingsChange?.(undefined);
+		}
+		if (currentAgentId !== "claude") {
+			onAgentIdChange?.("claude");
+		}
+		onSeatPresetChange?.(selection.preset);
 		return;
 	}
 
@@ -122,12 +158,18 @@ export interface TaskAccountPickerProps {
 	/** API-key seats, offered alongside Manager accounts in the same list. */
 	apiSeats?: RuntimeClineApiSeat[];
 	value: number | undefined;
+	/** Seat preset stored on the card. Omit the prop entirely to hide the preset options. */
+	seatPreset?: RuntimeSeatPreset | null;
 	/** Provider id pinned via the card's clineSettings, when the card runs on Cline. */
 	clineProviderId?: string | null;
 	activeAccountId: number | null;
 	agentId: RuntimeAgentId | null;
 	disabled?: boolean;
 	onChange: (selection: TaskSeatSelection) => void;
+	/** Seat the live session launched on. Omit where no session can exist (create dialog). */
+	sessionAccountId?: number | null;
+	/** `sessionAccountId` resolved against the *full* account list, not the agent-filtered one. */
+	sessionAccount?: RuntimeManagerAccount | null;
 	/** Provider id of the card's pinned subagent seat, from its launch settings. */
 	subagentSeatProviderId?: string | null;
 	/** Omit to hide the subagent row entirely (callers that do not own launch settings). */
@@ -136,8 +178,13 @@ export interface TaskAccountPickerProps {
 	subagentSeatAppliesOnRestart?: boolean;
 }
 
+/** How a seat is named everywhere in this picker: its display name, else its email. */
+export function seatDisplayName(account: RuntimeManagerAccount): string {
+	return account.displayName ?? account.email;
+}
+
 function accountLabel(account: RuntimeManagerAccount): string {
-	const name = account.displayName ?? account.email;
+	const name = seatDisplayName(account);
 	const usageLabel = account.provider === "cursor" ? "Cursor" : "5h";
 	const usage = account.canTrackUsage ? ` · ${usageLabel} ${formatPercent(account.fiveHourPercent)}` : "";
 	const deactivated = account.isActive ? "" : " · deactivated";
@@ -178,7 +225,38 @@ function parseSeatSelection(
 		const seat = apiSeats.find((candidate) => candidate.providerId === providerId);
 		return { kind: "api", providerId, modelId: seat?.defaultModelId ?? null };
 	}
+	if (value === FABLE_VALUE) {
+		return { kind: "preset", preset: "fable" };
+	}
 	return { kind: "auto" };
+}
+
+/**
+ * The Claude seat the Fable option resolves to: the one with the most spendable extra usage
+ * credit, preferring seats whose subscription windows are already capped.
+ *
+ * Narrows the way the runtime's `pickFableClaudeAccountId` does — enabled and auth-healthy only,
+ * deliberately *not* `healthySeatPool`, whose donate-cap stage would drop exactly the capped
+ * seats this preset wants. The ranking itself is the runtime's own `pickBestFableSeat`, so this
+ * label cannot name one seat while the launch picks another.
+ */
+export function fableSeatAccount(accounts: RuntimeManagerAccount[]): RuntimeManagerAccount | null {
+	const eligible = accounts.filter(
+		(account) => account.provider === "claude" && account.isActive && !isAuthBroken(account),
+	);
+	return pickBestFableSeat(eligible);
+}
+
+/**
+ * Label for the Fable option. Names the resolved seat, its spendable credit, and when that
+ * credit rolls over — all three are what decided the pick, and a bare "Fable" would read as a
+ * model switch rather than a seat choice.
+ */
+export function fableOptionLabel(account: RuntimeManagerAccount, nowMs: number = Date.now()): string {
+	const name = seatDisplayName(account);
+	const credit = formatExtraCreditRemaining(account);
+	const rollover = formatMonthEndCountdown(nowMs);
+	return credit ? `Fable · ${name} · ${credit} credit · resets ${rollover}` : `Fable · ${name}`;
 }
 
 /**
@@ -256,12 +334,53 @@ export function autoOptionLabel(
 	agentId: RuntimeAgentId | null,
 	nowMs: number = Date.now(),
 ): string {
-	const name = account.displayName ?? account.email;
+	const name = seatDisplayName(account);
 	if (agentId === "cursor" || agentId === "gemini") {
 		return `Auto · ${name}`;
 	}
 	const runway = formatResetCountdown(account.sevenDayResetsAt, nowMs);
 	return runway ? `Auto · ${name} · 7d in ${runway}` : `Auto · ${name}`;
+}
+
+export interface RunningSeatHintInput {
+	/** Seat the live session launched on (`sessionSummary.managerAccountId`); null when there is none. */
+	sessionAccountId: number | null | undefined;
+	/** That seat resolved against the full account snapshot — null when it is no longer listed. */
+	sessionAccount: RuntimeManagerAccount | null | undefined;
+	/** The card's stored pin; undefined means the card is on Auto. */
+	pinnedAccountId: number | undefined;
+	/** Seat the card's Auto option currently predicts, i.e. what a restart would launch on. */
+	autoAccount: RuntimeManagerAccount | null;
+}
+
+/**
+ * Line naming the seat the *running* session is on, for the cases where the select cannot.
+ *
+ * The select's value is the card's setting, not the session's: an Auto card stores no seat
+ * at all (the launch resolves one from live usage, `resolveAutoClaudeAccountId`), and a
+ * pinned card keeps naming its pin after failover or login recovery moved the session
+ * elsewhere. Both read as "the panel is lying about which account this task runs on".
+ *
+ * Returns null when the select already names the live seat — a hint there would be noise.
+ */
+export function runningSeatHint(input: RunningSeatHintInput): string | null {
+	const { sessionAccountId, sessionAccount, pinnedAccountId, autoAccount } = input;
+	if (typeof sessionAccountId !== "number") {
+		return null;
+	}
+	if (pinnedAccountId === sessionAccountId) {
+		return null;
+	}
+	// A seat deleted since the launch still has to be named; the id is all that is left.
+	const liveName = sessionAccount ? seatDisplayName(sessionAccount) : `account ${String(sessionAccountId)}`;
+	if (typeof pinnedAccountId === "number") {
+		// The drift restart button already names the pin, so do not repeat it here.
+		return `Running on ${liveName}`;
+	}
+	if (autoAccount && autoAccount.id !== sessionAccountId) {
+		return `Running on ${liveName} · restarts on ${seatDisplayName(autoAccount)}`;
+	}
+	return `Running on ${liveName}`;
 }
 
 /**
@@ -275,11 +394,14 @@ export function TaskAccountPicker({
 	accounts,
 	apiSeats = [],
 	value,
+	seatPreset,
 	clineProviderId,
 	activeAccountId,
 	agentId,
 	disabled = false,
 	onChange,
+	sessionAccountId = null,
+	sessionAccount = null,
 	subagentSeatProviderId,
 	onSubagentSeatChange,
 	subagentSeatAppliesOnRestart = false,
@@ -293,11 +415,33 @@ export function TaskAccountPicker({
 			? apiSeats.find((seat) => seat.providerId === clineProviderId)
 			: undefined;
 	const valueInFleet = value !== undefined && accounts.some((account) => account.id === value);
+
+	// The Fable option is offered only when some seat has credit to spend and the caller can
+	// persist the choice. Showing it otherwise would offer a selection whose only possible
+	// outcome is the launch's "no extra usage credit remaining" refusal.
+	// `undefined` means the caller cannot store a preset (prop omitted); `null` means it can and
+	// none is set. Same omit-to-hide convention as the Subagents row below.
+	const fableAccount = fableSeatAccount(accounts);
+	const showFableOption =
+		seatPreset !== undefined &&
+		(seatPreset === "fable" || (fableAccount !== null && hasUsableExtraCredit(fableAccount)));
+
+	const sessionSeatHint = runningSeatHint({
+		sessionAccountId,
+		sessionAccount,
+		pinnedAccountId: value,
+		// "What a restart would launch on" — for a Fable card that is the credit ranking's
+		// pick, not the Auto one, so the hint must not promise the Auto seat.
+		autoAccount: seatPreset === "fable" ? fableAccount : fallbackAccount,
+	});
+
 	let selectValue = AUTO_VALUE;
 	if (pinnedSeat) {
 		selectValue = `${API_VALUE_PREFIX}${pinnedSeat.providerId}`;
 	} else if (valueInFleet) {
 		selectValue = `${MANAGER_VALUE_PREFIX}${value}`;
+	} else if (seatPreset === "fable" && showFableOption) {
+		selectValue = FABLE_VALUE;
 	}
 
 	// Subagents are a Claude Code concept: the split rides on CLAUDE_CODE_SUBAGENT_MODEL,
@@ -324,6 +468,11 @@ export function TaskAccountPicker({
 					}}
 				>
 					<option value={AUTO_VALUE}>{autoLabel}</option>
+					{showFableOption && fableAccount ? (
+						<option value={FABLE_VALUE} data-testid="task-account-picker-fable-option">
+							{fableOptionLabel(fableAccount)}
+						</option>
+					) : null}
 					{accounts.map((account) => (
 						<option
 							key={account.id}
@@ -344,6 +493,11 @@ export function TaskAccountPicker({
 					) : null}
 				</NativeSelect>
 			</label>
+			{sessionSeatHint ? (
+				<p className="text-[10px] text-text-tertiary" data-testid="task-session-account-hint">
+					{sessionSeatHint}
+				</p>
+			) : null}
 			{showSubagentRow ? (
 				<>
 					<label className="flex min-w-0 items-center gap-1.5 text-[11px] text-text-secondary">

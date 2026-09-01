@@ -10,9 +10,14 @@
 //
 // Pinning is best-effort: if Manager is offline or refuses the account, the session
 // still launches on the CLI login / globally active credential rather than failing.
-import type { RuntimeAgentId, RuntimeManagerAccount, RuntimeManagerProvider } from "../core/api-contract";
+import type {
+	RuntimeAgentId,
+	RuntimeManagerAccount,
+	RuntimeManagerProvider,
+	RuntimeSeatPreset,
+} from "../core/api-contract";
 import { resolveHostPath } from "../terminal/task-launch-settings";
-import { pickBestClaudeAutoSeat } from "./claude-auto-seat-ranking";
+import { extraCreditRemainingUsd, pickBestClaudeAutoSeat, pickBestFableSeat } from "./claude-auto-seat-ranking";
 
 export const CLAUDE_CONFIG_DIR_ENV = "CLAUDE_CONFIG_DIR";
 export const CURSOR_API_KEY_ENV = "CURSOR_API_KEY";
@@ -45,6 +50,17 @@ export interface ResolveManagerAccountPinInput {
 	 * their callers either send an explicit id or deliberately want the global seat.
 	 */
 	resolveAutoClaudeAccountId?: () => Promise<number | null>;
+	/**
+	 * Seat resolution mode from the card, when it names a policy instead of an account.
+	 * Ignored once `managerAccountId` is set — an explicit pin always wins.
+	 */
+	seatPreset?: RuntimeSeatPreset | undefined;
+	/**
+	 * Board-task launches with `seatPreset: "fable"`: resolves onto the Claude seat with the
+	 * most spendable extra usage credit. Supplying this is what makes the preset work at all;
+	 * the one-shot routes leave it unset because they never carry a preset.
+	 */
+	resolveFableClaudeAccountId?: () => Promise<number | null>;
 	/**
 	 * Jacked's live active Claude seat (`snapshot.activeAccountId`), unfiltered —
 	 * the credential an unpinned launch would actually inherit. Distinct from
@@ -85,6 +101,8 @@ export interface ManagerDonateAccountLike {
 	donateLimitLocked?: boolean;
 	ccNeedsAuth?: boolean;
 	validationStatus?: string | null;
+	/** Extra usage credit pool; the Fable preset refuses to launch on a seat with none left. */
+	extraUsage?: RuntimeManagerAccount["extraUsage"];
 }
 
 /**
@@ -122,6 +140,7 @@ export function toManagerDonateAccount(account: RuntimeManagerAccount): ManagerD
 		donateLimitLocked: account.donateLimitLocked,
 		ccNeedsAuth: account.ccNeedsAuth,
 		validationStatus: account.validationStatus,
+		extraUsage: account.extraUsage,
 	};
 }
 
@@ -289,6 +308,31 @@ export function pickLeastUsedClaudeAccountId(input: {
 	return pickBestClaudeAutoSeat(pickHealthyPool(claudeAccounts))?.id ?? null;
 }
 
+/**
+ * The seat a `seatPreset: "fable"` card runs on: the enabled, auth-healthy Claude seat with the
+ * most spendable extra usage credit, preferring seats whose subscription windows are already
+ * capped. See `claude-auto-seat-ranking.ts` for why saturation is a *preference* here.
+ *
+ * Deliberately narrows with `isManagerAccountAuthBroken` alone rather than `pickHealthyPool`:
+ * that helper's second stage drops over-donate-cap seats, and those are precisely the seats
+ * whose next turn bills credit. The donate-cap launch gate is skipped for this preset to match
+ * (`resolveManagerAccountPin`), so the narrowing and the gate stay consistent.
+ */
+export function pickFableClaudeAccountId(input: { accounts: ReadonlyArray<ManagerDonateAccountLike> }): number | null {
+	const claudeAccounts = input.accounts.filter(
+		(account) => account.provider === "claude" && account.isActive !== false && !isManagerAccountAuthBroken(account),
+	);
+	if (claudeAccounts.length === 0) {
+		return null;
+	}
+	return pickBestFableSeat(claudeAccounts)?.id ?? null;
+}
+
+/** True when the seat has no extra usage credit left to spend, so the Fable preset must refuse. */
+export function isFableSeatCreditExhausted(account: ManagerDonateAccountLike): boolean {
+	return extraCreditRemainingUsd(account) === null;
+}
+
 export function pickDefaultAntigravityAccountId(input: {
 	accounts: ReadonlyArray<ManagerDonateAccountLike>;
 	activeAccountId: number | null;
@@ -351,6 +395,12 @@ export async function resolveManagerAccountPin(input: ResolveManagerAccountPinIn
 	// Only affects the wording of the hard-block warnings: telling someone to
 	// "switch this task to Auto" makes no sense when Auto is what picked the seat.
 	let autoResolved = false;
+	// The Fable preset spends extra usage credit, which only bills once a seat's subscription
+	// windows are capped — so the donate-cap gate below, which exists to keep tasks off capped
+	// seats, would refuse every seat this preset is meant to choose. It is skipped for the
+	// preset and replaced by a credit-exhaustion refusal. The disabled and auth-broken gates
+	// still apply: neither of those seats can run a task at all.
+	const fablePreset = input.seatPreset === "fable" && input.agentId === "claude";
 
 	if (managerAccountId !== undefined) {
 		const accountProvider = (await input.getAccountProvider?.(managerAccountId)) ?? null;
@@ -376,7 +426,19 @@ export async function resolveManagerAccountPin(input: ResolveManagerAccountPinIn
 	// Claude opens on its login screen. `resolveActiveClaudeAccountId` remains that
 	// case's fallback for callers (the one-shot routes) that pass no Auto resolver.
 	if (managerAccountId === undefined && input.agentId === "claude") {
+		// A preset resolves first: it names a different pool than Auto does, and falling through
+		// to Auto would silently run a Fable card on a seat with no credit to spend.
+		const presetId = fablePreset ? ((await input.resolveFableClaudeAccountId?.()) ?? null) : null;
+		if (fablePreset && presetId === null) {
+			return {
+				env: {},
+				accountId: null,
+				blocked: true,
+				warning: "No Claude seat has extra usage credit remaining; the Fable seat was not launched.",
+			};
+		}
 		const autoId =
+			presetId ??
 			(await input.resolveAutoClaudeAccountId?.()) ??
 			(input.needsClaudeConfigDirForLaunchTags === true
 				? ((await input.resolveActiveClaudeAccountId?.()) ?? null)
@@ -405,7 +467,7 @@ export async function resolveManagerAccountPin(input: ResolveManagerAccountPinIn
 				null;
 			if (liveSeatId !== null) {
 				const liveSeat = (await input.getPinnedAccount?.(liveSeatId)) ?? null;
-				if (liveSeat && isManagerAccountDonatePinBlocked(liveSeat)) {
+				if (liveSeat && !fablePreset && isManagerAccountDonatePinBlocked(liveSeat)) {
 					return {
 						env: {},
 						accountId: null,
@@ -477,9 +539,23 @@ export async function resolveManagerAccountPin(input: ResolveManagerAccountPinIn
 		};
 	}
 
+	// The Fable preset's own refusal, standing in for the donate-cap gate it skips. Without it
+	// a fleet whose credit ran out mid-month would keep launching Claude Fable 5 — the priciest
+	// tier — against ordinary subscription capacity.
+	if (fablePreset && pinnedAccount && isFableSeatCreditExhausted(pinnedAccount)) {
+		return {
+			env: {},
+			accountId: null,
+			blocked: true,
+			warning: autoResolved
+				? "No Claude seat has extra usage credit remaining; the Fable seat was not launched."
+				: `Account ${String(managerAccountId)} has no extra usage credit remaining; the Fable seat was not launched.`,
+		};
+	}
+
 	// Donate cap over limit: refuse the pin outright, locked or unlocked. The
 	// launch path aborts on `blocked`. No manual override.
-	if (pinnedAccount && isManagerAccountDonatePinBlocked(pinnedAccount)) {
+	if (!fablePreset && pinnedAccount && isManagerAccountDonatePinBlocked(pinnedAccount)) {
 		return {
 			env: {},
 			accountId: null,

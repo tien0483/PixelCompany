@@ -1,10 +1,11 @@
-﻿import { lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+﻿import { lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+	applyFableSeatLaunchSettings,
 	applyModelAndEffortArgs,
 	buildCursorLaunchTagPreface,
 	buildLaunchTagAllowlistUpdateNotice,
@@ -96,6 +97,42 @@ describe("applyModelAndEffortArgs", () => {
 		const args = ["--model", "sonnet"];
 		applyModelAndEffortArgs(args, { modelId: "opus" }, { effortFlag: "--effort" });
 		expect(args).toEqual(["--model", "sonnet"]);
+	});
+});
+
+describe("applyFableSeatLaunchSettings", () => {
+	it("overwrites whatever model and effort the card stored", () => {
+		expect(applyFableSeatLaunchSettings({ modelId: "opus", effort: "max" })).toEqual({
+			modelId: "claude-fable-5",
+			effort: "medium",
+		});
+	});
+
+	it("fills them in on a card that has neither", () => {
+		expect(applyFableSeatLaunchSettings(undefined)).toEqual({ modelId: "claude-fable-5", effort: "medium" });
+	});
+
+	it("leaves every other launch tag untouched", () => {
+		expect(
+			applyFableSeatLaunchSettings({
+				modelId: "sonnet",
+				skillIds: ["a"],
+				mcpServerIds: ["b"],
+				subagentSeatProviderId: "seat-1",
+			}),
+		).toEqual({
+			modelId: "claude-fable-5",
+			effort: "medium",
+			skillIds: ["a"],
+			mcpServerIds: ["b"],
+			subagentSeatProviderId: "seat-1",
+		});
+	});
+
+	it("produces args the launch path actually emits", () => {
+		const args: string[] = [];
+		applyModelAndEffortArgs(args, applyFableSeatLaunchSettings({ modelId: "haiku" }), { effortFlag: "--effort" });
+		expect(args).toEqual(["--model", "claude-fable-5", "--effort", "medium"]);
 	});
 });
 
@@ -365,9 +402,7 @@ describe("Claude inventory + scoped launch config", () => {
 			commandIds: ["ship"],
 		});
 		const agents = await import("node:fs/promises").then((fs) => fs.readdir(join(scoped.configDir, "agents")));
-		const commands = await import("node:fs/promises").then((fs) =>
-			fs.readdir(join(scoped.configDir, "commands")),
-		);
+		const commands = await import("node:fs/promises").then((fs) => fs.readdir(join(scoped.configDir, "commands")));
 		expect(agents).toEqual(["keep.md"]);
 		expect(commands).toEqual(["ship.md"]);
 		await scoped.cleanup();
@@ -432,7 +467,11 @@ describe("Claude inventory + scoped launch config", () => {
 		mkdirSync(join(home, ".claude", "skills", "drop"), { recursive: true });
 		writeFileSync(join(home, ".claude", "skills", "keep", "SKILL.md"), "# keep\n", "utf8");
 		writeFileSync(join(home, ".claude", "skills", "drop", "SKILL.md"), "# drop\n", "utf8");
-		writeFileSync(join(pinDir, ".credentials.json"), JSON.stringify({ claudeAiOauth: { accessToken: "pin-token" } }), "utf8");
+		writeFileSync(
+			join(pinDir, ".credentials.json"),
+			JSON.stringify({ claudeAiOauth: { accessToken: "pin-token" } }),
+			"utf8",
+		);
 		writeFileSync(
 			join(pinDir, ".claude.json"),
 			JSON.stringify({

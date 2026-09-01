@@ -1,3 +1,8 @@
+import {
+	extraCreditRemainingUsd,
+	FABLE_SEAT_EFFORT,
+	FABLE_SEAT_MODEL_ID,
+} from "@runtime-manager-seat-ranking";
 import * as Collapsible from "@radix-ui/react-collapsible";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import {
@@ -34,12 +39,16 @@ import {
 	writeDonateBoost,
 } from "@/manager/manager-donate-boost";
 import {
+	formatExtraCreditRemaining,
+	formatMonthEndCountdown,
 	formatPercent,
 	formatResetHint,
 	formatUsageCacheAge,
+	hasUsableExtraCredit,
 	isDonateExhausted,
 	pressureBarColor,
 } from "@/manager/manager-format";
+import { fableSeatAccount, seatDisplayName } from "@/manager/task-account-picker";
 import { MANAGER_LABELS } from "@/manager/manager-labels";
 import {
 	type OauthFlowKind,
@@ -224,6 +233,7 @@ function AccountRow({
 	actions: ReactNode;
 }): ReactElement {
 	const isCursorAccount = account.provider === "cursor";
+	const extraCreditLabel = formatExtraCreditRemaining(account);
 	const isAntigravityAccount = account.provider === "antigravity";
 	const donateExhausted = isDonateExhausted(account);
 	const isSeatDisabled = !account.isActive;
@@ -441,6 +451,16 @@ function AccountRow({
 						<p className="text-[10px] text-text-tertiary">
 							Usage updated {formatUsageCacheAge(account.usageCachedAt)}
 						</p>
+						{/* Extra credit is a separate pool from the windows above: it bills only once
+						    those are capped, which is what the Fable seat exists to exploit. */}
+						{extraCreditLabel ? (
+							<p
+								className="text-[10px] text-status-gold"
+								data-testid={`manager-account-extra-credit-${account.id}`}
+							>
+								Extra credit {extraCreditLabel} left · resets {formatMonthEndCountdown()}
+							</p>
+						) : null}
 					</div>
 				) : (
 					<p className="mt-1 text-[10px] text-text-tertiary">
@@ -620,6 +640,40 @@ function ApiSeatRow({
 					/>
 				</div>
 			</div>
+		</div>
+	);
+}
+
+/**
+ * Read-only summary of the **Fable** seat — a resolution *policy*, not an OAuth identity, so it
+ * gets none of `AccountRow`'s actions. It exists on this surface because the fleet-wide credit
+ * total is the number that decides whether picking Fable on a card will do anything at all.
+ *
+ * Renders nothing when no Claude seat has credit left to spend, which is the same condition that
+ * hides the option in the card picker.
+ */
+function FableSeatSummaryRow({ accounts }: { accounts: RuntimeManagerAccount[] }): ReactElement | null {
+	const resolved = fableSeatAccount(accounts);
+	if (!resolved || !hasUsableExtraCredit(resolved)) {
+		return null;
+	}
+	const fleetCredit = accounts
+		.filter((account) => account.provider === "claude")
+		.reduce((total, account) => total + (extraCreditRemainingUsd(account) ?? 0), 0);
+	return (
+		<div
+			data-testid="manager-fable-seat-row"
+			className="rounded-md border border-border bg-surface-2 px-2 py-1.5"
+		>
+			<div className="flex items-center justify-between gap-2">
+				<span className="text-[12px] font-medium text-text-primary">Fable seat</span>
+				<span className="text-[11px] text-status-gold">${fleetCredit.toFixed(2)} credit</span>
+			</div>
+			<p className="mt-0.5 text-[10px] text-text-tertiary">
+				Runs {FABLE_SEAT_MODEL_ID} at {FABLE_SEAT_EFFORT} effort on{" "}
+				<span className="text-text-secondary">{seatDisplayName(resolved)}</span> · pool resets{" "}
+				{formatMonthEndCountdown()}
+			</p>
 		</div>
 	);
 }
@@ -1988,6 +2042,7 @@ export function ManagerAccountsView({
 					</p>
 				) : (
 					<div className="flex flex-col gap-1.5">
+						<FableSeatSummaryRow accounts={accounts} />
 						{accounts.map((account, index) => {
 							const rowBusy =
 								busyId === account.id ||
