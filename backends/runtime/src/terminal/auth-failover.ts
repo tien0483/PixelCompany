@@ -9,6 +9,7 @@ import {
 	type ManagerDonateAccountLike,
 	pickDefaultClaudeAccountId,
 } from "../manager/manager-account-pin";
+import { appendFableSeatPostStartInput, isFableSeatModelId } from "../manager/claude-auto-seat-ranking";
 import type { RestartableSessionRequest, StartTaskSessionRequest } from "./session-manager";
 
 /**
@@ -68,11 +69,14 @@ export function buildSameSeatRecoveryRequest(
 	if (retryRequest === null || retryRequest.kind !== "task") {
 		return null;
 	}
+	const composedPostStartInput = isFableSeatModelId(retryRequest.request.taskLaunchSettings?.modelId)
+		? appendFableSeatPostStartInput(postStartInput)
+		: postStartInput;
 	return {
 		...retryRequest.request,
 		prompt: "",
 		resumeFromPersistence: true,
-		postStartInput,
+		postStartInput: composedPostStartInput,
 		env: { ...retryRequest.request.env, [CLAUDE_CONFIG_DIR_ENV]: configDir },
 	};
 }

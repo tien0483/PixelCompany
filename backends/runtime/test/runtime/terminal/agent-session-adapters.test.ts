@@ -1082,6 +1082,26 @@ describe("prepareAgentLaunch hook strategies", () => {
 		await launch.cleanup?.();
 	});
 
+	it("applies the Fable seat model alias from taskLaunchSettings", async () => {
+		const launch = await prepareAgentLaunch({
+			taskId: "task-claude-fable",
+			agentId: "claude",
+			binary: "claude",
+			args: [],
+			cwd: "/tmp",
+			prompt: "Ship it",
+			taskLaunchSettings: {
+				modelId: "fable",
+				effort: "medium",
+			},
+		});
+
+		expect(launch.args).toContain("--model");
+		expect(launch.args[launch.args.indexOf("--model") + 1]).toBe("fable");
+		expect(launch.args).toContain("--effort");
+		expect(launch.args[launch.args.indexOf("--effort") + 1]).toBe("medium");
+	});
+
 	it("scopes Claude skills via CLAUDE_CONFIG_DIR when skill tags are set", async () => {
 		const home = setupTempHome();
 		process.env.USERPROFILE = home;

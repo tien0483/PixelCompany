@@ -103,13 +103,13 @@ describe("applyModelAndEffortArgs", () => {
 describe("applyFableSeatLaunchSettings", () => {
 	it("overwrites the model but preserves the card's effort", () => {
 		expect(applyFableSeatLaunchSettings({ modelId: "opus", effort: "max" })).toEqual({
-			modelId: "claude-fable-5",
+			modelId: "fable",
 			effort: "max",
 		});
 	});
 
 	it("fills in the model on a card that has neither", () => {
-		expect(applyFableSeatLaunchSettings(undefined)).toEqual({ modelId: "claude-fable-5" });
+		expect(applyFableSeatLaunchSettings(undefined)).toEqual({ modelId: "fable" });
 	});
 
 	it("leaves every other launch tag untouched", () => {
@@ -121,7 +121,7 @@ describe("applyFableSeatLaunchSettings", () => {
 				subagentSeatProviderId: "seat-1",
 			}),
 		).toEqual({
-			modelId: "claude-fable-5",
+			modelId: "fable",
 			skillIds: ["a"],
 			mcpServerIds: ["b"],
 			subagentSeatProviderId: "seat-1",
@@ -135,7 +135,7 @@ describe("applyFableSeatLaunchSettings", () => {
 			applyFableSeatLaunchSettings({ modelId: "haiku", effort: "high" }),
 			{ effortFlag: "--effort" },
 		);
-		expect(args).toEqual(["--model", "claude-fable-5", "--effort", "high"]);
+		expect(args).toEqual(["--model", "fable", "--effort", "high"]);
 	});
 });
 

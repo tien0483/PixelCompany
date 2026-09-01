@@ -54,6 +54,7 @@ import {
 import { isHomeAgentSessionId } from "../core/home-agent-session";
 import { resolveTaskTitle } from "../core/task-title.js";
 import { type ManagerDonateAccountLike, resolveManagerAccountPin } from "../manager/manager-account-pin";
+import { FABLE_SEAT_MODEL_POST_START_INPUT } from "../manager/claude-auto-seat-ranking";
 import { loadWorkspaceState } from "../state/workspace-state";
 import { composePromptWithAttachedPlan } from "../prompts/compose-prompt-with-plan";
 import { openInBrowser } from "../server/browser";
@@ -441,10 +442,10 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 				// The Fable preset's model/effort are imposed here rather than trusted from the
 				// card, so a card stored before the preset existed — or a CLI `start` that never
 				// opened the picker — still launches the model the seat's credit was chosen for.
-				const launchSettings =
-					body.seatPreset === "fable" && resolved.agentId === "claude"
-						? applyFableSeatLaunchSettings(body.taskLaunchSettings)
-						: body.taskLaunchSettings;
+				const isFableClaudeLaunch = body.seatPreset === "fable" && resolved.agentId === "claude";
+				const launchSettings = isFableClaudeLaunch
+					? applyFableSeatLaunchSettings(body.taskLaunchSettings)
+					: body.taskLaunchSettings;
 				// Cursor Auto: no CURSOR_API_KEY injection — same auth as interactive
 				// `agent` (`agent login`). Explicit seat pins still inject a key.
 				const summary = await measureTaskStartSpan("startTaskSession.ptyPrepare", () =>
@@ -466,6 +467,7 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 						taskLaunchSettings: launchSettings,
 						autoResumeOnUsageLimit: body.autoResumeOnUsageLimit ?? false,
 						autoFailoverOnUsageLimit: body.autoFailoverOnUsageLimit ?? false,
+						...(isFableClaudeLaunch ? { postStartInput: FABLE_SEAT_MODEL_POST_START_INPUT } : {}),
 						...(Object.keys(accountPin.env).length > 0 ? { env: accountPin.env } : {}),
 						...(accountPin.accountId === null ? {} : { managerAccountId: accountPin.accountId }),
 					}),

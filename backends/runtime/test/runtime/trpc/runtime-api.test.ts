@@ -570,6 +570,65 @@ describe("createRuntimeApi startTaskSession", () => {
 		);
 	});
 
+	it("forces the Fable model alias and post-start /model injection for the Fable seat preset", async () => {
+		taskWorktreeMocks.resolveTaskCwd.mockResolvedValue("/tmp/existing-worktree");
+
+		const terminalManager = {
+			startTaskSession: vi.fn(async () => createSummary()),
+			applyTurnCheckpoint: vi.fn(),
+		};
+		const clineTaskSessionService = createClineTaskSessionServiceMock();
+		const api = createTestRuntimeApi({
+			getActiveWorkspaceId: vi.fn(() => "workspace-1"),
+			loadScopedRuntimeConfig: vi.fn(async () => createRuntimeConfigState()),
+			setActiveRuntimeConfig: vi.fn(),
+			getScopedTerminalManager: vi.fn(async () => terminalManager as never),
+			getScopedClineTaskSessionService: vi.fn(async () => clineTaskSessionService as never),
+			resolveFableClaudemanagerAccountId: vi.fn(async () => 1),
+			getManagerAccountLaunchDir: vi.fn(async () => ({ configDir: "/tmp/seat-1" })),
+			getPinnedManagerAccount: vi.fn(async () => ({
+				id: 1,
+				provider: "claude",
+				fiveHourPercent: 0,
+				sevenDayPercent: 0,
+				donateLimitLocked: false,
+				donateLimitPercent: 0,
+				extraUsage: { isEnabled: true, monthlyLimitUsd: 100, usedCreditsUsd: 60, utilization: 60 },
+			})),
+			resolveInteractiveShellCommand: vi.fn(),
+			runCommand: vi.fn(),
+		});
+
+		const response = await api.startTaskSession(
+			{
+				workspaceId: "workspace-1",
+				workspacePath: "/tmp/repo",
+			},
+			{
+				taskId: "task-fable",
+				baseRef: "main",
+				prompt: "Use Fable credit",
+				agentId: "claude",
+				seatPreset: "fable",
+				taskLaunchSettings: {
+					modelId: "opus",
+					effort: "high",
+				},
+			},
+		);
+
+		expect(response.ok).toBe(true);
+		expect(terminalManager.startTaskSession).toHaveBeenCalledWith(
+			expect.objectContaining({
+				taskLaunchSettings: {
+					modelId: "fable",
+					effort: "high",
+				},
+				postStartInput: "/model fable\r",
+			}),
+		);
+	});
+
 	it("ensures the worktree when no existing task cwd is available", async () => {
 		taskWorktreeMocks.resolveTaskCwd
 			.mockRejectedValueOnce(new Error("missing"))
