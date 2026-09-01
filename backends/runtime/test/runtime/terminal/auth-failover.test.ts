@@ -54,4 +54,17 @@ describe("buildSameSeatRecoveryRequest", () => {
 		expect(sameSeat?.managerAccountId).toBe(2);
 		expect(crossSeat?.postStartInput).toBeUndefined();
 	});
+
+	it("appends the Fable model command after login-recovery continue keystrokes", () => {
+		const fableTask: RestartableSessionRequest = {
+			kind: "task",
+			request: {
+				...TASK_REQUEST.request,
+				taskLaunchSettings: { modelId: "fable", effort: "medium" },
+			},
+		};
+		const rebuilt = buildSameSeatRecoveryRequest(fableTask, "/new/seat-2", "continue\r");
+
+		expect(rebuilt?.postStartInput).toBe("continue\r/model fable\r");
+	});
 });

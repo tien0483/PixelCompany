@@ -42,6 +42,7 @@ const CURSOR_EFFORT_OPTIONS: Array<{ value: RuntimeTaskLaunchEffort; label: stri
 ];
 
 const CLAUDE_MODEL_FALLBACK: RuntimeAgentModelInventoryItem[] = [
+	{ id: "fable", label: "Fable (latest alias)" },
 	{ id: "sonnet", label: "Sonnet (latest alias)" },
 	{ id: "opus", label: "Opus (latest alias)" },
 	{ id: "haiku", label: "Haiku (latest alias)" },

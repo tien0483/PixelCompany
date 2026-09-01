@@ -181,8 +181,22 @@ export function pickBestClaudeAutoSeat<T extends ClaudeAutoSeatRankingInput>(
  * literals to keep this module dependency-free; `task-launch-settings.ts` binds them to
  * `RuntimeTaskLaunchEffort`, which is what catches a rename of the effort enum.
  */
-export const FABLE_SEAT_MODEL_ID = "claude-fable-5";
+/** Claude Code alias — matches interactive `/model fable`, not the full API id. */
+export const FABLE_SEAT_MODEL_ID = "fable";
 export const FABLE_SEAT_EFFORT = "medium";
+/** Typed after the TUI settles so `--continue` resumes cannot keep a prior Opus model. */
+export const FABLE_SEAT_MODEL_POST_START_INPUT = `/model ${FABLE_SEAT_MODEL_ID}\r`;
+
+export function isFableSeatModelId(modelId: string | undefined | null): boolean {
+	return modelId?.trim() === FABLE_SEAT_MODEL_ID;
+}
+
+export function appendFableSeatPostStartInput(existing: string | undefined | null): string {
+	if (existing?.includes(FABLE_SEAT_MODEL_POST_START_INPUT)) {
+		return existing;
+	}
+	return `${existing ?? ""}${FABLE_SEAT_MODEL_POST_START_INPUT}`;
+}
 
 /**
  * Upper edges, in days-to-month-end, of tiers 0..3. Same convention as

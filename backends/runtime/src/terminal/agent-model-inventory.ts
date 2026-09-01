@@ -22,6 +22,7 @@ const CACHE_TTL_MS = 60_000;
 const CLAUDE_MODEL_CATALOG: Array<{ id: string; label: string }> = [
 	// Fable is the priciest tier and is what the "fable" seat preset pins; it has to be listed
 	// here or the locked Model row on such a card has no entry to render its own value from.
+	{ id: "fable", label: "Fable (latest alias)" },
 	{ id: "claude-fable-5", label: "Claude Fable 5" },
 	{ id: "sonnet", label: "Sonnet (latest alias)" },
 	{ id: "opus", label: "Opus (latest alias)" },
