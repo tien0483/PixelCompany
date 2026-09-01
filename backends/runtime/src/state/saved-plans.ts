@@ -350,6 +350,15 @@ export async function removeSavedPlan(planId: string): Promise<boolean> {
 	return true;
 }
 
+export async function clearSavedPlans(): Promise<number> {
+	const existing = await loadSavedPlans();
+	if (existing.length === 0) {
+		return 0;
+	}
+	await writeSavedPlans([]);
+	return existing.length;
+}
+
 export async function findSavedPlanById(planId: string): Promise<SavedPlanEntry | null> {
 	const normalizedId = planId.trim();
 	if (!normalizedId) {

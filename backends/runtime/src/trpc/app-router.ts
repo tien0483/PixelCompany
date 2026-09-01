@@ -141,6 +141,7 @@ import type {
 	RuntimeMcpInventory,
 	RuntimeOpenFileRequest,
 	RuntimeOpenFileResponse,
+	RuntimePlansClearAllResponse,
 	RuntimePlansCreateRequest,
 	RuntimePlansCreateResponse,
 	RuntimePlansHistoryDiffRequest,
@@ -465,6 +466,7 @@ import {
 	runtimePlansReadHtmlSourceResponseSchema,
 	runtimePlansReadRequestSchema,
 	runtimePlansReadResponseSchema,
+	runtimePlansClearAllResponseSchema,
 	runtimePlansRemoveRequestSchema,
 	runtimePlansRemoveResponseSchema,
 	runtimePlansWriteAssetRequestSchema,
@@ -838,6 +840,7 @@ export interface RuntimeTrpcContext {
 		importFile: (input: RuntimePlansImportFileRequest) => Promise<RuntimePlansImportFileResponse>;
 		create: (input: RuntimePlansCreateRequest) => Promise<RuntimePlansCreateResponse>;
 		remove: (input: RuntimePlansRemoveRequest) => Promise<RuntimePlansRemoveResponse>;
+		clearAll: () => Promise<RuntimePlansClearAllResponse>;
 		read: (input: RuntimePlansReadRequest) => Promise<RuntimePlansReadResponse>;
 		write: (input: RuntimePlansWriteRequest) => Promise<RuntimePlansWriteResponse>;
 		writeSibling: (input: RuntimePlansWriteSiblingRequest) => Promise<RuntimePlansWriteSiblingResponse>;
@@ -1549,6 +1552,11 @@ export const runtimeAppRouter = t.router({
 			.output(runtimePlansRemoveResponseSchema)
 			.mutation(async ({ ctx, input }) => {
 				return await ctx.plansApi.remove(input);
+			}),
+		clearAll: t.procedure
+			.output(runtimePlansClearAllResponseSchema)
+			.mutation(async ({ ctx }) => {
+				return await ctx.plansApi.clearAll();
 			}),
 		read: t.procedure
 			.input(runtimePlansReadRequestSchema)

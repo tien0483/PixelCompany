@@ -1822,6 +1822,13 @@ export const runtimePlansRemoveResponseSchema = z.object({
 });
 export type RuntimePlansRemoveResponse = z.infer<typeof runtimePlansRemoveResponseSchema>;
 
+export const runtimePlansClearAllResponseSchema = z.object({
+	ok: z.boolean(),
+	clearedCount: z.number().int().nonnegative().optional(),
+	error: z.string().optional(),
+});
+export type RuntimePlansClearAllResponse = z.infer<typeof runtimePlansClearAllResponseSchema>;
+
 export const runtimePlansReadRequestSchema = z.object({
 	planId: z.string(),
 });

@@ -3,7 +3,18 @@ import { type ReactElement, useCallback, useEffect, useState } from "react";
 
 import { showAppToast } from "@/components/app-toaster";
 import { RemoteFileBrowserDialog } from "@/components/remote-file-browser-dialog";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
+import {
+	AlertDialog,
+	AlertDialogAction,
+	AlertDialogBody,
+	AlertDialogCancel,
+	AlertDialogDescription,
+	AlertDialogFooter,
+	AlertDialogHeader,
+	AlertDialogTitle,
+} from "@/components/ui/dialog";
 import { Spinner } from "@/components/ui/spinner";
 import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
 import type { RuntimeSavedPlan } from "@/runtime/types";
@@ -44,6 +55,8 @@ export function HomeSidebarPlansPanel({
 	const [isLoading, setIsLoading] = useState(true);
 	const [isImporting, setIsImporting] = useState(false);
 	const [isBrowserOpen, setIsBrowserOpen] = useState(false);
+	const [isClearDialogOpen, setIsClearDialogOpen] = useState(false);
+	const [isClearing, setIsClearing] = useState(false);
 	const [lastImportFolder, setLastImportFolder] = useState<string | undefined>(
 		() => readLocalStorageItem(LocalStorageKey.PlansLastImportFolder) ?? undefined,
 	);
@@ -180,6 +193,35 @@ export function HomeSidebarPlansPanel({
 		[refreshPlans, workspaceId],
 	);
 
+	const handleClearAll = useCallback(async () => {
+		setIsClearing(true);
+		try {
+			const trpcClient = getRuntimeTrpcClient(workspaceId);
+			const response = await trpcClient.plans.clearAll.mutate();
+			if (!response.ok) {
+				showAppToast({
+					intent: "danger",
+					message: response.error ?? "Failed to clear registered plans.",
+				});
+				return;
+			}
+			const count = response.clearedCount ?? 0;
+			showAppToast({
+				intent: "success",
+				message: `Cleared ${count} registered plan${count === 1 ? "" : "s"}.`,
+			});
+			setIsClearDialogOpen(false);
+			await refreshPlans();
+		} catch (error) {
+			showAppToast({
+				intent: "danger",
+				message: error instanceof Error ? error.message : String(error),
+			});
+		} finally {
+			setIsClearing(false);
+		}
+	}, [refreshPlans, workspaceId]);
+
 	return (
 		<div className="flex min-h-0 flex-1 flex-col overflow-hidden" data-testid="sidebar-plans-panel">
 			<div className="flex-1 min-h-0 overflow-y-auto overscroll-contain flex flex-col gap-1 px-3 py-1">
@@ -252,7 +294,59 @@ export function HomeSidebarPlansPanel({
 					<span className="text-sm">Add plan…</span>
 					<FolderOpen size={12} className="ml-auto opacity-60" />
 				</button>
+
+				{plans.length > 0 ? (
+					<button
+						type="button"
+						className="kb-project-row flex cursor-pointer items-center gap-1.5 rounded-md text-text-secondary hover:text-status-red px-2 py-1.5 disabled:opacity-40"
+						onClick={() => setIsClearDialogOpen(true)}
+						disabled={isLoading || isClearing}
+						data-testid="sidebar-plans-clear-all"
+					>
+						{isClearing ? <Spinner size={14} /> : <Trash2 size={14} className="shrink-0" />}
+						<span className="text-sm">Clear all plans</span>
+					</button>
+				) : null}
 			</div>
+
+			<AlertDialog
+				open={isClearDialogOpen}
+				onOpenChange={(open) => {
+					if (!isClearing) {
+						setIsClearDialogOpen(open);
+					}
+				}}
+			>
+				<AlertDialogHeader>
+					<AlertDialogTitle>Clear all registered plans?</AlertDialogTitle>
+				</AlertDialogHeader>
+				<AlertDialogBody>
+					<AlertDialogDescription>
+						This will remove all {plans.length} registered plan{plans.length === 1 ? "" : "s"} from the plan editor library. The actual files on disk will not be deleted.
+					</AlertDialogDescription>
+				</AlertDialogBody>
+				<AlertDialogFooter>
+					<AlertDialogCancel asChild>
+						<Button variant="default" disabled={isClearing} onClick={() => setIsClearDialogOpen(false)}>
+							Cancel
+						</Button>
+					</AlertDialogCancel>
+					<AlertDialogAction asChild>
+						<Button
+							variant="danger"
+							disabled={isClearing}
+							onClick={(event) => {
+								event.preventDefault();
+								void handleClearAll();
+							}}
+							data-testid="sidebar-plans-confirm-clear"
+						>
+							{isClearing ? <Spinner size={14} /> : null}
+							Clear all
+						</Button>
+					</AlertDialogAction>
+				</AlertDialogFooter>
+			</AlertDialog>
 
 			{/*
 			 * The browser handles both shapes of import, so it replaces the native folder

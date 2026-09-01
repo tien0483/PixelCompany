@@ -12,6 +12,7 @@ vi.mock("../../../src/state/workspace-state", () => ({
 import { composePromptWithAttachedPlan } from "../../../src/prompts/compose-prompt-with-plan";
 import {
 	backupSavedPlan,
+	clearSavedPlans,
 	createSavedPlan,
 	importPlanFile,
 	importPlansFromFolder,
@@ -183,6 +184,29 @@ describe("saved-plans library", () => {
 		expect(await removeSavedPlan(planId)).toBe(true);
 		expect(await listSavedPlans()).toHaveLength(0);
 		expect(await readFile(planPath, "utf8")).toBe("v2\n");
+	});
+
+	it("clears all saved plans from library and leaves files on disk", async () => {
+		const folder = join(runtimeHome.path, "plans");
+		await mkdir(folder, { recursive: true });
+		const file1 = join(folder, "plan1.md");
+		const file2 = join(folder, "plan2.md");
+		await writeFile(file1, "content 1", "utf8");
+		await writeFile(file2, "content 2", "utf8");
+
+		await importPlansFromFolder(folder);
+		expect(await listSavedPlans()).toHaveLength(2);
+
+		const clearedCount = await clearSavedPlans();
+		expect(clearedCount).toBe(2);
+		expect(await listSavedPlans()).toHaveLength(0);
+
+		// Clearing library does not delete physical files
+		expect(await readFile(file1, "utf8")).toBe("content 1");
+		expect(await readFile(file2, "utf8")).toBe("content 2");
+
+		// Clearing an empty library returns 0
+		expect(await clearSavedPlans()).toBe(0);
 	});
 
 	it("creates a saved plan from content and avoids clobbering existing files", async () => {

@@ -2,6 +2,7 @@ import { stat } from "node:fs/promises";
 import { resolve } from "node:path";
 
 import type {
+	RuntimePlansClearAllResponse,
 	RuntimePlansCreateRequest,
 	RuntimePlansCreateResponse,
 	RuntimePlansHistoryDiffRequest,
@@ -47,6 +48,7 @@ import {
 } from "../state/plan-history";
 import {
 	backupSavedPlan,
+	clearSavedPlans,
 	createSavedPlan,
 	importPlanFile,
 	importPlansFromFolder,
@@ -225,6 +227,21 @@ export function createPlansApi(deps: CreatePlansApiDependencies): RuntimeTrpcCon
 					ok: false,
 					error: toErrorMessage(error),
 				} satisfies RuntimePlansRemoveResponse;
+			}
+		},
+		clearAll: async () => {
+			try {
+				const clearedCount = await clearSavedPlans();
+				return {
+					ok: true,
+					clearedCount,
+				} satisfies RuntimePlansClearAllResponse;
+			} catch (error) {
+				return {
+					ok: false,
+					clearedCount: 0,
+					error: toErrorMessage(error),
+				} satisfies RuntimePlansClearAllResponse;
 			}
 		},
 		read: async (input: RuntimePlansReadRequest) => {

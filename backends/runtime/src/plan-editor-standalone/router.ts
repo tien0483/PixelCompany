@@ -30,6 +30,7 @@ import {
 	runtimeDeployStatusResponseSchema,
 	runtimeDirectoryListRequestSchema,
 	runtimeDirectoryListResponseSchema,
+	runtimePlansClearAllResponseSchema,
 	runtimePlansCreateRequestSchema,
 	runtimePlansCreateResponseSchema,
 	runtimePlansHistoryDiffRequestSchema,
@@ -255,6 +256,11 @@ export const planEditorRouter = t.router({
 			.output(runtimePlansRemoveResponseSchema)
 			.mutation(async ({ ctx, input }) => {
 				return await ctx.plansApi.remove(input);
+			}),
+		clearAll: t.procedure
+			.output(runtimePlansClearAllResponseSchema)
+			.mutation(async ({ ctx }) => {
+				return await ctx.plansApi.clearAll();
 			}),
 		read: t.procedure
 			.input(runtimePlansReadRequestSchema)
