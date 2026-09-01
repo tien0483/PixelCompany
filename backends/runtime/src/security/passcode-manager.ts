@@ -23,8 +23,15 @@ interface PasscodeState {
 	issuedAt: number;
 }
 
+export interface SessionSubject {
+	email: string;
+	name?: string;
+	picture?: string;
+}
+
 interface SessionEntry {
 	issuedAt: number;
+	subject?: SessionSubject;
 }
 
 interface RateLimitEntry {
@@ -113,6 +120,29 @@ export function issueSession(): string {
 	const token = randomBytes(32).toString("hex");
 	sessions.set(token, { issuedAt: Date.now() });
 	return token;
+}
+
+/** Issue a new session token bound to an authenticated user subject. */
+export function issueSessionForSubject(subject: SessionSubject): string {
+	const token = randomBytes(32).toString("hex");
+	sessions.set(token, { issuedAt: Date.now(), subject });
+	return token;
+}
+
+/** Get authenticated user subject bound to a valid session token. */
+export function getSessionSubject(token: string): SessionSubject | null {
+	const entry = sessions.get(token);
+	if (!entry) return null;
+	if (Date.now() - entry.issuedAt > SESSION_TTL_MS) {
+		sessions.delete(token);
+		return null;
+	}
+	return entry.subject ?? null;
+}
+
+/** Invalidate/delete a session token on logout. */
+export function deleteSession(token: string): boolean {
+	return sessions.delete(token);
 }
 
 /** Validate a session token. Returns true if valid and not expired. */
