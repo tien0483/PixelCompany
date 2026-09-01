@@ -1,9 +1,10 @@
 import { ExternalLink, GraduationCap, X } from "lucide-react";
-import { type ReactElement, useEffect, useState } from "react";
+import { type ReactElement, useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { Tooltip } from "@/components/ui/tooltip";
+import { isLightUiTheme, useTheme } from "@/hooks/use-theme";
 import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
 import type { RuntimeOpenmaicStatus } from "@/runtime/types";
 
@@ -50,8 +51,27 @@ const SETUP_COMMANDS = [
  * is the entire boundary.
  */
 export function LearningView({ workspaceId, onClose }: LearningViewProps): ReactElement {
+	const { themeId } = useTheme();
+	const isLight = isLightUiTheme(themeId);
+	const themeParam = isLight ? "light" : "dark";
+
 	const [status, setStatus] = useState<RuntimeOpenmaicStatus | null>(null);
 	const [error, setError] = useState<string | null>(null);
+	const iframeRef = useRef<HTMLIFrameElement | null>(null);
+
+	// Synchronize theme changes to embedded classroom iframe dynamically
+	useEffect(() => {
+		if (!iframeRef.current?.contentWindow) {
+			return;
+		}
+		iframeRef.current.contentWindow.postMessage(
+			{
+				type: "theme-change",
+				theme: themeParam,
+			},
+			"*",
+		);
+	}, [themeParam]);
 
 	/**
 	 * Polled while offline, not fetched once: the runtime starts the classroom at boot and
@@ -101,7 +121,8 @@ export function LearningView({ workspaceId, onClose }: LearningViewProps): React
 						icon={<ExternalLink size={14} />}
 						aria-label="Open the classroom in a new tab"
 						onClick={() => {
-							window.open(status.baseUrl, "_blank", "noopener,noreferrer");
+							const targetUrl = `${status.baseUrl}${status.baseUrl.includes("?") ? "&" : "?"}theme=${themeParam}`;
+							window.open(targetUrl, "_blank", "noopener,noreferrer");
 						}}
 					/>
 				</Tooltip>
@@ -129,7 +150,8 @@ export function LearningView({ workspaceId, onClose }: LearningViewProps): React
 			);
 		}
 		if (status.online && status.embeddable) {
-			return <iframe src={status.baseUrl} title="Learning" className="h-full w-full flex-1 border-0" />;
+			const iframeSrc = `${status.baseUrl}${status.baseUrl.includes("?") ? "&" : "?"}theme=${themeParam}`;
+			return <iframe ref={iframeRef} src={iframeSrc} title="Learning" className="h-full w-full flex-1 border-0" />;
 		}
 		// Four distinct states, because each has a different fix — see
 		// `RuntimeOpenmaicStatusSchema`. The `online && !embeddable` case is the subtle one:

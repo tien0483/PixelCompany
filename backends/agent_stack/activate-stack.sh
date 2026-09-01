@@ -124,12 +124,14 @@ fi
 stack_link_skill() {
 	local src="$1" name="$2" label="$3"
 	[ -d "$src" ] || return 1
-	if [ -e ".claude/skills/$name" ] || [ -L ".claude/skills/$name" ]; then
-		echo "$label: .claude/skills/$name already exists — left untouched"
-		return 0
-	fi
-	mkdir -p .claude/skills
-	ln -s "$src" ".claude/skills/$name" && echo "$label: linked -> .claude/skills/$name"
+	for target_dir in ".claude/skills" ".agent/skills" ".cursor/skills"; do
+		if [ -e "$target_dir/$name" ] || [ -L "$target_dir/$name" ]; then
+			continue
+		fi
+		mkdir -p "$target_dir"
+		ln -s "$src" "$target_dir/$name" 2>/dev/null || true
+	done
+	echo "$label: linked $name into .claude/skills, .agent/skills, .cursor/skills"
 }
 
 if [ -n "$(stack_flag ENABLE_CAVEMAN)" ]; then
@@ -138,9 +140,7 @@ fi
 
 if [ -n "$(stack_flag ENABLE_UA)" ]; then
 	# Understand-Anything ships no binary — it is a set of SKILL.md dirs, which is
-	# already Claude Code's own skill format, so they link in directly. Its
-	# platform menu has no Claude entry and its installer only writes to
-	# hardcoded $HOME paths, so linking is done here rather than via install.sh.
+	# Claude Code, Gemini CLI, and Cursor skill compatible, so they link in directly.
 	ua_skills="$STACK_SANDBOX/src-understand-anything/understand-anything-plugin/skills"
 	if [ -d "$ua_skills" ]; then
 		ua_linked=0
@@ -149,7 +149,7 @@ if [ -n "$(stack_flag ENABLE_UA)" ]; then
 			ua_name="$(basename "$ua_skill")"
 			stack_link_skill "$ua_skills/$ua_name" "$ua_name" "UA" >/dev/null && ua_linked=$((ua_linked + 1))
 		done
-		echo "Understand-Anything: $ua_linked skill(s) available in .claude/skills"
+		echo "Understand-Anything: $ua_linked skill(s) available in .claude/skills, .agent/skills, .cursor/skills"
 		# The skill resolves its own plugin root at runtime and only probes
 		# $CLAUDE_PLUGIN_ROOT, ~/.understand-anything-plugin and a few $HOME paths —
 		# never .claude/skills — so without this link /understand exits early.
