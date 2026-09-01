@@ -21,6 +21,7 @@ import {
 	ExternalLink,
 	FolderOpen,
 	GitCommit,
+	KeyRound,
 	Palette,
 	Plus,
 	Settings,
@@ -32,6 +33,7 @@ import { showAppToast } from "@/components/app-toaster";
 import { DEFAULT_MAX_RUNNING_TASKS } from "@/storage/local-storage-store";
 import { AccountOrganizationSection } from "@/components/shared/account-organization-section";
 import { ClineSetupSection } from "@/components/shared/cline-setup-section";
+import { VaultSection } from "@/components/vault/vault-section";
 import { apiSeatLabel } from "@/manager/task-account-picker";
 import {
 	getRuntimeShortcutIconComponent,
@@ -170,7 +172,7 @@ const SETTINGS_AGENT_ORDER: readonly RuntimeAgentId[] = [
 	"opencode",
 ];
 
-type SettingsNavId = "general" | "cline" | "git-prompts" | "notifications" | "appearance" | "project";
+type SettingsNavId = "general" | "credentials" | "cline" | "git-prompts" | "notifications" | "appearance" | "project";
 
 const SETTINGS_NAV_ITEMS: ReadonlyArray<{
 	id: SettingsNavId;
@@ -179,6 +181,7 @@ const SETTINGS_NAV_ITEMS: ReadonlyArray<{
 	clineOnly?: boolean;
 }> = [
 	{ id: "general", label: "General", icon: <SlidersHorizontal size={16} /> },
+	{ id: "credentials", label: "Credentials", icon: <KeyRound size={16} /> },
 	{ id: "cline", label: "Cline", icon: <Bot size={16} />, clineOnly: true },
 	{ id: "git-prompts", label: "Git Prompts", icon: <GitCommit size={16} /> },
 	{ id: "notifications", label: "Notifications", icon: <Bell size={16} /> },
@@ -1284,6 +1287,16 @@ export function RuntimeSettingsDialog({
 							running. Saved immediately on this device.
 						</p>
 					</div>
+
+					{/* ---- Credentials ---- */}
+					<div data-settings-section="credentials" />
+					<div className="sticky top-0 -mx-5 px-5 pt-4 pb-2 bg-surface-1 z-10">
+						<h2 className="flex items-center gap-2 text-base font-semibold text-text-primary m-0">
+							<KeyRound size={16} className="text-text-secondary" />
+							Credentials
+						</h2>
+					</div>
+					<VaultSection />
 
 					{/* ---- Cline ---- */}
 					<div data-settings-section="cline" />

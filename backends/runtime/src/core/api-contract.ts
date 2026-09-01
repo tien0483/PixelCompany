@@ -3818,6 +3818,76 @@ export const runtimeGitlabMutationResponseSchema = z.object({
 export type RuntimeGitlabMutationResponse = z.infer<typeof runtimeGitlabMutationResponseSchema>;
 
 /* ------------------------------------------------------------------------- *
+ * Vault credentials and MCP secrets (A1)
+ * ------------------------------------------------------------------------- */
+
+export const runtimeVaultEntrySummarySchema = z.object({
+	service: z.string(),
+	kind: z.enum(["github", "gitlab", "mcp"]),
+	username: z.string().optional(),
+	last4: z.string().optional(),
+	host: z.string().optional(),
+	keys: z.array(z.string()).optional(),
+	updatedAt: z.string().optional(),
+	source: z.enum(["vault", "gh-cli", "gitlab-file"]),
+	status: z.enum(["authenticated", "unauthenticated", "not-installed"]).optional(),
+});
+export type RuntimeVaultEntrySummary = z.infer<typeof runtimeVaultEntrySummarySchema>;
+export const VaultEntrySummarySchema = runtimeVaultEntrySummarySchema;
+
+export const runtimeVaultSetGithubPatRequestSchema = z.object({
+	token: z.string().min(1),
+	host: z.string().optional(),
+});
+export type RuntimeVaultSetGithubPatRequest = z.infer<typeof runtimeVaultSetGithubPatRequestSchema>;
+
+export const runtimeVaultSetGithubPatResponseSchema = z.object({
+	ok: z.boolean(),
+	login: z.string().optional(),
+	entry: runtimeVaultEntrySummarySchema.optional(),
+	error: z.string().optional(),
+});
+export type RuntimeVaultSetGithubPatResponse = z.infer<typeof runtimeVaultSetGithubPatResponseSchema>;
+
+export const runtimeVaultSetMcpSecretRequestSchema = z.object({
+	serverId: z.string().min(1),
+	env: z.record(z.string(), z.string()),
+});
+export type RuntimeVaultSetMcpSecretRequest = z.infer<typeof runtimeVaultSetMcpSecretRequestSchema>;
+
+export const runtimeVaultSetMcpSecretResponseSchema = z.object({
+	ok: z.boolean(),
+	entry: runtimeVaultEntrySummarySchema.optional(),
+	error: z.string().optional(),
+});
+export type RuntimeVaultSetMcpSecretResponse = z.infer<typeof runtimeVaultSetMcpSecretResponseSchema>;
+
+export const runtimeVaultDeleteRequestSchema = z.object({
+	service: z.string().min(1),
+});
+export type RuntimeVaultDeleteRequest = z.infer<typeof runtimeVaultDeleteRequestSchema>;
+
+export const runtimeVaultDeleteResponseSchema = z.object({
+	ok: z.boolean(),
+	error: z.string().optional(),
+});
+export type RuntimeVaultDeleteResponse = z.infer<typeof runtimeVaultDeleteResponseSchema>;
+
+export const runtimeVaultTestGithubRequestSchema = z
+	.object({
+		token: z.string().optional(),
+	})
+	.optional();
+export type RuntimeVaultTestGithubRequest = z.infer<typeof runtimeVaultTestGithubRequestSchema>;
+
+export const runtimeVaultTestGithubResponseSchema = z.object({
+	ok: z.boolean(),
+	login: z.string().optional(),
+	reason: z.string().optional(),
+});
+export type RuntimeVaultTestGithubResponse = z.infer<typeof runtimeVaultTestGithubResponseSchema>;
+
+/* ------------------------------------------------------------------------- *
  * Review sessions and the rules knowledge base
  * ------------------------------------------------------------------------- */
 
