@@ -1,0 +1,115 @@
+{
+  "nowMs": 1788177600000,
+  "nowIso": "2026-08-31T12:00:00.000Z",
+  "scenarios": [
+    {
+      "name": "7d_expiring_beats_low_usage_distant_reset",
+      "pool": [
+        {
+          "id": 1,
+          "sevenDayPercent": 60,
+          "sevenDayResetsAt": "2026-09-01T08:00:00.000Z",
+          "fiveHourPercent": 10,
+          "donateLimitPercent": 100
+        },
+        {
+          "id": 2,
+          "sevenDayPercent": 10,
+          "sevenDayResetsAt": "2026-09-05T12:00:00.000Z",
+          "fiveHourPercent": 5,
+          "donateLimitPercent": 100
+        }
+      ],
+      "expectedWinnerId": 1,
+      "expectedDominantReason": "7d_expiring"
+    },
+    {
+      "name": "5h_room_before_reset_beats_idle_low_5h",
+      "pool": [
+        {
+          "id": 1,
+          "sevenDayPercent": 30,
+          "sevenDayResetsAt": "2026-09-05T12:00:00.000Z",
+          "fiveHourPercent": 70,
+          "fiveHourResetsAt": "2026-08-31T14:00:00.000Z",
+          "donateLimitPercent": 100
+        },
+        {
+          "id": 2,
+          "sevenDayPercent": 30,
+          "sevenDayResetsAt": "2026-09-05T12:00:00.000Z",
+          "fiveHourPercent": 5,
+          "fiveHourResetsAt": "2026-09-01T12:00:00.000Z",
+          "donateLimitPercent": 100
+        }
+      ],
+      "expectedWinnerId": 1,
+      "expectedDominantReason": "5h_room"
+    },
+    {
+      "name": "donate_headroom_when_urgency_tied",
+      "pool": [
+        {
+          "id": 1,
+          "sevenDayPercent": 55,
+          "sevenDayResetsAt": "2026-09-05T12:00:00.000Z",
+          "fiveHourPercent": 20,
+          "fiveHourResetsAt": "2026-09-01T12:00:00.000Z",
+          "donateLimitPercent": 70
+        },
+        {
+          "id": 2,
+          "sevenDayPercent": 65,
+          "sevenDayResetsAt": "2026-09-05T12:00:00.000Z",
+          "fiveHourPercent": 20,
+          "fiveHourResetsAt": "2026-09-01T12:00:00.000Z",
+          "donateLimitPercent": 100
+        }
+      ],
+      "expectedWinnerId": 2,
+      "expectedDominantReason": "donate_headroom"
+    },
+    {
+      "name": "load_balance_spreads_second_pick",
+      "pool": [
+        {
+          "id": 1,
+          "sevenDayPercent": 30,
+          "sevenDayResetsAt": "2026-09-05T12:00:00.000Z",
+          "fiveHourPercent": 10,
+          "donateLimitPercent": 100
+        },
+        {
+          "id": 2,
+          "sevenDayPercent": 32,
+          "sevenDayResetsAt": "2026-09-05T12:00:00.000Z",
+          "fiveHourPercent": 12,
+          "donateLimitPercent": 100
+        }
+      ],
+      "seatLoad": { "1": 3 },
+      "expectedWinnerId": 2
+    },
+    {
+      "name": "5h_saturated_sinks_below_usable",
+      "pool": [
+        {
+          "id": 1,
+          "sevenDayPercent": 20,
+          "sevenDayResetsAt": "2026-09-01T08:00:00.000Z",
+          "fiveHourPercent": 95,
+          "fiveHourResetsAt": "2026-09-01T12:00:00.000Z",
+          "donateLimitPercent": 100
+        },
+        {
+          "id": 2,
+          "sevenDayPercent": 50,
+          "sevenDayResetsAt": "2026-09-05T12:00:00.000Z",
+          "fiveHourPercent": 30,
+          "donateLimitPercent": 100
+        }
+      ],
+      "expectedWinnerId": 2
+    }
+  ]
+}

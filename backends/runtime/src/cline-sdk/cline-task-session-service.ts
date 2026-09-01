@@ -84,6 +84,8 @@ export interface StartClineTaskSessionRequest {
 	launchWarnings?: string[];
 	/** Card opt-in: a usage-limit exit parks as "usage_paused" and auto-resumes at the reset. */
 	autoResumeOnUsageLimit?: boolean;
+	/** Card opt-in: a usage-limit exit cross-seat restarts before same-seat pause/resume. */
+	autoFailoverOnUsageLimit?: boolean;
 	/** Per-task launch settings (skill/MCP allowlists, subagent seat, etc.) */
 	taskLaunchSettings?: RuntimeTaskLaunchSettings;
 }
@@ -550,6 +552,7 @@ export class InMemoryClineTaskSessionService implements ClineTaskSessionService 
 					toolInputByToolCallId: new Map<string, unknown>(),
 				} satisfies ClineTaskSessionEntry);
 		entry.summary.autoResumeOnUsageLimit = request.autoResumeOnUsageLimit ?? false;
+		entry.summary.autoFailoverOnUsageLimit = request.autoFailoverOnUsageLimit ?? false;
 		this.messageRepository.setTaskEntry(request.taskId, entry);
 		this.pendingTurnCancelTaskIds.delete(request.taskId);
 

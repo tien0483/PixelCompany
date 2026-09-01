@@ -511,6 +511,8 @@ export default function App(): ReactElement {
 		setEditTaskAutoRunDelayMinutes,
 		editTaskAutoResumeOnUsageLimit,
 		setEditTaskAutoResumeOnUsageLimit,
+		editTaskAutoFailoverOnUsageLimit,
+		setEditTaskAutoFailoverOnUsageLimit,
 		handleOpenCreateTask,
 		handleCancelCreateTask,
 		handleOpenEditTask,
@@ -1117,6 +1119,23 @@ export default function App(): ReactElement {
 		[setBoard],
 	);
 
+	const handleTaskAutoFailoverOnUsageLimitChanged = useCallback(
+		(taskId: string, enabled: boolean) => {
+			setBoard((currentBoard) => ({
+				...currentBoard,
+				columns: currentBoard.columns.map((column) => ({
+					...column,
+					cards: column.cards.map((card) =>
+						card.id === taskId
+							? { ...card, autoFailoverOnUsageLimit: enabled }
+							: card,
+					),
+				})),
+			}));
+		},
+		[setBoard],
+	);
+
 	const handleTaskLaunchSettingsChanged = useCallback(
 		(taskId: string, nextLaunchSettings: RuntimeTaskLaunchSettings | null) => {
 			let previousSettings: RuntimeTaskLaunchSettings | undefined;
@@ -1240,6 +1259,8 @@ export default function App(): ReactElement {
 			onAutoRunDelayMinutesChange={setEditTaskAutoRunDelayMinutes}
 			autoResumeOnUsageLimit={editTaskAutoResumeOnUsageLimit}
 			onAutoResumeOnUsageLimitChange={setEditTaskAutoResumeOnUsageLimit}
+			autoFailoverOnUsageLimit={editTaskAutoFailoverOnUsageLimit}
+			onAutoFailoverOnUsageLimitChange={setEditTaskAutoFailoverOnUsageLimit}
 			mode="edit"
 			idPrefix={`inline-edit-task-${editingTaskId}`}
 		/>
@@ -1814,6 +1835,9 @@ export default function App(): ReactElement {
 									onTaskLaunchSettingsChanged={handleTaskLaunchSettingsChanged}
 									onTaskAutoResumeOnUsageLimitChanged={
 										handleTaskAutoResumeOnUsageLimitChanged
+									}
+									onTaskAutoFailoverOnUsageLimitChanged={
+										handleTaskAutoFailoverOnUsageLimitChanged
 									}
 								/>
 							</div>

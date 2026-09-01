@@ -523,6 +523,7 @@ export function CardDetailView({
 	onResumeEndedSession,
 	onTaskLaunchSettingsChanged,
 	onTaskAutoResumeOnUsageLimitChanged,
+	onTaskAutoFailoverOnUsageLimitChanged,
 	onSavePlan,
 }: {
 	selection: CardSelection;
@@ -630,6 +631,10 @@ export function CardDetailView({
 		settings: RuntimeTaskLaunchSettings | null,
 	) => void;
 	onTaskAutoResumeOnUsageLimitChanged?: (
+		taskId: string,
+		enabled: boolean,
+	) => void;
+	onTaskAutoFailoverOnUsageLimitChanged?: (
 		taskId: string,
 		enabled: boolean,
 	) => void;
@@ -1368,6 +1373,25 @@ export function CardDetailView({
 											/>
 											Auto-resume on usage limit
 										</label>
+										{onTaskAutoFailoverOnUsageLimitChanged ? (
+											<label
+												className="flex cursor-pointer items-center gap-1.5 text-[11px] text-text-secondary"
+												title="If this task hits the Claude usage limit, restart on another healthy seat with --continue before waiting for a reset."
+											>
+												<input
+													type="checkbox"
+													className="accent-accent"
+													checked={selection.card.autoFailoverOnUsageLimit === true}
+													onChange={(event) => {
+														onTaskAutoFailoverOnUsageLimitChanged(
+															selection.card.id,
+															event.target.checked,
+														);
+													}}
+												/>
+												Auto-failover on usage limit
+											</label>
+										) : null}
 									</div>
 								) : null}
 								{onTaskLaunchSettingsChanged ? (

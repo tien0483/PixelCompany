@@ -182,6 +182,8 @@ export interface StartTaskSessionRequest {
 	taskLaunchSettings?: RuntimeTaskLaunchSettings;
 	/** Card opt-in: a usage-limit exit parks as "usage_paused" and auto-resumes at the reset. */
 	autoResumeOnUsageLimit?: boolean;
+	/** Card opt-in: a usage-limit exit cross-seat restarts before same-seat pause/resume. */
+	autoFailoverOnUsageLimit?: boolean;
 	/**
 	 * Typed into the session once its TUI settles, submit bytes included. Used by login
 	 * recovery to send `continue\r` after a same-seat relaunch, i.e. the keystrokes the user
@@ -545,6 +547,24 @@ export class TerminalSessionManager implements TerminalSessionService {
 
 	listSummaries(): RuntimeTaskSessionSummary[] {
 		return Array.from(this.entries.values()).map((entry) => cloneSummary(entry.summary));
+	}
+
+	/** Last task/shell start request kept for restart, failover, and login recovery. */
+	getRestartRequest(taskId: string): RestartableSessionRequest | null {
+		const entry = this.entries.get(taskId);
+		if (!entry?.restartRequest) {
+			return null;
+		}
+		if (entry.restartRequest.kind === "task") {
+			return {
+				kind: "task",
+				request: cloneStartTaskSessionRequest(entry.restartRequest.request),
+			};
+		}
+		return {
+			kind: "shell",
+			request: cloneStartShellSessionRequest(entry.restartRequest.request),
+		};
 	}
 
 	/**
@@ -1037,6 +1057,7 @@ export class TerminalSessionManager implements TerminalSessionService {
 			managerAccountId: request.managerAccountId ?? null,
 			subagentSeatProviderId: request.taskLaunchSettings?.subagentSeatProviderId ?? null,
 			autoResumeOnUsageLimit: request.autoResumeOnUsageLimit ?? false,
+			autoFailoverOnUsageLimit: request.autoFailoverOnUsageLimit ?? false,
 			resumeAt: null,
 			authFailoverOutcome: null,
 			authFailoverOutcomeDetail: null,

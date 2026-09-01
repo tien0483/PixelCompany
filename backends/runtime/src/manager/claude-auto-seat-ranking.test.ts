@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -9,6 +12,7 @@ import {
 	isFiveHourSaturated,
 	NO_SEVEN_DAY_DATA_TIER,
 	pickBestClaudeAutoSeat,
+	pickBestClaudeAutoSeatWithReason,
 	pickBestFableSeat,
 	sevenDayResetTier,
 } from "./claude-auto-seat-ranking";
@@ -28,7 +32,7 @@ interface Seat extends ClaudeAutoSeatRankingInput {
 }
 
 function seat(id: number, overrides: ClaudeAutoSeatRankingInput = {}): Seat {
-	return { id, fiveHourPercent: 0, sevenDayPercent: 0, ...overrides };
+	return { id, fiveHourPercent: 0, sevenDayPercent: 0, donateLimitPercent: 100, ...overrides };
 }
 
 describe("sevenDayResetTier", () => {
@@ -151,12 +155,43 @@ describe("pickBestClaudeAutoSeat", () => {
 		expect(pickBestClaudeAutoSeat([zForm, offsetForm], NOW)?.id).toBe(1);
 	});
 
-	it("keeps the first candidate on a full tie", () => {
-		const first = seat(1, { sevenDayPercent: 30, sevenDayResetsAt: inHours(20) });
-		const second = seat(2, { sevenDayPercent: 30, sevenDayResetsAt: inHours(20) });
+	it("keeps the lower-id candidate on a full weight tie", () => {
+		const first = seat(1, { sevenDayPercent: 30, sevenDayResetsAt: inHours(20), donateLimitPercent: 100 });
+		const second = seat(2, { sevenDayPercent: 30, sevenDayResetsAt: inHours(20), donateLimitPercent: 100 });
 		expect(pickBestClaudeAutoSeat([first, second], NOW)?.id).toBe(1);
-		expect(pickBestClaudeAutoSeat([second, first], NOW)?.id).toBe(2);
+		expect(pickBestClaudeAutoSeat([second, first], NOW)?.id).toBe(1);
 	});
+});
+
+describe("auto seat weight fixtures", () => {
+	const specPath = join(dirname(fileURLToPath(import.meta.url)), "auto-seat-weight.spec.json");
+	const spec = JSON.parse(readFileSync(specPath, "utf8")) as {
+		nowMs: number;
+		scenarios: Array<{
+			name: string;
+			pool: Array<ClaudeAutoSeatRankingInput & { id: number }>;
+			seatLoad?: Record<string, number>;
+			expectedWinnerId: number;
+			expectedDominantReason?: string;
+		}>;
+	};
+
+	for (const scenario of spec.scenarios) {
+		it(scenario.name, () => {
+			const fleetContext = scenario.seatLoad
+				? {
+						seatLoad: Object.fromEntries(
+							Object.entries(scenario.seatLoad).map(([id, count]) => [Number(id), count]),
+						),
+					}
+				: undefined;
+			const result = pickBestClaudeAutoSeatWithReason(scenario.pool, spec.nowMs, fleetContext);
+			expect(result?.seat.id).toBe(scenario.expectedWinnerId);
+			if (scenario.expectedDominantReason) {
+				expect(result?.weight.dominantReason).toBe(scenario.expectedDominantReason);
+			}
+		});
+	}
 });
 
 // --- Fable seat ---------------------------------------------------------------

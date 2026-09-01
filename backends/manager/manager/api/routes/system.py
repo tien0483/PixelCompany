@@ -999,3 +999,22 @@ async def delete_setting(key: str, request: Request):
             },
         )
     return {"key": key, "deleted": True}
+
+
+class RuntimeSeatLoadUpdate(BaseModel):
+    load: dict[int, int]
+
+
+@router.post("/runtime/seat-load")
+async def post_runtime_seat_load(body: RuntimeSeatLoadUpdate) -> dict[str, bool]:
+    from manager.web.runtime_seat_load import update_seat_load
+
+    update_seat_load(body.load)
+    return {"ok": True}
+
+
+@router.get("/runtime/seat-load")
+async def get_runtime_seat_load() -> dict[str, dict[int, int]]:
+    from manager.web.runtime_seat_load import get_seat_load
+
+    return {"load": get_seat_load()}

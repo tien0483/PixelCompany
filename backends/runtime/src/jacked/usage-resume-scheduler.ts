@@ -12,6 +12,7 @@
 // The pure per-session decision is `evaluateSession`; the runner binds it to the terminal /
 // cline services the host provides.
 import type { RuntimeManagerSnapshot, RuntimeTaskSessionSummary } from "../core/api-contract";
+import { classifyUsageFailover } from "./usage-failover";
 import { classifyUsagePause } from "./usage-pause";
 
 /** Escalating backoff for a wake that finds the window still walled. */
@@ -46,6 +47,7 @@ const MAX_API_SEAT_AUTO_RETRIES = 5;
 
 export type UsageResumeAction =
 	| { action: "none" }
+	| { action: "failover"; nextAccountId: number }
 	| { action: "pause"; resumeAt: number }
 	| { action: "resume" }
 	| { action: "reschedule"; source: "reset" | "backoff"; resumeAt: number };
@@ -61,7 +63,11 @@ export function isUsageResumeCandidate(summary: RuntimeTaskSessionSummary): bool
 	if (summary.reviewReason !== "error") {
 		return false;
 	}
-	return summary.autoResumeOnUsageLimit === true || isApiSeatSession(summary);
+	return (
+		summary.autoResumeOnUsageLimit === true ||
+		summary.autoFailoverOnUsageLimit === true ||
+		isApiSeatSession(summary)
+	);
 }
 
 /**
@@ -76,14 +82,25 @@ export function evaluateSession(
 	const managerAccountId = summary.managerAccountId ?? null;
 	const isApiSeatTask = isApiSeatSession(summary);
 
-	// A freshly errored, opted-in task: pause it only if the exit is usage-caused.
+	// A freshly errored, opted-in task: cross-seat failover first, then same-seat pause.
 	if (summary.reviewReason === "error") {
+		const errorText = summary.warningMessage ?? summary.latestHookActivity?.finalMessage ?? null;
+		const nextAccountId = classifyUsageFailover({
+			autoFailoverOnUsageLimit: summary.autoFailoverOnUsageLimit === true,
+			agentId: summary.agentId ?? null,
+			managerAccountId,
+			snapshot,
+			errorText,
+		});
+		if (nextAccountId !== null) {
+			return { action: "failover", nextAccountId };
+		}
 		const decision = classifyUsagePause({
 			autoResumeOnUsageLimit: summary.autoResumeOnUsageLimit === true,
 			isApiSeatTask,
 			managerAccountId,
 			snapshot,
-			errorText: summary.warningMessage ?? summary.latestHookActivity?.finalMessage ?? null,
+			errorText,
 			now,
 		});
 		return decision ? { action: "pause", resumeAt: decision.resumeAt } : { action: "none" };
@@ -120,6 +137,8 @@ export interface PausableSession {
 	markUsagePaused: (resumeAt: number) => void;
 	/** Relaunch with --continue (resumeFromTrash). Rejects are swallowed by the runner. */
 	resume: () => Promise<void>;
+	/** Cross-seat restart with --continue onto the given Manager account id. */
+	failover?: (nextAccountId: number) => Promise<void>;
 }
 
 export interface UsageResumeSchedulerDeps {
@@ -146,8 +165,9 @@ export function createUsageResumeScheduler(deps: UsageResumeSchedulerDeps): Usag
 	// Per-task consecutive auto-retries for API-seat sessions, capped at MAX_API_SEAT_AUTO_RETRIES
 	// so a permanently broken/gated 3rd-party key stops retrying and surfaces to the user.
 	const apiSeatRetryAttempts = new Map<string, number>();
-	// Tasks with a resume in flight, so a slow relaunch is not kicked off twice.
+	// Tasks with a resume/failover in flight, so a slow relaunch is not kicked off twice.
 	const resuming = new Set<string>();
+	const failingOver = new Set<string>();
 	let timer: NodeJS.Timeout | null = null;
 	let running = false;
 
@@ -186,6 +206,26 @@ export function createUsageResumeScheduler(deps: UsageResumeSchedulerDeps): Usag
 					apiSeatRetryAttempts.set(session.taskId, attempts);
 				}
 				switch (action.action) {
+					case "failover": {
+						if (!session.failover || failingOver.has(session.taskId)) {
+							break;
+						}
+						rescheduleAttempts.delete(session.taskId);
+						apiSeatRetryAttempts.delete(session.taskId);
+						failingOver.add(session.taskId);
+						void Promise.resolve(session.failover(action.nextAccountId))
+							.catch((error: unknown) => {
+								deps.log?.(
+									`usage-resume: failed to failover ${session.taskId}: ${
+										error instanceof Error ? error.message : String(error)
+									}`,
+								);
+							})
+							.finally(() => {
+								failingOver.delete(session.taskId);
+							});
+						break;
+					}
 					case "pause": {
 						rescheduleAttempts.delete(session.taskId);
 						session.markUsagePaused(action.resumeAt);

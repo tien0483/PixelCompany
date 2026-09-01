@@ -199,6 +199,7 @@ export function useTaskSessions({ currentProjectId, setSessions }: UseTaskSessio
 					seatPreset: task.seatPreset,
 					// Opt this task into auto-pause/continue across a Claude usage-limit reset.
 					autoResumeOnUsageLimit: task.autoResumeOnUsageLimit,
+					autoFailoverOnUsageLimit: task.autoFailoverOnUsageLimit,
 				});
 				if (!payload.ok || !payload.summary) {
 					return {

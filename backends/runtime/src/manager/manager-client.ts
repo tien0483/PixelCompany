@@ -86,6 +86,8 @@ export interface ManagerClient {
 	/** Refresh cached usage windows for one account (jacked POST …/refresh-usage). */
 	refreshAccount: (accountId: number) => Promise<{ ok: boolean; error?: string }>;
 	refreshAllUsage: () => Promise<{ ok: boolean; error?: string }>;
+	/** Report active Claude task count per seat for auto-swap load balancing. */
+	pushSeatLoad: (load: Record<number, number>) => Promise<{ ok: boolean; error?: string }>;
 	/** Push the dashboard's active seat into the live CLI credential (jacked POST /api/auth/reconcile-active). */
 	reconcileActive: () => Promise<{ ok: boolean; error?: string }>;
 	/** Enable/disable, relabel, or set donate limit on an account. */
@@ -823,6 +825,11 @@ export function createManagerClient(deps: CreateManagerClientDependencies): Mana
 			),
 		refreshAllUsage: async () =>
 			await mutate("/api/auth/accounts/refresh-all-usage", { method: "POST" }, LONG_REQUEST_TIMEOUT_MS),
+		pushSeatLoad: async (load) =>
+			await mutate("/api/runtime/seat-load", {
+				method: "POST",
+				body: JSON.stringify({ load }),
+			}),
 		reconcileActive: async () =>
 			await mutate("/api/auth/reconcile-active", { method: "POST" }, LONG_REQUEST_TIMEOUT_MS),
 		updateAccount: async ({ accountId, isActive, displayName, donateLimitPercent, allowLocked }) => {

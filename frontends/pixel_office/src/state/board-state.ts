@@ -44,6 +44,7 @@ export interface TaskDraft {
 	autoRunAt?: number | null;
 	/** Park-and-resume opt-in for a usage-limit exit. Undefined leaves the card's value alone. */
 	autoResumeOnUsageLimit?: boolean;
+	autoFailoverOnUsageLimit?: boolean;
 	baseRef: string;
 }
 
@@ -775,6 +776,13 @@ export function updateTask(board: BoardData, taskId: string, draft: TaskDraft): 
 					nextCard.autoResumeOnUsageLimit = true;
 				} else {
 					delete nextCard.autoResumeOnUsageLimit;
+				}
+			}
+			if (draft.autoFailoverOnUsageLimit !== undefined) {
+				if (draft.autoFailoverOnUsageLimit) {
+					nextCard.autoFailoverOnUsageLimit = true;
+				} else {
+					delete nextCard.autoFailoverOnUsageLimit;
 				}
 			}
 			if (clearCrossProviderPin) {

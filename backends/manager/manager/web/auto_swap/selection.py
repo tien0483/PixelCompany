@@ -26,6 +26,8 @@ from manager.web.auto_swap.tiers import (
     target_for_tier,
     tier_for,
 )
+from manager.web.auto_swap.weight import compute_auto_seat_weight
+from manager.web.runtime_seat_load import get_seat_load
 
 logger = logging.getLogger(__name__)
 
@@ -187,8 +189,9 @@ def pick_best_target(
     """
     now = _resolve_now(now)
     prev_tiers = prev_tiers or {}
+    seat_load = get_seat_load()
 
-    candidates: list[tuple[_SortKey, dict]] = []
+    candidates: list[dict] = []
     for a in accounts:
         if a["id"] == current_id:
             continue
@@ -245,25 +248,38 @@ def pick_best_target(
         if not _has_5h_headroom(a, now=now):
             continue
 
-        key = _SortKey(
-            tier_index=tier,
-            resets_at_epoch=_epoch_or_inf(a.get("cached_7d_resets_at")),
-            neg_deficit=-deficit,
-        )
-        candidates.append((key, a))
+        candidates.append(a)
 
     if not candidates:
         return None
 
-    best_key, best = min(candidates, key=lambda kv: kv[0])
+    def _weight_key(acct: dict) -> tuple[float, int]:
+        damped_tier = tier_for(acct, now=now, prev_tier=prev_tiers.get(acct["id"]))
+        weight = compute_auto_seat_weight(
+            acct,
+            now,
+            seat_load=seat_load,
+            active_start=active_start,
+            active_end=active_end,
+            prev_tier=damped_tier,
+        )
+        return (weight.total, -int(acct.get("id") or 0))
+
+    best = max(candidates, key=_weight_key)
 
     if logger.isEnabledFor(logging.DEBUG):
-        sorted_for_log = sorted(candidates, key=lambda kv: kv[0])[:3]
-        for key, cand in sorted_for_log:
+        sorted_for_log = sorted(candidates, key=_weight_key, reverse=True)[:3]
+        for cand in sorted_for_log:
+            damped_tier = tier_for(cand, now=now, prev_tier=prev_tiers.get(cand["id"]))
+            w = compute_auto_seat_weight(
+                cand, now, seat_load=seat_load,
+                active_start=active_start, active_end=active_end,
+                prev_tier=damped_tier,
+            )
             logger.debug(
-                "pick_best_target: candidate %s (%s) tier=%d resets=%s deficit=%.1f",
+                "pick_best_target: candidate %s (%s) weight=%.1f reason=%s",
                 cand.get("id", "?"), cand.get("email", "?"),
-                key.tier_index, cand.get("cached_7d_resets_at"), -key.neg_deficit,
+                w.total, w.dominant_reason,
             )
 
     return best

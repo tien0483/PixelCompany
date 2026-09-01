@@ -112,6 +112,8 @@ export interface UseTaskEditorResult {
 	setEditTaskAutoRunDelayMinutes: Dispatch<SetStateAction<number>>;
 	editTaskAutoResumeOnUsageLimit: boolean;
 	setEditTaskAutoResumeOnUsageLimit: Dispatch<SetStateAction<boolean>>;
+	editTaskAutoFailoverOnUsageLimit: boolean;
+	setEditTaskAutoFailoverOnUsageLimit: Dispatch<SetStateAction<boolean>>;
 	handleOpenCreateTask: () => void;
 	handleCancelCreateTask: () => void;
 	handleOpenEditTask: (task: BoardCard, options?: OpenEditTaskOptions) => void;
@@ -184,6 +186,7 @@ export function useTaskEditor({
 	const [editTaskSeatPreset, setEditTaskSeatPreset] = useState<RuntimeSeatPreset | undefined>(undefined);
 	const [editTaskAutoRunDelayMinutes, setEditTaskAutoRunDelayMinutes] = useState(0);
 	const [editTaskAutoResumeOnUsageLimit, setEditTaskAutoResumeOnUsageLimit] = useState(false);
+	const [editTaskAutoFailoverOnUsageLimit, setEditTaskAutoFailoverOnUsageLimit] = useState(false);
 
 	const handleNewTaskAgentIdChange = useCallback((next: RuntimeAgentId | undefined) => {
 		setNewTaskAgentId(next);
@@ -337,6 +340,7 @@ export function useTaskEditor({
 			setEditTaskSeatPreset(task.seatPreset);
 			setEditTaskAutoRunDelayMinutes(autoRunDelayMinutesFrom(task.autoRunAt));
 			setEditTaskAutoResumeOnUsageLimit(task.autoResumeOnUsageLimit === true);
+			setEditTaskAutoFailoverOnUsageLimit(task.autoFailoverOnUsageLimit === true);
 
 			if (fetchTaskWorkspaceInfo) {
 				void fetchTaskWorkspaceInfo(task).then((info) => {
@@ -371,6 +375,7 @@ export function useTaskEditor({
 		setEditTaskSeatPreset(undefined);
 		setEditTaskAutoRunDelayMinutes(0);
 		setEditTaskAutoResumeOnUsageLimit(false);
+		setEditTaskAutoFailoverOnUsageLimit(false);
 	}, []);
 
 	const handleSaveEditedTask = useCallback((): string | null => {
@@ -406,6 +411,7 @@ export function useTaskEditor({
 				taskLaunchSettings: editTaskLaunchSettings,
 				autoRunAt: editTaskAutoRunDelayMinutes > 0 ? Date.now() + editTaskAutoRunDelayMinutes * 60_000 : null,
 				autoResumeOnUsageLimit: editTaskAutoResumeOnUsageLimit,
+				autoFailoverOnUsageLimit: editTaskAutoFailoverOnUsageLimit,
 				baseRef,
 			});
 			if (!updated.updated) {
@@ -446,9 +452,11 @@ export function useTaskEditor({
 		setEditTaskSeatPreset(undefined);
 		setEditTaskAutoRunDelayMinutes(0);
 		setEditTaskAutoResumeOnUsageLimit(false);
+		setEditTaskAutoFailoverOnUsageLimit(false);
 		return savedTaskId;
 	}, [
 		editTaskAgentId,
+		editTaskAutoFailoverOnUsageLimit,
 		editTaskAutoResumeOnUsageLimit,
 		editTaskAutoReviewEnabled,
 		editTaskAutoReviewMode,
@@ -736,6 +744,8 @@ export function useTaskEditor({
 		setEditTaskAutoRunDelayMinutes,
 		editTaskAutoResumeOnUsageLimit,
 		setEditTaskAutoResumeOnUsageLimit,
+		editTaskAutoFailoverOnUsageLimit,
+		setEditTaskAutoFailoverOnUsageLimit,
 		handleOpenCreateTask,
 		handleCancelCreateTask,
 		handleOpenEditTask,
