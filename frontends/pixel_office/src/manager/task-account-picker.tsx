@@ -166,6 +166,10 @@ export interface TaskAccountPickerProps {
 	agentId: RuntimeAgentId | null;
 	disabled?: boolean;
 	onChange: (selection: TaskSeatSelection) => void;
+	/** Seat the live session launched on. Omit where no session can exist (create dialog). */
+	sessionAccountId?: number | null;
+	/** `sessionAccountId` resolved against the *full* account list, not the agent-filtered one. */
+	sessionAccount?: RuntimeManagerAccount | null;
 	/** Provider id of the card's pinned subagent seat, from its launch settings. */
 	subagentSeatProviderId?: string | null;
 	/** Omit to hide the subagent row entirely (callers that do not own launch settings). */
@@ -174,8 +178,13 @@ export interface TaskAccountPickerProps {
 	subagentSeatAppliesOnRestart?: boolean;
 }
 
+/** How a seat is named everywhere in this picker: its display name, else its email. */
+export function seatDisplayName(account: RuntimeManagerAccount): string {
+	return account.displayName ?? account.email;
+}
+
 function accountLabel(account: RuntimeManagerAccount): string {
-	const name = account.displayName ?? account.email;
+	const name = seatDisplayName(account);
 	const usageLabel = account.provider === "cursor" ? "Cursor" : "5h";
 	const usage = account.canTrackUsage ? ` · ${usageLabel} ${formatPercent(account.fiveHourPercent)}` : "";
 	const deactivated = account.isActive ? "" : " · deactivated";
@@ -244,7 +253,7 @@ export function fableSeatAccount(accounts: RuntimeManagerAccount[]): RuntimeMana
  * model switch rather than a seat choice.
  */
 export function fableOptionLabel(account: RuntimeManagerAccount, nowMs: number = Date.now()): string {
-	const name = account.displayName ?? account.email;
+	const name = seatDisplayName(account);
 	const credit = formatExtraCreditRemaining(account);
 	const rollover = formatMonthEndCountdown(nowMs);
 	return credit ? `Fable · ${name} · ${credit} credit · resets ${rollover}` : `Fable · ${name}`;
@@ -325,12 +334,53 @@ export function autoOptionLabel(
 	agentId: RuntimeAgentId | null,
 	nowMs: number = Date.now(),
 ): string {
-	const name = account.displayName ?? account.email;
+	const name = seatDisplayName(account);
 	if (agentId === "cursor" || agentId === "gemini") {
 		return `Auto · ${name}`;
 	}
 	const runway = formatResetCountdown(account.sevenDayResetsAt, nowMs);
 	return runway ? `Auto · ${name} · 7d in ${runway}` : `Auto · ${name}`;
+}
+
+export interface RunningSeatHintInput {
+	/** Seat the live session launched on (`sessionSummary.managerAccountId`); null when there is none. */
+	sessionAccountId: number | null | undefined;
+	/** That seat resolved against the full account snapshot — null when it is no longer listed. */
+	sessionAccount: RuntimeManagerAccount | null | undefined;
+	/** The card's stored pin; undefined means the card is on Auto. */
+	pinnedAccountId: number | undefined;
+	/** Seat the card's Auto option currently predicts, i.e. what a restart would launch on. */
+	autoAccount: RuntimeManagerAccount | null;
+}
+
+/**
+ * Line naming the seat the *running* session is on, for the cases where the select cannot.
+ *
+ * The select's value is the card's setting, not the session's: an Auto card stores no seat
+ * at all (the launch resolves one from live usage, `resolveAutoClaudeAccountId`), and a
+ * pinned card keeps naming its pin after failover or login recovery moved the session
+ * elsewhere. Both read as "the panel is lying about which account this task runs on".
+ *
+ * Returns null when the select already names the live seat — a hint there would be noise.
+ */
+export function runningSeatHint(input: RunningSeatHintInput): string | null {
+	const { sessionAccountId, sessionAccount, pinnedAccountId, autoAccount } = input;
+	if (typeof sessionAccountId !== "number") {
+		return null;
+	}
+	if (pinnedAccountId === sessionAccountId) {
+		return null;
+	}
+	// A seat deleted since the launch still has to be named; the id is all that is left.
+	const liveName = sessionAccount ? seatDisplayName(sessionAccount) : `account ${String(sessionAccountId)}`;
+	if (typeof pinnedAccountId === "number") {
+		// The drift restart button already names the pin, so do not repeat it here.
+		return `Running on ${liveName}`;
+	}
+	if (autoAccount && autoAccount.id !== sessionAccountId) {
+		return `Running on ${liveName} · restarts on ${seatDisplayName(autoAccount)}`;
+	}
+	return `Running on ${liveName}`;
 }
 
 /**
@@ -350,6 +400,8 @@ export function TaskAccountPicker({
 	agentId,
 	disabled = false,
 	onChange,
+	sessionAccountId = null,
+	sessionAccount = null,
 	subagentSeatProviderId,
 	onSubagentSeatChange,
 	subagentSeatAppliesOnRestart = false,
@@ -373,6 +425,15 @@ export function TaskAccountPicker({
 	const showFableOption =
 		seatPreset !== undefined &&
 		(seatPreset === "fable" || (fableAccount !== null && hasUsableExtraCredit(fableAccount)));
+
+	const sessionSeatHint = runningSeatHint({
+		sessionAccountId,
+		sessionAccount,
+		pinnedAccountId: value,
+		// "What a restart would launch on" — for a Fable card that is the credit ranking's
+		// pick, not the Auto one, so the hint must not promise the Auto seat.
+		autoAccount: seatPreset === "fable" ? fableAccount : fallbackAccount,
+	});
 
 	let selectValue = AUTO_VALUE;
 	if (pinnedSeat) {
@@ -432,6 +493,11 @@ export function TaskAccountPicker({
 					) : null}
 				</NativeSelect>
 			</label>
+			{sessionSeatHint ? (
+				<p className="text-[10px] text-text-tertiary" data-testid="task-session-account-hint">
+					{sessionSeatHint}
+				</p>
+			) : null}
 			{showSubagentRow ? (
 				<>
 					<label className="flex min-w-0 items-center gap-1.5 text-[11px] text-text-secondary">

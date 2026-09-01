@@ -20,6 +20,7 @@ import {
 	managerProviderForAgent,
 	resolveActiveManagerSeat,
 	resolveCreateTaskDefaultAgentId,
+	runningSeatHint,
 	shouldClearManagerAccountPin,
 } from "@/manager/task-account-picker";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -86,6 +87,8 @@ function renderPicker(
 		onSubagentSeatChange?: (selection: TaskSubagentSeatSelection) => void;
 		subagentSeatAppliesOnRestart?: boolean;
 		seatPreset?: "fable" | null;
+		sessionAccountId?: number | null;
+		sessionAccount?: RuntimeManagerAccount | null;
 	},
 ): HTMLElement {
 	const container = document.createElement("div");
@@ -104,6 +107,8 @@ function renderPicker(
 					activeAccountId={props.activeAccountId ?? null}
 					agentId={props.agentId}
 					onChange={props.onChange ?? (() => {})}
+					sessionAccountId={props.sessionAccountId ?? null}
+					sessionAccount={props.sessionAccount ?? null}
 					subagentSeatProviderId={props.subagentSeatProviderId ?? null}
 					subagentSeatAppliesOnRestart={props.subagentSeatAppliesOnRestart ?? false}
 					{...(props.onSubagentSeatChange ? { onSubagentSeatChange: props.onSubagentSeatChange } : {})}
@@ -327,6 +332,79 @@ describe("autoTaskSeatAccount", () => {
 	});
 });
 
+describe("runningSeatHint", () => {
+	const live = account(4, "claude", "live@example.com");
+	const predicted = account(2, "claude", "predicted@example.com");
+
+	it("says nothing when no session is running", () => {
+		expect(
+			runningSeatHint({
+				sessionAccountId: null,
+				sessionAccount: null,
+				pinnedAccountId: undefined,
+				autoAccount: predicted,
+			}),
+		).toBeNull();
+	});
+
+	it("says nothing when the pinned seat is the one running", () => {
+		expect(
+			runningSeatHint({
+				sessionAccountId: 4,
+				sessionAccount: live,
+				pinnedAccountId: 4,
+				autoAccount: predicted,
+			}),
+		).toBeNull();
+	});
+
+	// The regression this exists for: Auto stores no seat, so the option label predicts one
+	// from live usage and drifts away from the seat the launch actually pinned.
+	it("names the live seat and the seat a restart would pick for an Auto card", () => {
+		expect(
+			runningSeatHint({
+				sessionAccountId: 4,
+				sessionAccount: live,
+				pinnedAccountId: undefined,
+				autoAccount: predicted,
+			}),
+		).toBe("Running on live@example.com · restarts on predicted@example.com");
+	});
+
+	it("drops the restart clause when Auto still predicts the running seat", () => {
+		expect(
+			runningSeatHint({
+				sessionAccountId: 4,
+				sessionAccount: live,
+				pinnedAccountId: undefined,
+				autoAccount: live,
+			}),
+		).toBe("Running on live@example.com");
+	});
+
+	it("names the live seat for a pinned card the session drifted away from", () => {
+		expect(
+			runningSeatHint({
+				sessionAccountId: 4,
+				sessionAccount: live,
+				pinnedAccountId: 2,
+				autoAccount: predicted,
+			}),
+		).toBe("Running on live@example.com");
+	});
+
+	it("falls back to the account id when the seat is gone from the snapshot", () => {
+		expect(
+			runningSeatHint({
+				sessionAccountId: 9,
+				sessionAccount: null,
+				pinnedAccountId: undefined,
+				autoAccount: predicted,
+			}),
+		).toBe("Running on account 9 · restarts on predicted@example.com");
+	});
+});
+
 describe("autoOptionLabel", () => {
 	it("explains a Claude Auto pick with the winning seat's 7d runway", () => {
 		const seat = account(1, "claude", "seat@example.com");
@@ -477,6 +555,37 @@ describe("TaskAccountPicker", () => {
 		});
 		const option = container.querySelector('option[value="manager:1"]');
 		expect(option?.textContent).toContain("needs re-auth");
+	});
+
+	it("names the running seat under an Auto select that predicts a different one", () => {
+		const hot = account(1, "claude", "hot@example.com");
+		hot.fiveHourPercent = 90;
+		const cool = account(2, "claude", "cool@example.com");
+		cool.fiveHourPercent = 1;
+		const container = renderPicker({
+			accounts: [hot, cool],
+			agentId: "claude",
+			activeAccountId: 1,
+			sessionAccountId: 1,
+			sessionAccount: hot,
+		});
+		const select = container.querySelector<HTMLSelectElement>('[data-testid="task-account-picker"]');
+		expect(select?.value).toBe("auto");
+		const hint = container.querySelector('[data-testid="task-session-account-hint"]');
+		expect(hint?.textContent).toBe("Running on hot@example.com · restarts on cool@example.com");
+	});
+
+	it("shows no running-seat hint when the select already names that seat", () => {
+		const seat = account(1, "claude", "claude@example.com");
+		const container = renderPicker({
+			accounts: [seat],
+			agentId: "claude",
+			activeAccountId: 1,
+			value: 1,
+			sessionAccountId: 1,
+			sessionAccount: seat,
+		});
+		expect(container.querySelector('[data-testid="task-session-account-hint"]')).toBeNull();
 	});
 
 	it("lists API seats alongside Manager accounts", () => {

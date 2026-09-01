@@ -801,6 +801,16 @@ export function CardDetailView({
 			) ?? null,
 		[managerAccounts, selection.card.managerAccountId],
 	);
+	// The seat the session actually launched on — an Auto card stores none, and a session
+	// moved by failover or login recovery no longer matches the card's pin. Resolved against
+	// the unfiltered list so a seat of another provider (or since disabled) is still named.
+	const runningManagerAccount = useMemo(
+		() =>
+			(managerAccounts ?? []).find(
+				(account) => account.id === sessionSummary?.managerAccountId,
+			) ?? null,
+		[managerAccounts, sessionSummary?.managerAccountId],
+	);
 	// Seat env is fixed at spawn, so a card edited mid-run only takes effect on restart.
 	const isSessionLive =
 		sessionSummary?.state === "running" ||
@@ -1285,6 +1295,10 @@ export function CardDetailView({
 											}
 											activeAccountId={managerActiveAccountId}
 											agentId={effectiveTaskAgentId}
+											sessionAccountId={
+												sessionSummary?.managerAccountId ?? null
+											}
+											sessionAccount={runningManagerAccount}
 											onChange={(seatSelection) => {
 												if (seatSelection.kind === "api") {
 													onTaskApiSeatChanged?.(selection.card.id, {

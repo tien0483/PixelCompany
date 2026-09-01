@@ -48,7 +48,7 @@ import {
 	isDonateExhausted,
 	pressureBarColor,
 } from "@/manager/manager-format";
-import { fableSeatAccount } from "@/manager/task-account-picker";
+import { fableSeatAccount, seatDisplayName } from "@/manager/task-account-picker";
 import { MANAGER_LABELS } from "@/manager/manager-labels";
 import {
 	type OauthFlowKind,
@@ -671,7 +671,7 @@ function FableSeatSummaryRow({ accounts }: { accounts: RuntimeManagerAccount[] }
 			</div>
 			<p className="mt-0.5 text-[10px] text-text-tertiary">
 				Runs {FABLE_SEAT_MODEL_ID} at {FABLE_SEAT_EFFORT} effort on{" "}
-				<span className="text-text-secondary">{resolved.displayName ?? resolved.email}</span> · pool resets{" "}
+				<span className="text-text-secondary">{seatDisplayName(resolved)}</span> · pool resets{" "}
 				{formatMonthEndCountdown()}
 			</p>
 		</div>
