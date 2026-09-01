@@ -729,8 +729,8 @@ async function startServer(): Promise<{
 			console.warn(`[kanban] ${message}`);
 		},
 	});
-	// Product subagent packages (cursor_agent, subagent_claude_code, …) install into DSH_HOME
-	// on first boot — same non-blocking posture as Flowise embed seeding.
+	// Product plugins (cursor_agent, subagent_claude_code, the MCP client, …) install into the dsh
+	// task profile on first boot — same non-blocking posture as Flowise embed seeding.
 	void ensureDshProductSubagents({
 		dshHome: resolveDefaultDshHome(),
 		warn: (message) => {

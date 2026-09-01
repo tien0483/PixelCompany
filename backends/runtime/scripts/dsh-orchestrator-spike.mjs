@@ -46,18 +46,10 @@ if (patchPath === null) {
 
 const dshHome = process.env.PIXELOFFICE_DSH_HOME?.trim() || `${process.env.HOME}/.agent/dsh`;
 const { command, prefix } = resolveDshCommand();
-const args = [
-	...prefix,
-	"--profile",
-	"headless",
-	"--patch",
-	patchPath,
-	"--cwd",
-	values.cwd,
-	"--force",
-	"--prompt",
-	values.prompt,
-];
+// The launcher stops parsing at the first token it does not recognize and the headless app reads
+// the *positional* argument as its task — so the prompt is last and bare. `--cwd` is the spawn
+// cwd below, not a flag. Keep this in step with src/orchestrator/orchestrator-launch.ts.
+const args = [...prefix, "--profile", "headless", "--patch", patchPath, values.prompt];
 
 process.stderr.write(`DSH_HOME=${dshHome}\n`);
 process.stderr.write(`patch=${patchPath}\n`);

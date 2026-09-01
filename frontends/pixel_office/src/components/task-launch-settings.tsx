@@ -1,3 +1,4 @@
+import { isFlowiseMcpServerId } from "@runtime-flowise-mcp-id";
 import { AlertTriangle, X } from "lucide-react";
 import type { ReactElement } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -63,8 +64,6 @@ const GEMINI_MODEL_FALLBACK: RuntimeAgentModelInventoryItem[] = [
 	{ id: "gpt-oss-120b", label: "GPT-OSS 120B" },
 ];
 
-const FLOWISE_MCP_PREFIX = "flowise-";
-
 function listBlockedClaudeMcpIds(
 	mcpServerIds: string[],
 	policy: RuntimeClaudeOrgMcpPolicy | null,
@@ -78,14 +77,14 @@ function listBlockedClaudeMcpIds(
 		if (!id) {
 			return false;
 		}
-		if (id.startsWith(FLOWISE_MCP_PREFIX)) {
+		if (isFlowiseMcpServerId(id)) {
 			return true;
 		}
 		return !allowedNames.has(id.toLowerCase());
 	});
 }
 
-type AllowlistKey = "skillIds" | "agentIds" | "commandIds" | "workflowIds" | "mcpServerIds";
+type AllowlistKey = "skillIds" | "agentIds" | "commandIds" | "workflowIds" | "mcpServerIds" | "customAgentFlowIds";
 
 function cloneLaunchSettings(settings?: RuntimeTaskLaunchSettings | null): RuntimeTaskLaunchSettings | undefined {
 	if (settings === undefined || settings === null) {
@@ -101,6 +100,9 @@ function cloneLaunchSettings(settings?: RuntimeTaskLaunchSettings | null): Runti
 		...(settings.mcpServerIds && settings.mcpServerIds.length > 0
 			? { mcpServerIds: [...settings.mcpServerIds] }
 			: {}),
+		...(settings.customAgentFlowIds && settings.customAgentFlowIds.length > 0
+			? { customAgentFlowIds: [...settings.customAgentFlowIds] }
+			: {}),
 	};
 	if (
 		next.modelId === undefined &&
@@ -109,7 +111,8 @@ function cloneLaunchSettings(settings?: RuntimeTaskLaunchSettings | null): Runti
 		next.agentIds === undefined &&
 		next.commandIds === undefined &&
 		next.workflowIds === undefined &&
-		next.mcpServerIds === undefined
+		next.mcpServerIds === undefined &&
+		next.customAgentFlowIds === undefined
 	) {
 		return undefined;
 	}
@@ -285,6 +288,7 @@ export function TaskLaunchSettingsPicker({
 	const [commandPick, setCommandPick] = useState("");
 	const [workflowPick, setWorkflowPick] = useState("");
 	const [mcpPick, setMcpPick] = useState("");
+	const [customAgentFlowPick, setCustomAgentFlowPick] = useState("");
 	const [orgMcpPolicy, setOrgMcpPolicy] = useState<RuntimeClaudeOrgMcpPolicy | null>(null);
 	// Optimistic draft so rapid "Add skill" selections accumulate even before the
 	// parent re-renders with the persisted board value.
@@ -417,6 +421,9 @@ export function TaskLaunchSettingsPicker({
 	const attachedCommandIds = draft?.commandIds ?? [];
 	const attachedWorkflowIds = draft?.workflowIds ?? [];
 	const attachedMcpIds = draft?.mcpServerIds ?? [];
+	const attachedCustomAgentFlowIds = draft?.customAgentFlowIds ?? [];
+	// Only deployed flows reach the inventory, so this subset *is* the Custom Agent picker's list.
+	const flowiseFlowItems = useMemo(() => mcpServers.filter((item) => isFlowiseMcpServerId(item.id)), [mcpServers]);
 	const blockedClaudeMcpIds = useMemo(
 		() =>
 			effectiveAgentId === "claude"
@@ -468,7 +475,14 @@ export function TaskLaunchSettingsPicker({
 		if (patch.modelId === "") {
 			delete next.modelId;
 		}
-		for (const key of ["skillIds", "agentIds", "commandIds", "workflowIds", "mcpServerIds"] as const) {
+		for (const key of [
+			"skillIds",
+			"agentIds",
+			"commandIds",
+			"workflowIds",
+			"mcpServerIds",
+			"customAgentFlowIds",
+		] as const) {
 			if (patch[key] !== undefined && (patch[key]?.length ?? 0) === 0) {
 				delete next[key];
 			}
@@ -513,7 +527,8 @@ export function TaskLaunchSettingsPicker({
 		attachedAgentIds.length > 0 ||
 		attachedCommandIds.length > 0 ||
 		attachedWorkflowIds.length > 0 ||
-		attachedMcpIds.length > 0;
+		attachedMcpIds.length > 0 ||
+		attachedCustomAgentFlowIds.length > 0;
 
 	return (
 		<div className="flex flex-col gap-2" data-testid="task-launch-settings">
@@ -527,11 +542,24 @@ export function TaskLaunchSettingsPicker({
 				</p>
 			) : null}
 			{isOrchestrator ? (
-				<p className="text-[10px] text-text-tertiary">
-					Orchestrator cards: attach Flowise MCP here — runtime writes{" "}
-					<code className="text-[10px]">.cursor/mcp.json</code> in the worktree for{" "}
-					<code className="text-[10px]">cursor_agent</code> children.
-				</p>
+				<div className="flex flex-col gap-1" data-testid="task-launch-custom-agent-flows">
+					<ResourceAllowlistSection
+						title="Custom agent (flow)"
+						allLabel="None"
+						addLabel="Add Flowise flow…"
+						attachedIds={attachedCustomAgentFlowIds}
+						items={flowiseFlowItems}
+						pick={customAgentFlowPick}
+						setPick={setCustomAgentFlowPick}
+						onAdd={(id) => addAllowlistId("customAgentFlowIds", id)}
+						onRemove={(id) => removeAllowlistId("customAgentFlowIds", id)}
+					/>
+					<p className="text-[10px] text-text-tertiary">
+						{flowiseFlowItems.length === 0
+							? "No deployed flows — open the Agents tab, build a flow, and deploy it."
+							: "Each flow is mounted on the harness as an mcp__* tool, so its agent nodes run and coordinate inside Flowise. Other MCP servers below still reach cursor_agent children via .cursor/mcp.json."}
+					</p>
+				</div>
 			) : null}
 			{showModelEffort ? (
 			<div className="grid grid-cols-2 gap-2">
@@ -660,7 +688,7 @@ export function TaskLaunchSettingsPicker({
 							Blocked:{" "}
 							<code className="text-[10px]">{blockedClaudeMcpIds.join(", ")}</code>. Flowise shims are
 							never on the org allowlist — use <strong className="font-medium">Cursor Agent</strong> or{" "}
-							<strong className="font-medium">Orchestrator</strong> instead, or ask IT to allowlist the shim.
+							<strong className="font-medium">Custom Agent</strong> instead, or ask IT to allowlist the shim.
 						</p>
 					</div>
 				</div>

@@ -38,6 +38,17 @@ export function resolveDefaultDshHome(): string {
 	return join(agentHome, "dsh");
 }
 
+/** Profile the Custom Agent card launches; `dsh --profile headless` auto-initializes it. */
+export const DSH_TASK_PROFILE_NAME = "headless";
+
+/**
+ * Out-of-tree dsh plugins resolve from the dsh installation first and then from the *profile's*
+ * own `node_modules` — `$DSH_HOME/profiles/<name>` — never from `$DSH_HOME` itself.
+ */
+export function resolveDshProfileDir(dshHome: string, profile: string = DSH_TASK_PROFILE_NAME): string {
+	return join(dshHome, "profiles", profile);
+}
+
 export function resolveOrchestratorPatchPath(): string | null {
 	const override = process.env.PIXELOFFICE_DSH_PATCH?.trim();
 	if (override && existsSync(override)) {

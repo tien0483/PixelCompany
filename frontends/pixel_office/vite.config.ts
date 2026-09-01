@@ -92,6 +92,7 @@ export default defineConfig({
 				__dirname,
 				"../../backends/runtime/src/cline-sdk/cline-tool-call-display.ts",
 			),
+			"@runtime-flowise-mcp-id": resolve(__dirname, "../../backends/runtime/src/flowise/flowise-mcp-id.ts"),
 			"@runtime-home-agent-session": resolve(__dirname, "../../backends/runtime/src/core/home-agent-session.ts"),
 			"@runtime-manager-seat-ranking": resolve(
 				__dirname,

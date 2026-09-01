@@ -1,8 +1,8 @@
 import type { RuntimeOrchestratorStatus } from "../core/api-contract";
+import { createFlowiseClient } from "../flowise/flowise-client";
 import { resolveDshBinary } from "./dsh-binary";
 import { resolveDefaultDshHome, resolveOrchestratorPatchPath } from "./dsh-endpoint";
 import { probeDshProductSubagentsInstalled } from "./dsh-home-setup";
-import { createFlowiseClient } from "../flowise/flowise-client";
 
 export interface OrchestratorClient {
 	status: () => Promise<RuntimeOrchestratorStatus>;
@@ -45,17 +45,17 @@ function buildHints(input: {
 		hints.push("Install dsh: npm install -g @deepseek-ai/dsh (or set PIXELOFFICE_DSH_BINARY).");
 	}
 	if (input.patchPath === null) {
-		hints.push("Missing orchestrator patch at backends/runtime/config/orchestrator/pixeloffice.patch.yml.");
+		hints.push("Missing Custom Agent patch at backends/runtime/config/orchestrator/pixeloffice.patch.yml.");
 	}
 	if (!input.subagentsInstalled) {
-		hints.push("Product subagents installing in DSH_HOME — retry after solo finishes npm install.");
+		hints.push("Product plugins installing in $DSH_HOME/profiles/headless — retry after solo finishes the install.");
 	}
 	if (!input.flowiseOnline) {
 		hints.push("Flowise offline — Agents tab flows unavailable until pnpm run solo starts the studio.");
 	}
 	if (input.binary !== null && input.patchPath !== null) {
-		hints.push("Pick agent Orchestrator (dsh) on a task card for cross-provider delegation.");
-		hints.push("Wire Flowise: attach flowise-* MCP on the card — Cursor/Antigravity auto-write project config.");
+		hints.push("Pick agent Custom Agent (dsh) on a task card for cross-provider delegation.");
+		hints.push("Wire Flowise: pick a deployed flow under Custom agent (flow) on the card — dsh mounts it as a tool.");
 	}
 	return hints;
 }

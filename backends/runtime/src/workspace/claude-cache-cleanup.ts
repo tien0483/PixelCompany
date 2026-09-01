@@ -8,7 +8,7 @@ import type {
 	RuntimeClaudeCacheCleanResponse,
 	RuntimeClaudeCacheStatusResponse,
 } from "../core/api-contract";
-import { resolveDefaultDshHome } from "../orchestrator/dsh-endpoint";
+import { resolveDefaultDshHome, resolveDshProfileDir } from "../orchestrator/dsh-endpoint";
 import { getLegacyRuntimeHomePath, getRuntimeHomePath, getTaskWorktreesHomePath } from "../state/workspace-state";
 import { cleanAgentHomes, scanAgentHomes, summarizeAgentHomes } from "./agent-home-cleanup";
 import { measureDirectorySize } from "./worktree-disk-usage";
@@ -189,7 +189,13 @@ async function scanEntireCliCacheTier(): Promise<LegacyLeftover[]> {
 
 async function scanDshPackagesTier(): Promise<LegacyLeftover[]> {
 	const dshHome = resolveDefaultDshHome();
-	const targets = [join(dshHome, "node_modules"), join(dshHome, ".npm")];
+	// Plugins live in the task profile; `$DSH_HOME/node_modules` is only left over from the
+	// pre-profile install layout, so both are reclaimable and both are reinstalled on next use.
+	const targets = [
+		join(resolveDshProfileDir(dshHome), "node_modules"),
+		join(dshHome, "node_modules"),
+		join(dshHome, ".npm"),
+	];
 	const leftovers: LegacyLeftover[] = [];
 	for (const path of targets) {
 		if (!(await directoryExists(path))) {
@@ -198,7 +204,7 @@ async function scanDshPackagesTier(): Promise<LegacyLeftover[]> {
 		leftovers.push({
 			path,
 			sizeBytes: await measureDirectorySize(path),
-			reason: "Orchestrator (dsh) subagent packages — reinstall on next orchestrator use.",
+			reason: "Custom Agent (dsh) plugin packages — reinstalled on next Custom Agent use.",
 		});
 	}
 	return leftovers;

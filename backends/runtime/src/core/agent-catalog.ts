@@ -78,8 +78,10 @@ export const RUNTIME_AGENT_CATALOG: RuntimeAgentCatalogEntry[] = [
 		installUrl: "https://cursor.com/docs/cli/overview",
 	},
 	{
+		// Id stays `orchestrator` — it is persisted on every existing board card. Only the label
+		// changed: what a card picks here is a whole Flowise-composed multi-agent unit.
 		id: "orchestrator",
-		label: "Orchestrator (dsh)",
+		label: "Custom Agent (dsh)",
 		binary: "dsh",
 		baseArgs: ["--profile", "headless"],
 		autonomousArgs: [],

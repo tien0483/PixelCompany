@@ -55,6 +55,7 @@ export function cloneTaskLaunchSettings(
 	const commandIds = normalizeIdList(settings.commandIds);
 	const workflowIds = normalizeIdList(settings.workflowIds);
 	const mcpServerIds = normalizeIdList(settings.mcpServerIds);
+	const customAgentFlowIds = normalizeIdList(settings.customAgentFlowIds);
 	const subagentSeatProviderId = settings.subagentSeatProviderId?.trim();
 	const subagentSeatModelId = settings.subagentSeatModelId?.trim();
 	const next: RuntimeTaskLaunchSettings = {
@@ -65,6 +66,7 @@ export function cloneTaskLaunchSettings(
 		...(commandIds ? { commandIds } : {}),
 		...(workflowIds ? { workflowIds } : {}),
 		...(mcpServerIds ? { mcpServerIds } : {}),
+		...(customAgentFlowIds ? { customAgentFlowIds } : {}),
 		// A model without a provider names nothing resolvable, so it is dropped with it.
 		...(subagentSeatProviderId ? { subagentSeatProviderId } : {}),
 		...(subagentSeatProviderId && subagentSeatModelId ? { subagentSeatModelId } : {}),
@@ -77,6 +79,7 @@ export function cloneTaskLaunchSettings(
 		next.commandIds === undefined &&
 		next.workflowIds === undefined &&
 		next.mcpServerIds === undefined &&
+		next.customAgentFlowIds === undefined &&
 		next.subagentSeatProviderId === undefined
 	) {
 		return undefined;

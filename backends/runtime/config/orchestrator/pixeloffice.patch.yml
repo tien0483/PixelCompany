@@ -1,5 +1,10 @@
-# PixelOffice orchestrator patch — mount product subagent providers for cross-CLI delegation.
-# Requires DeepSeek Harness with optional packages enabled in DSH_HOME (see docs).
+# PixelOffice Custom Agent patch — mount product subagent providers for cross-CLI delegation.
+# Requires the dsh product packages in the task profile (`$DSH_HOME/profiles/headless`, installed
+# by `ensureDshProductSubagents`) — NOT in `$DSH_HOME` itself, which dsh never resolves from.
+#
+# These rows introduce *new* plugin ids, so they must sit under `insert:`. A bare top-level entry
+# addresses an existing row by id; the composed tree silently drops one that matches nothing.
+# Verify with: dsh --profile headless --patch <this file> --dump-config
 #
 # Providers (best-effort — only those with CLIs on PATH are usable at runtime):
 #   cursor     → Cursor Agent CLI over ACP (`agent acp`)
@@ -8,32 +13,35 @@
 #   gemini-acp → Gemini CLI over ACP (`gemini --acp`) when available
 #   agy        → Antigravity CLI (`agy`) when it exposes a compatible interface
 #
-# Flowise: configure on Cursor via ~/.cursor/mcp.json (print-flowise-mcp-config.mjs) or on
-# Claude via card MCP picker; inner Flowise MCP stays in the Agents tab canvas.
+# Flowise: the card's Custom Agent flows are wired by a second, generated `--patch` overlay
+# (`orchestrator-flowise-patch.ts`) that mounts one `@deepseek-ai/dsh-mcp-client` row per flow,
+# so the harness itself calls the canvas. The `.cursor/mcp.json` written into the worktree stays
+# for `cursor_agent` children and for non-Flowise MCP servers picked on the card.
 
-- id: tool-subagent-cursor
-  name: '@deepseek-ai/dsh-tool-subagent'
-  disabled: false
-  config:
-    provider: cursor
-    toolName: cursor_agent
-    enableRunInBackground: false
-    maxDepth: provider-managed
+- insert:
+    - id: tool-subagent-cursor
+      name: '@deepseek-ai/dsh-tool-subagent'
+      disabled: false
+      config:
+        provider: cursor
+        toolName: cursor_agent
+        enableRunInBackground: false
+        maxDepth: provider-managed
 
-- id: tool-subagent-claude-code
-  name: '@deepseek-ai/dsh-tool-subagent'
-  disabled: false
-  config:
-    provider: claude-code
-    toolName: subagent_claude_code
-    enableRunInBackground: false
-    maxDepth: provider-managed
+    - id: tool-subagent-claude-code
+      name: '@deepseek-ai/dsh-tool-subagent'
+      disabled: false
+      config:
+        provider: claude-code
+        toolName: subagent_claude_code
+        enableRunInBackground: false
+        maxDepth: provider-managed
 
-- id: tool-subagent-codex
-  name: '@deepseek-ai/dsh-tool-subagent'
-  disabled: false
-  config:
-    provider: codex
-    toolName: subagent_codex
-    enableRunInBackground: false
-    maxDepth: provider-managed
+    - id: tool-subagent-codex
+      name: '@deepseek-ai/dsh-tool-subagent'
+      disabled: false
+      config:
+        provider: codex
+        toolName: subagent_codex
+        enableRunInBackground: false
+        maxDepth: provider-managed
