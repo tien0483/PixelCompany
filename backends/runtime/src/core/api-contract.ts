@@ -122,6 +122,18 @@ export const runtimeTaskLaunchEffortSchema = z.enum(["low", "medium", "high", "x
 export type RuntimeTaskLaunchEffort = z.infer<typeof runtimeTaskLaunchEffortSchema>;
 
 /**
+ * A seat *resolution mode* rather than a seat: the card names a policy, and the launch turns it
+ * into a concrete Manager account id. Mutually exclusive with an explicit `managerAccountId`.
+ *
+ * `fable` — run Claude Fable 5 at a fixed effort on whichever Claude seat has the most usable
+ * extra usage credit. Extra credit only bills once a seat's subscription windows are capped, so
+ * this mode deliberately prefers saturated seats and bypasses the donate-cap launch gate; see
+ * `manager/claude-auto-seat-ranking.ts` and `manager/manager-account-pin.ts`.
+ */
+export const runtimeSeatPresetSchema = z.enum(["fable"]);
+export type RuntimeSeatPreset = z.infer<typeof runtimeSeatPresetSchema>;
+
+/**
  * Per-task launch allowlist. Empty arrays (or omit) inherit Manager/global installs.
  * Non-empty arrays restrict the session to those ids.
  *
@@ -204,6 +216,8 @@ export const runtimeBoardCardSchema = z.preprocess(
 			agentId: runtimeAgentIdSchema.optional(),
 			/** Claude account (Manager id) this card's session runs on; unset follows auto-swap. */
 			managerAccountId: z.number().int().positive().optional(),
+			/** Seat resolution mode; mutually exclusive with `managerAccountId`. See `runtimeSeatPresetSchema`. */
+			seatPreset: runtimeSeatPresetSchema.optional(),
 			/**
 			 * When true, a session that hits the Claude usage limit parks as "usage_paused" and the
 			 * runtime auto-resumes it (--continue) once its window resets, instead of stopping in Review.
@@ -831,6 +845,27 @@ export const RuntimeManagerAccountSchema = z.object({
 	validationStatus: z.string().nullable(),
 	/** Last credential/usage error from jacked, when the seat needs attention. */
 	lastError: z.string().nullable(),
+	/**
+	 * Extra usage credits — the monthly pay-as-you-go pool Anthropic bills once the
+	 * subscription windows are capped. Dollars (Manager already divides its cent values
+	 * by 100). Null/absent when the provider reports none; `isEnabled` false means the
+	 * org has the feature but has not turned it on, which is the same as having none.
+	 *
+	 * Optional rather than defaulted on purpose: `z.infer` yields the output type, so a
+	 * `.default()` would make this required on every existing construction site and fixture.
+	 */
+	extraUsage: z
+		.object({
+			isEnabled: z.boolean(),
+			/** Monthly credit ceiling in USD. */
+			monthlyLimitUsd: z.number().nullable(),
+			/** Credit spent so far this month, in USD. */
+			usedCreditsUsd: z.number().nullable(),
+			/** Percentage 0-100 of the monthly ceiling consumed, as the provider reports it. */
+			utilization: z.number().nullable(),
+		})
+		.nullable()
+		.optional(),
 	/** Distinct quota tiers/pools (e.g. Antigravity Gemini vs Claude/GPT-OSS). */
 	usageTiers: z
 		.array(
@@ -2623,6 +2658,11 @@ export const runtimeTaskSessionStartRequestSchema = z.object({
 	 * different accounts run concurrently. Omit to follow Manager's global auto-swap.
 	 */
 	managerAccountId: z.number().int().positive().optional(),
+	/**
+	 * Resolve the seat by policy instead of naming it. Ignored when `managerAccountId` is set.
+	 * `fable` also forces the session's model and effort — see `applyFableSeatLaunchSettings`.
+	 */
+	seatPreset: runtimeSeatPresetSchema.optional(),
 	/** Carry the card's auto-resume-on-usage-limit intent onto the session so exits can pause+reschedule. */
 	autoResumeOnUsageLimit: z.boolean().optional(),
 });

@@ -194,6 +194,9 @@ export function useTaskSessions({ currentProjectId, setSessions }: UseTaskSessio
 					// Pins this session to one Claude account (own CLAUDE_CONFIG_DIR) so
 					// cards on different accounts can run at the same time.
 					managerAccountId: task.managerAccountId,
+					// Or, instead of a pin, a policy the runtime resolves at launch — the Fable
+					// seat also forces this session's model and effort.
+					seatPreset: task.seatPreset,
 					// Opt this task into auto-pause/continue across a Claude usage-limit reset.
 					autoResumeOnUsageLimit: task.autoResumeOnUsageLimit,
 				});

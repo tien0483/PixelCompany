@@ -106,6 +106,7 @@ import { fetchRuntimeBlame } from "@/runtime/runtime-config-query";
 import type {
 	RuntimeClineReasoningEffort,
 	RuntimeSavedPlan,
+	RuntimeSeatPreset,
 	RuntimeTaskLaunchSettings,
 	RuntimeTaskSessionSummary,
 } from "@/runtime/types";
@@ -120,6 +121,7 @@ import {
 	setTaskApiSeat,
 	setTaskLaunchSettings,
 	setTaskManagerAccount,
+	setTaskSeatPreset,
 } from "@/state/board-state";
 import { isTaskInChain } from "@/state/chain-groups";
 import {
@@ -446,6 +448,8 @@ export default function App(): ReactElement {
 		setNewTaskLaunchSettings,
 		newTaskManagerAccountId,
 		setNewTaskManagerAccountId,
+		newTaskSeatPreset,
+		setNewTaskSeatPreset,
 		editingTaskId,
 		editTaskPrompt,
 		setEditTaskPrompt,
@@ -471,6 +475,8 @@ export default function App(): ReactElement {
 		setEditTaskLaunchSettings,
 		editTaskManagerAccountId,
 		setEditTaskManagerAccountId,
+		editTaskSeatPreset,
+		setEditTaskSeatPreset,
 		editTaskAutoRunDelayMinutes,
 		setEditTaskAutoRunDelayMinutes,
 		editTaskAutoResumeOnUsageLimit,
@@ -1043,6 +1049,18 @@ export default function App(): ReactElement {
 		[setBoard],
 	);
 
+	const handleTaskSeatPresetChanged = useCallback(
+		(taskId: string, seatPreset: RuntimeSeatPreset | null) => {
+			// Same "card, not session" rule as the pin above: a live session keeps the seat
+			// and model it launched with until it is restarted.
+			setBoard((currentBoard) => {
+				const result = setTaskSeatPreset(currentBoard, taskId, seatPreset);
+				return result.updated ? result.board : currentBoard;
+			});
+		},
+		[setBoard],
+	);
+
 	const handleTaskApiSeatChanged = useCallback(
 		(
 			taskId: string,
@@ -1192,6 +1210,8 @@ export default function App(): ReactElement {
 			managerActiveAccountId={manager?.activeAccountId ?? null}
 			managerAccountId={editTaskManagerAccountId}
 			onManagerAccountIdChange={setEditTaskManagerAccountId}
+			seatPreset={editTaskSeatPreset ?? null}
+			onSeatPresetChange={setEditTaskSeatPreset}
 			autoRunDelayMinutes={editTaskAutoRunDelayMinutes}
 			onAutoRunDelayMinutesChange={setEditTaskAutoRunDelayMinutes}
 			autoResumeOnUsageLimit={editTaskAutoResumeOnUsageLimit}
@@ -1741,6 +1761,7 @@ export default function App(): ReactElement {
 									managerAccounts={managedManagerAccounts}
 									managerActiveAccountId={manager?.activeAccountId ?? null}
 									onTaskManagerAccountChanged={handleTaskManagerAccountChanged}
+									onTaskSeatPresetChanged={handleTaskSeatPresetChanged}
 									onTaskApiSeatChanged={handleTaskApiSeatChanged}
 									onRestartTaskSession={handleRestartTaskWithCurrentAccount}
 									restartTaskLoadingById={restartTaskLoadingById}
@@ -1855,6 +1876,8 @@ export default function App(): ReactElement {
 					managerActiveAccountId={manager?.activeAccountId ?? null}
 					managerAccountId={newTaskManagerAccountId}
 					onManagerAccountIdChange={setNewTaskManagerAccountId}
+					seatPreset={newTaskSeatPreset ?? null}
+					onSeatPresetChange={setNewTaskSeatPreset}
 				/>
 				<ClearTrashDialog
 					open={isClearTrashDialogOpen}

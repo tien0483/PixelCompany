@@ -1,3 +1,4 @@
+import { FABLE_SEAT_EFFORT, FABLE_SEAT_MODEL_ID } from "@runtime-manager-seat-ranking";
 import { AlertTriangle, X } from "lucide-react";
 import type { ReactElement } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -13,6 +14,7 @@ import type {
 	RuntimeAgentModelInventoryItem,
 	RuntimeClaudeOrgMcpPolicy,
 	RuntimeMcpInventoryItem,
+	RuntimeSeatPreset,
 	RuntimeSkillInventoryItem,
 	RuntimeTaskLaunchEffort,
 	RuntimeTaskLaunchSettings,
@@ -252,6 +254,7 @@ export function TaskLaunchSettingsPicker({
 	workspaceId,
 	value,
 	onChange,
+	seatPreset,
 	sessionAppliesOnRestart = false,
 }: {
 	active: boolean;
@@ -261,11 +264,17 @@ export function TaskLaunchSettingsPicker({
 	workspaceId?: string | null;
 	value?: RuntimeTaskLaunchSettings;
 	onChange: (value: RuntimeTaskLaunchSettings | undefined) => void;
+	/** Card's seat preset. `fable` fixes Model and Effort, which the runtime enforces at launch. */
+	seatPreset?: RuntimeSeatPreset | null;
 	/** When true, show that skill/MCP/model tags apply on the next session start. */
 	sessionAppliesOnRestart?: boolean;
 }): ReactElement | null {
 	const effectiveAgentId = agentId ?? defaultAgentId ?? null;
 	const isOrchestrator = effectiveAgentId === "orchestrator";
+	// The runtime overwrites these two at launch (`applyFableSeatLaunchSettings`), so the controls
+	// display what will actually be used rather than whatever the card happens to have stored —
+	// a card pinned to Fable before the preset existed still shows the truth.
+	const isFableSeat = seatPreset === "fable";
 	const showForAgent =
 		effectiveAgentId === "claude" ||
 		effectiveAgentId === "cursor" ||
@@ -404,13 +413,17 @@ export function TaskLaunchSettingsPicker({
 		return CLAUDE_EFFORT_OPTIONS;
 	}, [effectiveAgentId]);
 
+	// A Fable card shows the launch's values, not the card's — the runtime overwrites them
+	// anyway, and rendering the stored ones would advertise a model that will not run.
+	const shownModelId = isFableSeat ? FABLE_SEAT_MODEL_ID : (draft?.modelId ?? "");
+	const shownEffort = isFableSeat ? FABLE_SEAT_EFFORT : (draft?.effort ?? "");
+
 	const selectedModelLabel = useMemo(() => {
-		const selected = draft?.modelId;
-		if (!selected) {
+		if (!shownModelId) {
 			return "Default";
 		}
-		return models.find((model) => model.id === selected)?.label ?? selected;
-	}, [draft?.modelId, models]);
+		return models.find((model) => model.id === shownModelId)?.label ?? shownModelId;
+	}, [shownModelId, models]);
 
 	const attachedSkillIds = draft?.skillIds ?? [];
 	const attachedAgentIds = draft?.agentIds ?? [];
@@ -540,8 +553,9 @@ export function TaskLaunchSettingsPicker({
 					<SearchSelectDropdown
 						fill
 						size="sm"
+						disabled={isFableSeat}
 						options={modelOptions}
-						selectedValue={draft?.modelId ?? ""}
+						selectedValue={shownModelId}
 						buttonText={modelsLoading ? "Loading models…" : selectedModelLabel}
 						placeholder="Search models…"
 						emptyText="No models available"
@@ -555,7 +569,8 @@ export function TaskLaunchSettingsPicker({
 				<label className="flex flex-col gap-1 text-[11px] text-text-secondary">
 					Effort
 					<NativeSelect
-						value={draft?.effort ?? ""}
+						disabled={isFableSeat}
+						value={shownEffort}
 						onChange={(event) => {
 							const next = event.target.value as RuntimeTaskLaunchEffort | "";
 							const current = cloneLaunchSettings(draft) ?? {};
@@ -576,6 +591,12 @@ export function TaskLaunchSettingsPicker({
 					</NativeSelect>
 				</label>
 			</div>
+			) : null}
+			{isFableSeat ? (
+				<p className="text-[10px] text-text-tertiary" data-testid="task-launch-settings-fable-lock">
+					Fixed by the Fable seat, which spends extra usage credit on Claude&nbsp;Fable&nbsp;5. Switch the
+					card&apos;s Account away from Fable to change them.
+				</p>
 			) : null}
 
 			{showResourceAllowlists ? (

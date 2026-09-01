@@ -39,6 +39,7 @@ import type {
 	RuntimeClineReasoningEffort,
 	RuntimeManagerAccount,
 	RuntimeSavedPlan,
+	RuntimeSeatPreset,
 	RuntimeTaskClineSettings,
 	RuntimeTaskLaunchSettings,
 } from "@/runtime/types";
@@ -143,6 +144,8 @@ export function TaskCreateDialog({
 	managerActiveAccountId = null,
 	managerAccountId,
 	onManagerAccountIdChange,
+	seatPreset,
+	onSeatPresetChange,
 }: {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
@@ -186,6 +189,9 @@ export function TaskCreateDialog({
 	managerActiveAccountId?: number | null;
 	managerAccountId?: number | undefined;
 	onManagerAccountIdChange?: (value: number | undefined) => void;
+	/** Omit both to hide the seat-preset options; `null` means "supported, none chosen". */
+	seatPreset?: RuntimeSeatPreset | null;
+	onSeatPresetChange?: (value: RuntimeSeatPreset | undefined) => void;
 }): ReactElement {
 	const [mode, setMode] = useState<"single" | "multi">("single");
 	const [createMore, setCreateMore] = useState(false);
@@ -639,6 +645,7 @@ export function TaskCreateDialog({
 							accounts={eligibleManagerAccounts}
 							apiSeats={apiSeats}
 							value={managerAccountId}
+							{...(onSeatPresetChange ? { seatPreset: seatPreset ?? null } : {})}
 							clineProviderId={clineSettings?.providerId ?? null}
 							activeAccountId={managerActiveAccountId}
 							agentId={effectiveAgentId}
@@ -647,6 +654,7 @@ export function TaskCreateDialog({
 									onManagerAccountIdChange,
 									onAgentIdChange,
 									onClineSettingsChange,
+									onSeatPresetChange,
 									currentAgentId: effectiveAgentId,
 									accounts: eligibleManagerAccounts,
 									activeAccountId: managerActiveAccountId,
@@ -671,6 +679,7 @@ export function TaskCreateDialog({
 							defaultAgentId={defaultAgentId}
 							workspaceId={workspaceId}
 							value={taskLaunchSettings}
+							seatPreset={seatPreset ?? null}
 							onChange={onTaskLaunchSettingsChange}
 						/>
 					) : null}

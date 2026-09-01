@@ -57,6 +57,7 @@ import type {
 	RuntimeGitBlameLine,
 	RuntimeManagerAccount,
 	RuntimeSavedPlan,
+	RuntimeSeatPreset,
 	RuntimeTaskLaunchSettings,
 	RuntimeTaskSessionMode,
 	RuntimeTaskSessionSummary,
@@ -516,6 +517,7 @@ export function CardDetailView({
 	managerAccounts,
 	managerActiveAccountId = null,
 	onTaskManagerAccountChanged,
+	onTaskSeatPresetChanged,
 	onRestartTaskSession,
 	restartTaskLoadingById,
 	onResumeEndedSession,
@@ -611,6 +613,8 @@ export function CardDetailView({
 		taskId: string,
 		managerAccountId: number | null,
 	) => void;
+	/** Switches the card onto a seat *preset* (or off, with null). Omit to hide the preset options. */
+	onTaskSeatPresetChanged?: (taskId: string, seatPreset: RuntimeSeatPreset | null) => void;
 	/** Moves the card onto (or off) an API-key seat, which implies the Cline agent. */
 	onTaskApiSeatChanged?: (
 		taskId: string,
@@ -1273,6 +1277,9 @@ export function CardDetailView({
 											accounts={taskManagerAccounts}
 											apiSeats={apiSeats}
 											value={selection.card.managerAccountId}
+											{...(onTaskSeatPresetChanged
+												? { seatPreset: selection.card.seatPreset ?? null }
+												: {})}
 											clineProviderId={
 												selection.card.clineSettings?.providerId ?? null
 											}
@@ -1289,6 +1296,16 @@ export function CardDetailView({
 												if (effectiveTaskAgentId === "cline") {
 													onTaskApiSeatChanged?.(selection.card.id, null);
 												}
+												// A preset owns the seat field, so it is set instead of
+												// the account pin, never alongside it.
+												if (seatSelection.kind === "preset") {
+													onTaskSeatPresetChanged?.(
+														selection.card.id,
+														seatSelection.preset,
+													);
+													return;
+												}
+												onTaskSeatPresetChanged?.(selection.card.id, null);
 												onTaskManagerAccountChanged(
 													selection.card.id,
 													seatSelection.kind === "manager"
@@ -1349,6 +1366,7 @@ export function CardDetailView({
 											defaultAgentId={selectedAgentId}
 											workspaceId={currentProjectId}
 											value={selection.card.taskLaunchSettings}
+											seatPreset={selection.card.seatPreset ?? null}
 											sessionAppliesOnRestart={
 												sessionSummary?.state === "running" ||
 												sessionSummary?.state === "awaiting_review"

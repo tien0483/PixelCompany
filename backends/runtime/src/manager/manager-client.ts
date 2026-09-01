@@ -258,6 +258,19 @@ function parseAccount(raw: unknown): RuntimeManagerAccount | null {
 	const canAutoSwap = typeof raw.can_auto_swap === "boolean" ? raw.can_auto_swap : fallback.canAutoSwap;
 	const canTrackUsage = typeof raw.can_track_usage === "boolean" ? raw.can_track_usage : fallback.canTrackUsage;
 
+	// Extra usage credits. Manager has already converted its cent values to dollars
+	// (`ExtraUsage` in api/routes/auth.py), so these pass through unscaled. Absent for
+	// every non-Claude provider and for orgs without the feature.
+	const rawExtraUsage = isRecord(usage?.extra_usage) ? usage.extra_usage : null;
+	const extraUsage = rawExtraUsage
+		? {
+				isEnabled: rawExtraUsage.is_enabled === true,
+				monthlyLimitUsd: readNumber(rawExtraUsage, "monthly_limit"),
+				usedCreditsUsd: readNumber(rawExtraUsage, "used_credits"),
+				utilization: readNumber(rawExtraUsage, "utilization"),
+			}
+		: null;
+
 	const rawTiers = Array.isArray(usage?.tiers) ? usage.tiers : null;
 	const usageTiers = rawTiers
 		? rawTiers.filter(isRecord).map((t) => ({
@@ -295,6 +308,7 @@ function parseAccount(raw: unknown): RuntimeManagerAccount | null {
 		isActiveForProvider: readBoolean(raw, "is_active_for_provider"),
 		validationStatus: readString(raw, "validation_status"),
 		lastError: readString(raw, "last_error"),
+		extraUsage,
 		usageTiers,
 	};
 }

@@ -31,6 +31,16 @@ export interface ClaudeAutoSeatRankingInput {
 	sevenDayResetsAt?: string | null;
 }
 
+/** Adds the extra-credit pool that the Fable seat ranks on. Also satisfied by `RuntimeManagerAccount`. */
+export interface FableSeatRankingInput extends ClaudeAutoSeatRankingInput {
+	extraUsage?: {
+		isEnabled: boolean;
+		monthlyLimitUsd: number | null;
+		usedCreditsUsd: number | null;
+		utilization: number | null;
+	} | null;
+}
+
 /**
  * Upper edges, in hours-to-7d-reset, of tiers 0..3. A boundary belongs to the
  * higher-numbered (less urgent) tier, matching `tiers.py`: exactly 24h is tier 1.
@@ -144,13 +154,119 @@ export function pickBestClaudeAutoSeat<T extends ClaudeAutoSeatRankingInput>(
 	pool: ReadonlyArray<T>,
 	nowMs: number = Date.now(),
 ): T | null {
-	if (pool.length === 0) {
+	return pickBestByKey(pool, claudeAutoSeatSortKey, nowMs);
+}
+
+// ---------------------------------------------------------------------------
+// Fable seat — the same shape of comparator, inverted on saturation.
+//
+// The Fable seat exists to spend *extra usage credit*: the monthly pay-as-you-go pool
+// Anthropic bills only once a seat's subscription windows are already capped. There is no
+// per-request switch that says "bill this to credit", so the only lever is which seat runs
+// the turn — and the seat whose next turn lands on credit is the one with NO subscription
+// headroom left. That is why `fableSeatSortKey` negates the usage term that
+// `claudeAutoSeatSortKey` minimizes, and why the caller must skip the donate-cap gate
+// (`manager-account-pin.ts`) rather than reuse `pickHealthyPool`, whose second stage filters
+// out exactly these seats.
+// ---------------------------------------------------------------------------
+
+/**
+ * The model and effort a Fable-seat card runs. Fixed, not defaulted: the preset exists to turn a
+ * seat's leftover extra usage credit into the most capable tier, and a card quietly running
+ * something else would spend that credit on the wrong thing.
+ *
+ * They live in this module because it is the only one both the runtime launch path and the
+ * frontend picker can import (`@runtime-manager-seat-ranking`) — `task-launch-settings.ts`,
+ * where they would otherwise belong, reaches into `node:fs` and cannot be aliased. Typed as bare
+ * literals to keep this module dependency-free; `task-launch-settings.ts` binds them to
+ * `RuntimeTaskLaunchEffort`, which is what catches a rename of the effort enum.
+ */
+export const FABLE_SEAT_MODEL_ID = "claude-fable-5";
+export const FABLE_SEAT_EFFORT = "medium";
+
+/**
+ * Upper edges, in days-to-month-end, of tiers 0..3. Same convention as
+ * {@link SEVEN_DAY_TIER_BOUNDARY_HOURS}: a boundary belongs to the less urgent tier.
+ */
+export const EXTRA_CREDIT_TIER_BOUNDARY_DAYS = [2, 7, 14, 31] as const;
+
+const MS_PER_DAY = 86_400_000;
+
+/**
+ * Usable credit left this month, in USD, or null when the seat has none to spend —
+ * the pool is off, or the provider reported no figures, or it is already drained.
+ *
+ * A zero/negative remainder is `null` rather than 0 on purpose: both mean "cannot spend
+ * credit here", and collapsing them keeps the sort key's first term a clean boolean.
+ */
+export function extraCreditRemainingUsd(account: FableSeatRankingInput): number | null {
+	const extra = account.extraUsage;
+	if (!extra || extra.isEnabled !== true) {
 		return null;
 	}
+	const { monthlyLimitUsd, usedCreditsUsd } = extra;
+	if (monthlyLimitUsd === null || monthlyLimitUsd === undefined) {
+		return null;
+	}
+	const remaining = monthlyLimitUsd - (usedCreditsUsd ?? 0);
+	return remaining > 0 ? remaining : null;
+}
+
+/**
+ * Deadline bucket from the UTC calendar month end: 0 for under 2 days left, up to 3 for a
+ * fresh month.
+ *
+ * The month boundary is *derived*, not reported — Manager's `ExtraUsage` carries
+ * `{is_enabled, monthly_limit, used_credits, utilization}` and no reset timestamp. The
+ * practical consequence is that every seat on the same billing calendar lands in the same
+ * tier, so this term usually cancels out and saturation decides. It earns its place only for
+ * seats billing on different anniversaries, which the wire cannot currently distinguish.
+ */
+export function extraCreditMonthEndTier(nowMs: number): number {
+	const now = new Date(nowMs);
+	const monthEndMs = Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1);
+	const daysLeft = (monthEndMs - nowMs) / MS_PER_DAY;
+	const tier = EXTRA_CREDIT_TIER_BOUNDARY_DAYS.findIndex((boundary) => daysLeft < boundary);
+	return tier === -1 ? EXTRA_CREDIT_TIER_BOUNDARY_DAYS.length - 1 : tier;
+}
+
+/**
+ * `[noUsableCredit, monthEndTier, -subscriptionPressure, -creditRemaining]` — smaller wins,
+ * compared left to right.
+ *
+ * A seat with no spendable credit sinks below every seat that has some, but is never removed,
+ * so a fleet with no credit at all still names a candidate for the launch's gates to report on.
+ * Then the month deadline, so credit that is about to expire is spent first. Then subscription
+ * pressure — `max(5h%, 7d%)`, **negated**, because the most-capped seat is the one whose next
+ * turn actually bills credit. Remaining credit only breaks ties between equally-capped seats.
+ */
+export function fableSeatSortKey(account: FableSeatRankingInput, nowMs: number): [number, number, number, number] {
+	const remaining = extraCreditRemainingUsd(account);
+	return [
+		remaining === null ? 1 : 0,
+		extraCreditMonthEndTier(nowMs),
+		-Math.max(account.fiveHourPercent ?? 0, account.sevenDayPercent ?? 0),
+		-(remaining ?? 0),
+	];
+}
+
+/** The best-ranked Fable seat in an already-narrowed pool. Ties keep the earlier candidate. */
+export function pickBestFableSeat<T extends FableSeatRankingInput>(
+	pool: ReadonlyArray<T>,
+	nowMs: number = Date.now(),
+): T | null {
+	return pickBestByKey(pool, fableSeatSortKey, nowMs);
+}
+
+function pickBestByKey<T>(
+	pool: ReadonlyArray<T>,
+	sortKey: (account: T, nowMs: number) => readonly number[],
+	nowMs: number,
+): T | null {
 	let best: T | null = null;
-	let bestKey: [number, number, number, number] | null = null;
+	let bestKey: readonly number[] | null = null;
 	for (const account of pool) {
-		const key = claudeAutoSeatSortKey(account, nowMs);
+		const key = sortKey(account, nowMs);
 		if (bestKey === null || compareSortKeys(key, bestKey) < 0) {
 			best = account;
 			bestKey = key;

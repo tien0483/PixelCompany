@@ -7,6 +7,7 @@ import { findFirstPresentChainDescendantIndex } from "@/state/chain-groups";
 import type {
 	RuntimeAgentId,
 	RuntimeClineReasoningEffort,
+	RuntimeSeatPreset,
 	RuntimeTaskClineSettings,
 	RuntimeTaskLaunchEffort,
 	RuntimeTaskLaunchSettings,
@@ -35,6 +36,8 @@ export interface TaskDraft {
 	images?: TaskImage[];
 	agentId?: RuntimeAgentId;
 	managerAccountId?: number;
+	/** Seat resolution mode; mutually exclusive with `managerAccountId`. */
+	seatPreset?: RuntimeSeatPreset;
 	clineSettings?: RuntimeTaskClineSettings;
 	taskLaunchSettings?: RuntimeTaskLaunchSettings;
 	/** Epoch ms for a scheduled backlog auto-run (countdown set at create time). */
@@ -252,6 +255,7 @@ function normalizeCard(rawCard: unknown): BoardCard | null {
 		clineSettings?: unknown;
 		taskLaunchSettings?: unknown;
 		managerAccountId?: unknown;
+		seatPreset?: unknown;
 		jackedAccountId?: unknown;
 		clineProviderId?: unknown;
 		clineModelId?: unknown;
@@ -283,6 +287,10 @@ function normalizeCard(rawCard: unknown): BoardCard | null {
 		typeof rawAccountId === "number" && Number.isInteger(rawAccountId) && rawAccountId > 0
 			? rawAccountId
 			: undefined;
+	// An explicit pin wins over a preset: the two answer the same question, and a card carrying
+	// both (hand-edited board.json, or a future preset added to a pinned card) must not have its
+	// named seat silently re-resolved.
+	const seatPreset = managerAccountId === undefined && card.seatPreset === "fable" ? "fable" : undefined;
 
 	const now = Date.now();
 
@@ -304,6 +312,7 @@ function normalizeCard(rawCard: unknown): BoardCard | null {
 		...(clineSettings !== undefined ? { clineSettings } : {}),
 		...(taskLaunchSettings !== undefined ? { taskLaunchSettings } : {}),
 		...(managerAccountId !== undefined ? { managerAccountId } : {}),
+		...(seatPreset !== undefined ? { seatPreset } : {}),
 		createdAt: typeof card.createdAt === "number" ? card.createdAt : now,
 		updatedAt: typeof card.updatedAt === "number" ? card.updatedAt : now,
 	};
@@ -461,7 +470,9 @@ export function addTaskToColumnWithResult(
 			Number.isInteger(draft.managerAccountId) &&
 			draft.managerAccountId > 0
 				? { managerAccountId: draft.managerAccountId }
-				: {}),
+				: draft.seatPreset
+					? { seatPreset: draft.seatPreset }
+					: {}),
 			clineSettings: draft.clineSettings,
 			taskLaunchSettings: draft.taskLaunchSettings,
 			autoRunAt: draft.autoRunAt,
@@ -767,7 +778,9 @@ export function updateTask(board: BoardData, taskId: string, draft: TaskDraft): 
 				}
 			}
 			if (clearCrossProviderPin) {
-				const { managerAccountId: _clearedPin, ...withoutPin } = nextCard;
+				// The Fable preset goes with the pin: its seat pool and its model are both
+				// Claude's, so it means nothing on a card that just moved to another agent.
+				const { managerAccountId: _clearedPin, seatPreset: _clearedPreset, ...withoutPin } = nextCard;
 				return withoutPin;
 			}
 			return nextCard;
@@ -896,10 +909,58 @@ export function setTaskManagerAccount(
 			}
 			columnUpdated = true;
 			updated = true;
-			const { managerAccountId: _previous, ...rest } = card;
+			// Naming a seat (or clearing to Auto) also drops any preset: both answer "which seat",
+			// and a leftover preset would re-resolve the seat the user just chose.
+			const { managerAccountId: _previous, seatPreset: _clearedPreset, ...rest } = card;
 			return {
 				...rest,
 				...(nextAccountId === undefined ? {} : { managerAccountId: nextAccountId }),
+				updatedAt: Date.now(),
+			};
+		});
+		return columnUpdated ? { ...column, cards } : column;
+	});
+
+	if (!updated) {
+		return { board, updated: false };
+	}
+	return { board: withUpdatedColumns(board, columns), updated: true };
+}
+
+/**
+ * Switches a card onto a seat *preset* — a resolution policy the launch turns into a concrete
+ * account — or clears it back to Auto with `null`.
+ *
+ * The preset's counterpart is `setTaskManagerAccount`; each clears the other's field, because a
+ * card cannot both name a seat and ask for one to be chosen.
+ */
+export function setTaskSeatPreset(
+	board: BoardData,
+	taskId: string,
+	seatPreset: RuntimeSeatPreset | null,
+): { board: BoardData; updated: boolean } {
+	const selection = findCardSelection(board, taskId);
+	if (!selection) {
+		return { board, updated: false };
+	}
+	const nextPreset = seatPreset ?? undefined;
+	if (selection.card.seatPreset === nextPreset && selection.card.managerAccountId === undefined) {
+		return { board, updated: false };
+	}
+
+	let updated = false;
+	const columns = board.columns.map((column) => {
+		let columnUpdated = false;
+		const cards = column.cards.map((card) => {
+			if (card.id !== taskId) {
+				return card;
+			}
+			columnUpdated = true;
+			updated = true;
+			const { managerAccountId: _clearedPin, seatPreset: _previous, ...rest } = card;
+			return {
+				...rest,
+				...(nextPreset === undefined ? {} : { seatPreset: nextPreset }),
 				updatedAt: Date.now(),
 			};
 		});
@@ -939,7 +1000,13 @@ export function setTaskApiSeat(
 			}
 			columnUpdated = true;
 			updated = true;
-			const { managerAccountId: _clearedPin, agentId: _previousAgentId, clineSettings: _previous, ...rest } = card;
+			const {
+				managerAccountId: _clearedPin,
+				seatPreset: _clearedPreset,
+				agentId: _previousAgentId,
+				clineSettings: _previous,
+				...rest
+			} = card;
 			if (!seat) {
 				return { ...rest, updatedAt: Date.now() };
 			}
