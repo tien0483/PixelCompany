@@ -1,4 +1,5 @@
 import type { RuntimeConfigState } from "../config/runtime-config";
+import { deriveLegacyAutonomousModeEnabled } from "../config/agent-launch-options";
 import {
 	getRuntimeAgentBinaryCandidates,
 	getRuntimeLaunchSupportedAgentCatalog,
@@ -130,7 +131,11 @@ export function buildRuntimeConfigResponse(
 		selectedShortcutLabel: runtimeConfig.selectedShortcutLabel,
 		defaultSubagentSeatProviderId: runtimeConfig.defaultSubagentSeatProviderId,
 		defaultSubagentSeatModelId: runtimeConfig.defaultSubagentSeatModelId,
-		agentAutonomousModeEnabled: runtimeConfig.agentAutonomousModeEnabled,
+		agentLaunchOptions: runtimeConfig.agentLaunchOptions,
+		agentAutonomousModeEnabled: deriveLegacyAutonomousModeEnabled(
+			runtimeConfig.selectedAgentId,
+			runtimeConfig.agentLaunchOptions,
+		),
 		debugModeEnabled: isRuntimeDebugModeEnabled(),
 		effectiveCommand,
 		globalConfigPath: runtimeConfig.globalConfigPath,

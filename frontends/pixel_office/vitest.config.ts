@@ -18,6 +18,8 @@ export default defineConfig({
 		alias: {
 			"@": resolve(__dirname, "src"),
 			"@runtime-agent-catalog": resolve(runtimeSrc, "core/agent-catalog.ts"),
+			"@runtime-agent-launch-options": resolve(runtimeSrc, "config/agent-launch-options.ts"),
+			"@runtime-contract": resolve(runtimeSrc, "core/api-contract.ts"),
 			"@runtime-cline-tool-call-display": resolve(runtimeSrc, "cline-sdk/cline-tool-call-display.ts"),
 			"@runtime-flowise-mcp-id": resolve(runtimeSrc, "flowise/flowise-mcp-id.ts"),
 			"@runtime-home-agent-session": resolve(runtimeSrc, "core/home-agent-session.ts"),

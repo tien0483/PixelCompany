@@ -5,10 +5,15 @@ import { readFile, rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { getRuntimeAgentCatalogEntry, isRuntimeAgentLaunchSupported } from "../core/agent-catalog";
-import type { RuntimeAgentId, RuntimeProjectShortcut } from "../core/api-contract";
+import type { RuntimeAgentId, RuntimeAgentLaunchOptions, RuntimeProjectShortcut } from "../core/api-contract";
 import { type LockRequest, lockedFileSystem } from "../fs/locked-file-system";
 import { detectInstalledCommands } from "../terminal/agent-registry";
 import { LEGACY_RUNTIME_HOME_PARENT_DIR_NAME, RUNTIME_HOME_PARENT_DIR_NAME } from "../workspace/task-worktree-path";
+import {
+	areAgentLaunchOptionsEqual,
+	createDefaultAgentLaunchOptions,
+	normalizeAgentLaunchOptions,
+} from "./agent-launch-options";
 import { areRuntimeProjectShortcutsEqual } from "./shortcut-utils";
 
 export type RuntimeCommitTrailerMode = "omit" | "include";
@@ -18,6 +23,8 @@ interface RuntimeGlobalConfigFileShape {
 	selectedShortcutLabel?: string;
 	defaultSubagentSeatProviderId?: string;
 	defaultSubagentSeatModelId?: string;
+	agentLaunchOptions?: RuntimeAgentLaunchOptions;
+	/** @deprecated Migrated to agentLaunchOptions on read. */
 	agentAutonomousModeEnabled?: boolean;
 	readyForReviewNotificationsEnabled?: boolean;
 	commitPromptTemplate?: string;
@@ -39,7 +46,7 @@ export interface RuntimeConfigState {
 	selectedShortcutLabel: string | null;
 	defaultSubagentSeatProviderId: string | null;
 	defaultSubagentSeatModelId: string | null;
-	agentAutonomousModeEnabled: boolean;
+	agentLaunchOptions: RuntimeAgentLaunchOptions;
 	readyForReviewNotificationsEnabled: boolean;
 	shortcuts: RuntimeProjectShortcut[];
 	commitPromptTemplate: string;
@@ -59,6 +66,8 @@ export interface RuntimeConfigUpdateInput {
 	selectedShortcutLabel?: string | null;
 	defaultSubagentSeatProviderId?: string | null;
 	defaultSubagentSeatModelId?: string | null;
+	agentLaunchOptions?: RuntimeAgentLaunchOptions;
+	/** @deprecated Applied as a wholesale migration into agentLaunchOptions when agentLaunchOptions is absent. */
 	agentAutonomousModeEnabled?: boolean;
 	readyForReviewNotificationsEnabled?: boolean;
 	shortcuts?: RuntimeProjectShortcut[];
@@ -331,9 +340,9 @@ function toRuntimeConfigState({
 		selectedShortcutLabel: normalizeShortcutLabel(globalConfig?.selectedShortcutLabel),
 		defaultSubagentSeatProviderId: normalizeNullableId(globalConfig?.defaultSubagentSeatProviderId),
 		defaultSubagentSeatModelId: normalizeNullableId(globalConfig?.defaultSubagentSeatModelId),
-		agentAutonomousModeEnabled: normalizeBoolean(
-			globalConfig?.agentAutonomousModeEnabled,
-			DEFAULT_AGENT_AUTONOMOUS_MODE_ENABLED,
+		agentLaunchOptions: normalizeAgentLaunchOptions(
+			globalConfig?.agentLaunchOptions,
+			normalizeBoolean(globalConfig?.agentAutonomousModeEnabled, DEFAULT_AGENT_AUTONOMOUS_MODE_ENABLED),
 		),
 		readyForReviewNotificationsEnabled: normalizeBoolean(
 			globalConfig?.readyForReviewNotificationsEnabled,
@@ -378,6 +387,8 @@ async function writeRuntimeGlobalConfigFile(
 		selectedShortcutLabel?: string | null;
 		defaultSubagentSeatProviderId?: string | null;
 		defaultSubagentSeatModelId?: string | null;
+		agentLaunchOptions?: RuntimeAgentLaunchOptions;
+		/** @deprecated Migrated into agentLaunchOptions when agentLaunchOptions is absent. */
 		agentAutonomousModeEnabled?: boolean;
 		readyForReviewNotificationsEnabled?: boolean;
 		commitPromptTemplate?: string;
@@ -412,10 +423,17 @@ async function writeRuntimeGlobalConfigFile(
 	const existingDefaultSubagentSeatModelId = hasOwnKey(existing, "defaultSubagentSeatModelId")
 		? normalizeNullableId(existing?.defaultSubagentSeatModelId)
 		: undefined;
-	const agentAutonomousModeEnabled =
-		config.agentAutonomousModeEnabled === undefined
-			? DEFAULT_AGENT_AUTONOMOUS_MODE_ENABLED
-			: normalizeBoolean(config.agentAutonomousModeEnabled, DEFAULT_AGENT_AUTONOMOUS_MODE_ENABLED);
+	const agentLaunchOptions =
+		config.agentLaunchOptions !== undefined
+			? normalizeAgentLaunchOptions(config.agentLaunchOptions)
+			: config.agentAutonomousModeEnabled !== undefined
+				? createDefaultAgentLaunchOptions(
+						normalizeBoolean(config.agentAutonomousModeEnabled, DEFAULT_AGENT_AUTONOMOUS_MODE_ENABLED),
+					)
+				: normalizeAgentLaunchOptions(
+						existing?.agentLaunchOptions,
+						normalizeBoolean(existing?.agentAutonomousModeEnabled, DEFAULT_AGENT_AUTONOMOUS_MODE_ENABLED),
+					);
 	const readyForReviewNotificationsEnabled =
 		config.readyForReviewNotificationsEnabled === undefined
 			? DEFAULT_READY_FOR_REVIEW_NOTIFICATIONS_ENABLED
@@ -472,11 +490,12 @@ async function writeRuntimeGlobalConfigFile(
 	} else if (existingDefaultSubagentSeatModelId) {
 		payload.defaultSubagentSeatModelId = existingDefaultSubagentSeatModelId;
 	}
+	const defaultAgentLaunchOptions = createDefaultAgentLaunchOptions(DEFAULT_AGENT_AUTONOMOUS_MODE_ENABLED);
 	if (
-		hasOwnKey(existing, "agentAutonomousModeEnabled") ||
-		agentAutonomousModeEnabled !== DEFAULT_AGENT_AUTONOMOUS_MODE_ENABLED
+		hasOwnKey(existing, "agentLaunchOptions") ||
+		!areAgentLaunchOptionsEqual(agentLaunchOptions, defaultAgentLaunchOptions)
 	) {
-		payload.agentAutonomousModeEnabled = agentAutonomousModeEnabled;
+		payload.agentLaunchOptions = agentLaunchOptions;
 	}
 	if (
 		hasOwnKey(existing, "readyForReviewNotificationsEnabled") ||
@@ -601,7 +620,7 @@ function createRuntimeConfigStateFromValues(input: {
 	selectedShortcutLabel: string | null;
 	defaultSubagentSeatProviderId: string | null;
 	defaultSubagentSeatModelId: string | null;
-	agentAutonomousModeEnabled: boolean;
+	agentLaunchOptions: RuntimeAgentLaunchOptions;
 	readyForReviewNotificationsEnabled: boolean;
 	shortcuts: RuntimeProjectShortcut[];
 	commitPromptTemplate: string;
@@ -618,10 +637,7 @@ function createRuntimeConfigStateFromValues(input: {
 		selectedShortcutLabel: normalizeShortcutLabel(input.selectedShortcutLabel),
 		defaultSubagentSeatProviderId: normalizeNullableId(input.defaultSubagentSeatProviderId),
 		defaultSubagentSeatModelId: normalizeNullableId(input.defaultSubagentSeatModelId),
-		agentAutonomousModeEnabled: normalizeBoolean(
-			input.agentAutonomousModeEnabled,
-			DEFAULT_AGENT_AUTONOMOUS_MODE_ENABLED,
-		),
+		agentLaunchOptions: normalizeAgentLaunchOptions(input.agentLaunchOptions),
 		readyForReviewNotificationsEnabled: normalizeBoolean(
 			input.readyForReviewNotificationsEnabled,
 			DEFAULT_READY_FOR_REVIEW_NOTIFICATIONS_ENABLED,
@@ -654,7 +670,7 @@ export function toGlobalRuntimeConfigState(current: RuntimeConfigState): Runtime
 		selectedShortcutLabel: current.selectedShortcutLabel,
 		defaultSubagentSeatProviderId: current.defaultSubagentSeatProviderId,
 		defaultSubagentSeatModelId: current.defaultSubagentSeatModelId,
-		agentAutonomousModeEnabled: current.agentAutonomousModeEnabled,
+		agentLaunchOptions: current.agentLaunchOptions,
 		readyForReviewNotificationsEnabled: current.readyForReviewNotificationsEnabled,
 		shortcuts: [],
 		commitPromptTemplate: current.commitPromptTemplate,
@@ -695,7 +711,7 @@ export async function saveRuntimeConfig(
 		selectedShortcutLabel: string | null;
 		defaultSubagentSeatProviderId: string | null;
 		defaultSubagentSeatModelId: string | null;
-		agentAutonomousModeEnabled: boolean;
+		agentLaunchOptions: RuntimeAgentLaunchOptions;
 		readyForReviewNotificationsEnabled: boolean;
 		shortcuts: RuntimeProjectShortcut[];
 		commitPromptTemplate: string;
@@ -713,7 +729,7 @@ export async function saveRuntimeConfig(
 			selectedShortcutLabel: config.selectedShortcutLabel,
 			defaultSubagentSeatProviderId: config.defaultSubagentSeatProviderId,
 			defaultSubagentSeatModelId: config.defaultSubagentSeatModelId,
-			agentAutonomousModeEnabled: config.agentAutonomousModeEnabled,
+			agentLaunchOptions: config.agentLaunchOptions,
 			readyForReviewNotificationsEnabled: config.readyForReviewNotificationsEnabled,
 			commitPromptTemplate: config.commitPromptTemplate,
 			openPrPromptTemplate: config.openPrPromptTemplate,
@@ -730,7 +746,7 @@ export async function saveRuntimeConfig(
 			selectedShortcutLabel: config.selectedShortcutLabel,
 			defaultSubagentSeatProviderId: config.defaultSubagentSeatProviderId,
 			defaultSubagentSeatModelId: config.defaultSubagentSeatModelId,
-			agentAutonomousModeEnabled: config.agentAutonomousModeEnabled,
+			agentLaunchOptions: config.agentLaunchOptions,
 			readyForReviewNotificationsEnabled: config.readyForReviewNotificationsEnabled,
 			shortcuts: config.shortcuts,
 			commitPromptTemplate: config.commitPromptTemplate,
@@ -741,6 +757,19 @@ export async function saveRuntimeConfig(
 			commitTrailerTemplate: config.commitTrailerTemplate,
 		});
 	});
+}
+
+function resolveNextAgentLaunchOptions(
+	current: RuntimeAgentLaunchOptions,
+	updates: RuntimeConfigUpdateInput,
+): RuntimeAgentLaunchOptions {
+	if (updates.agentLaunchOptions !== undefined) {
+		return normalizeAgentLaunchOptions(updates.agentLaunchOptions);
+	}
+	if (updates.agentAutonomousModeEnabled !== undefined) {
+		return createDefaultAgentLaunchOptions(updates.agentAutonomousModeEnabled);
+	}
+	return current;
 }
 
 export async function updateRuntimeConfig(cwd: string, updates: RuntimeConfigUpdateInput): Promise<RuntimeConfigState> {
@@ -762,7 +791,7 @@ export async function updateRuntimeConfig(cwd: string, updates: RuntimeConfigUpd
 				updates.defaultSubagentSeatModelId === undefined
 					? current.defaultSubagentSeatModelId
 					: updates.defaultSubagentSeatModelId,
-			agentAutonomousModeEnabled: updates.agentAutonomousModeEnabled ?? current.agentAutonomousModeEnabled,
+			agentLaunchOptions: resolveNextAgentLaunchOptions(current.agentLaunchOptions, updates),
 			readyForReviewNotificationsEnabled:
 				updates.readyForReviewNotificationsEnabled ?? current.readyForReviewNotificationsEnabled,
 			shortcuts: projectConfigPath ? (updates.shortcuts ?? current.shortcuts) : current.shortcuts,
@@ -779,7 +808,7 @@ export async function updateRuntimeConfig(cwd: string, updates: RuntimeConfigUpd
 			nextConfig.selectedShortcutLabel !== current.selectedShortcutLabel ||
 			nextConfig.defaultSubagentSeatProviderId !== current.defaultSubagentSeatProviderId ||
 			nextConfig.defaultSubagentSeatModelId !== current.defaultSubagentSeatModelId ||
-			nextConfig.agentAutonomousModeEnabled !== current.agentAutonomousModeEnabled ||
+			!areAgentLaunchOptionsEqual(nextConfig.agentLaunchOptions, current.agentLaunchOptions) ||
 			nextConfig.readyForReviewNotificationsEnabled !== current.readyForReviewNotificationsEnabled ||
 			nextConfig.commitPromptTemplate !== current.commitPromptTemplate ||
 			nextConfig.openPrPromptTemplate !== current.openPrPromptTemplate ||
@@ -798,7 +827,7 @@ export async function updateRuntimeConfig(cwd: string, updates: RuntimeConfigUpd
 			selectedShortcutLabel: nextConfig.selectedShortcutLabel,
 			defaultSubagentSeatProviderId: nextConfig.defaultSubagentSeatProviderId,
 			defaultSubagentSeatModelId: nextConfig.defaultSubagentSeatModelId,
-			agentAutonomousModeEnabled: nextConfig.agentAutonomousModeEnabled,
+			agentLaunchOptions: nextConfig.agentLaunchOptions,
 			readyForReviewNotificationsEnabled: nextConfig.readyForReviewNotificationsEnabled,
 			commitPromptTemplate: nextConfig.commitPromptTemplate,
 			openPrPromptTemplate: nextConfig.openPrPromptTemplate,
@@ -817,7 +846,7 @@ export async function updateRuntimeConfig(cwd: string, updates: RuntimeConfigUpd
 			selectedShortcutLabel: nextConfig.selectedShortcutLabel,
 			defaultSubagentSeatProviderId: nextConfig.defaultSubagentSeatProviderId,
 			defaultSubagentSeatModelId: nextConfig.defaultSubagentSeatModelId,
-			agentAutonomousModeEnabled: nextConfig.agentAutonomousModeEnabled,
+			agentLaunchOptions: nextConfig.agentLaunchOptions,
 			readyForReviewNotificationsEnabled: nextConfig.readyForReviewNotificationsEnabled,
 			shortcuts: nextConfig.shortcuts,
 			commitPromptTemplate: nextConfig.commitPromptTemplate,
@@ -857,7 +886,7 @@ export async function updateGlobalRuntimeConfig(
 					updates.defaultSubagentSeatModelId === undefined
 						? current.defaultSubagentSeatModelId
 						: updates.defaultSubagentSeatModelId,
-				agentAutonomousModeEnabled: updates.agentAutonomousModeEnabled ?? current.agentAutonomousModeEnabled,
+				agentLaunchOptions: resolveNextAgentLaunchOptions(current.agentLaunchOptions, updates),
 				readyForReviewNotificationsEnabled:
 					updates.readyForReviewNotificationsEnabled ?? current.readyForReviewNotificationsEnabled,
 				shortcuts: current.shortcuts,
@@ -874,7 +903,7 @@ export async function updateGlobalRuntimeConfig(
 				nextConfig.selectedShortcutLabel !== current.selectedShortcutLabel ||
 				nextConfig.defaultSubagentSeatProviderId !== current.defaultSubagentSeatProviderId ||
 				nextConfig.defaultSubagentSeatModelId !== current.defaultSubagentSeatModelId ||
-				nextConfig.agentAutonomousModeEnabled !== current.agentAutonomousModeEnabled ||
+				!areAgentLaunchOptionsEqual(nextConfig.agentLaunchOptions, current.agentLaunchOptions) ||
 				nextConfig.readyForReviewNotificationsEnabled !== current.readyForReviewNotificationsEnabled ||
 				nextConfig.commitPromptTemplate !== current.commitPromptTemplate ||
 				nextConfig.openPrPromptTemplate !== current.openPrPromptTemplate ||
@@ -892,7 +921,7 @@ export async function updateGlobalRuntimeConfig(
 				selectedShortcutLabel: nextConfig.selectedShortcutLabel,
 				defaultSubagentSeatProviderId: nextConfig.defaultSubagentSeatProviderId,
 				defaultSubagentSeatModelId: nextConfig.defaultSubagentSeatModelId,
-				agentAutonomousModeEnabled: nextConfig.agentAutonomousModeEnabled,
+				agentLaunchOptions: nextConfig.agentLaunchOptions,
 				readyForReviewNotificationsEnabled: nextConfig.readyForReviewNotificationsEnabled,
 				commitPromptTemplate: nextConfig.commitPromptTemplate,
 				openPrPromptTemplate: nextConfig.openPrPromptTemplate,
@@ -909,7 +938,7 @@ export async function updateGlobalRuntimeConfig(
 				selectedShortcutLabel: nextConfig.selectedShortcutLabel,
 				defaultSubagentSeatProviderId: nextConfig.defaultSubagentSeatProviderId,
 				defaultSubagentSeatModelId: nextConfig.defaultSubagentSeatModelId,
-				agentAutonomousModeEnabled: nextConfig.agentAutonomousModeEnabled,
+				agentLaunchOptions: nextConfig.agentLaunchOptions,
 				readyForReviewNotificationsEnabled: nextConfig.readyForReviewNotificationsEnabled,
 				shortcuts: nextConfig.shortcuts,
 				commitPromptTemplate: nextConfig.commitPromptTemplate,

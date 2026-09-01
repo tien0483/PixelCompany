@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { createDefaultAgentLaunchOptions } from "@runtime-agent-launch-options";
 import {
 	getTaskAgentNavbarHint,
 	isClineProviderAuthenticated,
@@ -19,6 +20,7 @@ function createRuntimeConfigResponse(
 		selectedShortcutLabel: null,
 		defaultSubagentSeatProviderId: null,
 		defaultSubagentSeatModelId: null,
+		agentLaunchOptions: createDefaultAgentLaunchOptions(true),
 		agentAutonomousModeEnabled: true,
 		effectiveCommand: selectedAgentId === "cline" ? null : selectedAgentId,
 		globalConfigPath: "/tmp/global-config.json",

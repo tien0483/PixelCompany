@@ -88,6 +88,10 @@ export default defineConfig({
 		alias: {
 			"@": resolve(__dirname, "src"),
 			"@runtime-agent-catalog": resolve(__dirname, "../../backends/runtime/src/core/agent-catalog.ts"),
+			"@runtime-agent-launch-options": resolve(
+				__dirname,
+				"../../backends/runtime/src/config/agent-launch-options.ts",
+			),
 			"@runtime-cline-tool-call-display": resolve(
 				__dirname,
 				"../../backends/runtime/src/cline-sdk/cline-tool-call-display.ts",

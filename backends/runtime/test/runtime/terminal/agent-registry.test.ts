@@ -9,6 +9,7 @@ vi.mock("../../../src/terminal/command-discovery.js", () => ({
 }));
 
 import type { RuntimeConfigState } from "../../../src/config/runtime-config";
+import { createDefaultAgentLaunchOptions } from "../../../src/config/agent-launch-options";
 import { RUNTIME_AGENT_CATALOG } from "../../../src/core/agent-catalog";
 import {
 	buildRuntimeConfigResponse,
@@ -24,7 +25,7 @@ function createRuntimeConfigState(overrides: Partial<RuntimeConfigState> = {}): 
 		selectedShortcutLabel: null,
 		defaultSubagentSeatProviderId: null,
 		defaultSubagentSeatModelId: null,
-		agentAutonomousModeEnabled: true,
+		agentLaunchOptions: createDefaultAgentLaunchOptions(true),
 		readyForReviewNotificationsEnabled: true,
 		shortcuts: [],
 		commitPromptTemplate: "commit",
@@ -84,7 +85,7 @@ describe("agent-registry", () => {
 describe("buildRuntimeConfigResponse", () => {
 	it("keeps curated agent default args independent of autonomous mode", () => {
 		const config = createRuntimeConfigState({
-			agentAutonomousModeEnabled: true,
+			agentLaunchOptions: createDefaultAgentLaunchOptions(true),
 		});
 
 		const response = buildRuntimeConfigResponse(config, {
@@ -108,7 +109,7 @@ describe("buildRuntimeConfigResponse", () => {
 
 	it("omits autonomous flags from curated agent commands when disabled", () => {
 		const config = createRuntimeConfigState({
-			agentAutonomousModeEnabled: false,
+			agentLaunchOptions: createDefaultAgentLaunchOptions(false),
 		});
 		commandDiscoveryMocks.isBinaryAvailableOnPath.mockImplementation((binary: string) => binary === "claude");
 

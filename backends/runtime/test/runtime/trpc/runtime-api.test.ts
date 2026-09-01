@@ -3,6 +3,7 @@ import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { RuntimeConfigState } from "../../../src/config/runtime-config";
+import { createDefaultAgentLaunchOptions } from "../../../src/config/agent-launch-options";
 import type { RuntimeTaskSessionSummary } from "../../../src/core/api-contract";
 
 const agentRegistryMocks = vi.hoisted(() => ({
@@ -214,7 +215,7 @@ function createRuntimeConfigState(): RuntimeConfigState {
 		selectedShortcutLabel: null,
 		defaultSubagentSeatProviderId: null,
 		defaultSubagentSeatModelId: null,
-		agentAutonomousModeEnabled: true,
+		agentLaunchOptions: createDefaultAgentLaunchOptions(true),
 		readyForReviewNotificationsEnabled: true,
 		shortcuts: [],
 		commitPromptTemplate: "commit",

@@ -12,6 +12,7 @@ import type {
 	RuntimeTaskSessionSummary,
 	RuntimeTaskTurnCheckpoint,
 } from "../core/api-contract";
+import type { ClaudeLaunchPermissionSetting, GeminiLaunchModeSetting } from "../config/agent-launch-options";
 import { withStackBinOnPath } from "../stack/stack-paths";
 import { buildStackEnv } from "../stack/stack-daemon";
 import { detectAgentAuthFailure } from "./agent-auth-failure";
@@ -166,6 +167,11 @@ export interface StartTaskSessionRequest {
 	binary: string;
 	args: string[];
 	autonomousModeEnabled?: boolean;
+	configuredClaudePermissionMode?: ClaudeLaunchPermissionSetting;
+	geminiLaunch?: {
+		skipPermissions: boolean;
+		mode: GeminiLaunchModeSetting;
+	};
 	cwd: string;
 	prompt: string;
 	images?: RuntimeTaskImage[];
@@ -729,6 +735,8 @@ export class TerminalSessionManager implements TerminalSessionService {
 			binary: request.binary,
 			args: request.args,
 			autonomousModeEnabled: request.autonomousModeEnabled,
+			configuredClaudePermissionMode: request.configuredClaudePermissionMode,
+			geminiLaunch: request.geminiLaunch,
 			cwd: request.cwd,
 			prompt: request.prompt,
 			images: request.images,

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { fetchRuntimeConfig, saveRuntimeConfig } from "@/runtime/runtime-config-query";
-import type { RuntimeAgentId, RuntimeConfigResponse, RuntimeProjectShortcut } from "@/runtime/types";
+import type { RuntimeAgentId, RuntimeAgentLaunchOptions, RuntimeConfigResponse, RuntimeProjectShortcut } from "@/runtime/types";
 import { useTrpcQuery } from "@/runtime/use-trpc-query";
 
 export interface UseRuntimeConfigResult {
@@ -13,6 +13,8 @@ export interface UseRuntimeConfigResult {
 		selectedAgentId?: RuntimeAgentId;
 		selectedShortcutLabel?: string | null;
 		defaultSubagentSeatProviderId?: string | null;
+		agentLaunchOptions?: RuntimeAgentLaunchOptions;
+		/** @deprecated Migrated into agentLaunchOptions on save. */
 		agentAutonomousModeEnabled?: boolean;
 		shortcuts?: RuntimeProjectShortcut[];
 		readyForReviewNotificationsEnabled?: boolean;

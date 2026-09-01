@@ -2,6 +2,7 @@ import { act, useEffect } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { createDefaultAgentLaunchOptions } from "@runtime-agent-launch-options";
 import { useRuntimeSettingsClineController } from "@/hooks/use-runtime-settings-cline-controller";
 import type {
 	RuntimeClineProviderModel,
@@ -72,6 +73,7 @@ function createRuntimeConfigResponse(
 		selectedShortcutLabel: null,
 		defaultSubagentSeatProviderId: null,
 		defaultSubagentSeatModelId: null,
+		agentLaunchOptions: createDefaultAgentLaunchOptions(true),
 		agentAutonomousModeEnabled: true,
 		effectiveCommand: "cline",
 		globalConfigPath: "/tmp/global-config.json",

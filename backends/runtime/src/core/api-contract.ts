@@ -2617,11 +2617,30 @@ export const runtimeAgentDefinitionSchema = z.object({
 });
 export type RuntimeAgentDefinition = z.infer<typeof runtimeAgentDefinitionSchema>;
 
+export const claudeLaunchPermissionSettingSchema = z.enum(["off", "auto", "plan", "acceptEdits"]);
+export type ClaudeLaunchPermissionSetting = z.infer<typeof claudeLaunchPermissionSettingSchema>;
+
+export const geminiLaunchModeSettingSchema = z.enum(["off", "accept-edits", "plan"]);
+export type GeminiLaunchModeSetting = z.infer<typeof geminiLaunchModeSettingSchema>;
+
+export const runtimeAgentLaunchOptionEntrySchema = z.object({
+	autonomousEnabled: z.boolean().optional(),
+	claudePermissionMode: claudeLaunchPermissionSettingSchema.optional(),
+	geminiSkipPermissions: z.boolean().optional(),
+	geminiMode: geminiLaunchModeSettingSchema.optional(),
+});
+export type RuntimeAgentLaunchOptionEntry = z.infer<typeof runtimeAgentLaunchOptionEntrySchema>;
+
+export const runtimeAgentLaunchOptionsSchema = z.record(z.string(), runtimeAgentLaunchOptionEntrySchema);
+export type RuntimeAgentLaunchOptions = z.infer<typeof runtimeAgentLaunchOptionsSchema>;
+
 export const runtimeConfigResponseSchema = z.object({
 	selectedAgentId: runtimeAgentIdSchema,
 	selectedShortcutLabel: z.string().nullable(),
 	defaultSubagentSeatProviderId: z.string().nullable(),
 	defaultSubagentSeatModelId: z.string().nullable(),
+	agentLaunchOptions: runtimeAgentLaunchOptionsSchema,
+	/** @deprecated Derived from agentLaunchOptions for the selected agent. */
 	agentAutonomousModeEnabled: z.boolean(),
 	debugModeEnabled: z.boolean().optional(),
 	effectiveCommand: z.string().nullable(),
@@ -2650,6 +2669,8 @@ export const runtimeConfigSaveRequestSchema = z.object({
 	selectedShortcutLabel: z.string().nullable().optional(),
 	defaultSubagentSeatProviderId: z.string().nullable().optional(),
 	defaultSubagentSeatModelId: z.string().nullable().optional(),
+	agentLaunchOptions: runtimeAgentLaunchOptionsSchema.optional(),
+	/** @deprecated Migrated into agentLaunchOptions on save. */
 	agentAutonomousModeEnabled: z.boolean().optional(),
 	shortcuts: z.array(runtimeProjectShortcutSchema).optional(),
 	readyForReviewNotificationsEnabled: z.boolean().optional(),
