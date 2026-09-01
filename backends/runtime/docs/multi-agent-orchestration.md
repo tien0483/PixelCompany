@@ -82,6 +82,35 @@ Research GitLab context with the Flowise tool, then implement the fix in this wo
 Use cursor_agent for coding; use subagent_claude_code only if Cursor is unavailable.
 ```
 
+### Custom Agent LLM (no DeepSeek key needed)
+
+dsh mounts `@deepseek-ai/dsh-llm-pi-ai` — a generic multi-provider adapter — but ships it with
+**no config**, so it registers no routes, and `agent-default-model` points at `deepseek-official`.
+`orchestrator-llm-patch.ts` generates a second `--patch` overlay that configures the first row and
+repoints the second at PixelOffice's own seat-backed proxy, so the orchestrator bills the Manager
+seat the card already pins.
+
+Both ids exist in the composed tree, so those rows are plain **overrides** — unlike the Flowise
+rows, which introduce new ids and need `insert:`.
+
+| Env | Default | Meaning |
+|-----|---------|---------|
+| `PIXELOFFICE_DSH_LLM_PROVIDER` | `cursor` | `cursor` \| `openai` \| `anthropic` \| `gemini`, or `deepseek` to keep dsh's own route |
+| `PIXELOFFICE_DSH_LLM_MODEL` | per provider | Overrides the model id |
+
+Route status, measured against the live proxy on 2026-09-01:
+
+| Route | pi-ai route | Result |
+|-------|-------------|--------|
+| `/cursor` | `openai` | **Works** — full dsh turn completed on the Cursor seat |
+| `/openai` | `openai` | 200; same OmniRoute upstream as `/cursor` |
+| `/anthropic` | `anthropic` | Seat bearer accepted; was rate-limited (429) at the time |
+| `/gemini` | `google` | **Broken upstream** — `403 ACCESS_TOKEN_SCOPE_INSUFFICIENT`; the seat's OAuth token is not scoped for `generativelanguage.googleapis.com`. Affects the Flowise Gemini node too, not just dsh. |
+
+Models are **declared outright**, never inherited: the seat routes serve ids pi-ai's shipped
+catalog does not know (`auto/best-coding` is OmniRoute's), and an undeclared id fails with
+`UNKNOWN_MODEL` before any request leaves the process.
+
 ### Status
 
 Agents sidebar panel + `tRPC: runtime.orchestrator.status`
@@ -149,7 +178,7 @@ Flowise: use **Custom Agent** or call the prediction API from a Custom Function 
 | Flowise **PixelOffice nodes** | Nothing to configure — the seat pinned in Manager (Claude / Cursor / Antigravity) |
 | Flowise **other LLM nodes** | Flowise Credentials in Agents tab |
 | Flowise **inner MCP** | MCP nodes in canvas |
-| dsh primary model | `DSH_HOME` profile / DeepSeek API key in dsh settings |
+| Custom Agent (dsh) model | **Seat-backed by default — no key.** A generated `--patch` overlay points dsh's own `llm-pi-ai` row at `/api/flowise-llm-proxy/<provider>`; see "Custom Agent LLM" below. `PIXELOFFICE_DSH_LLM_PROVIDER=deepseek` restores dsh's DeepSeek route, which then needs `DEEPSEEK_API_KEY`. |
 
 ## Quick start checklist
 
@@ -175,6 +204,7 @@ Flowise: use **Custom Agent** or call the prediction API from a Custom Function 
 | `src/orchestrator/orchestrator-launch.ts` | dsh headless argv + env |
 | `src/orchestrator/orchestrator-process.ts` | Optional web sidecar :3020 |
 | `src/orchestrator/orchestrator-flowise-patch.ts` | Generated `dsh-mcp-client` patch overlay |
+| `src/orchestrator/orchestrator-llm-patch.ts` | Generated LLM overlay — seat-backed proxy instead of DeepSeek |
 | `src/flowise/flowise-mcp.ts` | Deployed-flow resolution + Claude card Flowise MCP |
 | `src/flowise/flowise-mcp-id.ts` | `flowise-*` id helpers shared with the frontend picker |
 | `src/core/agent-catalog.ts` | `orchestrator` agent id (label: **Custom Agent (dsh)**) |

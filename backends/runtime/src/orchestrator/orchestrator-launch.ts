@@ -9,6 +9,7 @@ import { hasMcpAllowlist } from "../terminal/task-launch-settings";
 import { buildDshArgv, resolveDshBinary } from "./dsh-binary";
 import { resolveDefaultDshHome, resolveOrchestratorPatchPath } from "./dsh-endpoint";
 import { prepareOrchestratorFlowisePatch } from "./orchestrator-flowise-patch";
+import { prepareOrchestratorLlmPatch } from "./orchestrator-llm-patch";
 
 export interface PrepareOrchestratorLaunchInput {
 	cwd: string;
@@ -127,7 +128,17 @@ export async function prepareOrchestratorLaunch(
 	// does not recognize to the booted profile, where the headless app reads the *positional*
 	// argument as its task. So the prompt goes last and bare; there is no --prompt, no --cwd
 	// (the PTY already spawns in the worktree) and no --force.
+	// Points dsh's own LLM at the seat-backed proxy so the card needs no DeepSeek key. Null when
+	// the operator asked for dsh's shipped DeepSeek route or the proxy is disabled.
+	const llmPatch = await prepareOrchestratorLlmPatch({ log: (message) => input.log?.(message) });
+	if (llmPatch !== null) {
+		cleanups.push(llmPatch.cleanup);
+	}
+
 	const headlessArgs = ["--profile", "headless", "--patch", patchPath];
+	if (llmPatch !== null) {
+		headlessArgs.push("--patch", llmPatch.patchPath);
+	}
 	if (flowisePatchPath !== null) {
 		headlessArgs.push("--patch", flowisePatchPath);
 	}
@@ -142,6 +153,7 @@ export async function prepareOrchestratorLaunch(
 	const env: Record<string, string | undefined> = {
 		DSH_HOME: dshHome,
 		PIXELOFFICE_ORCHESTRATOR: "1",
+		...(llmPatch?.env ?? {}),
 	};
 
 	// Subagent seat env applies when the Custom Agent delegates to Claude Code children.
