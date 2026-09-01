@@ -87,8 +87,11 @@ import {
 import { useTaskEditor } from "@/hooks/use-task-editor";
 import { useTaskSessions } from "@/hooks/use-task-sessions";
 import { useTaskStartActions } from "@/hooks/use-task-start-actions";
+import { useHomeCenterView } from "@/hooks/use-home-center-view";
 import { useTerminalPanels } from "@/hooks/use-terminal-panels";
 import { useWorkspaceSync } from "@/hooks/use-workspace-sync";
+import { LearningView } from "@/learning/learning-view";
+import { UnderstandView } from "@/understand/understand-view";
 import { ManagerAccountsView } from "@/manager/manager-accounts-view";
 import { resolveCreateTaskDefaultAgentId } from "@/manager/task-account-picker";
 import { OfficeView } from "@/office/office-view";
@@ -154,8 +157,6 @@ export default function App(): ReactElement {
 		useState<HomeSidebarSection>("projects");
 	const [managerSettingsFocusToken, setManagerSettingsFocusToken] = useState(0);
 	const [isClearTrashDialogOpen, setIsClearTrashDialogOpen] = useState(false);
-	const [isGitHistoryOpen, setIsGitHistoryOpen] = useState(false);
-	const [isDocsOpen, setIsDocsOpen] = useState(false);
 	const [editingPlan, setEditingPlan] = useState<RuntimeSavedPlan | null>(null);
 	const [reviewTarget, setReviewTarget] = useState<ReviewTarget | null>(null);
 	const [agentStudioTarget, setAgentStudioTarget] =
@@ -168,11 +169,17 @@ export default function App(): ReactElement {
 	const [pendingTaskStartAfterEditId, setPendingTaskStartAfterEditId] =
 		useState<string | null>(null);
 	const taskEditorResetRef = useRef<() => void>(() => {});
+	/**
+	 * Same late-binding trick as `taskEditorResetRef`: the center-view hook needs
+	 * `hasNoProjects`, which `useProjectNavigation` produces — and that call takes this
+	 * callback as an argument. The reset is only ever invoked from an event, never during
+	 * the render that assigns it.
+	 */
+	const centerViewResetRef = useRef<() => void>(() => {});
 	const lastStreamErrorRef = useRef<string | null>(null);
 	const handleProjectSwitchStart = useCallback(() => {
 		setCanPersistWorkspaceState(false);
-		setIsGitHistoryOpen(false);
-		setIsDocsOpen(false);
+		centerViewResetRef.current();
 		setEditingPlan(null);
 		setPendingTaskStartAfterEditId(null);
 		taskEditorResetRef.current();
@@ -207,6 +214,29 @@ export default function App(): ReactElement {
 	} = useProjectNavigation({
 		onProjectSwitchStart: handleProjectSwitchStart,
 	});
+	/**
+	 * `useOfficeViewState` is declared much further down (it needs `handleBack`), so the
+	 * center-view hook reaches its `closeOffice` through a ref rather than the two hooks
+	 * being reordered around each other. Stable identity, so nothing downstream re-renders
+	 * on it.
+	 */
+	const closeOfficeRef = useRef<() => void>(() => {});
+	const closeHomeOfficeColumn = useCallback(() => {
+		closeOfficeRef.current();
+	}, []);
+	const {
+		isDocsOpen,
+		isGitHistoryOpen,
+		isLearningOpen,
+		isUnderstandOpen,
+		toggleView,
+		resetToBoard: resetHomeCenterView,
+		closeGitHistory,
+	} = useHomeCenterView({
+		hasNoProjects,
+		closeOffice: closeHomeOfficeColumn,
+	});
+	centerViewResetRef.current = resetHomeCenterView;
 	const activeNotificationWorkspaceId = navigationCurrentProjectId;
 	const isDocumentVisible = useDocumentVisibility();
 	const isInitialRuntimeLoad =
@@ -342,7 +372,7 @@ export default function App(): ReactElement {
 			isProjectSwitching,
 			isWorkspaceMetadataPending,
 			onDetailClosed: () => {
-				setIsGitHistoryOpen(false);
+				closeGitHistory();
 				setEditingPlan(null);
 			},
 		});
@@ -755,39 +785,33 @@ export default function App(): ReactElement {
 		setSettingsInitialSection(section ?? null);
 		setIsSettingsOpen(true);
 	}, []);
-	const handleCloseGitHistory = useCallback(() => {
-		setIsGitHistoryOpen(false);
-	}, []);
 	const onWillOpenOffice = useCallback(() => {
-		setIsGitHistoryOpen(false);
-		setIsDocsOpen(false);
+		resetHomeCenterView();
 		setEditingPlan(null);
 		// Office lives in the home layout, which stays visibility:hidden while a
 		// task detail is open — leave detail first or the toggle looks like a no-op.
 		if (selectedCard) {
 			handleBack();
 		}
-	}, [handleBack, selectedCard]);
+	}, [handleBack, resetHomeCenterView, selectedCard]);
 	const { isOfficeOpen, handleToggleOffice, closeOffice } = useOfficeViewState({
 		currentProjectId,
 		hasNoProjects,
 		onWillOpenOffice,
 	});
+	closeOfficeRef.current = closeOffice;
 	const handleToggleGitHistory = useCallback(() => {
-		if (hasNoProjects) {
-			return;
-		}
-		setIsDocsOpen(false);
-		setIsGitHistoryOpen((current) => !current);
-	}, [hasNoProjects]);
+		toggleView("git");
+	}, [toggleView]);
 	const handleToggleDocs = useCallback(() => {
-		if (hasNoProjects) {
-			return;
-		}
-		setIsGitHistoryOpen(false);
-		closeOffice();
-		setIsDocsOpen((current) => !current);
-	}, [closeOffice, hasNoProjects]);
+		toggleView("docs");
+	}, [toggleView]);
+	const handleToggleLearning = useCallback(() => {
+		toggleView("learning");
+	}, [toggleView]);
+	const handleToggleUnderstand = useCallback(() => {
+		toggleView("understand");
+	}, [toggleView]);
 
 	const {
 		handleProgrammaticCardMoveReady,
@@ -824,7 +848,7 @@ export default function App(): ReactElement {
 		currentProjectId,
 		setSelectedTaskId,
 		setIsClearTrashDialogOpen,
-		setIsGitHistoryOpen,
+		closeGitHistory,
 		stopTaskSession,
 		cleanupTaskWorkspace,
 		ensureTaskWorkspace,
@@ -883,7 +907,7 @@ export default function App(): ReactElement {
 		handleOpenCreateTask,
 		handleOpenSettings,
 		handleToggleGitHistory,
-		handleCloseGitHistory,
+		handleCloseGitHistory: closeGitHistory,
 		handleToggleOffice,
 		onStartAllTasks: handleStartAllBacklogTasksFromBoard,
 	});
@@ -1384,6 +1408,14 @@ export default function App(): ReactElement {
 						isOfficeOpen={isOfficeOpen}
 						onToggleDocs={hasNoProjects ? undefined : handleToggleDocs}
 						isDocsOpen={isDocsOpen}
+						onToggleLearning={
+							hasNoProjects ? undefined : handleToggleLearning
+						}
+						isLearningOpen={isLearningOpen}
+						onToggleUnderstand={
+							hasNoProjects ? undefined : handleToggleUnderstand
+						}
+						isUnderstandOpen={isUnderstandOpen}
 						hideProjectDependentActions={
 							shouldHideProjectDependentTopBarActions
 						}
@@ -1462,6 +1494,20 @@ export default function App(): ReactElement {
 									<div className="flex flex-1 min-h-0 min-w-0">
 										{isDocsOpen ? (
 											<DocsView workspaceId={currentProjectId} />
+										) : isLearningOpen ? (
+											<LearningView
+												workspaceId={currentProjectId}
+												onClose={handleToggleLearning}
+											/>
+										) : isUnderstandOpen ? (
+											<UnderstandView
+												workspaceId={currentProjectId}
+												projectPath={
+													navigationProjectPath ?? workspacePath ?? null
+												}
+												managerAccounts={managedManagerAccounts}
+												onClose={handleToggleUnderstand}
+											/>
 										) : isGitHistoryOpen ? (
 											<GitHistoryView
 												workspaceId={currentProjectId}
@@ -1735,7 +1781,7 @@ export default function App(): ReactElement {
 											/>
 										) : undefined
 									}
-									onCloseGitHistory={handleCloseGitHistory}
+									onCloseGitHistory={closeGitHistory}
 									bottomTerminalOpen={isDetailTerminalOpen}
 									bottomTerminalTaskId={detailTerminalTaskId}
 									bottomTerminalSummary={detailTerminalSummary}

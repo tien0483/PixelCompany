@@ -112,6 +112,7 @@ import { createClaudeUsageApi } from "../trpc/claude-usage-api";
 import { createDeployApi } from "../trpc/deploy-api";
 import { createDocSkillApi } from "../trpc/doc-skill-api";
 import { createFlowiseApi } from "../trpc/flowise-api";
+import { createOpenmaicApi } from "../trpc/openmaic-api";
 import { createOrchestratorApi } from "../trpc/orchestrator-api";
 import { createGitlabApi } from "../trpc/gitlab-api";
 import { createHooksApi } from "../trpc/hooks-api";
@@ -376,6 +377,9 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 	const orchestratorApi = createOrchestratorApi({
 		client: deps.orchestrator.client,
 	});
+	// No dependencies: the Learning tab's whole question is "is the submodule there, built,
+	// and listening", all of which are answered from disk and a TCP probe.
+	const openmaicApi = createOpenmaicApi();
 	// One GitLab identity serves the whole runtime, so the client and the OAuth flow
 	// registry are singletons here rather than per request: a flow started by one
 	// request is polled by the next, and the client caches the credential in process.
@@ -655,6 +659,7 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 			claudeUsageApi,
 			docSkillApi,
 			flowiseApi,
+			openmaicApi,
 			orchestratorApi,
 			gitlabApi,
 			reviewApi,
