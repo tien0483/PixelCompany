@@ -6,8 +6,9 @@
  *   http://127.0.0.1:3484   →  board + Claude Accounts + Pixel Office
  *
  * Usage (from repo root):
+ *   pnpm run solo --restart --build   # normal dev loop: rebuild UI, fresh stack + runtime
  *   npm run solo              # build the UI when missing or stale, then serve
- *   npm run solo -- --restart # free the ports first
+ *   npm run solo -- --restart # free app + stack ports, restart stack daemons
  *   npm run solo -- --skip-build   # fail if missing, warn+serve if stale
  *   npm run solo -- --build        # always rebuild first
  *   npm run solo -- --no-stack-link # do not link agent-stack skills into .claude/skills
@@ -20,7 +21,7 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn, spawnSync } from "node:child_process";
-import { linkStackSkills, reportStackSkills } from "./link-stack-skills.mjs";
+import { ensureAgentStack, restartAgentStackDaemons, STACK_DAEMON_PORTS } from "./ensure-agent-stack.mjs";
 
 const MIN_NODE_MAJOR = 22;
 const __filename = fileURLToPath(import.meta.url);
@@ -363,22 +364,18 @@ function buildUi() {
  * able to run the app, so every failure here degrades to a warning.
  */
 async function wireAgentStack() {
-	if (noStackLink) {
-		return;
-	}
 	let summary;
 	try {
-		summary = linkStackSkills();
-		reportStackSkills(summary);
+		summary = ensureAgentStack({ repoRoot, skipLink: noStackLink });
 	} catch (error) {
-		console.warn(`  Agent stack: skill linking failed — ${error.message}`);
+		console.warn(`  Agent stack: setup failed — ${error.message}`);
 		return;
 	}
 	// No warning when the port is quiet: the runtime spawns the switchboard itself
 	// (backends/runtime/src/stack/stack-process.ts) a moment after this runs, so a
 	// closed port here is the normal cold-start state, not a fault. A switchboard
 	// that never comes up is reported by the runtime, which knows why.
-	if (summary.present && (await portIsListening(STACK_CONTROL_PORT))) {
+	if (summary.present && !summary.skipLink && (await portIsListening(STACK_CONTROL_PORT))) {
 		console.log(`Agent stack switchboard: already up on ${STACK_CONTROL_PORT}.`);
 	}
 }
@@ -431,19 +428,23 @@ function resolveStackProxyEnv() {
 }
 
 async function main() {
-	await wireAgentStack();
-
 	if (restart) {
+		const stackPorts = Object.values(STACK_DAEMON_PORTS).join(", ");
 		console.log(
-			`Freeing ports ${RUNTIME_PORT}, ${MANAGER_PORT}, ${HTML_PORT}, ${DOC_SKILL_PORT}, ${FLOWISE_PORT}...`,
+			`Restart: freeing stack daemons (${stackPorts}) and app ports ${RUNTIME_PORT}, ${MANAGER_PORT}, ${HTML_PORT}, ${DOC_SKILL_PORT}, ${FLOWISE_PORT}...`,
 		);
+		restartAgentStackDaemons({ freePortFn: freePort });
 		freePort(RUNTIME_PORT);
 		freePort(MANAGER_PORT);
 		freePort(HTML_PORT);
 		freePort(DOC_SKILL_PORT);
 		freePort(FLOWISE_PORT);
 		await new Promise((resolve) => setTimeout(resolve, 500));
-	} else if (await portIsListening(RUNTIME_PORT)) {
+	}
+
+	await wireAgentStack();
+
+	if (!restart && (await portIsListening(RUNTIME_PORT))) {
 		console.error(`Port ${RUNTIME_PORT} is already in use. Run: npm run solo -- --restart`);
 		process.exit(1);
 	}

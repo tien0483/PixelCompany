@@ -1,0 +1,41 @@
+---
+description: Safe coexistence for Caveman + Headroom + Ponytail — scope each compressor so double-compression never breaks code or system rules.
+globs:
+alwaysApply: true
+---
+
+# Stack compression boundaries (Caveman + Headroom + Ponytail)
+
+Run these tools together for max token savings **only** when each stays in its lane.
+
+## Execution order
+
+1. **Understand-Anything / RTK** — supply raw AST context and clean terminal hooks; never prose-compress tool output here.
+2. **Caveman** — trim **past user/assistant conversational prose** only (filler, hedging, pleasantries). Code blocks, diffs, and tool payloads stay verbatim.
+3. **Headroom (:8787)** — network-level context trim in **cache mode** (prefix-stable turns). Protects tool results listed in `config/headroom-proxy.json`. Never lossy-compress fenced ``` blocks or JSON tool schemas.
+4. **Ponytail** — enforces minimal **code you write** (YAGNI ladder). Governs output size, not chat tone.
+
+## Protected regions (never compress)
+
+- Any block tagged `<system_rules do_not_compress="true">…</system_rules>` (Ponytail ladder lives here).
+- Fenced code blocks (triple backticks) and inline code literals.
+- `tool_result` / tool output from Read, Grep, Glob, Bash, Write, Edit — including Understand-Anything graph excerpts and RTK-trimmed shell traces.
+- Security, validation, and accessibility requirements Ponytail marks as non-negotiable.
+
+## Caveman scope
+
+Caveman compresses **how you talk**, not **what tools returned** and not **what Ponytail forbids you to build**.
+
+- **Target:** user/assistant message prose in conversation history.
+- **Exclude:** active tool outputs, system prompts, `<system_rules>` blocks, Ponytail ladder text, AST dumps, terminal logs.
+
+## Headroom scope
+
+Headroom runs at the proxy before the provider. Prefer **cache mode** over token mode when Ponytail is active — cache freezes prior turns instead of rewriting them for ratio.
+
+- **Pass through:** ``` fenced regions, tool-result bodies for protected tools, `<system_rules do_not_compress="true">` blocks.
+- **Trim:** long conversational prefill buffers only.
+
+## Ponytail + Caveman
+
+No overlap: Caveman shrinks prose; Ponytail shrinks generated code. Pair them; do not let either compress the other's protected output.

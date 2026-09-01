@@ -4,4 +4,4 @@
 - `backends/agent_stack/bin/rtk` is available on PATH for token-efficient commands.
 - Use `rtk grep` and `rtk find` for searches across the workspace to automatically ignore build artifacts (`.next/`, `node_modules/`, `dist/`).
 - Use `rtk test`, `rtk git`, `rtk tsc` when running verification commands.
-- Stack skills are linked under `.cursor/skills/` (such as Understand Anything suite and Caveman).
+- Stack skills are linked under `.cursor/skills/` when available (Caveman, Ponytail; Understand Anything only when `.ua/knowledge-graph.json` exists).

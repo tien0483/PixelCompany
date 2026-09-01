@@ -134,31 +134,82 @@ stack_link_skill() {
 	echo "$label: linked $name into .claude/skills, .agent/skills, .cursor/skills"
 }
 
+stack_link_file() {
+	local src="$1" dest="$2" label="$3"
+	[ -f "$src" ] || return 1
+	if [ -e "$dest" ] || [ -L "$dest" ]; then
+		return 0
+	fi
+	mkdir -p "$(dirname "$dest")"
+	ln -s "$src" "$dest" 2>/dev/null || true
+	echo "$label: linked $(basename "$dest")"
+}
+
+stack_has_ua_graph() {
+	for dir in .understand-anything .ua; do
+		[ -f "$dir/knowledge-graph.json" ] && return 0
+	done
+	return 1
+}
+
+stack_unlink_ua_skills() {
+	local removed=0
+	for target_dir in ".claude/skills" ".agent/skills" ".cursor/skills"; do
+		[ -d "$target_dir" ] || continue
+		for entry in "$target_dir"/understand "$target_dir"/understand-*; do
+			[ -L "$entry" ] || continue
+			rm -f "$entry" 2>/dev/null && removed=$((removed + 1))
+		done
+	done
+	[ "$removed" -gt 0 ] && echo "Understand-Anything: removed $removed skill link(s) — no .ua graph in this project"
+}
+
 if [ -n "$(stack_flag ENABLE_CAVEMAN)" ]; then
 	stack_link_skill "$STACK_SANDBOX/skills/caveman" caveman "Caveman"
 fi
 
-if [ -n "$(stack_flag ENABLE_UA)" ]; then
-	# Understand-Anything ships no binary — it is a set of SKILL.md dirs, which is
-	# Claude Code, Gemini CLI, and Cursor skill compatible, so they link in directly.
-	ua_skills="$STACK_SANDBOX/src-understand-anything/understand-anything-plugin/skills"
-	if [ -d "$ua_skills" ]; then
-		ua_linked=0
-		for ua_skill in "$ua_skills"/*/; do
-			[ -d "$ua_skill" ] || continue
-			ua_name="$(basename "$ua_skill")"
-			stack_link_skill "$ua_skills/$ua_name" "$ua_name" "UA" >/dev/null && ua_linked=$((ua_linked + 1))
+if [ -n "$(stack_flag ENABLE_PONYTAIL)" ]; then
+	ponytail_root="$STACK_SANDBOX/src-ponytail"
+	if [ -d "$ponytail_root/skills" ]; then
+		ponytail_linked=0
+		for ponytail_skill in "$ponytail_root/skills"/*/; do
+			[ -d "$ponytail_skill" ] || continue
+			ponytail_name="$(basename "$ponytail_skill")"
+			stack_link_skill "$ponytail_root/skills/$ponytail_name" "$ponytail_name" "Ponytail" >/dev/null && ponytail_linked=$((ponytail_linked + 1))
 		done
-		echo "Understand-Anything: $ua_linked skill(s) available in .claude/skills, .agent/skills, .cursor/skills"
-		# The skill resolves its own plugin root at runtime and only probes
-		# $CLAUDE_PLUGIN_ROOT, ~/.understand-anything-plugin and a few $HOME paths —
-		# never .claude/skills — so without this link /understand exits early.
-		if [ ! -e "$HOME/.understand-anything-plugin" ]; then
-			echo "   warning: $HOME/.understand-anything-plugin missing — /understand cannot find its plugin root" >&2
+		echo "Ponytail: $ponytail_linked skill(s) available in .claude/skills, .agent/skills, .cursor/skills"
+		stack_link_file "$ponytail_root/.cursor/rules/ponytail.mdc" ".cursor/rules/ponytail.mdc" "Ponytail"
+		stack_link_file "$ponytail_root/.agents/rules/ponytail.md" ".agents/rules/ponytail.md" "Ponytail"
+	else
+		echo "   Ponytail SKIPPED — clone to $ponytail_root (git clone --depth 1 https://github.com/DietrichGebert/ponytail.git)" >&2
+	fi
+fi
+
+if [ -n "$(stack_flag ENABLE_UA)" ]; then
+	if stack_has_ua_graph; then
+		# Understand-Anything ships no binary — it is a set of SKILL.md dirs, which is
+		# Claude Code, Gemini CLI, and Cursor skill compatible, so they link in directly.
+		ua_skills="$STACK_SANDBOX/src-understand-anything/understand-anything-plugin/skills"
+		if [ -d "$ua_skills" ]; then
+			ua_linked=0
+			for ua_skill in "$ua_skills"/*/; do
+				[ -d "$ua_skill" ] || continue
+				ua_name="$(basename "$ua_skill")"
+				stack_link_skill "$ua_skills/$ua_name" "$ua_name" "UA" >/dev/null && ua_linked=$((ua_linked + 1))
+			done
+			echo "Understand-Anything: $ua_linked skill(s) available in .claude/skills, .agent/skills, .cursor/skills"
+			# The skill resolves its own plugin root at runtime and only probes
+			# $CLAUDE_PLUGIN_ROOT, ~/.understand-anything-plugin and a few $HOME paths —
+			# never .claude/skills — so without this link /understand exits early.
+			if [ ! -e "$HOME/.understand-anything-plugin" ]; then
+				echo "   warning: $HOME/.understand-anything-plugin missing — /understand cannot find its plugin root" >&2
+			fi
+			if [ ! -d "$ua_skills/../packages/core/dist" ]; then
+				echo "   warning: UA core not built — run 'pnpm run build' in packages/core" >&2
+			fi
 		fi
-		if [ ! -d "$ua_skills/../packages/core/dist" ]; then
-			echo "   warning: UA core not built — run 'pnpm run build' in packages/core" >&2
-		fi
+	else
+		stack_unlink_ua_skills
 	fi
 fi
 
@@ -204,7 +255,31 @@ if [ -n "$(stack_flag ENABLE_HEADROOM)" ]; then
 	# Headroom talks to Anthropic directly by default, so with CCR enabled the
 	# two would run side by side instead of chained. --anthropic-api-url is what
 	# actually makes headroom -> ccr -> provider a chain.
-	headroom_args=(proxy --host 127.0.0.1 --port "$STACK_HEADROOM_PORT" --mode cache)
+	# Cache mode + protected tool results avoid lossy double-compression with
+	# Caveman/Ponytail — see config/headroom-proxy.json.
+	headroom_mode="cache"
+	headroom_protect="Read,Grep,Glob,Bash,Write,Edit"
+	headroom_config="$STACK_SANDBOX/config/headroom-proxy.json"
+	if [ -f "$headroom_config" ]; then
+		read -r headroom_mode headroom_protect <<EOF
+$(python3 - "$headroom_config" <<'PY'
+import json, sys
+try:
+    with open(sys.argv[1]) as f:
+        cfg = json.load(f)
+    mode = cfg.get("mode") or "cache"
+    tools = cfg.get("protectToolResults") or ["Read", "Grep", "Glob", "Bash", "Write", "Edit"]
+    print(mode, ",".join(tools))
+except Exception:
+    print("cache", "Read,Grep,Glob,Bash,Write,Edit")
+PY
+)
+EOF
+	fi
+	headroom_args=(proxy --host 127.0.0.1 --port "$STACK_HEADROOM_PORT" --mode "$headroom_mode")
+	if [ -n "$headroom_protect" ]; then
+		headroom_args+=(--protect-tool-results "$headroom_protect")
+	fi
 	headroom_chain=direct
 	if [ -n "$(stack_flag ENABLE_CCR)" ]; then
 		headroom_args+=(--anthropic-api-url "http://127.0.0.1:$STACK_CCR_PORT")

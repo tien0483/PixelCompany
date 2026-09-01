@@ -11,19 +11,27 @@
  * resolvable to an agent started in this directory.
  *
  * Deliberately NOT ported here: the env exports (they would silently route every
- * runtime-spawned agent through the switchboard proxy and downgrade subagents)
- * and the daemons (they nohup past this process, so `solo --restart` could not
- * reap them). Keep sourcing the activator in your own shell for those.
+ * runtime-spawned agent through the switchboard proxy and downgrade subagents).
+ * `scripts/ensure-agent-stack.mjs` (called from `pnpm run solo`) handles shallow
+ * clones, venv sync, skill links, and on `--restart` stops stack daemons and frees
+ * stack ports so the runtime spawns fresh headroom/ccr/switchboard instances.
+ * Keep sourcing the activator in your own shell for session-scoped env exports.
  *
  * Usage:
  *   node scripts/link-stack-skills.mjs            # link, print a summary
  *   node scripts/link-stack-skills.mjs --quiet    # only print problems
  *   STACK_SANDBOX=/path/to/sandbox node scripts/link-stack-skills.mjs
  */
-import { existsSync, lstatSync, readdirSync, readFileSync, mkdirSync, realpathSync, rmSync, symlinkSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+
+import {
+	buildHeadroomProxyArgs,
+	wrapCompressionProtected,
+	wrapPonytailRuleDocument,
+} from "../backends/agent_stack/lib/compression-coexistence.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -63,6 +71,49 @@ function flagEnabled(flags, key) {
 	return flags === null ? true : Boolean(flags[key]);
 }
 
+const UA_DATA_DIR_CANDIDATES = [".understand-anything", ".ua"];
+const UA_KNOWLEDGE_GRAPH = "knowledge-graph.json";
+const UA_SKILL_NAME_PREFIX = "understand";
+
+/** True when this checkout has a built Understand Anything graph. */
+export function hasUnderstandAnythingGraph(checkoutRoot) {
+	for (const dir of UA_DATA_DIR_CANDIDATES) {
+		if (existsSync(join(checkoutRoot, dir, UA_KNOWLEDGE_GRAPH))) {
+			return true;
+		}
+	}
+	return false;
+}
+
+function isUnderstandAnythingSkillName(name) {
+	return name === UA_SKILL_NAME_PREFIX || name.startsWith(`${UA_SKILL_NAME_PREFIX}-`);
+}
+
+/** Drops stack-linked UA skill symlinks when the project has no graph. */
+function unlinkUnderstandAnythingSkills(destDirs) {
+	const removed = [];
+	for (const destDir of destDirs) {
+		if (!existsSync(destDir)) {
+			continue;
+		}
+		for (const name of readdirSync(destDir)) {
+			if (!isUnderstandAnythingSkillName(name)) {
+				continue;
+			}
+			const dest = join(destDir, name);
+			try {
+				if (lstatSync(dest).isSymbolicLink()) {
+					rmSync(dest, { force: true });
+					removed.push(`${name} [${destDir.split(/[/\\]/).slice(-2).join("/")}]`);
+				}
+			} catch {
+				// Entry vanished between readdir and lstat — skip.
+			}
+		}
+	}
+	return removed;
+}
+
 /** `existsSync` follows symlinks, so a link pointing at a deleted target reads as absent. */
 function entryPresent(path) {
 	try {
@@ -99,9 +150,49 @@ function linkSkill(source, destDir, name) {
 	return "linked";
 }
 
-function collectSources(sandboxDir, flags) {
+function linkRuleFile(source, dest, label) {
+	if (!existsSync(source)) {
+		return "missing";
+	}
+	if (entryPresent(dest)) {
+		if (existsSync(dest)) {
+			return "exists";
+		}
+		if (!lstatSync(dest).isSymbolicLink()) {
+			return "broken";
+		}
+		rmSync(dest, { force: true });
+	}
+	mkdirSync(dirname(dest), { recursive: true });
+	symlinkSync(source, dest);
+	return "linked";
+}
+
+/** Writes a generated rule file (used for compression-protected Ponytail rules). */
+function writeRuleFile(source, dest, transform) {
+	if (!existsSync(source)) {
+		return "missing";
+	}
+	if (entryPresent(dest)) {
+		if (lstatSync(dest).isSymbolicLink()) {
+			rmSync(dest, { force: true });
+		} else if (existsSync(dest)) {
+			return "exists";
+		} else {
+			return "broken";
+		}
+	}
+	mkdirSync(dirname(dest), { recursive: true });
+	const content = transform(readFileSync(source, "utf8"));
+	writeFileSync(dest, content.endsWith("\n") ? content : `${content}\n`, "utf8");
+	return "linked";
+}
+
+function collectSources(sandboxDir, flags, repoRootPath) {
 	const sources = [];
-	if (flagEnabled(flags, "ENABLE_UA")) {
+	const linkUa =
+		flagEnabled(flags, "ENABLE_UA") && hasUnderstandAnythingGraph(repoRootPath);
+	if (linkUa) {
 		const uaSkills = join(sandboxDir, "src-understand-anything", "understand-anything-plugin", "skills");
 		if (existsSync(uaSkills)) {
 			for (const name of readdirSync(uaSkills)) {
@@ -118,7 +209,83 @@ function collectSources(sandboxDir, flags) {
 			sources.push({ label: "Caveman", name: "caveman", path: caveman });
 		}
 	}
+	if (flagEnabled(flags, "ENABLE_PONYTAIL")) {
+		const ponytailSkills = join(sandboxDir, "src-ponytail", "skills");
+		if (existsSync(ponytailSkills)) {
+			for (const name of readdirSync(ponytailSkills)) {
+				const dir = join(ponytailSkills, name);
+				if (lstatSync(dir).isDirectory()) {
+					sources.push({ label: "Ponytail", name, path: dir });
+				}
+			}
+		}
+	}
 	return sources;
+}
+
+function collectPonytailRules(sandboxDir, flags, repoRoot) {
+	const rules = [];
+	if (!flagEnabled(flags, "ENABLE_PONYTAIL")) {
+		return rules;
+	}
+	const ponytailRoot = join(sandboxDir, "src-ponytail");
+	if (!existsSync(ponytailRoot)) {
+		return rules;
+	}
+	const cursorRule = join(ponytailRoot, ".cursor", "rules", "ponytail.mdc");
+	if (existsSync(cursorRule)) {
+		rules.push({
+			label: "Ponytail",
+			source: cursorRule,
+			dest: join(repoRoot, ".cursor", "rules", "ponytail.mdc"),
+			write: true,
+			transform: wrapPonytailRuleDocument,
+		});
+	}
+	const agentsRule = join(ponytailRoot, ".agents", "rules", "ponytail.md");
+	if (existsSync(agentsRule)) {
+		rules.push({
+			label: "Ponytail",
+			source: agentsRule,
+			dest: join(repoRoot, ".agents", "rules", "ponytail.md"),
+			write: true,
+			transform: (body) => `${wrapCompressionProtected(body)}\n`,
+		});
+	}
+	return rules;
+}
+
+function shouldLinkCompressionCoexistence(flags) {
+	return (
+		flagEnabled(flags, "ENABLE_CAVEMAN") ||
+		flagEnabled(flags, "ENABLE_PONYTAIL") ||
+		flagEnabled(flags, "ENABLE_HEADROOM")
+	);
+}
+
+function collectCompressionCoexistenceRules(sandboxDir, flags, repoRoot) {
+	if (!shouldLinkCompressionCoexistence(flags)) {
+		return [];
+	}
+	const source = join(sandboxDir, "rules", "stack-compression-coexistence.mdc");
+	if (!existsSync(source)) {
+		return [];
+	}
+	return [
+		{
+			label: "Stack",
+			source,
+			dest: join(repoRoot, ".cursor", "rules", "stack-compression-coexistence.mdc"),
+			write: false,
+		},
+		{
+			label: "Stack",
+			source,
+			dest: join(repoRoot, ".agents", "rules", "stack-compression-coexistence.md"),
+			transform: (body) => body.replace(/^---[\s\S]*?---\s*/, ""),
+			write: true,
+		},
+	];
 }
 
 /**
@@ -162,9 +329,9 @@ function ensurePluginRootLink(pluginRoot) {
  * Repairs what can be repaired and reports what cannot. Anything left in
  * `warnings` needs a human: a build step, or a conflicting install.
  */
-function ensureUnderstandAnything(sandboxDir, flags) {
+function ensureUnderstandAnything(sandboxDir, flags, repoRootPath) {
 	const warnings = [];
-	if (!flagEnabled(flags, "ENABLE_UA")) {
+	if (!flagEnabled(flags, "ENABLE_UA") || !hasUnderstandAnythingGraph(repoRootPath)) {
 		return warnings;
 	}
 	const pluginRoot = join(sandboxDir, "src-understand-anything", "understand-anything-plugin");
@@ -208,17 +375,33 @@ export function linkStackSkills({
 	sandboxDir = resolveSandboxDir(),
 	destDir,
 	destDirs = destDir ? [destDir] : DEFAULT_SKILL_DEST_DIRS,
+	repoRootPath = repoRoot,
 } = {}) {
 	if (!existsSync(sandboxDir)) {
-		return { sandboxDir, present: false, linked: [], existing: [], broken: [], warnings: [] };
+		return {
+			sandboxDir,
+			present: false,
+			linked: [],
+			existing: [],
+			broken: [],
+			removed: [],
+			understandAnythingActive: false,
+			warnings: [],
+		};
 	}
 	const flags = readStackFlags(sandboxDir);
 	const linked = [];
 	const existing = [];
 	const broken = [];
-	const sources = collectSources(sandboxDir, flags);
+	const removed = [];
+	const destDirList = destDirs ?? (destDir ? [destDir] : DEFAULT_SKILL_DEST_DIRS);
+	const sources = collectSources(sandboxDir, flags, repoRootPath);
 
-	for (const targetDir of destDirs) {
+	if (!flagEnabled(flags, "ENABLE_UA") || !hasUnderstandAnythingGraph(repoRootPath)) {
+		removed.push(...unlinkUnderstandAnythingSkills(destDirList));
+	}
+
+	for (const targetDir of destDirList) {
 		for (const source of sources) {
 			let result;
 			try {
@@ -237,7 +420,40 @@ export function linkStackSkills({
 			}
 		}
 	}
-	return { sandboxDir, present: true, linked, existing, broken, warnings: ensureUnderstandAnything(sandboxDir, flags) };
+
+	for (const rule of [...collectPonytailRules(sandboxDir, flags, repoRootPath), ...collectCompressionCoexistenceRules(sandboxDir, flags, repoRootPath)]) {
+		let result;
+		try {
+			if (rule.write) {
+				result = writeRuleFile(rule.source, rule.dest, rule.transform ?? ((body) => body));
+			} else {
+				result = linkRuleFile(rule.source, rule.dest, rule.label);
+			}
+		} catch (error) {
+			broken.push(`${rule.dest} (${error.code ?? error.message})`);
+			continue;
+		}
+		const record = `${rule.dest.split(/[/\\]/).slice(-3).join("/")}`;
+		if (result === "linked") {
+			linked.push(record);
+		} else if (result === "broken") {
+			broken.push(`${record} (existing link has no target)`);
+		} else if (result === "exists") {
+			existing.push(record);
+		}
+	}
+
+	return {
+		sandboxDir,
+		present: true,
+		linked,
+		existing,
+		broken,
+		removed,
+		understandAnythingActive:
+			flagEnabled(flags, "ENABLE_UA") && hasUnderstandAnythingGraph(repoRootPath),
+		warnings: ensureUnderstandAnything(sandboxDir, flags, repoRootPath),
+	};
 }
 
 export function reportStackSkills(summary, { quiet = false } = {}) {
@@ -246,6 +462,9 @@ export function reportStackSkills(summary, { quiet = false } = {}) {
 			console.log(`Agent stack: no sandbox at ${summary.sandboxDir} — skipping skill links.`);
 		}
 		return;
+	}
+	if (!quiet && summary.removed?.length > 0) {
+		console.log(`Agent stack skills: removed ${summary.removed.length} UA link(s) (no .ua graph in this project)`);
 	}
 	if (!quiet && (summary.linked.length > 0 || summary.existing.length > 0)) {
 		const parts = [];

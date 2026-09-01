@@ -34,6 +34,10 @@ const FLAG_LABELS: Record<StackFlagKey, { title: string; hint: string }> = {
 		title: "Caveman",
 		hint: "prompt compression skill linked into the workspace",
 	},
+	ENABLE_PONYTAIL: {
+		title: "Ponytail",
+		hint: "minimal-code skill + always-on rules (Cursor, Claude Code, Antigravity)",
+	},
 	ENABLE_HEADROOM: { title: "Headroom", hint: "context compression proxy" },
 	ENABLE_CCR: {
 		title: "CCR Gateway",

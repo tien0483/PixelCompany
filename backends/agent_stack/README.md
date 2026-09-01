@@ -1,6 +1,6 @@
 # Agent Stack
 
-Six-tool agent stack, contained in this directory. Nothing is installed globally;
+Seven-tool agent stack, contained in this directory. Nothing is installed globally;
 nothing outside this dir is modified except one reversible symlink
 (`~/.understand-anything-plugin`, required — see below).
 
@@ -12,12 +12,13 @@ ship in this repo, so a fresh clone had UI for a backend it could not install.
 backends/agent_stack/
 ├── bin/                  local binaries (rtk)                       [gitignored]
 ├── skills/caveman/       symlink to the Caveman plugin              [gitignored]
+├── src-ponytail/         upstream ponytail checkout                 [gitignored]
 ├── node_modules/         local npm packages (claude-code-router, …) [gitignored]
 ├── .venv/                local Python env (headroom, fastapi, …)    [gitignored]
 ├── src-*/                upstream checkouts (UA, DevTools)          [gitignored]
 ├── ccr-home/             scoped HOME for CCR                        [gitignored]
 ├── logs/                 per-daemon logs                            [gitignored]
-├── stack-flags.json      switchboard state (6 toggles)              [gitignored]
+├── stack-flags.json      switchboard state (7 toggles)              [gitignored]
 ├── server.py             control panel UI + dynamic proxy router
 ├── pyproject.toml        deps for .venv (`uv sync`)
 ├── activate-stack.sh     per-shell activator (source it)
@@ -59,7 +60,10 @@ activator started. A switchboard the runtime spawned is stopped by the runtime.
 
 ## Use
 
-Nothing to do for the switchboard and skills — `npm run solo` handles both.
+Nothing to do for the switchboard and skills — `pnpm run solo --restart --build`
+handles shallow clones (ponytail when flagged), `uv sync` when the venv is missing,
+skill/rule links, stack daemon restart, UI rebuild, and runtime boot. Use that as
+the normal dev loop after stack changes.
 
 For `rtk` on PATH and proxy routing in your own shell:
 
@@ -108,7 +112,7 @@ per-daemon liveness.
 | Flag | Effect | Applies |
 |------|--------|---------|
 | `ENABLE_HEADROOM`, `ENABLE_CCR` | proxy chain routing | immediately (read per request) |
-| `ENABLE_UA`, `ENABLE_RTK`, `ENABLE_CAVEMAN`, `ENABLE_DEVTOOLS` | PATH/skill/daemon setup | next `source activate-stack.sh` |
+| `ENABLE_UA`, `ENABLE_RTK`, `ENABLE_CAVEMAN`, `ENABLE_PONYTAIL`, `ENABLE_DEVTOOLS` | PATH/skill/daemon setup | next `source activate-stack.sh` |
 
 ## Proxy chain
 
@@ -137,13 +141,14 @@ export STACK_UPSTREAM_ANTHROPIC_API_KEY=sk-ant-...   # before sourcing
 
 It is swapped in server-side for direct requests only.
 
-## Status of the six tools
+## Status of the seven tools
 
 | Tool | State |
 |------|-------|
-| Headroom | installed (`.venv/bin/headroom`), `proxy --port 8787 --mode cache`, verified up |
+| Headroom | installed (`.venv/bin/headroom`), `proxy --port 8787 --mode cache`, tool-result protection — see `config/headroom-proxy.json` |
 | CCR | installed (`node_modules/.bin/ccr`), HOME-scoped to `ccr-home/`, verified up |
 | Caveman | wired to the already-installed Claude Code plugin (see below) |
+| Ponytail | skills + always-on rules for Cursor, Claude Code, Antigravity (see below) |
 | Understand-Anything | installed as skills (`src-understand-anything`), core built, 9 skills |
 | RTK | installed (`bin/rtk` 0.45.0) — **relocated by hand**, see below |
 | Claude DevTools | built from source as a standalone server, verified serving on :3001 |
@@ -158,6 +163,65 @@ fresh `git clone`. Two consequences:
   symlink. Re-point it, or replace it with a real clone:
   `git clone https://github.com/juliusbrussee/caveman backends/agent_stack/skills/caveman`
 
+### Ponytail minimizes generated code
+
+[Ponytail](https://github.com/DietrichGebert/ponytail) is the complement to Caveman:
+Caveman shrinks what the agent *says*; Ponytail shrinks what it *builds*. Pair them.
+
+Install the upstream checkout (gitignored, symlinked into every task worktree like UA):
+
+```bash
+git clone --depth 1 https://github.com/DietrichGebert/ponytail.git backends/agent_stack/src-ponytail
+```
+
+When `ENABLE_PONYTAIL` is on, `activate-stack.sh` and `scripts/link-stack-skills.mjs`
+link:
+
+- all six `skills/ponytail*` dirs into `.claude/skills`, `.agent/skills`, `.cursor/skills`
+  (Claude Code slash commands, Cursor skills, Antigravity skills)
+- `.cursor/rules/ponytail.mdc` for Cursor CLI / IDE always-on rules
+- `.agents/rules/ponytail.md` for Antigravity CLI always-on rules
+
+The runtime also calls the same linker at boot (`cli.ts`) and on every task worktree
+ensure (`task-worktree.ts`), so task agents get the stack even when solo was never run
+or the worktree was created before ponytail was installed. Gitignored skill/rule symlinks
+are mirrored into worktrees by `syncIgnoredPathsIntoWorktree`.
+
+For Claude Code plugin-tier hooks (per-turn ruleset injection + subagent propagation),
+install the marketplace plugin separately:
+
+```
+/plugin marketplace add DietrichGebert/ponytail
+/plugin install ponytail@ponytail
+```
+
+The stack's skill links are enough for task agents launched from PixelOffice; the plugin
+adds lifecycle hooks on top. Caveman + Ponytail together is the intended combo.
+
+### Caveman + Headroom + Ponytail (safe coexistence)
+
+All three can run together when each stays in its lane — see
+`rules/stack-compression-coexistence.mdc` (linked into `.cursor/rules` and
+`.agents/rules` when any of the three flags is on).
+
+| Layer | Scope | Protected from compression |
+|-------|--------|---------------------------|
+| **Ponytail** | Code you generate (YAGNI ladder) | Wrapped in `<system_rules do_not_compress="true">` in hooks + linked rules |
+| **Caveman** | User/assistant chat prose only | Code fences, tool results, system_rules blocks |
+| **Headroom** | Network prefill trim (`cache` mode) | Tool results in `config/headroom-proxy.json`; ``` fences |
+
+Headroom defaults (`config/headroom-proxy.json`):
+
+```json
+{
+  "mode": "cache",
+  "protectToolResults": ["Read", "Grep", "Glob", "Bash", "Write", "Edit"]
+}
+```
+
+Use `token` mode only when you accept lossy rewrite of older turns. Override tools via
+`HEADROOM_PROTECT_TOOL_RESULTS` or edit the JSON, then restart headroom.
+
 Headroom needed one dependency it does not declare: `h2` (it defaults to
 `http2=True`, and without `h2` startup dies with `ImportError` on every launch).
 It is pinned in `pyproject.toml` here.
@@ -165,7 +229,12 @@ It is pinned in `pyproject.toml` here.
 ### Understand-Anything has no binary
 
 UA is not a CLI — it is a git checkout plus a set of `SKILL.md` directories, which
-is already Claude Code's own skill format. Its `install.sh` never reads
+is already Claude Code's own skill format. Skills link **only when the project has
+a built graph** (`.ua/knowledge-graph.json`, or legacy `.understand-anything/knowledge-graph.json`).
+Projects without either directory skip UA entirely — stack-provided `understand-*`
+symlinks are removed so `/understand` does not appear on agents that cannot use it.
+
+Its `install.sh` never reads
 `INSTALL_DIR` (only `UA_DIR` and `UA_REPO_URL`), and its platform menu has no
 Claude entry — every target is a hardcoded `$HOME` path for some other tool. So
 the installer is not used here. Instead:
@@ -218,7 +287,7 @@ write outside the sandbox, so run them only if you want them globally:
 - `rtk init` — writes assistant instruction files into the current workspace
 - `rtk config` — creates a config file under `~/.config`
 
-The switchboard and activator already handle all six; missing tools are reported
+The switchboard and activator already handle all seven; missing tools are reported
 as `SKIPPED` at activation instead of failing silently.
 
 ### CCR configuration

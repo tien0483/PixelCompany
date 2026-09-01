@@ -43,6 +43,7 @@ FLAG_KEYS = (
     "ENABLE_UA",
     "ENABLE_RTK",
     "ENABLE_CAVEMAN",
+    "ENABLE_PONYTAIL",
     "ENABLE_HEADROOM",
     "ENABLE_CCR",
     "ENABLE_DEVTOOLS",
@@ -52,6 +53,7 @@ FLAG_LABELS = {
     "ENABLE_UA": ("Understand-Anything", "local AST engine, /understand"),
     "ENABLE_RTK": ("RTK", "terminal command interception (PATH-scoped)"),
     "ENABLE_CAVEMAN": ("Caveman", "prompt compression skill in workspace"),
+    "ENABLE_PONYTAIL": ("Ponytail", "minimal-code skill + rules (Cursor, Claude, Antigravity)"),
     "ENABLE_HEADROOM": ("Headroom", "context compression proxy :8787"),
     "ENABLE_CCR": ("Claude Code Router", "model routing / tool translation :3456"),
     "ENABLE_DEVTOOLS": ("Claude DevTools", "observability dashboard :3001"),
@@ -354,7 +356,7 @@ def ui() -> str:
   <button type="submit">Save &amp; Apply</button>
  </form>
  <p><small>Flags are read per-request — proxy routing changes take effect immediately.
- UA / RTK / Caveman / DevTools are read at <code>activate-stack.sh</code> time, so re-source
+ UA / RTK / Caveman / Ponytail / DevTools are read at <code>activate-stack.sh</code> time, so re-source
  it in a new tab for those. See <a href="/health">/health</a>.</small></p>
 </body></html>"""
 
@@ -382,7 +384,13 @@ def state_payload() -> dict:
             "devtools": {"port": DEVTOOLS_PORT, "up": live["devtools"]},
         },
         "upstreamKeyConfigured": bool(UPSTREAM_KEY),
-        "activationScopedFlags": ["ENABLE_UA", "ENABLE_RTK", "ENABLE_CAVEMAN", "ENABLE_DEVTOOLS"],
+        "activationScopedFlags": [
+            "ENABLE_UA",
+            "ENABLE_RTK",
+            "ENABLE_CAVEMAN",
+            "ENABLE_PONYTAIL",
+            "ENABLE_DEVTOOLS",
+        ],
     }
 
 
@@ -409,7 +417,7 @@ async def api_put_flags(request: Request) -> JSONResponse:
     if unknown:
         return JSONResponse({"error": f"unknown flags: {', '.join(unknown)}"}, status_code=400)
     # Partial updates are allowed: start from what's on disk so a caller can
-    # toggle one flag without having to echo back the other five.
+    # toggle one flag without having to echo back the other flags.
     merged = get_flags()
     merged.update({k: bool(v) for k, v in incoming.items()})
     save_flags(merged)

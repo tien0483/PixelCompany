@@ -413,6 +413,7 @@ async function startServer(): Promise<{
 		{ createHtmlClient },
 		{ startHtmlProcess },
 		{ startStackProcess },
+		{ linkStackSkillsAtStartup },
 		{ startHeadroomProcess },
 		{ startCcrProcess, startDevToolsProcess },
 		{ stopAllSeatRouters },
@@ -445,6 +446,7 @@ async function startServer(): Promise<{
 		import("./html/html-client.js"),
 		import("./html/html-process.js"),
 		import("./stack/stack-process.js"),
+		import("./stack/link-stack-skills-runtime.js"),
 		import("./stack/headroom-process.js"),
 		import("./stack/stack-extra-daemons.js"),
 		import("./stack/ccr-process.js"),
@@ -673,6 +675,9 @@ async function startServer(): Promise<{
 			console.log(`[kanban] ${message}`);
 		},
 	});
+	// Filesystem half of activate-stack.sh: UA/Caveman/Ponytail skills into the
+	// home repo so task worktree sync and direct linking have sources to mirror.
+	await linkStackSkillsAtStartup({ quiet: true });
 	// The rest of what `activate-stack.sh` starts, so a `pnpm run solo` needs no
 	// sourced shell. Each one is flag-gated and skips a port that is already
 	// served, so an activated shell keeps ownership of its own daemons.

@@ -1,0 +1,4 @@
+{
+  "mode": "cache",
+  "protectToolResults": ["Read", "Grep", "Glob", "Bash", "Write", "Edit"]
+}

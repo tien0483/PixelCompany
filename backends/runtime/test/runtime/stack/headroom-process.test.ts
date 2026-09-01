@@ -114,7 +114,7 @@ describe("stack flags", () => {
 
 describe("buildHeadroomArgs", () => {
 	it("proxies to Anthropic itself when CCR is off", () => {
-		expect(buildHeadroomArgs({ host: "127.0.0.1", port: 8787, chainToCcr: false })).toEqual([
+		expect(buildHeadroomArgs({ host: "127.0.0.1", port: 8787, chainToCcr: false, stackRoot: "" })).toEqual([
 			"proxy",
 			"--host",
 			"127.0.0.1",
@@ -122,6 +122,8 @@ describe("buildHeadroomArgs", () => {
 			"8787",
 			"--mode",
 			"cache",
+			"--protect-tool-results",
+			"Read,Grep,Glob,Bash,Write,Edit",
 		]);
 	});
 

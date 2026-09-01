@@ -11,7 +11,7 @@
 // Whether a task agent's traffic actually crosses this proxy is a separate
 // decision, made by `scripts/solo.mjs` (`--no-proxy-env`): agents only reach the
 // chain when `ANTHROPIC_BASE_URL` points at the switchboard.
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
 	createNoopProcess,
@@ -39,13 +39,49 @@ export function resolveHeadroomPort(configured?: number | undefined): number {
 	return resolveStackDaemonPort("STACK_HEADROOM_PORT", DEFAULT_HEADROOM_PORT, configured);
 }
 
+const DEFAULT_HEADROOM_PROTECT_TOOLS = ["Read", "Grep", "Glob", "Bash", "Write", "Edit"];
+
+function readHeadroomProxyConfig(stackRoot: string): { mode: string; protectToolResults: string[] } {
+	const configPath = join(stackRoot, "config", "headroom-proxy.json");
+	if (!existsSync(configPath)) {
+		return { mode: "cache", protectToolResults: DEFAULT_HEADROOM_PROTECT_TOOLS };
+	}
+	try {
+		const parsed = JSON.parse(readFileSync(configPath, "utf8")) as {
+			mode?: unknown;
+			protectToolResults?: unknown;
+		};
+		return {
+			mode: typeof parsed.mode === "string" ? parsed.mode : "cache",
+			protectToolResults: Array.isArray(parsed.protectToolResults)
+				? parsed.protectToolResults.filter((entry): entry is string => typeof entry === "string" && entry.length > 0)
+				: DEFAULT_HEADROOM_PROTECT_TOOLS,
+		};
+	} catch {
+		return { mode: "cache", protectToolResults: DEFAULT_HEADROOM_PROTECT_TOOLS };
+	}
+}
+
 /**
  * Mirrors `activate-stack.sh`: headroom proxies to Anthropic itself, and only
  * chains through CCR when `--anthropic-api-url` says so. The per-seat routers on
  * 3460+ are a different mechanism (`ccr-process.ts`) and are never chained here.
+ *
+ * Cache mode + protected tool results keep Headroom from lossy-compressing code
+ * blocks and agent tool output when Ponytail/Caveman are also active — see
+ * `config/headroom-proxy.json` and `rules/stack-compression-coexistence.mdc`.
  */
-export function buildHeadroomArgs(options: { host: string; port: number; chainToCcr: boolean }): string[] {
-	const args = ["proxy", "--host", options.host, "--port", String(options.port), "--mode", "cache"];
+export function buildHeadroomArgs(options: {
+	host: string;
+	port: number;
+	chainToCcr: boolean;
+	stackRoot?: string;
+}): string[] {
+	const proxyConfig = readHeadroomProxyConfig(options.stackRoot ?? findStackRoot() ?? "");
+	const args = ["proxy", "--host", options.host, "--port", String(options.port), "--mode", proxyConfig.mode];
+	if (proxyConfig.protectToolResults.length > 0) {
+		args.push("--protect-tool-results", proxyConfig.protectToolResults.join(","));
+	}
 	if (options.chainToCcr) {
 		const ccrPort = resolveStackDaemonPort("STACK_CCR_PORT", DEFAULT_CCR_PORT);
 		args.push("--anthropic-api-url", `http://127.0.0.1:${String(ccrPort)}`);
@@ -104,7 +140,7 @@ export async function startHeadroomProcess(deps: StartHeadroomProcessDependencie
 			host,
 			port,
 			binary,
-			args: buildHeadroomArgs({ host, port, chainToCcr }),
+			args: buildHeadroomArgs({ host, port, chainToCcr, stackRoot }),
 			// Published so `server.py` can tell a headroom that really reaches CCR from one
 			// that does not, rather than inferring it from a flag this process cannot re-read.
 			chainState: chainToCcr ? "ccr" : "direct",

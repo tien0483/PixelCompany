@@ -28,6 +28,7 @@ import { getWorkspaceFolderLabelForWorktreePath, normalizeTaskIdForWorktreePath 
 import { listTurbopackNodeModulesSymlinkSkipPaths } from "./task-worktree-turbopack";
 import { measureTaskStartSpan } from "./task-start-timing";
 import { readCachedIgnoredPaths, writeCachedIgnoredPaths } from "./task-worktree-sync-cache";
+import { linkStackSkillsForCheckout } from "../stack/link-stack-skills-runtime";
 
 const KANBAN_MANAGED_EXCLUDE_BLOCK_START = "# kanban-managed-symlinked-ignored-paths:start";
 const KANBAN_MANAGED_EXCLUDE_BLOCK_END = "# kanban-managed-symlinked-ignored-paths:end";
@@ -712,7 +713,15 @@ async function initializeSubmodulesIfNeeded(repoPath: string, worktreePath: stri
 async function prepareNewTaskWorktree(repoPath: string, worktreePath: string): Promise<void> {
 	try {
 		await initializeSubmodulesIfNeeded(repoPath, worktreePath);
+		// Home-repo links must exist before sync so gitignored skill symlinks mirror
+		// into the worktree; a direct link into the worktree covers stale manifests.
+		await measureTaskStartSpan("ensureWorktree.linkStackSkills.home", () =>
+			linkStackSkillsForCheckout(repoPath, { quiet: true }),
+		);
 		await syncIgnoredPathsIntoWorktreeIfStale(repoPath, worktreePath);
+		await measureTaskStartSpan("ensureWorktree.linkStackSkills.worktree", () =>
+			linkStackSkillsForCheckout(worktreePath, { quiet: true }),
+		);
 	} catch (error) {
 		await removeTaskWorktreeInternal(repoPath, worktreePath).catch(() => {});
 		throw error;
@@ -764,6 +773,9 @@ export async function ensureTaskWorktreeIfDoesntExist(options: {
 		if (existingResult.ok && existingResult.stdout) {
 			await measureTaskStartSpan("ensureWorktree.syncIgnoredPaths", () =>
 				syncIgnoredPathsIntoWorktreeIfStale(context.repoPath, worktreePath),
+			);
+			await measureTaskStartSpan("ensureWorktree.linkStackSkills.worktree", () =>
+				linkStackSkillsForCheckout(worktreePath, { quiet: true }),
 			);
 			const baseRef = await resolveExistingWorktreeBaseRef({
 				repoPath: context.repoPath,

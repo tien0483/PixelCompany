@@ -27,6 +27,7 @@ function stackState(overrides?: {
 			ENABLE_UA: true,
 			ENABLE_RTK: true,
 			ENABLE_CAVEMAN: true,
+			ENABLE_PONYTAIL: true,
 			ENABLE_HEADROOM: true,
 			ENABLE_CCR: true,
 			ENABLE_DEVTOOLS: false,
@@ -42,7 +43,13 @@ function stackState(overrides?: {
 			devtools: { port: 3001, up: false },
 		},
 		upstreamKeyConfigured: false,
-		activationScopedFlags: ["ENABLE_UA", "ENABLE_RTK", "ENABLE_CAVEMAN", "ENABLE_DEVTOOLS"],
+		activationScopedFlags: [
+			"ENABLE_UA",
+			"ENABLE_RTK",
+			"ENABLE_CAVEMAN",
+			"ENABLE_PONYTAIL",
+			"ENABLE_DEVTOOLS",
+		],
 	};
 }
 
