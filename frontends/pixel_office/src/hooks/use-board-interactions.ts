@@ -68,7 +68,8 @@ interface UseBoardInteractionsInput {
 	currentProjectId: string | null;
 	setSelectedTaskId: Dispatch<SetStateAction<string | null>>;
 	setIsClearTrashDialogOpen: Dispatch<SetStateAction<boolean>>;
-	setIsGitHistoryOpen: Dispatch<SetStateAction<boolean>>;
+	/** Selecting a card leaves the home git view; it never opens it. */
+	closeGitHistory: () => void;
 	stopTaskSession: (taskId: string) => Promise<void>;
 	cleanupTaskWorkspace: (taskId: string) => Promise<unknown>;
 	ensureTaskWorkspace: UseTaskSessionsResult["ensureTaskWorkspace"];
@@ -122,7 +123,7 @@ export function useBoardInteractions({
 	currentProjectId,
 	setSelectedTaskId,
 	setIsClearTrashDialogOpen,
-	setIsGitHistoryOpen,
+	closeGitHistory,
 	stopTaskSession,
 	cleanupTaskWorkspace,
 	ensureTaskWorkspace,
@@ -1019,9 +1020,9 @@ export function useBoardInteractions({
 				return;
 			}
 			setSelectedTaskId(taskId);
-			setIsGitHistoryOpen(false);
+			closeGitHistory();
 		},
-		[board, setIsGitHistoryOpen, setSelectedTaskId],
+		[board, closeGitHistory, setSelectedTaskId],
 	);
 
 	const handleMoveToTrash = useCallback(() => {

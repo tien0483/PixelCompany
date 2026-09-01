@@ -236,6 +236,8 @@ import {
 	RuntimeFlowiseLlmProxyStatusSchema,
 	type RuntimeFlowiseStatus,
 	RuntimeFlowiseStatusSchema,
+	type RuntimeOpenmaicStatus,
+	RuntimeOpenmaicStatusSchema,
 	type RuntimeClaudeOrgMcpPolicy,
 	RuntimeClaudeOrgMcpPolicySchema,
 	type RuntimeOrchestratorStatus,
@@ -919,6 +921,9 @@ export interface RuntimeTrpcContext {
 		status: () => Promise<RuntimeFlowiseStatus>;
 		flows: () => Promise<RuntimeFlowiseFlow[]>;
 		llmProxyStatus: () => Promise<RuntimeFlowiseLlmProxyStatus>;
+	};
+	openmaicApi: {
+		status: () => Promise<RuntimeOpenmaicStatus>;
 	};
 	orchestratorApi: {
 		status: () => Promise<RuntimeOrchestratorStatus>;
@@ -1952,6 +1957,11 @@ export const runtimeAppRouter = t.router({
 		}),
 		llmProxyStatus: t.procedure.output(RuntimeFlowiseLlmProxyStatusSchema).query(async ({ ctx }) => {
 			return await ctx.flowiseApi.llmProxyStatus();
+		}),
+	}),
+	openmaic: t.router({
+		status: t.procedure.output(RuntimeOpenmaicStatusSchema).query(async ({ ctx }) => {
+			return await ctx.openmaicApi.status();
 		}),
 	}),
 	orchestrator: t.router({

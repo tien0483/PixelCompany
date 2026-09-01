@@ -57,6 +57,31 @@ backends/flowise/packages/*/dist/
 backends/flowise/packages/ui/build/
 backends/flowise/.flowise/
 
+# OpenMAIC classroom (backends/openmaic is a submodule pointing at THU-MAIC/OpenMAIC).
+#
+# Unlike the agent-stack block above, these lines do NOT reach syncIgnoredPathsIntoWorktree:
+# git refuses to evaluate ignore rules for a path inside a submodule ("Pathspec ... is in
+# submodule"), so `git ls-files --others --ignored` never enumerates them from here — the
+# Flowise block above has the same limitation. It does not matter for the classroom: it is
+# one supervised service on a fixed port, started once by the runtime from the home repo,
+# so every task worktree already shares it.
+#
+# Upstream's own .gitignore covers its install and build products (/node_modules, /.next)
+# and its secrets (.env*, which is where the LLM provider key goes). The one path it has
+# never heard of is .openmaic/, this supervisor's log dir — and that one is excluded from
+# inside the submodule by `ensureOpenmaicDataDirExcluded` writing .git/info/exclude, since
+# a superproject cannot ignore it from out here.
+#
+# What is left is the safety net for a checkout where backends/openmaic is a plain
+# directory rather than an initialized submodule, and those rules DO apply.
+backends/openmaic/node_modules/
+backends/openmaic/packages/*/node_modules/
+backends/openmaic/packages/*/dist/
+backends/openmaic/.next/
+backends/openmaic/.openmaic/
+backends/openmaic/.env*
+!backends/openmaic/.env.example
+
 # Stack-provided skills, symlinked into .claude/skills by
 # scripts/link-stack-skills.mjs. They are machine-local links, so they cannot be
 # committed — and being ignored is what makes the runtime mirror them into every

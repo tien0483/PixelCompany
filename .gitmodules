@@ -6,3 +6,6 @@
 [submodule "backends/OmniRoute"]
 	path = backends/OmniRoute
 	url = https://github.com/diegosouzapw/OmniRoute.git
+[submodule "backends/openmaic"]
+	path = backends/openmaic
+	url = https://github.com/THU-MAIC/OpenMAIC.git
