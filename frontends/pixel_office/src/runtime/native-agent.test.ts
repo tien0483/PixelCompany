@@ -239,10 +239,10 @@ describe("native-agent helpers", () => {
 		const config = createRuntimeConfigResponse("claude");
 		config.agents = [
 			{
-				id: "gemini",
-				label: "Gemini CLI",
-				binary: "gemini",
-				command: "gemini",
+				id: "opencode",
+				label: "OpenCode CLI",
+				binary: "opencode",
+				command: "opencode",
 				defaultArgs: [],
 				installed: true,
 				configured: false,
