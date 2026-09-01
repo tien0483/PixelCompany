@@ -1274,6 +1274,62 @@ describe("CardDetailView", () => {
 		expect(onRestartTaskSession).toHaveBeenCalledWith("task-1");
 	});
 
+	// An Auto card stores no seat, so the picker's Auto option predicts one from live usage
+	// and drifts away from the seat the launch actually pinned. Without this line the panel
+	// names a seat the session is not on.
+	it("names the seat a running Auto card is actually on", async () => {
+		const selection = createSelection();
+		selection.card.agentId = "claude";
+		selection.card.managerAccountId = undefined;
+		const cool = createManagerAccount(1);
+		const running = createManagerAccount(2);
+		running.fiveHourPercent = 80;
+
+		await act(async () => {
+			root.render(
+				<CardDetailView
+					selection={selection}
+					currentProjectId="workspace-1"
+					sessionSummary={createSessionSummary({
+						state: "running",
+						managerAccountId: 2,
+					})}
+					taskSessions={{}}
+					onSessionSummary={() => {}}
+					onCardSelect={() => {}}
+					onTaskDragEnd={() => {}}
+					onMoveToTrash={() => {}}
+					bottomTerminalOpen={false}
+					bottomTerminalTaskId={null}
+					bottomTerminalSummary={null}
+					onBottomTerminalClose={() => {}}
+					managerAccounts={[cool, running]}
+					onTaskManagerAccountChanged={() => {}}
+					onRestartTaskSession={() => {}}
+					restartTaskLoadingById={{}}
+				/>,
+			);
+		});
+
+		// Auto is not drift, so the section does not auto-expand for it.
+		await act(async () => {
+			(
+				container.querySelector(
+					'[data-testid="task-config-toggle"]',
+				) as HTMLButtonElement
+			).click();
+		});
+
+		const select = container.querySelector<HTMLSelectElement>(
+			'[data-testid="task-account-picker"]',
+		);
+		expect(select?.value).toBe("auto");
+		expect(
+			container.querySelector('[data-testid="task-session-account-hint"]')
+				?.textContent,
+		).toBe("Running on user2@example.com · restarts on user1@example.com");
+	});
+
 	it("opens Task configuration for a card that has not run yet", async () => {
 		await act(async () => {
 			root.render(
