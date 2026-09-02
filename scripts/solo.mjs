@@ -98,6 +98,12 @@ const webUiRoot = join(repoRoot, "frontends", "pixel_office");
 const webUiDist = join(webUiRoot, "dist");
 const htmlNextRoot = join(repoRoot, "backends", "html_anything", "next");
 const htmlNextDist = join(htmlNextRoot, ".next");
+const openmaicRoot = join(repoRoot, "backends", "openmaic");
+const openmaicDist = join(openmaicRoot, ".next");
+const flowiseRoot = join(repoRoot, "backends", "flowise");
+const flowiseServerRoot = join(flowiseRoot, "packages", "server");
+const flowiseServerDist = join(flowiseServerRoot, "dist");
+const omniRouteRoot = join(repoRoot, "backends", "OmniRoute");
 
 /**
  * What counts as a UI source change. Mirrors WATCH_PATHS in
@@ -114,6 +120,27 @@ const WATCHED_HTML_PATHS = [
 	join(htmlNextRoot, "src"),
 	join(htmlNextRoot, "package.json"),
 	join(htmlNextRoot, "next.config.ts"),
+];
+
+const WATCHED_OPENMAIC_PATHS = [
+	join(openmaicRoot, "app"),
+	join(openmaicRoot, "components"),
+	join(openmaicRoot, "lib"),
+	join(openmaicRoot, "package.json"),
+	join(openmaicRoot, "next.config.ts"),
+];
+
+const WATCHED_FLOWISE_PATHS = [
+	join(flowiseRoot, "package.json"),
+	join(flowiseRoot, "pnpm-lock.yaml"),
+	join(flowiseRoot, "packages", "server", "src"),
+	join(flowiseRoot, "packages", "components", "src"),
+];
+
+const WATCHED_OMNIROUTE_PATHS = [
+	join(omniRouteRoot, "src"),
+	join(omniRouteRoot, "scripts"),
+	join(omniRouteRoot, "package.json"),
 ];
 
 /**
@@ -309,6 +336,46 @@ async function checkHtmlSidecarFreshness() {
 	return { state: sourceStamp <= distStamp ? "fresh" : "stale", distStamp };
 }
 
+async function hasBuiltOpenmaicSidecar() {
+	return await pathExists(join(openmaicDist, "BUILD_ID"));
+}
+
+async function checkOpenmaicSidecarFreshness() {
+	if (!(await pathExists(join(openmaicRoot, "package.json")))) {
+		return { state: "missing", distStamp: 0 };
+	}
+	if (!(await hasBuiltOpenmaicSidecar())) {
+		return { state: "missing", distStamp: 0 };
+	}
+	const distStamp = await newestMtimeMs([openmaicDist]);
+	const sourceStamp = await newestMtimeMs(WATCHED_OPENMAIC_PATHS);
+	return { state: sourceStamp <= distStamp ? "fresh" : "stale", distStamp };
+}
+
+async function hasBuiltFlowiseSidecar() {
+	return await pathExists(join(flowiseServerDist, "index.js"));
+}
+
+async function checkFlowiseSidecarFreshness() {
+	if (!(await pathExists(join(flowiseRoot, "package.json")))) {
+		return { state: "missing", distStamp: 0 };
+	}
+	if (!(await hasBuiltFlowiseSidecar())) {
+		return { state: "missing", distStamp: 0 };
+	}
+	const distStamp = await newestMtimeMs([flowiseServerDist]);
+	const sourceStamp = await newestMtimeMs(WATCHED_FLOWISE_PATHS);
+	return { state: sourceStamp <= distStamp ? "fresh" : "stale", distStamp };
+}
+
+async function checkOmniRouteSourcePresence() {
+	if (!(await pathExists(join(omniRouteRoot, "package.json")))) {
+		return { state: "missing" };
+	}
+	const sourceStamp = await newestMtimeMs(WATCHED_OMNIROUTE_PATHS);
+	return { state: sourceStamp > 0 ? "present" : "missing" };
+}
+
 function buildHtmlSidecar() {
 	console.log("  Building the HTML sidecar (backends/html_anything/next)...");
 	const nextBin = resolveDependencyEntry(htmlNextRoot, "next", "dist", "bin", "next");
@@ -323,6 +390,70 @@ function buildHtmlSidecar() {
 	});
 	if (result.status !== 0) {
 		console.warn("  HTML sidecar build failed — templates will stay offline.");
+	}
+}
+
+function buildOpenmaicSidecar() {
+	if (!existsSync(join(openmaicRoot, "package.json"))) {
+		return;
+	}
+	console.log("  Building OpenMAIC sidecar (backends/openmaic)...");
+	const ancestors = `http://127.0.0.1:${RUNTIME_PORT} http://localhost:${RUNTIME_PORT}`;
+	const result = spawnSync(
+		"sh",
+		[
+			"-c",
+			`CI=true npx pnpm@10.28.0 install --frozen-lockfile && ALLOWED_FRAME_ANCESTORS="${ancestors}" CI=true npx pnpm@10.28.0 build`,
+		],
+		{
+			cwd: openmaicRoot,
+			stdio: "inherit",
+			env: { ...process.env },
+		},
+	);
+	if (result.status !== 0) {
+		console.warn("  OpenMAIC build failed — Learning media/features may stay stale.");
+	}
+}
+
+function buildFlowiseSidecar() {
+	if (!existsSync(join(flowiseRoot, "package.json"))) {
+		return;
+	}
+	console.log("  Building Flowise sidecar (backends/flowise)...");
+	const result = spawnSync("sh", ["-c", "CI=true npx pnpm@10.26.0 install --frozen-lockfile && CI=true npx pnpm@10.26.0 build"], {
+		cwd: flowiseRoot,
+		stdio: "inherit",
+		env: { ...process.env },
+	});
+	if (result.status !== 0) {
+		console.warn("  Flowise build failed — Agents studio may stay stale.");
+	}
+}
+
+function buildOmniRouteSidecar() {
+	if (!existsSync(join(omniRouteRoot, "package.json"))) {
+		return;
+	}
+	let hasBuildScript = false;
+	try {
+		const packageJson = JSON.parse(readFileSync(join(omniRouteRoot, "package.json"), "utf8"));
+		hasBuildScript = typeof packageJson?.scripts?.build === "string";
+	} catch {
+		hasBuildScript = false;
+	}
+	if (!hasBuildScript) {
+		console.log("  OmniRoute has no build script — skipping explicit build.");
+		return;
+	}
+	console.log("  Building OmniRoute/OpenRouter module (backends/OmniRoute)...");
+	const result = spawnSync("npm", ["run", "build"], {
+		cwd: omniRouteRoot,
+		stdio: "inherit",
+		env: { ...process.env },
+	});
+	if (result.status !== 0) {
+		console.warn("  OmniRoute build failed — OpenRouter-related changes may stay stale.");
 	}
 }
 
@@ -491,6 +622,31 @@ async function main() {
 		buildHtmlSidecar();
 	} else if (htmlFreshness.state === "missing" && skipBuild) {
 		console.warn("  HTML sidecar .next missing — templates stay offline (--skip-build).");
+	}
+
+	const openmaicFreshness = await checkOpenmaicSidecarFreshness();
+	if (openmaicFreshness.state !== "fresh" && !skipBuild) {
+		if (openmaicFreshness.state === "stale") {
+			console.log("  OpenMAIC build is older than its sources — rebuilding.");
+		}
+		buildOpenmaicSidecar();
+	} else if (openmaicFreshness.state === "missing" && skipBuild) {
+		console.warn("  OpenMAIC build missing — Learning sidecar may stay offline/stale (--skip-build).");
+	}
+
+	const flowiseFreshness = await checkFlowiseSidecarFreshness();
+	if (flowiseFreshness.state !== "fresh" && !skipBuild) {
+		if (flowiseFreshness.state === "stale") {
+			console.log("  Flowise build is older than its sources — rebuilding.");
+		}
+		buildFlowiseSidecar();
+	} else if (flowiseFreshness.state === "missing" && skipBuild) {
+		console.warn("  Flowise build missing — Agents studio may stay offline/stale (--skip-build).");
+	}
+
+	const omniRoutePresence = await checkOmniRouteSourcePresence();
+	if (omniRoutePresence.state === "present" && forceBuild && !skipBuild) {
+		buildOmniRouteSidecar();
 	}
 
 	const proxyEnv = resolveStackProxyEnv();
