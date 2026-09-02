@@ -10,6 +10,8 @@ import type {
 	RuntimeClaudeCacheCleanResponse,
 	RuntimeClaudeCacheStatusRequest,
 	RuntimeClaudeCacheStatusResponse,
+	RuntimeEmptyRecycleBinRequest,
+	RuntimeEmptyRecycleBinResponse,
 	RuntimeCleanMergedWorktreesRequest,
 	RuntimeCleanMergedWorktreesResponse,
 	RuntimeCleanStashResponse,
@@ -325,6 +327,8 @@ import {
 	runtimeClaudeCacheCleanResponseSchema,
 	runtimeClaudeCacheStatusRequestSchema,
 	runtimeClaudeCacheStatusResponseSchema,
+	runtimeEmptyRecycleBinRequestSchema,
+	runtimeEmptyRecycleBinResponseSchema,
 	runtimeCleanMergedWorktreesRequestSchema,
 	runtimeCleanMergedWorktreesResponseSchema,
 	runtimeCleanStashResponseSchema,
@@ -696,6 +700,7 @@ export interface RuntimeTrpcContext {
 		runUpdateNow: (scope: RuntimeTrpcWorkspaceScope | null) => Promise<RuntimeRunUpdateResponse>;
 		getClaudeCacheStatus: (input?: RuntimeClaudeCacheStatusRequest) => Promise<RuntimeClaudeCacheStatusResponse>;
 		cleanClaudeCache: (input: RuntimeClaudeCacheCleanRequest) => Promise<RuntimeClaudeCacheCleanResponse>;
+		emptyRecycleBin: (input?: RuntimeEmptyRecycleBinRequest) => Promise<RuntimeEmptyRecycleBinResponse>;
 	};
 	workspaceApi: {
 		loadGitSummary: (
@@ -1310,6 +1315,12 @@ export const runtimeAppRouter = t.router({
 			.output(runtimeClaudeCacheCleanResponseSchema)
 			.mutation(async ({ ctx, input }) => {
 				return await ctx.runtimeApi.cleanClaudeCache(input);
+			}),
+		emptyRecycleBin: t.procedure
+			.input(runtimeEmptyRecycleBinRequestSchema.optional())
+			.output(runtimeEmptyRecycleBinResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.runtimeApi.emptyRecycleBin(input);
 			}),
 	}),
 	workspace: t.router({

@@ -3,9 +3,9 @@
 // ERR_PNPM_UNSUPPORTED_ENGINE, and `.npmrc`'s `engine-strict = false` does not stop pnpm 11.
 // PixelOffice itself runs on 22, so `process.execPath` is the wrong binary to hand the
 // studio — hence this lookup.
-import { existsSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+
+import { listNvmNodeVersionDirs } from "../workspace/nvm-versions";
 
 /** Minimum major the studio's own manifest asks for. */
 export const MIN_STUDIO_NODE_MAJOR = 24;
@@ -22,16 +22,10 @@ function currentNodeMajor(): number {
  * anything else should be named explicitly through the env var.
  */
 function findNvmNodeBinary(minMajor: number, home: string): string | null {
-	const versionsDir = join(home, ".nvm", "versions", "node");
-	let entries: string[];
-	try {
-		entries = readdirSync(versionsDir);
-	} catch {
-		return null;
-	}
+	const entries = listNvmNodeVersionDirs(home);
 	const candidates: { major: number; minor: number; patch: number; path: string }[] = [];
 	for (const entry of entries) {
-		const match = /^v(\d+)\.(\d+)\.(\d+)$/.exec(entry);
+		const match = /^v(\d+)\.(\d+)\.(\d+)$/.exec(entry.version);
 		if (match === null) {
 			continue;
 		}
@@ -39,10 +33,12 @@ function findNvmNodeBinary(minMajor: number, home: string): string | null {
 		if (major < minMajor) {
 			continue;
 		}
-		const path = join(versionsDir, entry, "bin", "node");
-		if (existsSync(path)) {
-			candidates.push({ major, minor: Number(match[2]), patch: Number(match[3]), path });
-		}
+		candidates.push({
+			major,
+			minor: Number(match[2]),
+			patch: Number(match[3]),
+			path: entry.nodeBinaryPath,
+		});
 	}
 	if (candidates.length === 0) {
 		return null;

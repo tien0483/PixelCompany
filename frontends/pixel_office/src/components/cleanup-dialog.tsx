@@ -3,16 +3,33 @@ import { Check, Trash2 } from "lucide-react";
 import { type ChangeEvent, type ReactElement, useCallback, useEffect, useMemo, useState } from "react";
 
 import { notifyError, showAppToast } from "@/components/app-toaster";
+import { CleanupNvmVersionsSection } from "@/components/cleanup-nvm-versions-section";
 import { CleanupWorktreeSection, worktreeEntryKey } from "@/components/cleanup-worktree-section";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogBody, DialogFooter, DialogHeader } from "@/components/ui/dialog";
+import {
+	AlertDialog,
+	AlertDialogAction,
+	AlertDialogBody,
+	AlertDialogCancel,
+	AlertDialogDescription,
+	AlertDialogFooter,
+	AlertDialogHeader,
+	AlertDialogTitle,
+	Dialog,
+	DialogBody,
+	DialogFooter,
+	DialogHeader,
+} from "@/components/ui/dialog";
 import { Spinner } from "@/components/ui/spinner";
 import {
 	cleanClaudeCache,
 	cleanRuntimeMergedWorktrees,
+	emptyRuntimeRecycleBin,
 	fetchClaudeCacheStatus,
+	openFileOnHost,
 } from "@/runtime/runtime-config-query";
 import type {
+	RuntimeCleanupDisposeMode,
 	RuntimeClaudeCacheCleanResponse,
 	RuntimeCleanMergedWorktreesResponse,
 	RuntimeWorktreeReclaimEntry,
@@ -46,6 +63,13 @@ export function CleanupDialog({
 	const [cursorCacheChecked, setCursorCacheChecked] = useState(false);
 	const [geminiCacheChecked, setGeminiCacheChecked] = useState(false);
 	const [antigravityHomeChecked, setAntigravityHomeChecked] = useState(false);
+	const [tmpChecked, setTmpChecked] = useState(false);
+	const [npmCacheChecked, setNpmCacheChecked] = useState(false);
+	const [nvmCacheChecked, setNvmCacheChecked] = useState(false);
+	const [nvmVersionsChecked, setNvmVersionsChecked] = useState(false);
+	const [selectedNvmVersions, setSelectedNvmVersions] = useState<ReadonlySet<string>>(() => new Set());
+	const [disposeMode, setDisposeMode] = useState<RuntimeCleanupDisposeMode>("recycle-bin");
+	const [isEmptyRecycleBinDialogOpen, setIsEmptyRecycleBinDialogOpen] = useState(false);
 	const [safeAgeDays, setSafeAgeDays] = useState<number>(DEFAULT_SAFE_AGE_DAYS);
 	const [worktreesChecked, setWorktreesChecked] = useState(false);
 	const [orphanNodeModulesChecked, setOrphanNodeModulesChecked] = useState(false);
@@ -66,6 +90,21 @@ export function CleanupDialog({
 		geminiCacheSizeBytes?: number;
 		antigravityHomeItemCount?: number;
 		antigravityHomeSizeBytes?: number;
+		tmpItemCount?: number;
+		tmpSizeBytes?: number;
+		npmCacheItemCount?: number;
+		npmCacheSizeBytes?: number;
+		nvmCacheItemCount?: number;
+		nvmCacheSizeBytes?: number;
+		nvmVersions?: {
+			version: string;
+			path: string;
+			sizeBytes: number;
+			inUse: boolean;
+		}[];
+		recycleBinItemCount?: number;
+		recycleBinSizeBytes?: number;
+		recycleBinPath?: string;
 	} | null>(null);
 	const [worktreeScan, setWorktreeScan] = useState<RuntimeCleanMergedWorktreesResponse | null>(null);
 	// Tracks explicit *de*selection rather than selection, so a worktree that shows
@@ -193,6 +232,90 @@ export function CleanupDialog({
 		[invalidatePreview],
 	);
 
+	const handleTmpCheckedChange = useCallback(
+		(checked: boolean | "indeterminate") => {
+			setTmpChecked(checked === true);
+			invalidatePreview();
+		},
+		[invalidatePreview],
+	);
+
+	const handleNpmCacheCheckedChange = useCallback(
+		(checked: boolean | "indeterminate") => {
+			setNpmCacheChecked(checked === true);
+			invalidatePreview();
+		},
+		[invalidatePreview],
+	);
+
+	const handleNvmCacheCheckedChange = useCallback(
+		(checked: boolean | "indeterminate") => {
+			setNvmCacheChecked(checked === true);
+			invalidatePreview();
+		},
+		[invalidatePreview],
+	);
+
+	const handleNvmVersionsCheckedChange = useCallback(
+		(checked: boolean | "indeterminate") => {
+			const nextChecked = checked === true;
+			setNvmVersionsChecked(nextChecked);
+			if (nextChecked) {
+				setSelectedNvmVersions(
+					new Set(
+						(claudeStatus?.nvmVersions ?? [])
+							.filter((entry) => !entry.inUse)
+							.map((entry) => entry.version),
+					),
+				);
+			} else {
+				setSelectedNvmVersions(new Set());
+			}
+			invalidatePreview();
+		},
+		[claudeStatus?.nvmVersions, invalidatePreview],
+	);
+
+	const handleToggleNvmVersion = useCallback(
+		(version: string, checked: boolean) => {
+			setSelectedNvmVersions((previous) => {
+				const next = new Set(previous);
+				if (checked) {
+					next.add(version);
+				} else {
+					next.delete(version);
+				}
+				return next;
+			});
+			invalidatePreview();
+		},
+		[invalidatePreview],
+	);
+
+	const handleToggleAllNvmVersions = useCallback(
+		(checked: boolean) => {
+			setSelectedNvmVersions(
+				checked
+					? new Set(
+							(claudeStatus?.nvmVersions ?? [])
+								.filter((entry) => !entry.inUse)
+								.map((entry) => entry.version),
+						)
+					: new Set(),
+			);
+			invalidatePreview();
+		},
+		[claudeStatus?.nvmVersions, invalidatePreview],
+	);
+
+	const handleDisposeModeChange = useCallback(
+		(nextMode: RuntimeCleanupDisposeMode) => {
+			setDisposeMode(nextMode);
+			invalidatePreview();
+		},
+		[invalidatePreview],
+	);
+
 	const handleSafeAgeDaysChange = useCallback(
 		(event: ChangeEvent<HTMLSelectElement>) => {
 			setSafeAgeDays(Number(event.target.value));
@@ -302,7 +425,11 @@ export function CleanupDialog({
 		dshPackagesChecked ||
 		cursorCacheChecked ||
 		geminiCacheChecked ||
-		antigravityHomeChecked;
+		antigravityHomeChecked ||
+		tmpChecked ||
+		npmCacheChecked ||
+		nvmCacheChecked ||
+		(nvmVersionsChecked && selectedNvmVersions.size > 0);
 	const canPreview = claudeCacheChecked || worktreesChecked || orphanNodeModulesChecked;
 
 	const buildClaudeCleanRequest = useCallback(
@@ -316,6 +443,14 @@ export function CleanupDialog({
 			includeCursorCache: cursorCacheChecked,
 			includeGeminiCache: geminiCacheChecked,
 			includeAntigravityHome: antigravityHomeChecked,
+			includeTmp: tmpChecked,
+			includeNpmCache: npmCacheChecked,
+			includeNvmCache: nvmCacheChecked,
+			nvmVersions:
+				nvmVersionsChecked && selectedNvmVersions.size > 0
+					? [...selectedNvmVersions]
+					: undefined,
+			disposeMode,
 			dryRun,
 		}),
 		[
@@ -328,6 +463,12 @@ export function CleanupDialog({
 			cursorCacheChecked,
 			geminiCacheChecked,
 			antigravityHomeChecked,
+			tmpChecked,
+			npmCacheChecked,
+			nvmCacheChecked,
+			nvmVersionsChecked,
+			selectedNvmVersions,
+			disposeMode,
 		],
 	);
 
@@ -344,6 +485,14 @@ export function CleanupDialog({
 		}
 		return 0;
 	}, [worktreesChecked, orphanNodeModulesChecked, selectedEntries, reclaimable]);
+	const selectedNvmVersionBytes = useMemo(() => {
+		if (!nvmVersionsChecked) {
+			return 0;
+		}
+		return (claudeStatus?.nvmVersions ?? [])
+			.filter((entry) => selectedNvmVersions.has(entry.version))
+			.reduce((sum, entry) => sum + entry.sizeBytes, 0);
+	}, [nvmVersionsChecked, selectedNvmVersions, claudeStatus?.nvmVersions]);
 	const totalReclaimBytes =
 		selectedWorktreeBytes +
 		(claudeChecked ? (claudeStatus?.safeSizeBytes ?? 0) : 0) +
@@ -353,7 +502,11 @@ export function CleanupDialog({
 		(dshPackagesChecked ? (claudeStatus?.dshPackageSizeBytes ?? 0) : 0) +
 		(cursorCacheChecked ? (claudeStatus?.cursorCacheSizeBytes ?? 0) : 0) +
 		(geminiCacheChecked ? (claudeStatus?.geminiCacheSizeBytes ?? 0) : 0) +
-		(antigravityHomeChecked ? (claudeStatus?.antigravityHomeSizeBytes ?? 0) : 0);
+		(antigravityHomeChecked ? (claudeStatus?.antigravityHomeSizeBytes ?? 0) : 0) +
+		(tmpChecked ? (claudeStatus?.tmpSizeBytes ?? 0) : 0) +
+		(npmCacheChecked ? (claudeStatus?.npmCacheSizeBytes ?? 0) : 0) +
+		(nvmCacheChecked ? (claudeStatus?.nvmCacheSizeBytes ?? 0) : 0) +
+		selectedNvmVersionBytes;
 	const totalReclaimableWorktreeBytes = useMemo(
 		() =>
 			reclaimable.reduce(
@@ -372,12 +525,23 @@ export function CleanupDialog({
 		setCursorCacheChecked(true);
 		setGeminiCacheChecked(true);
 		setAntigravityHomeChecked(true);
+		setTmpChecked(true);
+		setNpmCacheChecked(true);
+		setNvmCacheChecked(true);
+		setNvmVersionsChecked(true);
+		setSelectedNvmVersions(
+			new Set(
+				(claudeStatus?.nvmVersions ?? [])
+					.filter((entry) => !entry.inUse)
+					.map((entry) => entry.version),
+			),
+		);
 		setSafeAgeDays(0);
 		setWorktreesChecked(true);
 		setOrphanNodeModulesChecked(true);
 		setDeselectedKeys(new Set());
 		invalidatePreview();
-	}, [invalidatePreview]);
+	}, [claudeStatus?.nvmVersions, invalidatePreview]);
 
 	const handlePreview = useCallback(() => {
 		void (async () => {
@@ -435,6 +599,12 @@ export function CleanupDialog({
 				setCursorCacheChecked(false);
 				setGeminiCacheChecked(false);
 				setAntigravityHomeChecked(false);
+				setTmpChecked(false);
+				setNpmCacheChecked(false);
+				setNvmCacheChecked(false);
+				setNvmVersionsChecked(false);
+				setSelectedNvmVersions(new Set());
+				setDisposeMode("recycle-bin");
 				setWorktreesChecked(false);
 				setOrphanNodeModulesChecked(false);
 				setIncludeTranscripts(false);
@@ -457,6 +627,36 @@ export function CleanupDialog({
 		loadStatus,
 	]);
 
+	const handleOpenRecycleBin = useCallback(() => {
+		const path = claudeStatus?.recycleBinPath;
+		if (!path) {
+			return;
+		}
+		void openFileOnHost(workspaceId, path).catch((error) => {
+			notifyError(error instanceof Error ? error.message : String(error));
+		});
+	}, [claudeStatus?.recycleBinPath, workspaceId]);
+
+	const handleConfirmEmptyRecycleBin = useCallback(() => {
+		void (async () => {
+			setIsBusy(true);
+			try {
+				const result = await emptyRuntimeRecycleBin(workspaceId, { dryRun: false });
+				if (!result.ok) {
+					notifyError(result.error ?? "Failed to empty recycle bin");
+					return;
+				}
+				showAppToast({ intent: "success", message: "Recycle bin emptied" });
+				setIsEmptyRecycleBinDialogOpen(false);
+				loadStatus();
+			} catch (error) {
+				notifyError(error instanceof Error ? error.message : String(error));
+			} finally {
+				setIsBusy(false);
+			}
+		})();
+	}, [workspaceId, loadStatus]);
+
 	return (
 		<Dialog open={open} onOpenChange={handleOpenChange}>
 			<DialogHeader title="Cleanup" icon={<Trash2 size={16} />} />
@@ -475,6 +675,33 @@ export function CleanupDialog({
 						Select maximum
 					</Button>
 				</div>
+				<fieldset className="space-y-2 rounded-md border border-border bg-surface-2 p-3">
+					<legend className="px-1 text-[12px] text-text-primary">Disposal mode</legend>
+					<label className="flex items-center gap-2 text-[12px] text-text-secondary cursor-pointer select-none">
+						<input
+							type="radio"
+							name="cleanup-dispose-mode"
+							data-testid="cleanup-dispose-recycle-bin"
+							checked={disposeMode === "recycle-bin"}
+							onChange={() => handleDisposeModeChange("recycle-bin")}
+						/>
+						Move to recycle bin
+					</label>
+					<label className="flex items-center gap-2 text-[12px] text-text-secondary cursor-pointer select-none">
+						<input
+							type="radio"
+							name="cleanup-dispose-mode"
+							data-testid="cleanup-dispose-delete"
+							checked={disposeMode === "delete"}
+							onChange={() => handleDisposeModeChange("delete")}
+						/>
+						Delete permanently
+					</label>
+					<p className="text-[11px] text-text-tertiary">
+						Recycle bin:{" "}
+						<code className="text-[10px]">{claudeStatus?.recycleBinPath ?? "~/.agent/recycle-bin"}</code>
+					</p>
+				</fieldset>
 				<label className="flex flex-wrap items-center gap-2 text-[13px] text-text-primary cursor-pointer select-none">
 					<RadixCheckbox.Root
 						data-testid="cleanup-claude-checkbox"
@@ -662,6 +889,99 @@ export function CleanupDialog({
 				</p>
 				<label className="flex items-center gap-2 text-[13px] text-text-primary cursor-pointer select-none">
 					<RadixCheckbox.Root
+						data-testid="cleanup-tmp-checkbox"
+						checked={tmpChecked}
+						onCheckedChange={handleTmpCheckedChange}
+						className="flex h-3.5 w-3.5 items-center justify-center rounded-sm border border-border-bright bg-surface-3 data-[state=checked]:bg-accent data-[state=checked]:border-accent"
+					>
+						<RadixCheckbox.Indicator>
+							<Check size={10} className="text-white" />
+						</RadixCheckbox.Indicator>
+					</RadixCheckbox.Root>
+					System tmp (<code className="text-[10px]">/tmp</code> and temp dirs)
+					{claudeStatus?.tmpItemCount !== undefined ? (
+						<span className="text-text-secondary">
+							({claudeStatus.tmpItemCount} items, {formatBytes(claudeStatus.tmpSizeBytes ?? 0)})
+						</span>
+					) : null}
+				</label>
+				<p className="ml-6 -mt-2 text-[11px] text-text-tertiary">
+					Top-level aged entries only — respects the age selector above.
+				</p>
+				<label className="flex items-center gap-2 text-[13px] text-text-primary cursor-pointer select-none">
+					<RadixCheckbox.Root
+						data-testid="cleanup-npm-cache-checkbox"
+						checked={npmCacheChecked}
+						onCheckedChange={handleNpmCacheCheckedChange}
+						className="flex h-3.5 w-3.5 items-center justify-center rounded-sm border border-border-bright bg-surface-3 data-[state=checked]:bg-accent data-[state=checked]:border-accent"
+					>
+						<RadixCheckbox.Indicator>
+							<Check size={10} className="text-white" />
+						</RadixCheckbox.Indicator>
+					</RadixCheckbox.Root>
+					npm download cache (<code className="text-[10px]">~/.npm</code>)
+					{claudeStatus?.npmCacheItemCount !== undefined ? (
+						<span className="text-text-secondary">
+							({claudeStatus.npmCacheItemCount} dirs, {formatBytes(claudeStatus.npmCacheSizeBytes ?? 0)})
+						</span>
+					) : null}
+				</label>
+				<p className="ml-6 -mt-2 text-[11px] text-text-tertiary">
+					<code className="text-[10px]">_cacache</code>, <code className="text-[10px]">_npx</code>, and{" "}
+					<code className="text-[10px]">_logs</code> — rebuilt on next install.
+				</p>
+				<label className="flex items-center gap-2 text-[13px] text-text-primary cursor-pointer select-none">
+					<RadixCheckbox.Root
+						data-testid="cleanup-nvm-cache-checkbox"
+						checked={nvmCacheChecked}
+						onCheckedChange={handleNvmCacheCheckedChange}
+						className="flex h-3.5 w-3.5 items-center justify-center rounded-sm border border-border-bright bg-surface-3 data-[state=checked]:bg-accent data-[state=checked]:border-accent"
+					>
+						<RadixCheckbox.Indicator>
+							<Check size={10} className="text-white" />
+						</RadixCheckbox.Indicator>
+					</RadixCheckbox.Root>
+					nvm download cache (<code className="text-[10px]">~/.nvm/.cache</code>)
+					{claudeStatus?.nvmCacheItemCount !== undefined ? (
+						<span className="text-text-secondary">
+							({claudeStatus.nvmCacheItemCount} dirs, {formatBytes(claudeStatus.nvmCacheSizeBytes ?? 0)})
+						</span>
+					) : null}
+				</label>
+				{(claudeStatus?.nvmVersions?.length ?? 0) > 0 ? (
+					<>
+						<label className="flex items-center gap-2 text-[13px] text-text-primary cursor-pointer select-none">
+							<RadixCheckbox.Root
+								data-testid="cleanup-nvm-versions-checkbox"
+								checked={nvmVersionsChecked}
+								onCheckedChange={handleNvmVersionsCheckedChange}
+								className="flex h-3.5 w-3.5 items-center justify-center rounded-sm border border-border-bright bg-surface-3 data-[state=checked]:bg-accent data-[state=checked]:border-accent"
+							>
+								<RadixCheckbox.Indicator>
+									<Check size={10} className="text-white" />
+								</RadixCheckbox.Indicator>
+							</RadixCheckbox.Root>
+							nvm Node versions
+							<span className="text-text-secondary">
+								({claudeStatus?.nvmVersions?.length ?? 0} installed,{" "}
+								{formatBytes(
+									(claudeStatus?.nvmVersions ?? []).reduce((sum, entry) => sum + entry.sizeBytes, 0),
+								)}
+								)
+							</span>
+						</label>
+						{nvmVersionsChecked ? (
+							<CleanupNvmVersionsSection
+								versions={claudeStatus?.nvmVersions ?? []}
+								selectedVersions={selectedNvmVersions}
+								onToggleVersion={handleToggleNvmVersion}
+								onToggleAll={handleToggleAllNvmVersions}
+							/>
+						) : null}
+					</>
+				) : null}
+				<label className="flex items-center gap-2 text-[13px] text-text-primary cursor-pointer select-none">
+					<RadixCheckbox.Root
 						data-testid="cleanup-worktrees-checkbox"
 						checked={worktreesChecked}
 						onCheckedChange={handleWorktreesCheckedChange}
@@ -773,6 +1093,37 @@ export function CleanupDialog({
 						) : null}
 					</div>
 				) : null}
+				<div className="rounded-md border border-border bg-surface-2 p-3 space-y-2">
+					<p className="text-[13px] text-text-primary">Recycle bin</p>
+					<p className="text-[12px] text-text-secondary">
+						{claudeStatus?.recycleBinItemCount ?? 0} item(s),{" "}
+						{formatBytes(claudeStatus?.recycleBinSizeBytes ?? 0)}
+					</p>
+					<p className="text-[11px] text-text-tertiary">
+						Agents without delete permission can move files here. Empty it when you are ready to permanently
+						remove staged files.
+					</p>
+					<div className="flex flex-wrap gap-2">
+						<Button
+							data-testid="cleanup-open-recycle-bin-button"
+							variant="default"
+							size="sm"
+							disabled={isBusy || !claudeStatus?.recycleBinPath}
+							onClick={handleOpenRecycleBin}
+						>
+							Open folder
+						</Button>
+						<Button
+							data-testid="cleanup-empty-recycle-bin-button"
+							variant="danger"
+							size="sm"
+							disabled={isBusy || (claudeStatus?.recycleBinItemCount ?? 0) === 0}
+							onClick={() => setIsEmptyRecycleBinDialogOpen(true)}
+						>
+							Empty recycle bin
+						</Button>
+					</div>
+				</div>
 			</DialogBody>
 			<DialogFooter>
 				<span className="mr-auto text-[12px] text-text-secondary" data-testid="cleanup-total-estimate">
@@ -797,9 +1148,40 @@ export function CleanupDialog({
 					icon={isBusy ? <Spinner size={12} /> : undefined}
 					onClick={handleConfirm}
 				>
-					Confirm delete
+					{disposeMode === "recycle-bin" ? "Confirm cleanup" : "Confirm delete"}
 				</Button>
 			</DialogFooter>
+			<AlertDialog
+				open={isEmptyRecycleBinDialogOpen}
+				onOpenChange={(nextOpen) => {
+					if (!nextOpen) {
+						setIsEmptyRecycleBinDialogOpen(false);
+					}
+				}}
+			>
+				<AlertDialogHeader>
+					<AlertDialogTitle>Empty recycle bin permanently?</AlertDialogTitle>
+				</AlertDialogHeader>
+				<AlertDialogBody>
+					<AlertDialogDescription>
+						This will permanently delete {claudeStatus?.recycleBinItemCount ?? 0} staged item(s) (
+						{formatBytes(claudeStatus?.recycleBinSizeBytes ?? 0)}).
+					</AlertDialogDescription>
+					<p className="text-text-primary">This action cannot be undone.</p>
+				</AlertDialogBody>
+				<AlertDialogFooter>
+					<AlertDialogCancel asChild>
+						<Button variant="default" onClick={() => setIsEmptyRecycleBinDialogOpen(false)}>
+							Cancel
+						</Button>
+					</AlertDialogCancel>
+					<AlertDialogAction asChild>
+						<Button variant="danger" disabled={isBusy} onClick={handleConfirmEmptyRecycleBin}>
+							Empty recycle bin
+						</Button>
+					</AlertDialogAction>
+				</AlertDialogFooter>
+			</AlertDialog>
 		</Dialog>
 	);
 }

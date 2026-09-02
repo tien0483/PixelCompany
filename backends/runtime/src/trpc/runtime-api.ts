@@ -80,7 +80,7 @@ import {
 	listClaudeSkillInventory,
 } from "../terminal/task-launch-settings";
 import { readClaudeOrgMcpPolicy } from "../terminal/claude-org-mcp-policy";
-import { cleanClaudeCache, getClaudeCacheStatus } from "../workspace/claude-cache-cleanup";
+import { cleanClaudeCache, emptyRuntimeRecycleBin, getClaudeCacheStatus } from "../workspace/claude-cache-cleanup";
 import { resolveTaskCwd } from "../workspace/task-worktree";
 import { LEGACY_RUNTIME_HOME_PARENT_DIR_NAME, RUNTIME_HOME_PARENT_DIR_NAME } from "../workspace/task-worktree-path";
 import type { FlowiseClient } from "../flowise/flowise-client";
@@ -1081,6 +1081,9 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 		},
 		cleanClaudeCache: async (input) => {
 			return await cleanClaudeCache(input);
+		},
+		emptyRecycleBin: async (input) => {
+			return await emptyRuntimeRecycleBin(input);
 		},
 	};
 }

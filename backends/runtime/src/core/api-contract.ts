@@ -3375,9 +3375,34 @@ export const runtimeClaudeCacheStatusResponseSchema = z.object({
 	/** Optional standalone `~/.antigravity` cache when present. */
 	antigravityHomeItemCount: z.number().optional(),
 	antigravityHomeSizeBytes: z.number().optional(),
+	/** Top-level aged entries under `/tmp`, `os.tmpdir()`, and `$TMPDIR`. */
+	tmpItemCount: z.number().optional(),
+	tmpSizeBytes: z.number().optional(),
+	/** `~/.npm/_cacache`, `_npx`, and `_logs`. */
+	npmCacheItemCount: z.number().optional(),
+	npmCacheSizeBytes: z.number().optional(),
+	/** `~/.nvm/.cache` download cache. */
+	nvmCacheItemCount: z.number().optional(),
+	nvmCacheSizeBytes: z.number().optional(),
+	nvmVersions: z
+		.array(
+			z.object({
+				version: z.string(),
+				path: z.string(),
+				sizeBytes: z.number(),
+				inUse: z.boolean(),
+			}),
+		)
+		.optional(),
+	recycleBinItemCount: z.number().optional(),
+	recycleBinSizeBytes: z.number().optional(),
+	recycleBinPath: z.string().optional(),
 	error: z.string().optional(),
 });
 export type RuntimeClaudeCacheStatusResponse = z.infer<typeof runtimeClaudeCacheStatusResponseSchema>;
+
+export const runtimeCleanupDisposeModeSchema = z.enum(["recycle-bin", "delete"]);
+export type RuntimeCleanupDisposeMode = z.infer<typeof runtimeCleanupDisposeModeSchema>;
 
 export const runtimeClaudeCacheCleanRequestSchema = z.object({
 	/** Age cutoff in days. `0` deletes every age-gated file regardless of mtime. */
@@ -3400,6 +3425,11 @@ export const runtimeClaudeCacheCleanRequestSchema = z.object({
 	 * their behaviour; the UI sets it false when only legacy leftovers are picked.
 	 */
 	includeSafe: z.boolean().optional(),
+	includeTmp: z.boolean().optional(),
+	includeNpmCache: z.boolean().optional(),
+	includeNvmCache: z.boolean().optional(),
+	nvmVersions: z.array(z.string()).optional(),
+	disposeMode: runtimeCleanupDisposeModeSchema.optional(),
 });
 export type RuntimeClaudeCacheCleanRequest = z.infer<typeof runtimeClaudeCacheCleanRequestSchema>;
 
@@ -3411,7 +3441,21 @@ export type RuntimeClaudeCacheStatusRequest = z.infer<typeof runtimeClaudeCacheS
 export const runtimeClaudeCacheCleanedItemSchema = z.object({
 	path: z.string(),
 	sizeBytes: z.number(),
-	tier: z.enum(["safe", "transcript", "legacy", "cli-cache", "dsh", "cursor", "gemini", "antigravity"]),
+	tier: z.enum([
+		"safe",
+		"transcript",
+		"legacy",
+		"cli-cache",
+		"dsh",
+		"cursor",
+		"gemini",
+		"antigravity",
+		"tmp",
+		"npm-cache",
+		"nvm-cache",
+		"nvm-version",
+		"recycle-bin",
+	]),
 });
 export type RuntimeClaudeCacheCleanedItem = z.infer<typeof runtimeClaudeCacheCleanedItemSchema>;
 
@@ -3428,6 +3472,19 @@ export const runtimeClaudeCacheCleanResponseSchema = z.object({
 	error: z.string().optional(),
 });
 export type RuntimeClaudeCacheCleanResponse = z.infer<typeof runtimeClaudeCacheCleanResponseSchema>;
+
+export const runtimeEmptyRecycleBinRequestSchema = z.object({
+	dryRun: z.boolean().optional(),
+});
+export type RuntimeEmptyRecycleBinRequest = z.infer<typeof runtimeEmptyRecycleBinRequestSchema>;
+
+export const runtimeEmptyRecycleBinResponseSchema = z.object({
+	ok: z.boolean(),
+	cleaned: z.array(runtimeClaudeCacheCleanedItemSchema),
+	skipped: z.array(runtimeClaudeCacheSkippedItemSchema),
+	error: z.string().optional(),
+});
+export type RuntimeEmptyRecycleBinResponse = z.infer<typeof runtimeEmptyRecycleBinResponseSchema>;
 
 export const runtimeGitPullRequestRequestSchema = z.object({
 	title: z.string(),
