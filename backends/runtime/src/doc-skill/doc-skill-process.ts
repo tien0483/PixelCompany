@@ -13,6 +13,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { terminateProcessForTimeout } from "../server/process-termination";
+import { readBrandEnv } from "../brand";
 import { DEFAULT_DOCSKILL_HOST, resolveDocSkillPort } from "./doc-skill-endpoint";
 
 const PORT_PROBE_TIMEOUT_MS = 1_000;
@@ -67,7 +68,7 @@ export function findDocSkillRoot(): string | null {
  * there is no venv to prefer — the bare interpreter on PATH is enough.
  */
 function resolvePythonBinary(): string {
-	const configured = process.env.PIXELOFFICE_DOCSKILL_PYTHON?.trim();
+	const configured = readBrandEnv("DOCSKILL_PYTHON")?.trim();
 	if (configured) {
 		return configured;
 	}

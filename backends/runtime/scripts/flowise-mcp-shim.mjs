@@ -11,24 +11,26 @@
  */
 import { createInterface } from "node:readline";
 
+import { readBrandEnv } from "../../../scripts/lib/brand-env.mjs";
+
 const PROTOCOL_VERSION = "2024-11-05";
 const SERVER_NAME = "pixeloffice-flowise-shim";
 const SERVER_VERSION = "1.0.0";
 
-function requiredEnv(name) {
-	const value = process.env[name]?.trim();
+function requiredEnv(suffix) {
+	const value = readBrandEnv(suffix)?.trim();
 	if (!value) {
-		process.stderr.write(`[flowise-mcp-shim] missing ${name}\n`);
+		process.stderr.write(`[flowise-mcp-shim] missing PIXTIEL_${suffix} (or PIXELOFFICE_${suffix})\n`);
 		process.exit(1);
 	}
 	return value;
 }
 
-const baseUrl = requiredEnv("PIXELOFFICE_FLOWISE_URL").replace(/\/$/, "");
-const flowId = requiredEnv("PIXELOFFICE_FLOWISE_FLOW_ID");
-const toolName = (process.env.PIXELOFFICE_FLOWISE_TOOL_NAME?.trim() || "run_agent").slice(0, 64);
+const baseUrl = requiredEnv("FLOWISE_URL").replace(/\/$/, "");
+const flowId = requiredEnv("FLOWISE_FLOW_ID");
+const toolName = (readBrandEnv("FLOWISE_TOOL_NAME")?.trim() || "run_agent").slice(0, 64);
 const toolDescription =
-	process.env.PIXELOFFICE_FLOWISE_TOOL_DESCRIPTION?.trim() ||
+	readBrandEnv("FLOWISE_TOOL_DESCRIPTION")?.trim() ||
 	`Run the Flowise agent flow ${flowId}`;
 
 function writeMessage(message) {

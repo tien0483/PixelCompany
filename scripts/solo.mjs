@@ -22,6 +22,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn, spawnSync } from "node:child_process";
 import { ensureAgentStack, restartAgentStackDaemons, STACK_DAEMON_PORTS } from "./ensure-agent-stack.mjs";
+import { readBrandEnv } from "./lib/brand-env.mjs";
 
 const MIN_NODE_MAJOR = 22;
 const __filename = fileURLToPath(import.meta.url);
@@ -47,7 +48,7 @@ function probeNodeBinary(nodePath) {
 }
 
 function resolveNode22Candidates() {
-	const fromEnv = process.env.PIXELOFFICE_NODE?.trim() || process.env.KANBAN_NODE?.trim();
+	const fromEnv = readBrandEnv("NODE")?.trim() || process.env.KANBAN_NODE?.trim();
 	const candidates = [];
 	if (fromEnv) {
 		candidates.push(fromEnv);
@@ -160,9 +161,9 @@ function resolveDependencyEntry(packageRoot, ...segments) {
 const tsxCli = resolveDependencyEntry(runtimeRoot, "tsx", "dist", "cli.mjs");
 const viteCli = resolveDependencyEntry(webUiRoot, "vite", "bin", "vite.js");
 
-const RUNTIME_PORT = Number(process.env.PIXELOFFICE_PORT ?? 3484);
+const RUNTIME_PORT = Number(readBrandEnv("PORT") ?? 3484);
 const MANAGER_PORT = Number(process.env.MANAGER_PORT ?? process.env.JACKED_PORT ?? 8321);
-const HTML_PORT = Number(process.env.PIXELOFFICE_HTML_PORT ?? 8322);
+const HTML_PORT = Number(readBrandEnv("HTML_PORT") ?? 8322);
 /**
  * The agent-stack switchboard, backing the Stack Control dialog
  * (frontends/pixel_office/src/stack/stack-control-client.ts). Owned by the
@@ -170,15 +171,15 @@ const HTML_PORT = Number(process.env.PIXELOFFICE_HTML_PORT ?? 8322);
  * instance, e.g. one started by a shell that sourced activate-stack.sh.
  */
 const STACK_CONTROL_PORT = Number(process.env.STACK_UI_PORT ?? 8000);
-const DOC_SKILL_PORT = Number(process.env.PIXELOFFICE_DOCSKILL_PORT ?? 8323);
+const DOC_SKILL_PORT = Number(readBrandEnv("DOCSKILL_PORT") ?? 8323);
 /**
  * The Flowise agent studio behind the Agents tab, spawned by the runtime from the
  * `backends/flowise` submodule. Clear of 3000 (upstream's default) on purpose: 3001 is the
  * DevTools daemon and 3456/3460+ are CCR routers.
  */
-const FLOWISE_PORT = Number(process.env.PIXELOFFICE_FLOWISE_PORT ?? 3010);
-/** Optional DeepSeek Harness web UI when PIXELOFFICE_DSH_WEB=1 (orchestrator sidecar). */
-const DSH_WEB_PORT = Number(process.env.PIXELOFFICE_DSH_WEB_PORT ?? 3020);
+const FLOWISE_PORT = Number(readBrandEnv("FLOWISE_PORT") ?? 3010);
+/** Optional DeepSeek Harness web UI when PIXTIEL_DSH_WEB=1 / PIXELOFFICE_DSH_WEB=1 (orchestrator sidecar). */
+const DSH_WEB_PORT = Number(readBrandEnv("DSH_WEB_PORT") ?? 3020);
 
 const args = process.argv.slice(2);
 const restart = args.includes("--restart");

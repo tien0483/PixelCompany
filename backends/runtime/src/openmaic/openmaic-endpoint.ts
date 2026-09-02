@@ -5,6 +5,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync } from "n
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { readBrandEnv } from "../brand";
 import { resolvePixelOfficeEmbedOrigins } from "../flowise/flowise-embed-origins";
 
 export const DEFAULT_OPENMAIC_HOST = "127.0.0.1";
@@ -17,13 +18,13 @@ export const DEFAULT_OPENMAIC_PORT = 3020;
 
 /**
  * Resolution order: an explicit `configured` value, then the port embedded in
- * `PIXELOFFICE_OPENMAIC_URL`, then `PIXELOFFICE_OPENMAIC_PORT`, then the default port.
+ * `PIXTIEL_OPENMAIC_URL` / `PIXELOFFICE_OPENMAIC_URL`, then `PIXTIEL_OPENMAIC_PORT` / `PIXELOFFICE_OPENMAIC_PORT`, then the default port.
  */
 export function resolveOpenmaicPort(configured: number | undefined): number {
 	if (configured !== undefined) {
 		return configured;
 	}
-	const fromUrl = process.env.PIXELOFFICE_OPENMAIC_URL?.trim();
+	const fromUrl = readBrandEnv("OPENMAIC_URL")?.trim();
 	if (fromUrl) {
 		try {
 			const parsed = new URL(fromUrl);
@@ -34,7 +35,7 @@ export function resolveOpenmaicPort(configured: number | undefined): number {
 			// fall through
 		}
 	}
-	const fromPortEnv = process.env.PIXELOFFICE_OPENMAIC_PORT?.trim();
+	const fromPortEnv = readBrandEnv("OPENMAIC_PORT")?.trim();
 	if (fromPortEnv && /^\d+$/.test(fromPortEnv)) {
 		return Number(fromPortEnv);
 	}
@@ -42,8 +43,8 @@ export function resolveOpenmaicPort(configured: number | undefined): number {
 }
 
 /**
- * Resolution order: an explicit `configured` URL, then `PIXELOFFICE_OPENMAIC_URL` verbatim,
- * then `http://127.0.0.1:<resolveOpenmaicPort()>` — so a bare `PIXELOFFICE_OPENMAIC_PORT`
+ * Resolution order: an explicit `configured` URL, then `PIXTIEL_OPENMAIC_URL` / `PIXELOFFICE_OPENMAIC_URL` verbatim,
+ * then `http://127.0.0.1:<resolveOpenmaicPort()>` — so a bare `PIXTIEL_OPENMAIC_PORT` / `PIXELOFFICE_OPENMAIC_PORT`
  * override (with no `_URL` set) reaches the API layer the same way it reaches the supervisor.
  *
  * This URL is also what the browser loads: the classroom is embedded cross-origin rather
@@ -52,7 +53,7 @@ export function resolveOpenmaicPort(configured: number | undefined): number {
  * runtime's own, and Next.js serves a bundle plus streaming responses.
  */
 export function resolveOpenmaicBaseUrl(configured: string | undefined): string {
-	const fromUrl = configured ?? process.env.PIXELOFFICE_OPENMAIC_URL?.trim();
+	const fromUrl = configured ?? readBrandEnv("OPENMAIC_URL")?.trim();
 	if (fromUrl) {
 		return fromUrl.replace(/\/$/, "");
 	}
@@ -70,7 +71,7 @@ export function resolveOpenmaicBaseUrl(configured: string | undefined): string {
  * service nobody installed.
  */
 export function findOpenmaicRoot(): string | null {
-	const override = process.env.PIXELOFFICE_OPENMAIC_ROOT?.trim();
+	const override = readBrandEnv("OPENMAIC_ROOT")?.trim();
 	if (override) {
 		return existsSync(join(override, "package.json")) ? override : null;
 	}

@@ -5,11 +5,11 @@
 // studio — hence this lookup.
 import { homedir } from "node:os";
 
+import { readBrandEnv } from "../brand";
 import { listNvmNodeVersionDirs } from "../workspace/nvm-versions";
 
 /** Minimum major the studio's own manifest asks for. */
 export const MIN_STUDIO_NODE_MAJOR = 24;
-const NODE_BINARY_ENV = "PIXELOFFICE_FLOWISE_NODE";
 
 function currentNodeMajor(): number {
 	const parsed = Number.parseInt(process.version.replace(/^v/, ""), 10);
@@ -54,7 +54,7 @@ export interface StudioNodeBinary {
 }
 
 /**
- * Resolution order: `PIXELOFFICE_FLOWISE_NODE`, then the runtime's own node when it is new
+ * Resolution order: `PIXTIEL_FLOWISE_NODE` / `PIXELOFFICE_FLOWISE_NODE`, then the runtime's own node when it is new
  * enough, then the newest qualifying nvm install, then the runtime's node as a best-effort
  * fallback. The last case is reported rather than fatal — an unbuildable studio already
  * shows up as "not installed", and a studio that somehow runs on an older node is not worth
@@ -62,7 +62,7 @@ export interface StudioNodeBinary {
  */
 export function resolveStudioNodeBinary(options?: { home?: string; minMajor?: number }): StudioNodeBinary {
 	const minMajor = options?.minMajor ?? MIN_STUDIO_NODE_MAJOR;
-	const override = process.env[NODE_BINARY_ENV]?.trim();
+	const override = readBrandEnv("FLOWISE_NODE")?.trim();
 	if (override) {
 		return { path: override, satisfiesMinimum: true };
 	}

@@ -12,10 +12,12 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-_CATALOG_ENV = "PIXELOFFICE_AGENT_MANAGER_DATA"
-_CATALOG_ENV_LEGACY = "PIXELOFFICE_AGENT_JACKED_DATA"
-_RUNTIME_ENV = "PIXELOFFICE_AGENT_MANAGER_RUNTIME"
-_RUNTIME_ENV_LEGACY = "PIXELOFFICE_AGENT_JACKED_RUNTIME"
+_CATALOG_ENV = "PIXTIEL_AGENT_MANAGER_DATA"
+_CATALOG_ENV_LEGACY = "PIXELOFFICE_AGENT_MANAGER_DATA"
+_CATALOG_ENV_OLD_LEGACY = "PIXELOFFICE_AGENT_JACKED_DATA"
+_RUNTIME_ENV = "PIXTIEL_AGENT_MANAGER_RUNTIME"
+_RUNTIME_ENV_LEGACY = "PIXELOFFICE_AGENT_MANAGER_RUNTIME"
+_RUNTIME_ENV_OLD_LEGACY = "PIXELOFFICE_AGENT_JACKED_RUNTIME"
 
 _AGENT_DATA_REL = Path("agent-data")
 _LEGACY_MANAGER_REL = Path(".agent") / "manager"
@@ -55,6 +57,14 @@ def _walk_parents(start: Path, *, max_depth: int = 10) -> list[Path]:
             break
         current = parent
     return roots
+
+
+def _env_first(*names: str) -> Path | None:
+    for name in names:
+        raw = os.environ.get(name, "").strip()
+        if raw:
+            return Path(raw).expanduser()
+    return None
 
 
 def _env_path(name: str, *, legacy: str | None = None) -> Path | None:
@@ -103,7 +113,7 @@ def _shipped_runtime_root() -> Path:
 
 def resolve_agent_catalog_data_root() -> Path | None:
     """Repo-local catalog when present."""
-    override = _env_path(_CATALOG_ENV, legacy=_CATALOG_ENV_LEGACY)
+    override = _env_first(_CATALOG_ENV, _CATALOG_ENV_LEGACY, _CATALOG_ENV_OLD_LEGACY)
     if override is not None:
         return override if _is_catalog_root(override) else None
 
@@ -118,7 +128,7 @@ def resolve_agent_catalog_data_root() -> Path | None:
 
 def resolve_agent_runtime_data_root() -> Path | None:
     """Repo-local runtime assets when present."""
-    override = _env_path(_RUNTIME_ENV, legacy=_RUNTIME_ENV_LEGACY)
+    override = _env_first(_RUNTIME_ENV, _RUNTIME_ENV_LEGACY, _RUNTIME_ENV_OLD_LEGACY)
     if override is not None:
         return override if _is_runtime_root(override) else None
 

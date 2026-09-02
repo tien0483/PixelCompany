@@ -11,6 +11,8 @@ import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { readBrandEnv } from "../../../scripts/lib/brand-env.mjs";
+
 const DEFAULT_BASE_URL = "http://127.0.0.1:3010";
 const SHIM_REL = "backends/runtime/scripts/flowise-mcp-shim.mjs";
 
@@ -37,7 +39,7 @@ function sanitizeToolName(raw) {
 }
 
 function resolveShimPath() {
-	const override = process.env.PIXELOFFICE_FLOWISE_MCP_SHIM?.trim();
+	const override = readBrandEnv("FLOWISE_MCP_SHIM")?.trim();
 	if (override && existsSync(override)) {
 		return override;
 	}
@@ -80,9 +82,13 @@ function buildServerEntry(flow, baseUrl, shimPath) {
 		command: process.execPath,
 		args: [shimPath],
 		env: {
+			PIXTIEL_FLOWISE_URL: baseUrl.replace(/\/$/, ""),
 			PIXELOFFICE_FLOWISE_URL: baseUrl.replace(/\/$/, ""),
+			PIXTIEL_FLOWISE_FLOW_ID: flow.id,
 			PIXELOFFICE_FLOWISE_FLOW_ID: flow.id,
+			PIXTIEL_FLOWISE_TOOL_NAME: toolName,
 			PIXELOFFICE_FLOWISE_TOOL_NAME: toolName,
+			PIXTIEL_FLOWISE_TOOL_DESCRIPTION: description,
 			PIXELOFFICE_FLOWISE_TOOL_DESCRIPTION: description,
 		},
 	};
@@ -90,7 +96,7 @@ function buildServerEntry(flow, baseUrl, shimPath) {
 
 async function main() {
 	const { flowId } = parseArgs(process.argv.slice(2));
-	const baseUrl = (process.env.PIXELOFFICE_FLOWISE_URL?.trim() || DEFAULT_BASE_URL).replace(/\/$/, "");
+	const baseUrl = (readBrandEnv("FLOWISE_URL")?.trim() || DEFAULT_BASE_URL).replace(/\/$/, "");
 	const version = await fetchJson(baseUrl, "/api/v1/version");
 	if (version === null) {
 		process.stderr.write(`Flowise not reachable at ${baseUrl}\n`);

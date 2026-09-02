@@ -153,6 +153,7 @@ export async function prepareOrchestratorLaunch(
 	const { command, args } = buildDshArgv(binary, headlessArgs);
 	const env: Record<string, string | undefined> = {
 		DSH_HOME: dshHome,
+		PIXTIEL_ORCHESTRATOR: "1",
 		PIXELOFFICE_ORCHESTRATOR: "1",
 		...(llmPatch?.env ?? {}),
 	};

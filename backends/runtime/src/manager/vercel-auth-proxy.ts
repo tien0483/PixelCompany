@@ -9,10 +9,12 @@
  * secret in emailed formUrl.
  */
 
+import { readBrandEnv } from "../brand";
+
 const DEFAULT_BASE_URL = "https://pixel-office-usage.vercel.app";
 
 export function resolveUsageAuthBaseUrl(
-	envValue: string | undefined = process.env.PIXEL_OFFICE_USAGE_URL,
+	envValue: string | undefined = readBrandEnv("USAGE_URL"),
 ): string {
 	const trimmed = typeof envValue === "string" ? envValue.trim() : "";
 	if (trimmed.length > 0) {
@@ -22,7 +24,7 @@ export function resolveUsageAuthBaseUrl(
 }
 
 export function resolveUsageAuthBypassSecret(
-	envValue: string | undefined = process.env.PIXEL_OFFICE_USAGE_BYPASS_SECRET,
+	envValue: string | undefined = readBrandEnv("USAGE_BYPASS_SECRET"),
 ): string | null {
 	const trimmed = typeof envValue === "string" ? envValue.trim() : "";
 	return trimmed.length > 0 ? trimmed : null;

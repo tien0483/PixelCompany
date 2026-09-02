@@ -9,6 +9,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { terminateProcessForTimeout } from "../server/process-termination";
+import { readBrandEnv } from "../brand";
 
 const DEFAULT_HTML_HOST = "127.0.0.1";
 const DEFAULT_HTML_PORT = 8322;
@@ -25,7 +26,6 @@ const PORT_PROBE_TIMEOUT_MS = 1_000;
  * child exits, so a genuinely broken sidecar is still reported promptly.
  */
 const DEFAULT_STARTUP_TIMEOUT_MS = 120_000;
-const STARTUP_TIMEOUT_ENV = "PIXELOFFICE_HTML_STARTUP_TIMEOUT_MS";
 /** Emit a "still starting" line this far in, so a slow start doesn't read as a hang. */
 const SLOW_START_NOTICE_MS = 15_000;
 const PORT_POLL_INTERVAL_MS = 250;
@@ -53,9 +53,14 @@ export interface StartHtmlProcessDependencies {
 	host?: string;
 	port?: number;
 	/**
-	 * The `agent-data/templates/skills` directory this caller expects the sidecar to
-	 * serve. When set, an already-listening sidecar that resolved a *different*
-	 * directory is refused instead of adopted — see {@link findForeignSidecar}.
+	 * Expected path to `agent-data/templates/skills/` or a standalone bundle's
+	 * `agent-data/templates/skills/`. The HTML sidecar reads `PIXTIEL_AGENT_DATA` / `PIXELOFFICE_AGENT_DATA`
+	 * from its environment when we spawn it, but an *already-running* sidecar may
+	 * have been started under a different data root (e.g. PixelOffice running next
+	 * to a standalone Plan Editor). Passing this triggers a probe of `/api/templates`:
+	 * if the running instance's list does not match what this caller expects, the
+	 * existing process is rejected and this supervisor fails with a clear message
+	 * rather than silently serving the wrong templates.
 	 */
 	expectedTemplateSkillsDir?: string;
 	/**
@@ -100,7 +105,7 @@ function resolveHtmlPort(configured: number | undefined): number {
 	if (configured !== undefined) {
 		return configured;
 	}
-	const fromUrl = process.env.PIXELOFFICE_HTML_URL?.trim();
+	const fromUrl = readBrandEnv("HTML_URL")?.trim();
 	if (fromUrl) {
 		try {
 			const parsed = new URL(fromUrl);
@@ -111,7 +116,7 @@ function resolveHtmlPort(configured: number | undefined): number {
 			// Fall through.
 		}
 	}
-	const fromPort = process.env.PIXELOFFICE_HTML_PORT?.trim();
+	const fromPort = readBrandEnv("HTML_PORT")?.trim();
 	if (fromPort && /^\d+$/.test(fromPort)) {
 		return Number(fromPort);
 	}
@@ -136,17 +141,20 @@ async function waitForPort(
 	host: string,
 	port: number,
 	timeoutMs: number,
-	shouldKeepWaiting: () => boolean,
+	isAlive: () => boolean,
 	onSlowStart?: () => void,
 ): Promise<boolean> {
-	const startedAt = Date.now();
-	const deadline = startedAt + timeoutMs;
+	const deadline = Date.now() + timeoutMs;
+	const slowDeadline = Date.now() + SLOW_START_NOTICE_MS;
 	let noticed = false;
-	while (Date.now() < deadline && shouldKeepWaiting()) {
+	while (Date.now() < deadline) {
+		if (!isAlive()) {
+			return false;
+		}
 		if (await probePort(host, port)) {
 			return true;
 		}
-		if (!noticed && Date.now() - startedAt >= SLOW_START_NOTICE_MS) {
+		if (!noticed && onSlowStart && Date.now() >= slowDeadline) {
 			noticed = true;
 			onSlowStart?.();
 		}
@@ -156,7 +164,7 @@ async function waitForPort(
 }
 
 function resolveStartupTimeoutMs(): number {
-	const raw = process.env[STARTUP_TIMEOUT_ENV]?.trim();
+	const raw = readBrandEnv("HTML_STARTUP_TIMEOUT_MS")?.trim();
 	return raw !== undefined && /^\d+$/.test(raw) && Number(raw) > 0 ? Number(raw) : DEFAULT_STARTUP_TIMEOUT_MS;
 }
 
