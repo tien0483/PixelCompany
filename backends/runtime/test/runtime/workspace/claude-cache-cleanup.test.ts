@@ -61,7 +61,13 @@ describe("claude-cache-cleanup", () => {
 	});
 
 	it("real run deletes only safe-tier aged-out files, leaves recent and protected files untouched", async () => {
-		const result = await cleanClaudeCache({ claudeHomeDir, days: 7, includeTranscripts: false, dryRun: false });
+		const result = await cleanClaudeCache({
+			claudeHomeDir,
+			days: 7,
+			includeTranscripts: false,
+			dryRun: false,
+			disposeMode: "delete",
+		});
 		expect(result.ok).toBe(true);
 		expect(result.cleaned).toHaveLength(4);
 		expect(readdirSync(join(claudeHomeDir, "cache"))).not.toContain("old.json");
@@ -98,9 +104,38 @@ describe("claude-cache-cleanup", () => {
 	});
 
 	it("days: 0 deletes recent safe-tier files too", async () => {
-		const result = await cleanClaudeCache({ claudeHomeDir, days: 0, includeTranscripts: false, dryRun: false });
+		const result = await cleanClaudeCache({
+			claudeHomeDir,
+			days: 0,
+			includeTranscripts: false,
+			dryRun: false,
+			disposeMode: "delete",
+		});
 		expect(result.ok).toBe(true);
 		expect(readdirSync(join(claudeHomeDir, "shell-snapshots"))).not.toContain("new.sh");
+	});
+
+	it("recycle-bin mode moves safe-tier files instead of deleting them in place", async () => {
+		const recycleBin = createTempDir("kanban-recycle-mode-");
+		const previousRecycleBinEnv = process.env.PIXELOFFICE_RECYCLE_BIN;
+		process.env.PIXELOFFICE_RECYCLE_BIN = join(recycleBin.path, "bin");
+
+		const result = await cleanClaudeCache({
+			claudeHomeDir,
+			days: 7,
+			includeTranscripts: false,
+			dryRun: false,
+			disposeMode: "recycle-bin",
+		});
+		expect(result.ok).toBe(true);
+		expect(readdirSync(join(claudeHomeDir, "cache"))).not.toContain("old.json");
+
+		if (previousRecycleBinEnv === undefined) {
+			delete process.env.PIXELOFFICE_RECYCLE_BIN;
+		} else {
+			process.env.PIXELOFFICE_RECYCLE_BIN = previousRecycleBinEnv;
+		}
+		recycleBin.cleanup();
 	});
 
 	it("surfaces agent-home status even when the claude home directory itself is missing", async () => {

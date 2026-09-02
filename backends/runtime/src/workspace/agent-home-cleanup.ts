@@ -1,8 +1,10 @@
 import type { Dirent } from "node:fs";
-import { lstat, readdir, rm, stat } from "node:fs/promises";
+import { lstat, readdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
+import type { RuntimeCleanupDisposeMode } from "../core/api-contract";
+import { disposePath } from "./recycle-bin";
 import { measureDirectorySize } from "./worktree-disk-usage";
 
 export type AgentHomeCleanupTier = "cursor" | "gemini" | "antigravity";
@@ -209,6 +211,7 @@ export function summarizeAgentHomes(leftovers: AgentHomeLeftover[]): {
 export async function cleanAgentHomes(options: {
 	days?: number;
 	dryRun: boolean;
+	disposeMode?: RuntimeCleanupDisposeMode;
 	includeCursor?: boolean;
 	includeGemini?: boolean;
 	includeAntigravityHome?: boolean;
@@ -238,20 +241,14 @@ export async function cleanAgentHomes(options: {
 			if (!isOlderThanCutoff(file.ageMs, ageCutoffMs, options.days)) {
 				continue;
 			}
-			if (options.dryRun) {
-				cleaned.push({
-					path: file.path,
-					sizeBytes: file.sizeBytes,
-					reason: "Cursor agent transcript",
-					tier: "cursor",
-				});
-				continue;
-			}
 			try {
-				await rm(file.path, { force: true });
-				cleaned.push({
-					path: file.path,
+				const result = await disposePath(file.path, options.disposeMode, {
+					dryRun: options.dryRun,
 					sizeBytes: file.sizeBytes,
+				});
+				cleaned.push({
+					path: result.destPath,
+					sizeBytes: result.sizeBytes,
 					reason: "Cursor agent transcript",
 					tier: "cursor",
 				});
@@ -272,13 +269,12 @@ export async function cleanAgentHomes(options: {
 		if (leftover.path.endsWith("agent-transcripts") && leftover.tier === "cursor") {
 			continue;
 		}
-		if (options.dryRun) {
-			cleaned.push(leftover);
-			continue;
-		}
 		try {
-			await rm(leftover.path, { recursive: true, force: true });
-			cleaned.push(leftover);
+			const result = await disposePath(leftover.path, options.disposeMode, {
+				dryRun: options.dryRun,
+				sizeBytes: leftover.sizeBytes,
+			});
+			cleaned.push({ ...leftover, path: result.destPath, sizeBytes: result.sizeBytes });
 		} catch (error) {
 			skipped.push({
 				path: leftover.path,

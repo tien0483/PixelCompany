@@ -8,6 +8,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 const mockGetClaudeCacheStatus = vi.fn();
 const mockCleanClaudeCache = vi.fn();
 const mockCleanMergedWorktrees = vi.fn();
+const mockEmptyRecycleBin = vi.fn();
 const { mockNotifyError, mockShowAppToast } = vi.hoisted(() => ({
 	mockNotifyError: vi.fn(),
 	mockShowAppToast: vi.fn(),
@@ -18,6 +19,7 @@ vi.mock("@/runtime/trpc-client", () => ({
 		runtime: {
 			getClaudeCacheStatus: { query: mockGetClaudeCacheStatus },
 			cleanClaudeCache: { mutate: mockCleanClaudeCache },
+			emptyRecycleBin: { mutate: mockEmptyRecycleBin },
 		},
 		workspace: {
 			cleanMergedWorktrees: { mutate: mockCleanMergedWorktrees },
@@ -51,8 +53,19 @@ describe("CleanupDialog", () => {
 			safeSizeBytes: 2048,
 			transcriptItemCount: 3,
 			transcriptSizeBytes: 4096,
+			tmpItemCount: 2,
+			tmpSizeBytes: 1024,
+			npmCacheItemCount: 1,
+			npmCacheSizeBytes: 512,
+			nvmCacheItemCount: 1,
+			nvmCacheSizeBytes: 256,
+			nvmVersions: [{ version: "v22.0.0", path: "/home/x/.nvm/versions/node/v22.0.0", sizeBytes: 1000, inUse: false }],
+			recycleBinItemCount: 1,
+			recycleBinSizeBytes: 128,
+			recycleBinPath: "/home/x/.agent/recycle-bin",
 		});
 		mockCleanClaudeCache.mockReset();
+		mockEmptyRecycleBin.mockReset().mockResolvedValue({ ok: true, cleaned: [], skipped: [] });
 		mockCleanMergedWorktrees.mockReset().mockResolvedValue({ ok: true, cleanedTaskIds: [], skipped: [] });
 		mockNotifyError.mockReset();
 		mockShowAppToast.mockReset();
@@ -363,9 +376,19 @@ describe("CleanupDialog", () => {
 			});
 			await flush();
 
-			expect(mockCleanClaudeCache).toHaveBeenCalledWith(
-				expect.objectContaining({ includeLegacy: true, includeSafe: false, includeTranscripts: false }),
-			);
+		expect(mockCleanClaudeCache).toHaveBeenCalledWith(
+			expect.objectContaining({ includeLegacy: true, includeSafe: false, includeTranscripts: false }),
+		);
+		});
+
+		it("renders tmp/npm/nvm controls and recycle-bin disposal mode", async () => {
+			await openDialog();
+
+			expect(document.body.querySelector('[data-testid="cleanup-tmp-checkbox"]')).not.toBeNull();
+			expect(document.body.querySelector('[data-testid="cleanup-npm-cache-checkbox"]')).not.toBeNull();
+			expect(document.body.querySelector('[data-testid="cleanup-nvm-cache-checkbox"]')).not.toBeNull();
+			expect(document.body.querySelector('[data-testid="cleanup-dispose-recycle-bin"]')).not.toBeNull();
+			expect(document.body.querySelector('[data-testid="cleanup-empty-recycle-bin-button"]')).not.toBeNull();
 		});
 	});
 });
