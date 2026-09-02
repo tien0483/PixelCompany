@@ -1,13 +1,15 @@
-// Service worker for the PixelOffice PWA.
+// Service worker for the PIXTiel PWA.
 // Catches navigation failures (server not running / crashed) and serves a
 // branded fallback page that auto-refreshes once the server is reachable.
+
+const CACHE_NAME = "pixtiel-fallback-pixtiel-1";
 
 const FALLBACK_HTML = `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-<title>PixelOffice</title>
+<title>PIXTiel</title>
 <style>
   *{margin:0;padding:0;box-sizing:border-box}
   body{
@@ -49,7 +51,7 @@ const FALLBACK_HTML = `<!doctype html>
     <line x1="12" x2="12" y1="8" y2="12"/>
     <line x1="12" x2="12.01" y1="16" y2="16"/>
   </svg>
-  <h3>Waiting for PixelOffice</h3>
+  <h3>Waiting for PIXTiel</h3>
   <p>Starting backend in WSL, then connecting…</p>
   <p id="backend-status" style="font-size:13px;color:#8B949E;font-family:ui-monospace,SFMono-Regular,Menlo,monospace">Probing backend…</p>
   <div class="spinner"></div>
@@ -62,23 +64,23 @@ const FALLBACK_HTML = `<!doctype html>
   (function poll(failures) {
     var statusEl = document.getElementById("backend-status");
     var attempt = failures + 1;
-    var msg = "[PixelOffice] backend probe #" + attempt + " → " + location.origin + "/";
+    var msg = "[PIXTiel] backend probe #" + attempt + " → " + location.origin + "/";
     console.log(msg);
     if (statusEl) statusEl.textContent = "Backend probe #" + attempt + " — " + location.origin;
     fetch("/", { method: "HEAD", cache: "no-store" })
       .then(function(r) {
         if (r.ok) {
-          console.log("[PixelOffice] backend ready (HTTP " + r.status + ") — reloading");
+          console.log("[PIXTiel] backend ready (HTTP " + r.status + ") — reloading");
           if (statusEl) statusEl.textContent = "Backend ready — loading app…";
           location.reload();
           return;
         }
-        console.warn("[PixelOffice] backend not ready (HTTP " + r.status + "), retry in 2s");
+        console.warn("[PIXTiel] backend not ready (HTTP " + r.status + "), retry in 2s");
         if (statusEl) statusEl.textContent = "Backend HTTP " + r.status + " — retrying…";
         setTimeout(function() { poll(0); }, 2000);
       })
       .catch(function(err) {
-        console.warn("[PixelOffice] backend unreachable:", err && err.message ? err.message : err);
+        console.warn("[PIXTiel] backend unreachable:", err && err.message ? err.message : err);
         if (statusEl) statusEl.textContent = "Backend unreachable — attempt #" + attempt;
         if (failures >= 3 && location.protocol === "https:") {
           var hint = document.getElementById("cert-hint");

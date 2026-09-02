@@ -63,7 +63,7 @@ export function DebugDialog({
 						<p className="text-sm font-medium text-text-primary">Reset all state</p>
 						<p className="mt-1 text-xs text-text-secondary">
 							Clears browser local storage and removes <code>~/.cline/data</code>, <code>~/.cline/kanban</code>,
-							and <code>~/.cline/worktrees</code>. Kanban reloads after completion.
+							and <code>~/.cline/worktrees</code>. PIXTiel reloads after completion.
 						</p>
 						<Button
 							variant="danger"

@@ -61,7 +61,7 @@ export class WindowRegistry {
 
 			minWidth: MIN_WIDTH,
 			minHeight: MIN_HEIGHT,
-			title: "Kanban",
+			title: "PIXTiel",
 			backgroundColor,
 			show: false,
 			webPreferences: {
