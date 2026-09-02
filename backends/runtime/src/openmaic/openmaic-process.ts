@@ -13,6 +13,7 @@ import { closeSync, existsSync, mkdirSync, openSync, readFileSync } from "node:f
 import { join } from "node:path";
 
 import { terminateProcessForTimeout } from "../server/process-termination";
+import { getKanbanRuntimeOrigin } from "../core/runtime-endpoint";
 import { nextRestartDelayMs, shouldGiveUpRestarting } from "../stack/stack-daemon";
 import { probePort, waitForPort } from "../stack/stack-ports";
 import {
@@ -123,6 +124,7 @@ function buildClassroomEnv(host: string, port: number): NodeJS.ProcessEnv {
 		...process.env,
 		NODE_ENV: "production",
 		PORT: String(port),
+		PIXELOFFICE_RUNTIME_ORIGIN: getKanbanRuntimeOrigin(),
 		// Loopback only. With no login in front of the classroom and a provider key sitting
 		// in its `.env.local`, the bind is the entire boundary — never widen it to 0.0.0.0.
 		// `next start` ignores HOSTNAME, so this is belt-and-braces behind the explicit `-H`.
