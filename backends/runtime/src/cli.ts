@@ -34,6 +34,7 @@ import {
 import { toManagerDonateAccount } from "./manager/manager-account-pin";
 import { closeAllReviewGraphDashboards } from "./review/review-dashboard-process";
 import { disablePasscode, generateInternalToken, generatePasscode } from "./security/passcode-manager";
+import { resolveAuthMode, validateGoogleConfig } from "./security/auth-mode";
 import { terminateProcessForTimeout } from "./server/process-termination";
 import type { RuntimeStateHub } from "./server/runtime-state-hub";
 import { captureNodeException, flushNodeTelemetry } from "./telemetry/sentry-node.js";
@@ -57,6 +58,7 @@ interface CliOptions {
 	cert: string | null;
 	key: string | null;
 	noPasscode: boolean;
+	authMode: string | null;
 }
 
 const KANBAN_VERSION = typeof packageJson.version === "string" ? packageJson.version : "0.1.0";
@@ -86,6 +88,7 @@ interface RootCommandOptions {
 	cert?: string;
 	key?: string;
 	noPasscode?: boolean;
+	authMode?: string;
 }
 
 type ShutdownIndicatorResult = "done" | "interrupted" | "failed";
@@ -104,7 +107,7 @@ interface ShutdownIndicator {
  */
 function shouldAutoOpenBrowserTabForInvocation(argv: string[]): boolean {
 	const launchFlags = new Set(["--open", "--no-open", "--skip-shutdown-cleanup", "--https", "--no-passcode"]);
-	const launchOptionsWithValues = new Set(["--host", "--port", "--agent", "--cert", "--key"]);
+	const launchOptionsWithValues = new Set(["--host", "--port", "--agent", "--cert", "--key", "--auth-mode"]);
 
 	for (let index = 0; index < argv.length; index += 1) {
 		const arg = argv[index];
@@ -836,18 +839,35 @@ async function runMainCommand(options: CliOptions, shouldAutoOpenBrowser: boolea
 		console.log(`HTTPS enabled on ${getKanbanRuntimeOrigin()}`);
 	}
 
-	// Handle passcode generation for remote mode — deferred until after TLS
-	// validation so that an invalid --cert/--key fails before a passcode is
-	// printed (a passcode for a server that never starts is confusing).
-	if (isKanbanRemoteHost()) {
-		if (options.noPasscode) {
-			disablePasscode();
-			console.log("Passcode authentication disabled (--no-passcode). Ensure you have your own auth layer.");
-		} else {
-			const passcode = generatePasscode();
-			generateInternalToken();
-			// NOTE: passcode is printed ONLY here and never stored in logs or env.
-			console.log(`\n🔐 Remote access passcode: ${passcode}\n\nShare this with users who need access.\n`);
+	// Handle auth mode resolution: CLI flag > env var > default (remote => passcode, loopback => off).
+	// --no-passcode acts as --auth-mode off.
+	const effectiveCliAuthMode = options.noPasscode ? "off" : (options.authMode ?? undefined);
+	const resolvedAuthMode = resolveAuthMode({
+		isRemote: isKanbanRemoteHost(),
+		cliFlag: effectiveCliAuthMode,
+		env: process.env,
+	});
+
+	if (resolvedAuthMode === "google") {
+		const validation = await validateGoogleConfig({ env: process.env });
+		if (!validation.valid) {
+			console.error(validation.errorMessage);
+			process.exit(1);
+		}
+		const passcode = generatePasscode();
+		generateInternalToken();
+		const origin = validation.config?.publicOrigin || getKanbanRuntimeOrigin();
+		console.log(`\n🔐 Auth mode: google (${origin}/api/auth/google/start)`);
+		console.log(`🔐 Recovery passcode: ${passcode}\n\nShare this with users who need recovery access.\n`);
+	} else if (resolvedAuthMode === "passcode") {
+		const passcode = generatePasscode();
+		generateInternalToken();
+		// NOTE: passcode is printed ONLY here and never stored in logs or env.
+		console.log(`\n🔐 Remote access passcode: ${passcode}\n\nShare this with users who need access.\n`);
+	} else {
+		disablePasscode();
+		if (isKanbanRemoteHost()) {
+			console.log("Passcode authentication disabled (--no-passcode or --auth-mode off). Ensure you have your own auth layer.");
 		}
 	}
 
@@ -969,6 +989,7 @@ function createProgram(invocationArgs: string[]): Command {
 			"--no-passcode",
 			"Disable auto-generated passcode for remote access (for advanced users behind a reverse proxy).",
 		)
+		.option("--auth-mode <mode>", "Authentication mode: off, passcode, or google.")
 		.showHelpAfterError()
 		.addHelpText("after", `\nRuntime URL: ${getKanbanRuntimeOrigin()}`);
 
@@ -1006,6 +1027,7 @@ function createProgram(invocationArgs: string[]): Command {
 				cert: options.cert ?? null,
 				key: options.key ?? null,
 				noPasscode: options.noPasscode === true,
+				authMode: options.authMode ?? null,
 			},
 			shouldAutoOpenBrowser,
 		);

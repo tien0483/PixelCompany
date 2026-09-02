@@ -227,6 +227,15 @@ import type {
 	RuntimeWorktreeDeleteResponse,
 	RuntimeWorktreeEnsureRequest,
 	RuntimeWorktreeEnsureResponse,
+	RuntimeVaultDeleteRequest,
+	RuntimeVaultDeleteResponse,
+	RuntimeVaultEntrySummary,
+	RuntimeVaultSetGithubPatRequest,
+	RuntimeVaultSetGithubPatResponse,
+	RuntimeVaultSetMcpSecretRequest,
+	RuntimeVaultSetMcpSecretResponse,
+	RuntimeVaultTestGithubRequest,
+	RuntimeVaultTestGithubResponse,
 } from "../core/api-contract";
 import {
 	type RuntimeClaudeUsage,
@@ -549,9 +558,19 @@ import {
 	runtimeWorktreeDeleteResponseSchema,
 	runtimeWorktreeEnsureRequestSchema,
 	runtimeWorktreeEnsureResponseSchema,
+	runtimeVaultDeleteRequestSchema,
+	runtimeVaultDeleteResponseSchema,
+	runtimeVaultEntrySummarySchema,
+	runtimeVaultSetGithubPatRequestSchema,
+	runtimeVaultSetGithubPatResponseSchema,
+	runtimeVaultSetMcpSecretRequestSchema,
+	runtimeVaultSetMcpSecretResponseSchema,
+	runtimeVaultTestGithubRequestSchema,
+	runtimeVaultTestGithubResponseSchema,
 } from "../core/api-contract";
 import { resolveGitIdentity } from "../manager/git-identity.js";
 import { createUsageAuthSession, lookupUsageAuthCode } from "../manager/vercel-auth-proxy.js";
+import { createVaultApi, type RuntimeVaultApi } from "./vault-api";
 
 export interface RuntimeTrpcWorkspaceScope {
 	workspaceId: string;
@@ -980,6 +999,7 @@ export interface RuntimeTrpcContext {
 		getGraphImpact: (input: RuntimeReviewGraphImpactRequest) => Promise<RuntimeReviewGraphImpactResponse>;
 		openGraphDashboard: (input: RuntimeReviewGraphDashboardRequest) => Promise<RuntimeReviewGraphDashboardResponse>;
 	};
+	vaultApi?: RuntimeVaultApi;
 }
 
 interface RuntimeTrpcContextWithWorkspaceScope extends RuntimeTrpcContext {
@@ -2165,6 +2185,40 @@ export const runtimeAppRouter = t.router({
 			.output(runtimeReviewGraphDashboardResponseSchema)
 			.mutation(async ({ ctx, input }) => {
 				return await ctx.reviewApi.openGraphDashboard(input);
+			}),
+	}),
+	vault: t.router({
+		list: t.procedure.output(runtimeVaultEntrySummarySchema.array()).query(async ({ ctx }) => {
+			const api = ctx.vaultApi ?? createVaultApi();
+			return await api.list();
+		}),
+		setGithubPat: t.procedure
+			.input(runtimeVaultSetGithubPatRequestSchema)
+			.output(runtimeVaultSetGithubPatResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				const api = ctx.vaultApi ?? createVaultApi();
+				return await api.setGithubPat(input);
+			}),
+		setMcpSecret: t.procedure
+			.input(runtimeVaultSetMcpSecretRequestSchema)
+			.output(runtimeVaultSetMcpSecretResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				const api = ctx.vaultApi ?? createVaultApi();
+				return await api.setMcpSecret(input);
+			}),
+		delete: t.procedure
+			.input(runtimeVaultDeleteRequestSchema)
+			.output(runtimeVaultDeleteResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				const api = ctx.vaultApi ?? createVaultApi();
+				return await api.delete(input);
+			}),
+		testGithub: t.procedure
+			.input(runtimeVaultTestGithubRequestSchema)
+			.output(runtimeVaultTestGithubResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				const api = ctx.vaultApi ?? createVaultApi();
+				return await api.testGithub(input);
 			}),
 	}),
 });

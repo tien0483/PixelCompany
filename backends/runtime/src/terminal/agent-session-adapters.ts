@@ -44,6 +44,7 @@ import { prepareOrchestratorLaunch } from "../orchestrator/orchestrator-launch";
 import { resolveSubagentSeatEnv } from "./subagent-seat-launch";
 import { prepareProjectMcpConfig } from "./agent-mcp-launch";
 import { prepareAgyHooksConfig } from "./agy-hooks-config";
+import { collectVaultLaunchEnv } from "../vault";
 import { prepareTaskPromptWithImages } from "./task-image-prompt";
 import {
 	applyModelAndEffortArgs,
@@ -693,6 +694,7 @@ const claudeAdapter: AgentSessionAdapter = {
 		const args = [...input.args];
 		const env: Record<string, string | undefined> = {
 			FORCE_HYPERLINK: "1",
+			...input.env,
 		};
 		const launchCleanups: Array<() => Promise<void>> = [];
 		const launchSettings = input.taskLaunchSettings;
@@ -819,6 +821,16 @@ const claudeAdapter: AgentSessionAdapter = {
 			if (mcpConfig && !hasCliOption(args, "--mcp-config")) {
 				args.push("--mcp-config", mcpConfig.mcpConfigPath, "--strict-mcp-config");
 				launchCleanups.push(mcpConfig.cleanup);
+			}
+		}
+
+		// Vault-supplied launch environment (e.g. GH_TOKEN from GitHub PAT). Vault defaults
+		// are spread after existing entries so an explicitly configured GH_TOKEN on the card
+		// or launch input still wins.
+		const vaultLaunch = await collectVaultLaunchEnv(launchSettings?.mcpServerIds ?? []);
+		for (const [key, value] of Object.entries(vaultLaunch.env)) {
+			if (env[key] === undefined && input.env?.[key] === undefined) {
+				env[key] = value;
 			}
 		}
 

@@ -1,4 +1,5 @@
-﻿import { lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -19,6 +20,8 @@ import {
 	prepareClaudeSkillScopedConfigDir,
 	resolveHostPath,
 } from "../../../src/terminal/task-launch-settings";
+import { writeVaultFile } from "../../../src/vault/vault-store";
+import { prepareAgentLaunch } from "../../../src/terminal/agent-session-adapters";
 
 const originalHome = process.env.HOME;
 const originalUserProfile = process.env.USERPROFILE;
@@ -459,7 +462,106 @@ describe("Claude inventory + scoped launch config", () => {
 			mcpServers: Record<string, unknown>;
 		};
 		expect(Object.keys(parsed.mcpServers)).toEqual(["filesystem"]);
+
+		// File permissions: mode 0600
+		const fileStat = execFileSync("stat", ["-c", "%a", mcp!.mcpConfigPath], { encoding: "utf8" }).trim();
+		expect(fileStat).toBe("600");
+
+		// Empty-vault snapshot: byte-identical output to baseline
+		const rawContent = readFileSync(mcp!.mcpConfigPath, "utf8");
+		expect(rawContent).toBe(JSON.stringify({ mcpServers: { filesystem: { command: "npx" } } }, null, 2));
+
 		await mcp!.cleanup();
+	});
+
+	it("merges vault mcp secrets into allowlist config with 0600 file mode and keeps secrets out of settings.json", async () => {
+		const home = setupTempHome();
+		mkdirSync(join(home, ".claude"), { recursive: true });
+		const initialSettings = {
+			mcpServers: {
+				filesystem: { command: "npx", env: { DEBUG: "0", FS_BASE: "/data" } },
+				github: { command: "uvx" },
+			},
+		};
+		writeFileSync(join(home, ".claude", "settings.json"), JSON.stringify(initialSettings), "utf8");
+
+		// Store MCP secret in vault
+		await writeVaultFile("mcp:filesystem", {
+			env: { SECRET_TOKEN: "s3cr3t_mcp_token_val", DEBUG: "1" },
+			updatedAt: new Date().toISOString(),
+		});
+
+		const mcp = await prepareClaudeMcpAllowlistConfig({
+			taskId: "task-mcp-vault-merge",
+			mcpServerIds: ["filesystem"],
+		});
+		expect(mcp).not.toBeNull();
+
+		// Check file permissions 0600
+		const fileStat = execFileSync("stat", ["-c", "%a", mcp!.mcpConfigPath], { encoding: "utf8" }).trim();
+		expect(fileStat).toBe("600");
+
+		const parsed = JSON.parse(readFileSync(mcp!.mcpConfigPath, "utf8")) as {
+			mcpServers: Record<string, { command: string; env?: Record<string, string> }>;
+		};
+		// Vault overrides conflict key (DEBUG: "1" over "0") and merges new key (SECRET_TOKEN)
+		expect(parsed.mcpServers.filesystem.env).toEqual({
+			DEBUG: "1",
+			FS_BASE: "/data",
+			SECRET_TOKEN: "s3cr3t_mcp_token_val",
+		});
+
+		// settings.json must NOT contain the secret token (tokens stay out of settings.json)
+		const settingsContent = readFileSync(join(home, ".claude", "settings.json"), "utf8");
+		expect(settingsContent).not.toContain("s3cr3t_mcp_token_val");
+
+		await mcp!.cleanup();
+	});
+
+	it("plumbs GH_TOKEN into Claude session launch env from vault PAT, respecting explicit overrides", async () => {
+		const home = setupTempHome();
+		mkdirSync(join(home, ".claude"), { recursive: true });
+		writeFileSync(join(home, ".claude", "settings.json"), "{}", "utf8");
+		writeFileSync(join(home, ".claude.json"), JSON.stringify({ hasCompletedOnboarding: true }), "utf8");
+
+		// 1. Without PAT in vault: GH_TOKEN is undefined
+		const launchWithoutPat = await prepareAgentLaunch({
+			agentId: "claude",
+			taskId: "task-gh-none",
+			cwd: home,
+			args: [],
+			prompt: "hello",
+		});
+		expect(launchWithoutPat.env.GH_TOKEN).toBeUndefined();
+
+		// 2. With PAT in vault: GH_TOKEN is populated
+		await writeVaultFile("github", {
+			authKind: "pat",
+			accessToken: "ghp_vault_pat_token_secret",
+			username: "octocat",
+			host: "github.com",
+			updatedAt: new Date().toISOString(),
+		});
+
+		const launchWithPat = await prepareAgentLaunch({
+			agentId: "claude",
+			taskId: "task-gh-pat",
+			cwd: home,
+			args: [],
+			prompt: "hello",
+		});
+		expect(launchWithPat.env.GH_TOKEN).toBe("ghp_vault_pat_token_secret");
+
+		// 3. Explicit GH_TOKEN override on card/input wins over vault
+		const launchWithOverride = await prepareAgentLaunch({
+			agentId: "claude",
+			taskId: "task-gh-override",
+			cwd: home,
+			args: [],
+			prompt: "hello",
+			env: { GH_TOKEN: "ghp_explicit_override_token" },
+		});
+		expect(launchWithOverride.env.GH_TOKEN).toBe("ghp_explicit_override_token");
 	});
 
 	it("inherits pin credentials while limiting skills", async () => {
