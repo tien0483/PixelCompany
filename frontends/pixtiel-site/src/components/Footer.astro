@@ -1,0 +1,46 @@
+---
+interface Props {
+	class?: string;
+}
+
+const { class: className } = Astro.props;
+---
+
+<footer class={`w-full border-t border-[#30363D] bg-[#1F2428] py-12 text-[#8B949E] ${className ?? ""}`}>
+	<div class="max-w-6xl mx-auto px-4 sm:px-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-8">
+		<div class="flex flex-col gap-2">
+			<div class="flex items-center gap-2.5 text-[#E6EDF3]">
+				<!-- TODO: Replace with B0 SVG wordmark when merged -->
+				<div class="w-6 h-6 rounded bg-[#0084FF] flex items-center justify-center font-bold text-xs text-white">
+					P
+				</div>
+				<span class="font-bold tracking-tight text-base">PIXTiel</span>
+			</div>
+			<p class="text-xs text-[#6E7681] max-w-sm">
+				Multi-agent coordination and workspace runtime for autonomous software engineering.
+			</p>
+			<p class="text-xs text-[#6E7681]">
+				Distributed under the MIT License.
+			</p>
+		</div>
+
+		<div class="flex flex-col sm:flex-row items-start sm:items-center gap-6 sm:gap-8 text-sm">
+			<a href="/#features" class="hover:text-[#E6EDF3] transition-colors">Features</a>
+			<a href="/#install" class="hover:text-[#E6EDF3] transition-colors">Installation</a>
+			<a href="/docs/getting-started" class="hover:text-[#E6EDF3] transition-colors">Documentation</a>
+			<a
+				href="https://github.com/tien0483/PixelCompany"
+				target="_blank"
+				rel="noopener noreferrer"
+				class="hover:text-[#E6EDF3] transition-colors"
+			>
+				GitHub
+			</a>
+		</div>
+	</div>
+
+	<div class="max-w-6xl mx-auto px-4 sm:px-6 mt-8 pt-6 border-t border-[#30363D]/60 flex flex-col sm:flex-row items-center justify-between text-xs text-[#6E7681] gap-4">
+		<span>&copy; 2026 Tiến Nguyễn. All rights reserved.</span>
+		<span>Built with Astro &amp; Tailwind CSS</span>
+	</div>
+</footer>

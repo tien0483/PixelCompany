@@ -1,0 +1,49 @@
+---
+interface Props {
+	id?: string;
+	src: string;
+	alt: string;
+	title: string;
+	aspectRatio?: string;
+	class?: string;
+	loading?: "eager" | "lazy";
+}
+
+const {
+	id,
+	src,
+	alt,
+	title,
+	aspectRatio = "aspect-16/10",
+	class: className = "",
+	loading = "lazy",
+} = Astro.props;
+---
+
+<div
+	id={id}
+	class={`w-full rounded-xl border border-[#30363D] bg-[#24292E] overflow-hidden shadow-2xl transition-all duration-200 hover:border-[#444C56] ${className}`}
+>
+	<!-- Browser window header -->
+	<div class="px-4 py-3 bg-[#1F2428] border-b border-[#30363D] flex items-center justify-between">
+		<div class="flex items-center gap-2">
+			<span class="w-3 h-3 rounded-full bg-[#FF5F56]/80 inline-block"></span>
+			<span class="w-3 h-3 rounded-full bg-[#FFBD2E]/80 inline-block"></span>
+			<span class="w-3 h-3 rounded-full bg-[#27C93F]/80 inline-block"></span>
+		</div>
+		<div class="px-3 py-1 rounded bg-[#24292E] border border-[#30363D] text-xs font-mono text-[#8B949E] max-w-[280px] truncate text-center">
+			{title}
+		</div>
+		<div class="w-12"></div>
+	</div>
+
+	<!-- Screenshot image viewport -->
+	<div class={`w-full ${aspectRatio} bg-[#1F2428] relative overflow-hidden flex items-center justify-center`}>
+		<img
+			src={src}
+			alt={alt}
+			loading={loading}
+			class="w-full h-full object-cover object-top block"
+		/>
+	</div>
+</div>

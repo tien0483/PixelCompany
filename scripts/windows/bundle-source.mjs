@@ -39,7 +39,7 @@ async function main() {
 	}
 
 	const { files, included, missing } = collectAllowlist(repoRoot);
-	console.log("PixelOffice source bundle (allowlist)");
+	console.log("PIXTiel source bundle (allowlist)");
 	console.log(`  Repo: ${repoRoot}`);
 	console.log(`  Out:  ${outPath}`);
 	console.log("  Included roots:");

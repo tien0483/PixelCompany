@@ -20,7 +20,8 @@ import {
 } from "@/components/home-sidebar-agents";
 import { HomeSidebarPlansPanel, HomeSidebarPlansTab } from "@/components/home-sidebar-plans";
 import { HomeSidebarReviewPanel, HomeSidebarReviewTab } from "@/components/home-sidebar-review";
-import askeeLogo from "@/assets/images/askee-logo.png";
+import pixtielLogo from "@/assets/images/pixtiel-logo.svg";
+import { BRAND_NAME, formatVersion } from "@/brand";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
 import {
@@ -349,8 +350,8 @@ export function ProjectNavigationPanel({
 			<div style={{ padding: "12px 12px 8px" }}>
 				<div className="flex items-center justify-between">
 					<div className="font-semibold text-base flex items-center gap-1.5">
-						<img src={askeeLogo} alt="Askee" className="h-5 w-auto shrink-0" />
-						<span className="text-text-secondary font-normal text-xs">v{__APP_VERSION__}</span>
+						<img src={pixtielLogo} alt={BRAND_NAME} className="h-5 w-auto shrink-0" />
+						<span className="text-text-secondary font-normal text-xs">{formatVersion(__APP_VERSION__)}</span>
 					</div>
 					{isMobile ? (
 						<Button

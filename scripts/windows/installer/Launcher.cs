@@ -20,7 +20,7 @@ static class PixelOfficeLauncher
 		string configPath = Path.Combine(installDir, "config.json");
 		if (!File.Exists(configPath))
 		{
-			MessageBox.Show("PixelOffice config not found: " + configPath, "PixelOffice",
+			MessageBox.Show("PIXTiel config not found: " + configPath, "PIXTiel",
 				MessageBoxButtons.OK, MessageBoxIcon.Error);
 			return 1;
 		}
@@ -33,7 +33,7 @@ static class PixelOfficeLauncher
 		}
 		catch (Exception ex)
 		{
-			MessageBox.Show("Invalid Url in config.json: " + ex.Message, "PixelOffice",
+			MessageBox.Show("Invalid Url in config.json: " + ex.Message, "PIXTiel",
 				MessageBoxButtons.OK, MessageBoxIcon.Error);
 			return 1;
 		}
@@ -65,7 +65,7 @@ static class PixelOfficeLauncher
 		string stopScript = Path.Combine(installDir, "stop.mjs");
 		if (!File.Exists(nodeExe) || !File.Exists(stopScript))
 		{
-			MessageBox.Show("PixelOffice is not fully installed (missing runtime or stop.mjs).", "PixelOffice",
+			MessageBox.Show("PIXTiel is not fully installed (missing runtime or stop.mjs).", "PIXTiel",
 				MessageBoxButtons.OK, MessageBoxIcon.Error);
 			return 1;
 		}
@@ -85,7 +85,7 @@ static class PixelOfficeLauncher
 		}
 		catch (Exception ex)
 		{
-			MessageBox.Show("Could not stop PixelOffice: " + ex.Message, "PixelOffice",
+			MessageBox.Show("Could not stop PIXTiel: " + ex.Message, "PIXTiel",
 				MessageBoxButtons.OK, MessageBoxIcon.Error);
 			return 1;
 		}
@@ -108,8 +108,8 @@ static class PixelOfficeLauncher
 			{
 				splash.Close();
 				MessageBox.Show(
-					"Could not start PixelOffice. Check " + Path.Combine(installDir, "solo.log"),
-					"PixelOffice", MessageBoxButtons.OK, MessageBoxIcon.Error);
+					"Could not start PIXTiel. Check " + Path.Combine(installDir, "solo.log"),
+					"PIXTiel", MessageBoxButtons.OK, MessageBoxIcon.Error);
 				return 1;
 			}
 
@@ -127,8 +127,8 @@ static class PixelOfficeLauncher
 			if (!ready)
 			{
 				MessageBox.Show(
-					"Timed out waiting for PixelOffice to start.\nCheck " + Path.Combine(installDir, "solo.log"),
-					"PixelOffice", MessageBoxButtons.OK, MessageBoxIcon.Error);
+					"Timed out waiting for PIXTiel to start.\nCheck " + Path.Combine(installDir, "solo.log"),
+					"PIXTiel", MessageBoxButtons.OK, MessageBoxIcon.Error);
 				return 1;
 			}
 		}
@@ -223,7 +223,7 @@ class SplashForm : Form
 {
 	public SplashForm()
 	{
-		Text = "PixelOffice";
+		Text = "PIXTiel";
 		FormBorderStyle = FormBorderStyle.FixedDialog;
 		StartPosition = FormStartPosition.CenterScreen;
 		ClientSize = new System.Drawing.Size(320, 100);
@@ -233,7 +233,7 @@ class SplashForm : Form
 		TopMost = true;
 		var label = new Label
 		{
-			Text = "Starting PixelOffice...",
+			Text = "Starting PIXTiel...",
 			Dock = DockStyle.Fill,
 			TextAlign = System.Drawing.ContentAlignment.MiddleCenter,
 			Font = new System.Drawing.Font("Segoe UI", 11),

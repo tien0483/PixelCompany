@@ -28,6 +28,7 @@ async function main(): Promise<void> {
 	// The rules cache lives under `agent-data/`; the packaged layout puts it next to
 	// the server bundle. Overridable for dev runs from source.
 	const agentDataDir = process.env.REVIEW_AGENT_DATA ?? resolve(process.cwd(), "agent-data");
+	process.env.PIXTIEL_AGENT_DATA = agentDataDir;
 	process.env.PIXELOFFICE_AGENT_DATA = agentDataDir;
 
 	const host = process.env.REVIEW_HOST ?? DEFAULT_HOST;

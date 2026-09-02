@@ -10,13 +10,12 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { readBrandEnv } from "../brand";
 import { isFlowiseLlmProxyEnabled, resolveFlowiseLlmProxyProviderUrl } from "../flowise/flowise-llm-proxy-config";
 
 /** Seat-backed proxy routes, plus `deepseek` meaning "leave dsh's own default alone". */
 export type OrchestratorLlmProvider = "cursor" | "openai" | "anthropic" | "gemini" | "deepseek";
 
-const PROVIDER_ENV = "PIXELOFFICE_DSH_LLM_PROVIDER";
-const MODEL_ENV = "PIXELOFFICE_DSH_LLM_MODEL";
 /**
  * The proxy strips the caller's `authorization` and injects the seat credential, so this value is
  * never sent anywhere — but pi-ai resolves `apiKeyEnv` per request and fails a configured
@@ -82,7 +81,7 @@ const PROVIDER_WIRING: Record<Exclude<OrchestratorLlmProvider, "deepseek">, Prov
 const DEFAULT_PROVIDER: OrchestratorLlmProvider = "cursor";
 
 export function resolveOrchestratorLlmProvider(): OrchestratorLlmProvider {
-	const raw = process.env[PROVIDER_ENV]?.trim().toLowerCase();
+	const raw = readBrandEnv("DSH_LLM_PROVIDER")?.trim().toLowerCase();
 	if (raw === "deepseek" || raw === "off" || raw === "0") {
 		return "deepseek";
 	}
@@ -120,7 +119,7 @@ export async function prepareOrchestratorLlmPatch(
 		return null;
 	}
 	const wiring = PROVIDER_WIRING[provider];
-	const model = process.env[MODEL_ENV]?.trim() || wiring.defaultModel;
+	const model = readBrandEnv("DSH_LLM_MODEL")?.trim() || wiring.defaultModel;
 	const baseURL = `${resolveFlowiseLlmProxyProviderUrl(provider)}${wiring.baseUrlSuffix}`;
 
 	const rows = [

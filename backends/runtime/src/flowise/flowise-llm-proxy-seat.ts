@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
+import { readBrandEnv } from "../brand";
 import type { ClineApiSeatCredentials } from "../cline-sdk/cline-provider-service";
 import {
 	pickDefaultAntigravityAccountId,
@@ -10,10 +11,10 @@ import {
 import type { ManagerMonitor } from "../manager/manager-monitor";
 import { hasGeminiCredential, resolveGeminiAccessToken } from "./flowise-llm-proxy-gemini";
 
-const CLAUDE_SEAT_ENV = "PIXELOFFICE_FLOWISE_LLM_SEAT_ID";
-const CURSOR_SEAT_ENV = "PIXELOFFICE_FLOWISE_LLM_CURSOR_SEAT_ID";
-const GEMINI_SEAT_ENV = "PIXELOFFICE_FLOWISE_LLM_GEMINI_SEAT_ID";
-const API_SEAT_ENV = "PIXELOFFICE_FLOWISE_LLM_API_SEAT_ID";
+const CLAUDE_SEAT_ENV = "FLOWISE_LLM_SEAT_ID";
+const CURSOR_SEAT_ENV = "FLOWISE_LLM_CURSOR_SEAT_ID";
+const GEMINI_SEAT_ENV = "FLOWISE_LLM_GEMINI_SEAT_ID";
+const API_SEAT_ENV = "FLOWISE_LLM_API_SEAT_ID";
 
 export interface ResolveFlowiseLlmSeatInput {
 	monitor: ManagerMonitor;
@@ -54,8 +55,8 @@ export interface FlowiseLlmOpenAiSeatContext {
 	seatLabel: string;
 }
 
-function readSeatOverride(envName: string): number | null {
-	const override = process.env[envName]?.trim();
+function readSeatOverride(suffix: string): number | null {
+	const override = readBrandEnv(suffix)?.trim();
 	if (override && /^\d+$/.test(override)) {
 		return Number(override);
 	}
@@ -205,7 +206,7 @@ export async function activateFlowiseLlmGeminiSeatContext(
 export async function resolveFlowiseLlmOpenAiSeatContext(
 	input: ResolveFlowiseLlmSeatInput,
 ): Promise<FlowiseLlmOpenAiSeatContext | null> {
-	const providerId = process.env[API_SEAT_ENV]?.trim().toLowerCase() || "omniroute";
+	const providerId = readBrandEnv(API_SEAT_ENV)?.trim().toLowerCase() || "omniroute";
 	const seat = await input.resolveApiSeatCredentials(providerId);
 	if (seat === null) {
 		return null;

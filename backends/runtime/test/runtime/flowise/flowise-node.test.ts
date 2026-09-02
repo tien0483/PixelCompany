@@ -50,19 +50,19 @@ describe("resolveStudioNodeBinary", () => {
 
 	it("picks the newest qualifying nvm install when the runtime's node is too old", () => {
 		const home = fakeNvmHome(["v20.20.2", "v22.22.1", "v24.9.0", "v24.20.0", "v25.1.0"]);
-		const resolved = resolveStudioNodeBinary({ minMajor: 99, home });
+		const resolved = resolveStudioNodeBinary({ minMajor: 99, home, currentMajor: 22 });
 		// minMajor 99 excludes every install, so nothing qualifies — the guard below is what
 		// proves the version sort, using the real minimum.
 		expect(resolved.satisfiesMinimum).toBe(false);
 
-		const withRealMinimum = resolveStudioNodeBinary({ minMajor: MIN_STUDIO_NODE_MAJOR, home });
+		const withRealMinimum = resolveStudioNodeBinary({ minMajor: MIN_STUDIO_NODE_MAJOR, home, currentMajor: 22 });
 		expect(withRealMinimum.satisfiesMinimum).toBe(true);
 		expect(withRealMinimum.path).toBe(join(home, ".nvm", "versions", "node", "v25.1.0", "bin", "node"));
 	});
 
 	it("ignores nvm installs below the minimum", () => {
 		const home = fakeNvmHome(["v20.20.2", "v22.22.1"]);
-		expect(resolveStudioNodeBinary({ minMajor: MIN_STUDIO_NODE_MAJOR, home })).toEqual({
+		expect(resolveStudioNodeBinary({ minMajor: MIN_STUDIO_NODE_MAJOR, home, currentMajor: 22 })).toEqual({
 			path: process.execPath,
 			satisfiesMinimum: false,
 		});
@@ -70,7 +70,7 @@ describe("resolveStudioNodeBinary", () => {
 
 	it("falls back to the runtime's node when there is no nvm at all", () => {
 		const home = mkdtempSync(join(tmpdir(), "flowise-nonvm-"));
-		expect(resolveStudioNodeBinary({ minMajor: MIN_STUDIO_NODE_MAJOR, home })).toEqual({
+		expect(resolveStudioNodeBinary({ minMajor: MIN_STUDIO_NODE_MAJOR, home, currentMajor: 22 })).toEqual({
 			path: process.execPath,
 			satisfiesMinimum: false,
 		});

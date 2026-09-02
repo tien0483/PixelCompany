@@ -32,6 +32,7 @@ async function main(): Promise<void> {
 	// Packaged layout: <install>/server/index.js (this bundle), <install>/agent-data,
 	// <install>/html_anything. Both are overridable for dev/test runs from source.
 	const agentDataDir = process.env.PLAN_EDITOR_AGENT_DATA ?? resolve(bundleDir, "../agent-data");
+	process.env.PIXTIEL_AGENT_DATA = agentDataDir;
 	process.env.PIXELOFFICE_AGENT_DATA = agentDataDir;
 
 	const htmlRoot = process.env.PLAN_EDITOR_HTML_ROOT ?? resolve(bundleDir, "../html_anything");

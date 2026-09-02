@@ -1,4 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
+import { readBrandEnv } from "../../src/brand";
 
 /**
  * Proves the "start only the kanban" goal: one process, one origin, everything on it.
@@ -8,10 +9,10 @@ import { expect, type Page, test } from "@playwright/test";
  * its own child. Nothing here talks to a Vite dev server or the raw jacked dashboard.
  *
  * Board-specific checks need a registered project. Rather than writing a project into
- * the user's real `~/.cline/kanban` config, they skip unless `PIXELOFFICE_E2E_PROJECT`
+ * the user's real `~/.cline/kanban` config, they skip unless `PIXTIEL_E2E_PROJECT` / `PIXELOFFICE_E2E_PROJECT`
  * names one that is already open.
  */
-const requiresProject = process.env.PIXELOFFICE_E2E_PROJECT !== undefined;
+const requiresProject = readBrandEnv("E2E_PROJECT") !== undefined;
 
 async function dismissOnboarding(page: Page) {
 	// A fresh runtime opens the "Get started" carousel over the board.

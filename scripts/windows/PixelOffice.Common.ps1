@@ -16,7 +16,7 @@ function Get-PixelOfficeConfigPath {
 function Read-PixelOfficeConfig {
 	param([string]$ConfigPath = (Get-PixelOfficeConfigPath))
 	if (-not (Test-Path -LiteralPath $ConfigPath)) {
-		throw "PixelOffice config not found: $ConfigPath`nRun Install-PixelOfficeShortcut.ps1 first."
+		throw "PIXTiel config not found: $ConfigPath`nRun Install-PixelOfficeShortcut.ps1 first."
 	}
 	$raw = Get-Content -LiteralPath $ConfigPath -Raw -Encoding UTF8
 	$config = $raw | ConvertFrom-Json
@@ -155,7 +155,7 @@ function Start-PixelOfficeSoloWindows {
 	}
 	$packageJson = Join-Path $WindowsRepoPath "package.json"
 	if (-not (Test-Path -LiteralPath $packageJson)) {
-		throw "Not a PixelOffice repo root (missing package.json): $WindowsRepoPath"
+		throw "Not a PIXTiel repo root (missing package.json): $WindowsRepoPath"
 	}
 	$installDir = Get-PixelOfficeInstallDir
 	$logPath = Join-Path $installDir "solo.log"
@@ -302,7 +302,7 @@ function New-PixelOfficeShortcut {
 		[string]$Arguments = "",
 		[string]$WorkingDirectory = "",
 		[string]$IconLocation = "",
-		[string]$Description = "PixelOffice"
+		[string]$Description = "PIXTiel"
 	)
 	$dir = Split-Path -Parent $ShortcutPath
 	if (-not (Test-Path -LiteralPath $dir)) {
@@ -322,7 +322,7 @@ function New-PixelOfficeShortcut {
 function Show-PixelOfficeMessage {
 	param(
 		[Parameter(Mandatory = $true)][string]$Message,
-		[string]$Title = "PixelOffice",
+		[string]$Title = "PIXTiel",
 		[ValidateSet("Info", "Error", "Warning")][string]$Kind = "Info"
 	)
 	$icon = switch ($Kind) {
@@ -465,7 +465,7 @@ function Resolve-PixelOfficeReleaseUrl {
 	}
 	Write-Host "Resolving release asset from $api ..."
 	$headers = @{
-		"User-Agent" = "PixelOffice-Setup"
+		"User-Agent" = "PIXTiel-Setup"
 		"Accept"     = "application/vnd.github+json"
 	}
 	$release = Invoke-RestMethod -Uri $api -Headers $headers -UseBasicParsing
@@ -526,7 +526,7 @@ function Expand-PixelOfficeReleaseZip {
 	}
 	$pkg = Join-Path $root "package.json"
 	if (-not (Test-Path -LiteralPath $pkg)) {
-		throw "Extracted archive is not a PixelOffice repo root (missing package.json)."
+		throw "Extracted archive is not a PIXTiel repo root (missing package.json)."
 	}
 
 	$parent = Split-Path -Parent $DestinationAppDir

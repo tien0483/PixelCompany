@@ -13,6 +13,7 @@ import { closeSync, existsSync, mkdirSync, openSync } from "node:fs";
 import { join } from "node:path";
 
 import { terminateProcessForTimeout } from "../server/process-termination";
+import { readBrandEnv } from "../brand";
 import { nextRestartDelayMs, shouldGiveUpRestarting } from "../stack/stack-daemon";
 import { probePort, waitForPort } from "../stack/stack-ports";
 import { DEFAULT_FLOWISE_HOST, findFlowiseRoot, resolveFlowisePort } from "./flowise-endpoint";
@@ -32,7 +33,6 @@ import { describeMissingStudioNode, resolveStudioNodeBinary } from "./flowise-no
  * the child exits, so a genuinely broken studio is still reported promptly.
  */
 const DEFAULT_STARTUP_TIMEOUT_MS = 180_000;
-const STARTUP_TIMEOUT_ENV = "PIXELOFFICE_FLOWISE_STARTUP_TIMEOUT_MS";
 /** Emit a "still starting" line this far in, so a slow first boot doesn't read as a hang. */
 const SLOW_START_NOTICE_MS = 20_000;
 /** A child that survives this long resets the failure count, so backoff tracks real flapping. */
@@ -71,7 +71,7 @@ function extractOriginHost(url: string): string | null {
 }
 
 function resolveStartupTimeoutMs(): number {
-	const raw = process.env[STARTUP_TIMEOUT_ENV]?.trim();
+	const raw = readBrandEnv("FLOWISE_STARTUP_TIMEOUT_MS")?.trim();
 	return raw !== undefined && /^\d+$/.test(raw) && Number(raw) > 0 ? Number(raw) : DEFAULT_STARTUP_TIMEOUT_MS;
 }
 
@@ -118,6 +118,7 @@ function buildStudioEnv(dataDir: string, host: string, port: number, pixelOffice
 		// Unlocks the fork's `/api/v1/pixeloffice-embed/credential` route, which serves the
 		// seeded local credential to loopback callers so the framed UI can sign itself in.
 		// Without this the studio behaves exactly as upstream and shows its login screen.
+		PIXTIEL_EMBED: "1",
 		PIXELOFFICE_EMBED: "1",
 		// Only the runtime origin may call the API or frame the studio. With the fork's
 		// commercial-licensed auth stripped there is no login in front of the canvas, and
@@ -132,10 +133,15 @@ function buildStudioEnv(dataDir: string, host: string, port: number, pixelOffice
 	delete env.ANTHROPIC_BASE_URL;
 	delete env.ANTHROPIC_API_KEY;
 	if (isFlowiseLlmProxyEnabled()) {
+		env.PIXTIEL_FLOWISE_LLM_PROXY_URL = resolveFlowiseLlmProxyProviderUrl("anthropic");
 		env.PIXELOFFICE_FLOWISE_LLM_PROXY_URL = resolveFlowiseLlmProxyProviderUrl("anthropic");
+		env.PIXTIEL_FLOWISE_LLM_PROXY_ANTHROPIC_URL = resolveFlowiseLlmProxyProviderUrl("anthropic");
 		env.PIXELOFFICE_FLOWISE_LLM_PROXY_ANTHROPIC_URL = resolveFlowiseLlmProxyProviderUrl("anthropic");
+		env.PIXTIEL_FLOWISE_LLM_PROXY_GEMINI_URL = resolveFlowiseLlmProxyProviderUrl("gemini");
 		env.PIXELOFFICE_FLOWISE_LLM_PROXY_GEMINI_URL = resolveFlowiseLlmProxyProviderUrl("gemini");
+		env.PIXTIEL_FLOWISE_LLM_PROXY_OPENAI_URL = resolveFlowiseLlmProxyProviderUrl("openai");
 		env.PIXELOFFICE_FLOWISE_LLM_PROXY_OPENAI_URL = resolveFlowiseLlmProxyProviderUrl("openai");
+		env.PIXTIEL_FLOWISE_LLM_PROXY_CURSOR_URL = resolveFlowiseLlmProxyProviderUrl("cursor");
 		env.PIXELOFFICE_FLOWISE_LLM_PROXY_CURSOR_URL = resolveFlowiseLlmProxyProviderUrl("cursor");
 		// The studio's own SSRF guard denies `127.0.0.0/8` by default, so without this every
 		// seat-backed node fails with "Access to this host is denied by policy" before it makes
@@ -235,7 +241,7 @@ export async function startFlowiseProcess(deps: StartFlowiseProcessDependencies)
 		return createNoopProcess(false);
 	}
 
-	const pixelOfficePort = process.env.PIXELOFFICE_PORT?.trim() ?? "3484";
+	const pixelOfficePort = readBrandEnv("PORT")?.trim() ?? "3484";
 	const startupTimeoutMs = resolveStartupTimeoutMs();
 
 	let child: ChildProcess | null = null;

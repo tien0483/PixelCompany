@@ -1,0 +1,84 @@
+---
+title: "Getting Started"
+description: "Quickly set up and start orchestrating autonomous coding agents in isolated git worktrees with PIXTiel."
+order: 1
+---
+
+# Getting Started with PIXTiel
+
+PIXTiel is an autonomous engineering workspace designed to run multiple AI coding agents (Claude Code, Cursor, Cline, and custom harnesses) concurrently on real codebases without context rot, prompt limits, or git collision.
+
+---
+
+## Why PIXTiel?
+
+Traditional AI coding interfaces run inside a single serialized chat window on your working tree. When you run multiple features or long sessions, you hit three critical failure modes:
+
+1. **Context Rot**: As conversation history grows, models lose architectural decisions made early in the session.
+2. **Workspace Contamination**: Running multiple concurrent tasks in one working directory results in agents overwriting each other's uncommitted edits.
+3. **The 5-Hour Rate Limit Wall**: Hitting provider rate limits terminates session state and forces costly restarts.
+
+PIXTiel solves this at the **workspace architecture** level:
+
+- **Card = Git Worktree = Sandboxed Session**: Every kanban card runs in an isolated git worktree on a dedicated branch. 3–4 agents work in parallel without touching each other.
+- **Multi-Account Seats**: Automatic failover and auto-parking with escalating backoff when a seat reaches the 5-hour usage wall.
+- **First-Class Plan & Review**: Plans are versioned interactive HTML documents; reviews are full branch diffs with inline comments routed directly back to agents as scoped work.
+
+---
+
+## Quick Install (One-Liner)
+
+Install PIXTiel on Ubuntu or Windows WSL2 with a single command:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/tien0483/PixelCompany/main/install.sh | bash
+```
+
+Once installed, start the full stack:
+
+```bash
+pnpm run solo
+```
+
+Open your browser to `http://127.0.0.1:3484` to access your workspace board.
+
+---
+
+## The Kanban Lifecycle
+
+PIXTiel organizes engineering workflows into structured phases:
+
+```
+┌───────────┐     ┌───────────┐     ┌───────────┐     ┌───────────┐     ┌───────────┐
+│  Backlog  │ ──► │  Planning │ ──► │In Progress│ ──► │  Review   │ ──► │   Done    │
+└───────────┘     └───────────┘     └───────────┘     └───────────┘     └───────────┘
+```
+
+1. **Backlog**: Tasks waiting to be scheduled. Can be batched or chained with explicit dependencies.
+2. **Planning**: Interactive architectural planning phase. Generate HTML plans, compare AI refinement diffs, and split large features into per-agent sub-plans.
+3. **In Progress**: Agents execute inside their isolated worktrees. Real-time xterm streaming, turn checkpoints, and sub-agent supervision.
+4. **Review**: GitLab-style MR diff viewer. Leave line-by-line comments that pipe back to the agent as revision tasks.
+5. **Done**: Land the branch directly into the base branch or push upstream to your remote repository.
+
+---
+
+## Creating Your First Task
+
+1. Open `http://127.0.0.1:3484` and select your project workspace.
+2. Click **New task** (shortcut: `C`).
+3. Set the task title and choose the **Base Branch** (e.g. `main`).
+4. Choose the **Agent Harness**:
+   - `Claude Code`: Anthropic OAuth seat with tool use and full CLI support.
+   - `Cursor`: Composer agent harness.
+   - `Cline`: API key mode for provider flexibility.
+5. (Optional) Configure **Seat Billing**, **Skills Allowlist**, and **Reasoning Effort**.
+6. Click **Create & Launch**. PIXTiel creates a new worktree under `.agent/worktrees/<id>/` and spins up the agent session.
+
+---
+
+## Next Steps
+
+- [Installation & Setup Reference](/docs/install) — Detailed component manifest, non-TTY flags, and platform requirements.
+- [Multi-Account Seats](/docs/seats) — Learn how seat swapping and subagent billing prevent rate-limit stalls.
+- [Agent CLIs & Skills](/docs/agents) — Explore the RTK token optimizer, Caveman mode, and 30+ built-in skills.
+- [Merge Requests & Review](/docs/review) — Use the diff viewer, blast-radius graphs, and inline comment routing.

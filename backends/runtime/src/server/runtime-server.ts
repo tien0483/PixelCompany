@@ -100,15 +100,27 @@ import { handleAgentStreamRoute } from "../review/review-stream-route";
 import {
 	checkRateLimit,
 	clearRateLimit,
+	deleteSession,
 	extractBearerToken,
 	extractSessionTokenFromCookie,
+	getSessionSubject,
 	isPasscodeEnabled,
 	issueSession,
+	issueSessionForSubject,
 	recordFailedAttempt,
 	validateInternalToken,
 	validatePasscode,
 	validateSession,
 } from "../security/passcode-manager";
+import {
+	type GoogleAuthConfig,
+	resolveAuthMode,
+	validateGoogleConfig,
+} from "../security/auth-mode";
+import {
+	createAuthorizationUrl,
+	handleCallback,
+} from "../security/google-oidc";
 import { findSavedPlanById, readSavedPlanAsset, resolvePlanImageAssets } from "../state/saved-plans";
 import { loadWorkspaceContextById, loadWorkspaceState } from "../state/workspace-state";
 import { runAgentOneShot } from "../terminal/agent-oneshot";
@@ -757,6 +769,17 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 	});
 
 	const isRemoteMode = isKanbanRemoteHost();
+	const authMode = resolveAuthMode({ isRemote: isRemoteMode });
+	let googleConfig: GoogleAuthConfig | null = null;
+	const getGoogleConfig = async (): Promise<GoogleAuthConfig | null> => {
+		if (googleConfig) return googleConfig;
+		const validation = await validateGoogleConfig();
+		if (validation.valid && validation.config) {
+			googleConfig = validation.config;
+			return googleConfig;
+		}
+		return null;
+	};
 
 	const readRequestBody = (req: IncomingMessage, maxBytes = 4096): Promise<string> =>
 		new Promise((resolve, reject) => {
@@ -795,21 +818,168 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 				return;
 			}
 
-			// ── Passcode gate (remote mode only) ──────────────────────────────
-			const passcodeActive = isRemoteMode && isPasscodeEnabled();
-			if (pathname === "/api/passcode/status") {
-				if (passcodeActive) {
-					const token = extractSessionTokenFromCookie(req.headers.cookie);
-					const authenticated = token !== null && validateSession(token);
+			// ── Auth gate (off | passcode | google) ───────────────────────────
+			if (pathname === "/api/auth/status" || pathname === "/api/passcode/status") {
+				if (authMode === "off") {
 					res.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" });
-					res.end(JSON.stringify({ required: true, authenticated }));
+					res.end(JSON.stringify({
+						mode: "off",
+						required: false,
+						authenticated: true,
+						passcodeAvailable: false,
+						google: { configured: false },
+					}));
 				} else {
+					const sessionToken = extractSessionTokenFromCookie(req.headers.cookie);
+					const sessionAuth = sessionToken !== null && validateSession(sessionToken);
+					const bearerToken = extractBearerToken(req.headers.authorization);
+					const internalAuth = bearerToken !== null && validateInternalToken(bearerToken);
+					const authenticated = sessionAuth || internalAuth;
+					const subject = sessionToken ? getSessionSubject(sessionToken) ?? undefined : undefined;
 					res.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" });
-					res.end(JSON.stringify({ required: false, authenticated: true }));
+					res.end(JSON.stringify({
+						mode: authMode,
+						required: true,
+						authenticated,
+						passcodeAvailable: isPasscodeEnabled(),
+						google: { configured: authMode === "google" },
+						...(subject ? { subject } : {}),
+					}));
 				}
 				return;
 			}
-			if (passcodeActive && req.method === "POST" && pathname === "/api/passcode/verify") {
+
+			if (pathname === "/api/auth/google/start") {
+				if (authMode !== "google") {
+					res.writeHead(400, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" });
+					res.end(JSON.stringify({ error: "Google authentication is not enabled." }));
+					return;
+				}
+				const config = await getGoogleConfig();
+				if (!config) {
+					res.writeHead(500, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" });
+					res.end(JSON.stringify({ error: "Google OAuth configuration is incomplete." }));
+					return;
+				}
+				try {
+					const { url } = await createAuthorizationUrl(config);
+					res.writeHead(302, {
+						Location: url,
+						"Cache-Control": "no-store",
+					});
+					res.end();
+				} catch {
+					res.writeHead(500, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" });
+					res.end(JSON.stringify({ error: "Failed to initiate Google login." }));
+				}
+				return;
+			}
+
+			if (pathname === "/api/auth/google/callback") {
+				const ip = getRemoteIp(req);
+				const rateLimit = checkRateLimit(ip);
+				if (!rateLimit.allowed) {
+					const retryAfterSec = rateLimit.lockedUntilMs
+						? Math.ceil((rateLimit.lockedUntilMs - Date.now()) / 1000)
+						: 30;
+					res.writeHead(429, {
+						"Content-Type": "application/json; charset=utf-8",
+						"Cache-Control": "no-store",
+						"Retry-After": String(retryAfterSec),
+					});
+					res.end(JSON.stringify({ error: "Too many attempts. Please wait before trying again." }));
+					return;
+				}
+
+				if (authMode !== "google") {
+					res.writeHead(400, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" });
+					res.end(JSON.stringify({ error: "Google authentication is not enabled." }));
+					return;
+				}
+
+				const config = await getGoogleConfig();
+				if (!config) {
+					res.writeHead(500, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" });
+					res.end(JSON.stringify({ error: "Google OAuth configuration is incomplete." }));
+					return;
+				}
+
+				const error = requestUrl.searchParams.get("error");
+				if (error) {
+					recordFailedAttempt(ip);
+					res.writeHead(302, {
+						Location: `/?auth_error=${encodeURIComponent(error)}`,
+						"Cache-Control": "no-store",
+					});
+					res.end();
+					return;
+				}
+
+				const code = requestUrl.searchParams.get("code");
+				const state = requestUrl.searchParams.get("state");
+				if (!code || !state) {
+					recordFailedAttempt(ip);
+					res.writeHead(302, {
+						Location: "/?auth_error=missing_code_or_state",
+						"Cache-Control": "no-store",
+					});
+					res.end();
+					return;
+				}
+
+				try {
+					const user = await handleCallback({ code, state, config });
+					clearRateLimit(ip);
+					const token = issueSessionForSubject(user);
+					const cookieFlags = [
+						`kanban_session=${token}`,
+						"HttpOnly",
+						"SameSite=Strict",
+						"Path=/",
+						`Max-Age=${24 * 60 * 60}`,
+						...(tlsConfig !== null ? ["Secure"] : []),
+					].join("; ");
+					res.writeHead(302, {
+						Location: "/",
+						"Set-Cookie": cookieFlags,
+						"Cache-Control": "no-store",
+					});
+					res.end();
+				} catch (err) {
+					recordFailedAttempt(ip);
+					const reason = err instanceof Error ? err.message : "auth_failed";
+					res.writeHead(302, {
+						Location: `/?auth_error=${encodeURIComponent(reason)}`,
+						"Cache-Control": "no-store",
+					});
+					res.end();
+				}
+				return;
+			}
+
+			if (req.method === "POST" && pathname === "/api/auth/logout") {
+				const sessionToken = extractSessionTokenFromCookie(req.headers.cookie);
+				if (sessionToken) {
+					deleteSession(sessionToken);
+				}
+				const cookieFlags = [
+					"kanban_session=",
+					"HttpOnly",
+					"SameSite=Strict",
+					"Path=/",
+					"Max-Age=0",
+					...(tlsConfig !== null ? ["Secure"] : []),
+				].join("; ");
+				res.writeHead(200, {
+					"Content-Type": "application/json; charset=utf-8",
+					"Cache-Control": "no-store",
+					"Set-Cookie": cookieFlags,
+				});
+				res.end(JSON.stringify({ ok: true }));
+				return;
+			}
+
+			if (authMode !== "off" && isPasscodeEnabled() && req.method === "POST" && pathname === "/api/passcode/verify") {
 				const ip = getRemoteIp(req);
 				const rateLimit = checkRateLimit(ip);
 				if (!rateLimit.allowed) {
@@ -871,7 +1041,8 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 				res.end(JSON.stringify({ ok: true }));
 				return;
 			}
-			if (passcodeActive) {
+
+			if (authMode !== "off") {
 				// Check session cookie (browser flow) first, then internal bearer token (CLI flow).
 				const sessionToken = extractSessionTokenFromCookie(req.headers.cookie);
 				const sessionAuth = sessionToken !== null && validateSession(sessionToken);
@@ -897,7 +1068,7 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 					// authenticated API calls are made.
 				}
 			}
-			// ── End passcode gate ──────────────────────────────────────────────
+			// ── End auth gate ──────────────────────────────────────────────────
 
 			const oauthCallbackResponse = await handleClineMcpOauthCallback(requestUrl);
 			if (oauthCallbackResponse) {
@@ -1695,9 +1866,8 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 		if (normalizeRequestPath(requestUrl.pathname) !== "/api/runtime/ws") {
 			return;
 		}
-		// ── Passcode gate for WebSocket upgrades (remote mode only) ──────────
-		const passcodeActive = isRemoteMode && isPasscodeEnabled();
-		if (passcodeActive) {
+		// ── Auth gate for WebSocket upgrades ─────────────────────────────────
+		if (authMode !== "off") {
 			const sessionToken = extractSessionTokenFromCookie(request.headers.cookie);
 			const sessionAuth = sessionToken !== null && validateSession(sessionToken);
 			const bearerToken = extractBearerToken(request.headers.authorization);
@@ -1708,7 +1878,7 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 				return;
 			}
 		}
-		// ── End passcode gate ─────────────────────────────────────────────────
+		// ── End auth gate ───────────────────────────────────────────────────
 		(request as IncomingMessage & { __kanbanUpgradeHandled?: boolean }).__kanbanUpgradeHandled = true;
 		const requestedWorkspaceId = requestUrl.searchParams.get("workspaceId")?.trim() || null;
 		deps.runtimeStateHub.handleUpgrade(request, socket, head, { requestedWorkspaceId });
@@ -1719,7 +1889,7 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 		isTerminalIoWebSocketPath: (pathname) => normalizeRequestPath(pathname) === "/api/terminal/io",
 		isTerminalControlWebSocketPath: (pathname) => normalizeRequestPath(pathname) === "/api/terminal/control",
 		validateUpgradeSession:
-			isRemoteMode && isPasscodeEnabled()
+			authMode !== "off"
 				? (cookieHeader) => {
 						const token = extractSessionTokenFromCookie(cookieHeader);
 						return token !== null && validateSession(token);

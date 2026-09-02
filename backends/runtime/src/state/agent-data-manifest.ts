@@ -4,6 +4,8 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
 
+import { readBrandEnv } from "../brand";
+
 /**
  * Every agent asset this monorepo ships lives under one root: `agent-data/`.
  * Before that, the Manager catalog, Manager runtime assets and html_anything's
@@ -21,9 +23,6 @@ import { z } from "zod";
 
 export const AGENT_DATA_DIR_NAME = "agent-data";
 export const AGENT_DATA_MANIFEST_FILENAME = "manifest.json";
-
-/** Absolute-path override, mirroring `PIXELOFFICE_AGENT_MANAGER_DATA` in data_paths.py. */
-const AGENT_DATA_ENV = "PIXELOFFICE_AGENT_DATA";
 
 const MAX_PARENT_WALK_DEPTH = 10;
 
@@ -78,7 +77,7 @@ function walkParents(start: string): string[] {
  * the process cwd. Returns `null` when no manifest is reachable.
  */
 export function findAgentDataRepoRoot(): string | null {
-	const override = process.env[AGENT_DATA_ENV]?.trim();
+	const override = readBrandEnv("AGENT_DATA")?.trim();
 	if (override) {
 		// The override points at `agent-data/` itself; the repo root is its parent.
 		return existsSync(join(override, AGENT_DATA_MANIFEST_FILENAME)) ? dirname(resolve(override)) : null;

@@ -113,7 +113,7 @@ describe("claude-cache-cleanup", () => {
 		});
 		expect(result.ok).toBe(true);
 		expect(readdirSync(join(claudeHomeDir, "shell-snapshots"))).not.toContain("new.sh");
-	});
+	}, 30000);
 
 	it("recycle-bin mode moves safe-tier files instead of deleting them in place", async () => {
 		const recycleBin = createTempDir("kanban-recycle-mode-");

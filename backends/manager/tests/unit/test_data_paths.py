@@ -1,4 +1,4 @@
-﻿"""Tests for repo-local agent-data catalog and runtime resolution."""
+"""Tests for repo-local agent-data catalog and runtime resolution."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -12,8 +12,10 @@ from manager import data_paths
 def _clear_manager_env(monkeypatch):
     monkeypatch.delenv(data_paths._CATALOG_ENV, raising=False)
     monkeypatch.delenv(data_paths._CATALOG_ENV_LEGACY, raising=False)
+    monkeypatch.delenv(data_paths._CATALOG_ENV_OLD_LEGACY, raising=False)
     monkeypatch.delenv(data_paths._RUNTIME_ENV, raising=False)
     monkeypatch.delenv(data_paths._RUNTIME_ENV_LEGACY, raising=False)
+    monkeypatch.delenv(data_paths._RUNTIME_ENV_OLD_LEGACY, raising=False)
 
 
 def test_get_catalog_data_root_prefers_manager_tree(tmp_path, monkeypatch):
@@ -58,12 +60,29 @@ def test_catalog_env_override_wins(tmp_path, monkeypatch):
     assert data_paths.get_catalog_data_root() == agent
 
 
-def test_legacy_jacked_catalog_env_still_works(tmp_path, monkeypatch):
-    agent = tmp_path / "legacy-catalog"
-    agent.mkdir(parents=True)
-    (agent / "packs.json").write_text("{}", encoding="utf-8")
-    monkeypatch.setenv(data_paths._CATALOG_ENV_LEGACY, str(agent))
-    assert data_paths.get_catalog_data_root() == agent
+def test_catalog_env_precedence(tmp_path, monkeypatch):
+    pixtiel = tmp_path / "pixtiel-catalog"
+    pixtiel.mkdir(parents=True)
+    (pixtiel / "packs.json").write_text("{}", encoding="utf-8")
+
+    legacy = tmp_path / "legacy-catalog"
+    legacy.mkdir(parents=True)
+    (legacy / "packs.json").write_text("{}", encoding="utf-8")
+
+    old_legacy = tmp_path / "old-legacy-catalog"
+    old_legacy.mkdir(parents=True)
+    (old_legacy / "packs.json").write_text("{}", encoding="utf-8")
+
+    monkeypatch.setenv(data_paths._CATALOG_ENV, str(pixtiel))
+    monkeypatch.setenv(data_paths._CATALOG_ENV_LEGACY, str(legacy))
+    monkeypatch.setenv(data_paths._CATALOG_ENV_OLD_LEGACY, str(old_legacy))
+    assert data_paths.get_catalog_data_root() == pixtiel
+
+    monkeypatch.delenv(data_paths._CATALOG_ENV)
+    assert data_paths.get_catalog_data_root() == legacy
+
+    monkeypatch.delenv(data_paths._CATALOG_ENV_LEGACY)
+    assert data_paths.get_catalog_data_root() == old_legacy
 
 
 def test_runtime_env_override_wins(tmp_path, monkeypatch):
@@ -71,6 +90,28 @@ def test_runtime_env_override_wins(tmp_path, monkeypatch):
     (runtime / "web").mkdir(parents=True)
     monkeypatch.setenv(data_paths._RUNTIME_ENV, str(runtime))
     assert data_paths.get_runtime_data_root() == runtime
+
+
+def test_runtime_env_precedence(tmp_path, monkeypatch):
+    pixtiel = tmp_path / "pixtiel-runtime"
+    (pixtiel / "web").mkdir(parents=True)
+
+    legacy = tmp_path / "legacy-runtime"
+    (legacy / "web").mkdir(parents=True)
+
+    old_legacy = tmp_path / "old-legacy-runtime"
+    (old_legacy / "web").mkdir(parents=True)
+
+    monkeypatch.setenv(data_paths._RUNTIME_ENV, str(pixtiel))
+    monkeypatch.setenv(data_paths._RUNTIME_ENV_LEGACY, str(legacy))
+    monkeypatch.setenv(data_paths._RUNTIME_ENV_OLD_LEGACY, str(old_legacy))
+    assert data_paths.get_runtime_data_root() == pixtiel
+
+    monkeypatch.delenv(data_paths._RUNTIME_ENV)
+    assert data_paths.get_runtime_data_root() == legacy
+
+    monkeypatch.delenv(data_paths._RUNTIME_ENV_LEGACY)
+    assert data_paths.get_runtime_data_root() == old_legacy
 
 
 def test_pixeloffice_repo_layout_from_package():

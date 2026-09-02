@@ -37,6 +37,7 @@ export function buildOpenmaicClassroomEnv(host: string, port: number): NodeJS.Pr
 		...process.env,
 		NODE_ENV: "production",
 		PORT: String(port),
+		PIXTIEL_RUNTIME_ORIGIN: getKanbanRuntimeOrigin(),
 		PIXELOFFICE_RUNTIME_ORIGIN: getKanbanRuntimeOrigin(),
 		HOSTNAME: host,
 		ASR_BROWSER_NATIVE_ENABLED: "true",

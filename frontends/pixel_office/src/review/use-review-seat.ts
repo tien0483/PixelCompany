@@ -1,6 +1,8 @@
+import { migrateStoragePrefix } from "@/lib/migrate-storage-key";
 import { type SeatChoice, useSeatChoice } from "@/manager/use-seat-choice";
 
-const STORAGE_KEY_PREFIX = "pixeloffice.review.seat.";
+const OLD_STORAGE_KEY_PREFIX = "pixeloffice.review.seat.";
+const STORAGE_KEY_PREFIX = "pixtiel.review.seat.";
 
 /** @see SeatChoice — the three-way distinction is documented there. */
 export type ReviewSeatChoice = SeatChoice;
@@ -16,5 +18,6 @@ export function useReviewSeat(host: string): {
 	seatChoice: ReviewSeatChoice;
 	setSeatChoice: (choice: ReviewSeatChoice) => void;
 } {
+	migrateStoragePrefix(OLD_STORAGE_KEY_PREFIX, STORAGE_KEY_PREFIX);
 	return useSeatChoice(`${STORAGE_KEY_PREFIX}${host}`);
 }

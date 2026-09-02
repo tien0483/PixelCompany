@@ -1,6 +1,7 @@
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "@playwright/test";
+import { readBrandEnv } from "./src/brand";
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(currentDir, "..", "..");
@@ -16,7 +17,7 @@ const repoRoot = join(currentDir, "..", "..");
  * Jacked itself may or may not be installed on the machine, so the account specs
  * stub the `manager.*` tRPC procedures rather than mutating real credentials.
  */
-const soloPort = process.env.PIXELOFFICE_SOLO_PORT ?? "3499";
+const soloPort = readBrandEnv("SOLO_PORT") ?? "3499";
 const soloUrl = `http://127.0.0.1:${soloPort}`;
 
 export default defineConfig({
@@ -42,6 +43,7 @@ export default defineConfig({
 		// The first run builds the UI, which dominates startup.
 		timeout: 300_000,
 		env: {
+			PIXTIEL_PORT: soloPort,
 			PIXELOFFICE_PORT: soloPort,
 		},
 	},

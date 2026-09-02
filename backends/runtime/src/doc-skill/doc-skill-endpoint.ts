@@ -2,19 +2,21 @@
 // supervisor (which spawns it) and the HTTP client (which talks to it) never
 // drift onto different env-var ladders.
 
+import { readBrandEnv } from "../brand";
+
 export const DEFAULT_DOCSKILL_HOST = "127.0.0.1";
 export const DEFAULT_DOCSKILL_PORT = 8323;
 
 /**
  * Resolution order: an explicit `configured` value, then the port embedded in
- * `PIXELOFFICE_DOCSKILL_URL`, then `PIXELOFFICE_DOCSKILL_PORT`, then the
+ * `PIXTIEL_DOCSKILL_URL` / `PIXELOFFICE_DOCSKILL_URL`, then `PIXTIEL_DOCSKILL_PORT` / `PIXELOFFICE_DOCSKILL_PORT`, then the
  * default port.
  */
 export function resolveDocSkillPort(configured: number | undefined): number {
 	if (configured !== undefined) {
 		return configured;
 	}
-	const fromUrl = process.env.PIXELOFFICE_DOCSKILL_URL?.trim();
+	const fromUrl = readBrandEnv("DOCSKILL_URL")?.trim();
 	if (fromUrl) {
 		try {
 			const parsed = new URL(fromUrl);
@@ -25,7 +27,7 @@ export function resolveDocSkillPort(configured: number | undefined): number {
 			// fall through
 		}
 	}
-	const fromPortEnv = process.env.PIXELOFFICE_DOCSKILL_PORT?.trim();
+	const fromPortEnv = readBrandEnv("DOCSKILL_PORT")?.trim();
 	if (fromPortEnv) {
 		const parsed = Number(fromPortEnv);
 		if (Number.isFinite(parsed)) {
@@ -36,13 +38,13 @@ export function resolveDocSkillPort(configured: number | undefined): number {
 }
 
 /**
- * Resolution order: an explicit `configured` URL, then `PIXELOFFICE_DOCSKILL_URL`
+ * Resolution order: an explicit `configured` URL, then `PIXTIEL_DOCSKILL_URL` / `PIXELOFFICE_DOCSKILL_URL`
  * verbatim, then `http://127.0.0.1:<resolveDocSkillPort()>` — so a bare
- * `PIXELOFFICE_DOCSKILL_PORT` override (with no `_URL` set) reaches the client
+ * `PIXTIEL_DOCSKILL_PORT` / `PIXELOFFICE_DOCSKILL_PORT` override (with no `_URL` set) reaches the client
  * the same way it already reaches the process supervisor.
  */
 export function resolveDocSkillBaseUrl(configured: string | undefined): string {
-	const fromUrl = configured ?? process.env.PIXELOFFICE_DOCSKILL_URL?.trim();
+	const fromUrl = configured ?? readBrandEnv("DOCSKILL_URL")?.trim();
 	if (fromUrl) {
 		return fromUrl.replace(/\/$/, "");
 	}

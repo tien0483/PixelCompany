@@ -9,6 +9,8 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
+import { readBrandEnv } from "../../../scripts/lib/brand-env.mjs";
+
 // Dynamically resolve @agentclientprotocol/sdk from dsh profile or global
 let acp;
 try {
@@ -23,7 +25,7 @@ try {
 }
 
 function resolveAgyBinary() {
-	const override = process.env.PIXELOFFICE_ANTIGRAVITY_BINARY?.trim();
+	const override = readBrandEnv("ANTIGRAVITY_BINARY")?.trim();
 	if (override && existsSync(override)) {
 		return override;
 	}

@@ -15,6 +15,8 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { readBrandEnv } from "../../../scripts/lib/brand-env.mjs";
+
 function resolvePatchPath() {
 	const here = dirname(fileURLToPath(import.meta.url));
 	const candidates = [
@@ -25,7 +27,7 @@ function resolvePatchPath() {
 }
 
 function resolveDshCommand() {
-	const override = process.env.PIXELOFFICE_DSH_BINARY?.trim();
+	const override = readBrandEnv("DSH_BINARY")?.trim();
 	if (override) {
 		return { command: override, prefix: [] };
 	}
@@ -41,7 +43,7 @@ const { values } = parseArgs({
 		},
 		provider: {
 			type: "string",
-			default: process.env.PIXELOFFICE_DSH_LLM_PROVIDER || "cursor",
+			default: readBrandEnv("DSH_LLM_PROVIDER") || "cursor",
 		},
 	},
 });
@@ -52,7 +54,7 @@ if (patchPath === null) {
 	process.exit(1);
 }
 
-const dshHome = process.env.PIXELOFFICE_DSH_HOME?.trim() || `${process.env.HOME}/.agent/dsh`;
+const dshHome = readBrandEnv("DSH_HOME")?.trim() || `${process.env.HOME}/.agent/dsh`;
 const { command, prefix } = resolveDshCommand();
 
 let llmPatchFile = null;
@@ -60,8 +62,8 @@ let cleanup = async () => {};
 const provider = values.provider?.toLowerCase() || "cursor";
 
 if (provider !== "deepseek") {
-	const proxyUrl = process.env.PIXELOFFICE_FLOWISE_LLM_PROXY_URL?.trim() || "http://127.0.0.1:3484/api/flowise-llm-proxy";
-	const model = process.env.PIXELOFFICE_DSH_LLM_MODEL?.trim() || "auto/best-coding";
+	const proxyUrl = readBrandEnv("FLOWISE_LLM_PROXY_URL")?.trim() || "http://127.0.0.1:3484/api/flowise-llm-proxy";
+	const model = readBrandEnv("DSH_LLM_MODEL")?.trim() || "auto/best-coding";
 	const baseURL = `${proxyUrl}/${provider}/v1`;
 
 	const rows = [

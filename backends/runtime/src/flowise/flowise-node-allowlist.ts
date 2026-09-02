@@ -8,6 +8,8 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { readBrandEnv } from "../brand";
+
 export interface FlowiseNodeAllowlist {
 	categories: string[];
 	nodes: string[];
@@ -29,7 +31,7 @@ function readStringArray(value: unknown): string[] {
  * `dist/cli.js`.
  */
 export function resolveFlowiseNodeAllowlistPath(): string | null {
-	const override = process.env.PIXELOFFICE_FLOWISE_NODE_ALLOWLIST?.trim();
+	const override = readBrandEnv("FLOWISE_NODE_ALLOWLIST")?.trim();
 	if (override) {
 		return override;
 	}

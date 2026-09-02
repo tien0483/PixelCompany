@@ -6,6 +6,7 @@ import { closeSync, existsSync, mkdirSync, openSync } from "node:fs";
 import { join } from "node:path";
 
 import { terminateProcessForTimeout } from "../server/process-termination";
+import { readBrandEnv } from "../brand";
 import { nextRestartDelayMs, shouldGiveUpRestarting } from "../stack/stack-daemon";
 import { probePort, waitForPort } from "../stack/stack-ports";
 import { buildDshArgv, resolveDshBinary } from "./dsh-binary";
@@ -30,7 +31,7 @@ export interface StartOrchestratorProcessDependencies {
 }
 
 function isWebSidecarEnabled(): boolean {
-	const raw = process.env.PIXELOFFICE_DSH_WEB?.trim().toLowerCase();
+	const raw = readBrandEnv("DSH_WEB")?.trim().toLowerCase();
 	return raw === "1" || raw === "true" || raw === "yes" || raw === "on";
 }
 

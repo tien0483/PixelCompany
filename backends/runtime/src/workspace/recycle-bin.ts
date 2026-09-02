@@ -3,11 +3,11 @@ import { cp, mkdir, readdir, rename, rm, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 
+import { readBrandEnv } from "../brand";
 import type { RuntimeCleanupDisposeMode } from "../core/api-contract";
 import { RUNTIME_HOME_PARENT_DIR_NAME } from "./task-worktree-path";
 import { measureDirectorySize } from "./worktree-disk-usage";
 
-const RECYCLE_BIN_ENV = "PIXELOFFICE_RECYCLE_BIN";
 const DEFAULT_RECYCLE_BIN_DIR = join(homedir(), RUNTIME_HOME_PARENT_DIR_NAME, "recycle-bin");
 
 export interface RecycleBinEntry {
@@ -23,7 +23,7 @@ export interface RecycleBinScanResult {
 }
 
 export function resolveRecycleBinPath(): string {
-	const override = process.env[RECYCLE_BIN_ENV]?.trim();
+	const override = readBrandEnv("RECYCLE_BIN")?.trim();
 	return override && override.length > 0 ? override : DEFAULT_RECYCLE_BIN_DIR;
 }
 

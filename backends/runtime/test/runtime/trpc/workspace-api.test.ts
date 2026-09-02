@@ -394,17 +394,17 @@ describe("createWorkspaceApi deleteWorktree", () => {
 			{ prompt: "Chain follower", baseRef: "main" },
 			() => "follower-task",
 		);
-		const linked = addTaskDependency(withFollower.board, "root-task", "follower-task");
+		const linked = addTaskDependency(withFollower.board, withRoot.task.id, withFollower.task.id);
 		expect(linked.dependency?.chain).toBe(true);
-		let board = moveTaskToColumn(linked.board, "root-task", "in_progress").board;
-		board = moveTaskToColumn(board, "follower-task", "in_progress").board;
+		let board = moveTaskToColumn(linked.board, withRoot.task.id, "in_progress").board;
+		board = moveTaskToColumn(board, withFollower.task.id, "in_progress").board;
 
 		workspaceStateMocks.loadWorkspaceState.mockResolvedValue(stateResponseWithBoard(board));
 
 		const { api, terminalManager } = createApi();
 		const response = await api.deleteWorktree(
 			{ workspaceId: "workspace-1", workspacePath: "/tmp/repo" },
-			{ taskId: "root-task" },
+			{ taskId: withRoot.task.id },
 		);
 
 		expect(response.ok).toBe(false);
@@ -437,10 +437,10 @@ describe("createWorkspaceApi deleteWorktree", () => {
 			{ prompt: "Chain follower", baseRef: "main" },
 			() => "follower-task",
 		);
-		const linked = addTaskDependency(withFollower.board, "root-task", "follower-task");
-		let board = moveTaskToColumn(linked.board, "root-task", "trash").board;
+		const linked = addTaskDependency(withFollower.board, withRoot.task.id, withFollower.task.id);
+		let board = moveTaskToColumn(linked.board, withRoot.task.id, "trash").board;
 		// The follower is also done/trashed — no live chain member remains.
-		board = moveTaskToColumn(board, "follower-task", "trash").board;
+		board = moveTaskToColumn(board, withFollower.task.id, "trash").board;
 
 		workspaceStateMocks.loadWorkspaceState.mockResolvedValue(stateResponseWithBoard(board));
 		workspaceTaskWorktreeMocks.deleteTaskWorktree.mockResolvedValue({ ok: true, removed: true });
@@ -448,16 +448,16 @@ describe("createWorkspaceApi deleteWorktree", () => {
 		const { api, terminalManager } = createApi();
 		const response = await api.deleteWorktree(
 			{ workspaceId: "workspace-1", workspacePath: "/tmp/repo" },
-			{ taskId: "root-task" },
+			{ taskId: withRoot.task.id },
 		);
 
 		expect(response.ok).toBe(true);
 		expect(response.removed).toBe(true);
 		expect(workspaceTaskWorktreeMocks.deleteTaskWorktree).toHaveBeenCalledWith({
 			repoPath: "/tmp/repo",
-			taskId: "root-task",
+			taskId: withRoot.task.id,
 		});
-		expect(terminalManager.deleteTerminalSnapshot).toHaveBeenCalledWith("root-task");
+		expect(terminalManager.deleteTerminalSnapshot).toHaveBeenCalledWith(withRoot.task.id);
 	});
 
 	it("deletes a standalone (non-chain) task's worktree as before", async () => {

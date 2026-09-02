@@ -42,6 +42,7 @@ import { useHtmlBrief, useHtmlDraft, useHtmlGenerate } from "@/html/use-html-age
 import { useHtmlTemplates } from "@/html/use-html-templates";
 import { SeatPicker } from "@/manager/seat-picker";
 import { autoFallbackAccount } from "@/manager/task-account-picker";
+import { migrateStorageKey } from "@/lib/migrate-storage-key";
 import { useSeatChoice } from "@/manager/use-seat-choice";
 import { ResizeHandle } from "@/resize/resize-handle";
 import { type PlanEditorPaneViewMode, usePlanEditorLayout } from "@/resize/use-plan-editor-layout";
@@ -51,8 +52,9 @@ import type { RuntimeManagerAccount, RuntimeSavedPlan } from "@/runtime/types";
 
 const PlanRichEditor = lazy(() => import("@/components/plan-editor/plan-rich-editor"));
 
+migrateStorageKey("pixeloffice.plans.seat", "pixtiel.plans.seat");
 /** Not keyed by plan: the seat is a machine preference, not a property of a document. */
-const PLAN_SEAT_STORAGE_KEY = "pixeloffice.plans.seat";
+const PLAN_SEAT_STORAGE_KEY = "pixtiel.plans.seat";
 
 /** Which file the split view is showing: the plan's markdown, or its generated HTML sibling. */
 type PlanEditorSource = "md" | "html";

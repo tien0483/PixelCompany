@@ -1,6 +1,7 @@
 // Read-mostly client for the html-anything sidecar on 127.0.0.1:8322.
 // Optional companion: every call resolves to null / failure instead of throwing
 // when the port is closed.
+import { readBrandEnv } from "../brand";
 import type {
 	RuntimeHtmlPromptResponse,
 	RuntimeHtmlTemplate,
@@ -126,7 +127,7 @@ function parseTemplate(raw: unknown): RuntimeHtmlTemplate | null {
 }
 
 export function createHtmlClient(deps: CreateHtmlClientDependencies): HtmlClient {
-	const baseUrl = (deps.baseUrl ?? process.env.PIXELOFFICE_HTML_URL ?? DEFAULT_BASE_URL).replace(
+	const baseUrl = (deps.baseUrl ?? readBrandEnv("HTML_URL") ?? DEFAULT_BASE_URL).replace(
 		/\/$/,
 		"",
 	);

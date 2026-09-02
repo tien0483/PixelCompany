@@ -1,3 +1,4 @@
+import { readBrandEnv } from "../brand";
 import { isBinaryAvailableOnPath } from "../terminal/command-discovery";
 
 export interface ResolvedDshBinary {
@@ -7,7 +8,7 @@ export interface ResolvedDshBinary {
 
 /** Resolves the DeepSeek Harness CLI for orchestrator task launches. */
 export function resolveDshBinary(): ResolvedDshBinary | null {
-	const override = process.env.PIXELOFFICE_DSH_BINARY?.trim();
+	const override = readBrandEnv("DSH_BINARY")?.trim();
 	if (override && isBinaryAvailableOnPath(override)) {
 		return { path: override, viaNpx: false };
 	}

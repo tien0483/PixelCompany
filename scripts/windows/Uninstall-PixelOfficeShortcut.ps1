@@ -17,10 +17,10 @@ $desktop = [Environment]::GetFolderPath("Desktop")
 $startMenu = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs"
 
 $links = @(
-	(Join-Path $desktop "PixelOffice.lnk"),
-	(Join-Path $desktop "PixelOffice Stop.lnk"),
-	(Join-Path $startMenu "PixelOffice.lnk"),
-	(Join-Path $startMenu "PixelOffice Stop.lnk")
+	(Join-Path $desktop "PIXTiel.lnk"),
+	(Join-Path $desktop "PIXTiel Stop.lnk"),
+	(Join-Path $startMenu "PIXTiel.lnk"),
+	(Join-Path $startMenu "PIXTiel Stop.lnk")
 )
 
 foreach ($link in $links) {

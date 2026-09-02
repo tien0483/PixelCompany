@@ -1,6 +1,6 @@
 {
-	"name": "PixelOffice",
-	"short_name": "PixelOffice",
+	"name": "PIXTiel",
+	"short_name": "PIXTiel",
 	"start_url": "/",
 	"display": "standalone",
 	"display_override": ["window-controls-overlay"],

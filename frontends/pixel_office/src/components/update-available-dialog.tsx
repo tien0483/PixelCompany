@@ -5,6 +5,7 @@ import { showAppToast } from "@/components/app-toaster";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogBody, DialogFooter, DialogHeader } from "@/components/ui/dialog";
 import { Spinner } from "@/components/ui/spinner";
+import { BRAND_NAME } from "@/brand";
 import { runRuntimeUpdateNow } from "@/runtime/runtime-config-query";
 import type { RuntimeRunUpdateResponse } from "@/runtime/types";
 
@@ -87,8 +88,8 @@ export function UpdateAvailableDialog({
 						<p>
 							{phase.result.status === "updated" && phase.result.latestVersion ? (
 								<>
-									Updated to <span className="font-semibold">Kanban {phase.result.latestVersion}</span>.
-									Restart Kanban to use the new version.
+									Updated to <span className="font-semibold">{BRAND_NAME} {phase.result.latestVersion}</span>.
+									Restart PIXTiel to use the new version.
 								</>
 							) : (
 								phase.result.message
@@ -98,7 +99,7 @@ export function UpdateAvailableDialog({
 				) : (
 					<>
 						<p>
-							<span className="font-semibold text-text-primary">Kanban {latestVersion}</span> is available. You
+							<span className="font-semibold text-text-primary">{BRAND_NAME} {latestVersion}</span> is available. You
 							are currently on version {currentVersion}.
 						</p>
 						<p>Run the following command in your terminal to update:</p>

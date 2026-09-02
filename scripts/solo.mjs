@@ -22,74 +22,13 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn, spawnSync } from "node:child_process";
 import { ensureAgentStack, restartAgentStackDaemons, STACK_DAEMON_PORTS } from "./ensure-agent-stack.mjs";
-
-const MIN_NODE_MAJOR = 22;
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-
-function nodeMajor(version = process.version) {
-	return Number(version.slice(1).split(".")[0]);
-}
-
-function probeNodeBinary(nodePath) {
-	if (!existsSync(nodePath)) {
-		return null;
-	}
-	const result = spawnSync(nodePath, ["-p", "process.versions.node"], {
-		encoding: "utf8",
-		windowsHide: true,
-	});
-	if (result.status !== 0) {
-		return null;
-	}
-	const version = String(result.stdout ?? "").trim();
-	return nodeMajor(`v${version}`) >= MIN_NODE_MAJOR ? nodePath : null;
-}
-
-function resolveNode22Candidates() {
-	const fromEnv = process.env.PIXELOFFICE_NODE?.trim() || process.env.KANBAN_NODE?.trim();
-	const candidates = [];
-	if (fromEnv) {
-		candidates.push(fromEnv);
-	}
-	if (process.platform === "win32") {
-		const localApp = process.env.LOCALAPPDATA ?? "";
-		candidates.push(
-			join(localApp, "Programs", "cursor", "resources", "app", "resources", "helpers", "node.exe"),
-			"C:\\Program Files\\nodejs\\node.exe",
-		);
-		const nvmHome = process.env.NVM_HOME ?? join(process.env.APPDATA ?? "", "nvm");
-		for (const version of ["22.22.1", "22.12.0", "22.11.0", "22.10.0", "22.9.0", "22.0.0"]) {
-			candidates.push(join(nvmHome, `v${version}`, "node.exe"));
-		}
-	} else {
-		candidates.push("/usr/local/bin/node", join(homedir(), ".nvm/versions/node/v22.22.1/bin/node"));
-	}
-	return candidates;
-}
-
-function ensureNode22() {
-	if (nodeMajor() >= MIN_NODE_MAJOR) {
-		return;
-	}
-	for (const candidate of resolveNode22Candidates()) {
-		const node22 = probeNodeBinary(candidate);
-		if (node22) {
-			console.warn(`PixelOffice requires Node >= ${MIN_NODE_MAJOR} (found ${process.version}).`);
-			console.warn(`Re-launching with ${node22}`);
-			const result = spawnSync(node22, [__filename, ...process.argv.slice(2)], {
-				stdio: "inherit",
-				env: process.env,
-			});
-			process.exit(result.status ?? 1);
-		}
-	}
-	console.error(`PixelOffice requires Node.js >= ${MIN_NODE_MAJOR} (current: ${process.version}).`);
-	console.error("Install Node 22 (nvm install 22 && nvm use 22) or set PIXELOFFICE_NODE to a Node 22 binary.");
-	process.exit(1);
-}
+import { readBrandEnv } from "./lib/brand-env.mjs";
+import { ensureNode22 } from "./lib/ensure-node22.mjs";
 
 ensureNode22();
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 const isWindows = process.platform === "win32";
 const repoRoot = join(__dirname, "..");
@@ -160,9 +99,9 @@ function resolveDependencyEntry(packageRoot, ...segments) {
 const tsxCli = resolveDependencyEntry(runtimeRoot, "tsx", "dist", "cli.mjs");
 const viteCli = resolveDependencyEntry(webUiRoot, "vite", "bin", "vite.js");
 
-const RUNTIME_PORT = Number(process.env.PIXELOFFICE_PORT ?? 3484);
+const RUNTIME_PORT = Number(readBrandEnv("PORT") ?? 3484);
 const MANAGER_PORT = Number(process.env.MANAGER_PORT ?? process.env.JACKED_PORT ?? 8321);
-const HTML_PORT = Number(process.env.PIXELOFFICE_HTML_PORT ?? 8322);
+const HTML_PORT = Number(readBrandEnv("HTML_PORT") ?? 8322);
 /**
  * The agent-stack switchboard, backing the Stack Control dialog
  * (frontends/pixel_office/src/stack/stack-control-client.ts). Owned by the
@@ -170,15 +109,15 @@ const HTML_PORT = Number(process.env.PIXELOFFICE_HTML_PORT ?? 8322);
  * instance, e.g. one started by a shell that sourced activate-stack.sh.
  */
 const STACK_CONTROL_PORT = Number(process.env.STACK_UI_PORT ?? 8000);
-const DOC_SKILL_PORT = Number(process.env.PIXELOFFICE_DOCSKILL_PORT ?? 8323);
+const DOC_SKILL_PORT = Number(readBrandEnv("DOCSKILL_PORT") ?? 8323);
 /**
  * The Flowise agent studio behind the Agents tab, spawned by the runtime from the
  * `backends/flowise` submodule. Clear of 3000 (upstream's default) on purpose: 3001 is the
  * DevTools daemon and 3456/3460+ are CCR routers.
  */
-const FLOWISE_PORT = Number(process.env.PIXELOFFICE_FLOWISE_PORT ?? 3010);
-/** Optional DeepSeek Harness web UI when PIXELOFFICE_DSH_WEB=1 (orchestrator sidecar). */
-const DSH_WEB_PORT = Number(process.env.PIXELOFFICE_DSH_WEB_PORT ?? 3020);
+const FLOWISE_PORT = Number(readBrandEnv("FLOWISE_PORT") ?? 3010);
+/** Optional DeepSeek Harness web UI when PIXTIEL_DSH_WEB=1 / PIXELOFFICE_DSH_WEB=1 (orchestrator sidecar). */
+const DSH_WEB_PORT = Number(readBrandEnv("DSH_WEB_PORT") ?? 3020);
 
 const args = process.argv.slice(2);
 const restart = args.includes("--restart");

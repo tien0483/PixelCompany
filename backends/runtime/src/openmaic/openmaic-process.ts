@@ -13,6 +13,7 @@ import { closeSync, existsSync, mkdirSync, openSync, readFileSync } from "node:f
 import { join } from "node:path";
 
 import { terminateProcessForTimeout } from "../server/process-termination";
+import { readBrandEnv } from "../brand";
 import { buildOpenmaicClassroomEnv } from "./openmaic-classroom-env";
 import { nextRestartDelayMs, shouldGiveUpRestarting } from "../stack/stack-daemon";
 import { probePort, waitForPort } from "../stack/stack-ports";
@@ -30,7 +31,6 @@ import {
 
 /** `next start` serves a prebuilt tree, so it is up far sooner than the Flowise studio. */
 const DEFAULT_STARTUP_TIMEOUT_MS = 60_000;
-const STARTUP_TIMEOUT_ENV = "PIXELOFFICE_OPENMAIC_STARTUP_TIMEOUT_MS";
 /** A child that survives this long resets the failure count, so backoff tracks real flapping. */
 const HEALTHY_UPTIME_MS = 60_000;
 /**
@@ -79,7 +79,7 @@ export interface StartOpenmaicProcessDependencies {
 }
 
 function resolveStartupTimeoutMs(): number {
-	const raw = process.env[STARTUP_TIMEOUT_ENV]?.trim();
+	const raw = readBrandEnv("OPENMAIC_STARTUP_TIMEOUT_MS")?.trim();
 	return raw !== undefined && /^\d+$/.test(raw) && Number(raw) > 0 ? Number(raw) : DEFAULT_STARTUP_TIMEOUT_MS;
 }
 
@@ -212,7 +212,7 @@ export async function startOpenmaicProcess(deps: StartOpenmaicProcessDependencie
 		return createNoopProcess(false);
 	}
 
-	const pixelOfficePort = process.env.PIXELOFFICE_PORT?.trim() ?? "3484";
+	const pixelOfficePort = readBrandEnv("PORT")?.trim() ?? "3484";
 	const target = resolveLaunchTarget(openmaicRoot, host, port, pixelOfficePort, deps.warn);
 	if (target === null) {
 		return createNoopProcess(false);
