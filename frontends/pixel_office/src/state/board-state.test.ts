@@ -483,6 +483,154 @@ describe("board dependency state", () => {
 		expect(inProgressColumn?.cards.map((card) => card.id)).toEqual([unrelated, taskA, taskB, taskC]);
 	});
 
+	it("trashes the dragged chain root, not the card sharing its render slot", () => {
+		// Two 2-card chains in In Progress: [A1, A2, B1, B2], followers folded into their
+		// stack heads. Draggables therefore render A1→0 and B1→1, so a raw-index read of
+		// `source.index: 1` splices out A2 — the wrong chain's follower.
+		const fixture = createBacklogBoard(["A1", "A2", "B1", "B2"]);
+		const a1 = requireTaskId(fixture.taskIdByPrompt.A1, "A1");
+		const a2 = requireTaskId(fixture.taskIdByPrompt.A2, "A2");
+		const b1 = requireTaskId(fixture.taskIdByPrompt.B1, "B1");
+		const b2 = requireTaskId(fixture.taskIdByPrompt.B2, "B2");
+		const chainA = addTaskDependency(fixture.board, a1, a2);
+		expect(chainA.added).toBe(true);
+		const chainB = addTaskDependency(chainA.board, b1, b2);
+		expect(chainB.added).toBe(true);
+
+		let board = chainB.board;
+		for (const taskId of [a1, a2, b1, b2]) {
+			board = moveTaskToColumn(board, taskId, "in_progress").board;
+		}
+		expect(board.columns.find((column) => column.id === "in_progress")?.cards.map((card) => card.id)).toEqual([
+			a1,
+			a2,
+			b1,
+			b2,
+		]);
+
+		const dropped = applyDragResult(
+			board,
+			{
+				draggableId: b1,
+				type: "CARD",
+				source: { droppableId: "in_progress", index: 1 },
+				destination: { droppableId: "trash", index: 0 },
+				mode: "SNAP",
+				reason: "DROP",
+				combine: null,
+			},
+			{ renderContext: { chainGroupingEnabled: true } },
+		);
+
+		expect(dropped.moveEvent?.taskId).toBe(b1);
+		expect(dropped.board.columns.find((column) => column.id === "trash")?.cards.map((card) => card.id)).toEqual([
+			b1,
+		]);
+		expect(
+			dropped.board.columns.find((column) => column.id === "in_progress")?.cards.map((card) => card.id),
+		).toEqual([a1, a2, b2]);
+	});
+
+	it("drops below an entire chain stack when released under its head", () => {
+		const fixture = createBacklogBoard(["A1", "A2", "Solo"]);
+		const a1 = requireTaskId(fixture.taskIdByPrompt.A1, "A1");
+		const a2 = requireTaskId(fixture.taskIdByPrompt.A2, "A2");
+		const solo = requireTaskId(fixture.taskIdByPrompt.Solo, "Solo");
+		const chainA = addTaskDependency(fixture.board, a1, a2);
+		expect(chainA.added).toBe(true);
+
+		let board = chainA.board;
+		for (const taskId of [a1, a2]) {
+			board = moveTaskToColumn(board, taskId, "in_progress").board;
+		}
+
+		// Render slot 1 in In Progress is "below the A stack", i.e. array index 2.
+		const dropped = applyDragResult(
+			board,
+			{
+				draggableId: solo,
+				type: "CARD",
+				source: { droppableId: "backlog", index: 0 },
+				destination: { droppableId: "in_progress", index: 1 },
+				mode: "SNAP",
+				reason: "DROP",
+				combine: null,
+			},
+			{ renderContext: { chainGroupingEnabled: true } },
+		);
+
+		expect(
+			dropped.board.columns.find((column) => column.id === "in_progress")?.cards.map((card) => card.id),
+		).toEqual([a1, a2, solo]);
+	});
+
+	it("reorders within a column by dragged id, not by render slot", () => {
+		const fixture = createBacklogBoard(["A1", "A2", "B1"]);
+		const a1 = requireTaskId(fixture.taskIdByPrompt.A1, "A1");
+		const a2 = requireTaskId(fixture.taskIdByPrompt.A2, "A2");
+		const b1 = requireTaskId(fixture.taskIdByPrompt.B1, "B1");
+		const chainA = addTaskDependency(fixture.board, a1, a2);
+		expect(chainA.added).toBe(true);
+
+		let board = chainA.board;
+		for (const taskId of [a1, a2, b1]) {
+			board = moveTaskToColumn(board, taskId, "in_progress").board;
+		}
+
+		// B1 renders at slot 1; dragging it to slot 0 must put it above the whole A stack.
+		const reordered = applyDragResult(
+			board,
+			{
+				draggableId: b1,
+				type: "CARD",
+				source: { droppableId: "in_progress", index: 1 },
+				destination: { droppableId: "in_progress", index: 0 },
+				mode: "SNAP",
+				reason: "DROP",
+				combine: null,
+			},
+			{ renderContext: { chainGroupingEnabled: true } },
+		);
+
+		expect(
+			reordered.board.columns.find((column) => column.id === "in_progress")?.cards.map((card) => card.id),
+		).toEqual([b1, a1, a2]);
+	});
+
+	it("uses flat numbering for the detail panel's drag surface", () => {
+		const fixture = createBacklogBoard(["A1", "A2", "B1"]);
+		const a1 = requireTaskId(fixture.taskIdByPrompt.A1, "A1");
+		const a2 = requireTaskId(fixture.taskIdByPrompt.A2, "A2");
+		const b1 = requireTaskId(fixture.taskIdByPrompt.B1, "B1");
+		const chainA = addTaskDependency(fixture.board, a1, a2);
+		expect(chainA.added).toBe(true);
+
+		let board = chainA.board;
+		for (const taskId of [a1, a2, b1]) {
+			board = moveTaskToColumn(board, taskId, "in_progress").board;
+		}
+
+		// That panel renders A2 as its own draggable, so slot 2 really is B1.
+		const dropped = applyDragResult(
+			board,
+			{
+				draggableId: b1,
+				type: "CARD",
+				source: { droppableId: "in_progress", index: 2 },
+				destination: { droppableId: "trash", index: 0 },
+				mode: "SNAP",
+				reason: "DROP",
+				combine: null,
+			},
+			{ renderContext: { chainGroupingEnabled: false } },
+		);
+
+		expect(dropped.moveEvent?.taskId).toBe(b1);
+		expect(
+			dropped.board.columns.find((column) => column.id === "in_progress")?.cards.map((card) => card.id),
+		).toEqual([a1, a2]);
+	});
+
 	it("preserves manual cross-column trash drop positions", () => {
 		const fixture = createBacklogBoard(["Task A", "Task B", "Task C"]);
 		const taskA = requireTaskId(fixture.taskIdByPrompt["Task A"], "Task A");

@@ -13,6 +13,7 @@ import type {
 import {
 	addTaskToColumnWithResult,
 	findCardSelection,
+	resolveChainWorktreeOwnerTaskId,
 	setTaskManagerAccount,
 	setTaskSeatPreset,
 	updateTask,
@@ -37,6 +38,7 @@ interface UseTaskEditorInput {
 	queueTaskStartAfterEdit?: (taskId: string) => void;
 	fetchTaskWorkspaceInfo?: (
 		task: BoardCard,
+		options?: { worktreeTaskId?: string },
 	) => Promise<RuntimeTaskWorkspaceInfoResponse | null>;
 }
 
@@ -343,7 +345,11 @@ export function useTaskEditor({
 			setEditTaskAutoFailoverOnUsageLimit(task.autoFailoverOnUsageLimit === true);
 
 			if (fetchTaskWorkspaceInfo) {
-				void fetchTaskWorkspaceInfo(task).then((info) => {
+				// A chain follower has no worktree of its own: its branch and its locked base
+				// ref both live under the chain root's task id. Probing the follower's own id
+				// reports "no worktree", which unlocks a picker that must stay pinned.
+				const worktreeTaskId = resolveChainWorktreeOwnerTaskId(board, task.id);
+				void fetchTaskWorkspaceInfo(task, { worktreeTaskId }).then((info) => {
 					if (!info || info.taskId !== task.id) {
 						return;
 					}
@@ -357,7 +363,7 @@ export function useTaskEditor({
 				});
 			}
 		},
-		[fetchTaskWorkspaceInfo, resolvedDefaultTaskBranchRef, setSelectedTaskId],
+		[board, fetchTaskWorkspaceInfo, resolvedDefaultTaskBranchRef, setSelectedTaskId],
 	);
 
 	const handleCancelEditTask = useCallback(() => {

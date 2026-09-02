@@ -23,6 +23,7 @@ import {
 	type ClineAgentChatPanelHandle,
 } from "@/components/detail-panels/cline-agent-chat-panel";
 import { ColumnContextPanel } from "@/components/detail-panels/column-context-panel";
+import type { DragRenderContext } from "@/state/drag-index-mapping";
 import {
 	type DiffLineComment,
 	DiffViewerPanel,
@@ -535,7 +536,7 @@ export function CardDetailView({
 	taskSessions: Record<string, RuntimeTaskSessionSummary>;
 	onSessionSummary: (summary: RuntimeTaskSessionSummary) => void;
 	onCardSelect: (taskId: string) => void;
-	onTaskDragEnd: (result: DropResult) => void;
+	onTaskDragEnd: (result: DropResult, options?: { renderContext?: DragRenderContext }) => void;
 	onCreateTask?: () => void;
 	onStartTask?: (taskId: string) => void;
 	onPauseTask?: (taskId: string) => void;

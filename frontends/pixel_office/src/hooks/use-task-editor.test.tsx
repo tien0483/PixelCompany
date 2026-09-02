@@ -99,7 +99,10 @@ function HookHarness({
 	queueTaskStartAfterEdit?: (taskId: string) => void;
 	createTaskBranchOptions?: Array<{ value: string; label: string }>;
 	defaultTaskBranchRef?: string;
-	fetchTaskWorkspaceInfo?: (task: BoardCard) => Promise<RuntimeTaskWorkspaceInfoResponse | null>;
+	fetchTaskWorkspaceInfo?: (
+		task: BoardCard,
+		options?: { worktreeTaskId?: string },
+	) => Promise<RuntimeTaskWorkspaceInfoResponse | null>;
 }): null {
 	const [board, setBoard] = useState<BoardData>(initialBoard);
 	const [, setSelectedTaskId] = useState<string | null>(null);
@@ -381,6 +384,67 @@ describe("useTaskEditor", () => {
 		});
 
 		expect(requireSnapshot(latestSnapshot).board.columns[0]?.cards[0]?.baseRef).toBe("release/1.0");
+	});
+
+	it("probes the chain root's worktree when editing a follower", async () => {
+		let latestSnapshot: HookSnapshot | null = null;
+		// A follower has no worktree of its own — its locked base ref lives under the root.
+		const initialBoard: BoardData = {
+			...createBoard([
+				createTask("task-root", "Root prompt", 1, { baseRef: "release/1.0" }),
+				createTask("task-follower", "Follower prompt", 2, { baseRef: "main" }),
+			]),
+			dependencies: [
+				{
+					id: "dep-1",
+					fromTaskId: "task-follower",
+					toTaskId: "task-root",
+					chain: true,
+					createdAt: 1,
+				},
+			],
+		};
+		const fetchTaskWorkspaceInfo = vi.fn(async (task: BoardCard) => ({
+			taskId: task.id,
+			path: "/worktrees/task-root",
+			exists: true,
+			baseRef: "release/1.0",
+			baseRefLocked: true,
+			branch: "kanban/task-root",
+			isDetached: false,
+			headCommit: "abc123",
+		}));
+
+		await act(async () => {
+			root.render(
+				<HookHarness
+					initialBoard={initialBoard}
+					createTaskBranchOptions={[{ value: "main", label: "main" }]}
+					defaultTaskBranchRef="main"
+					fetchTaskWorkspaceInfo={fetchTaskWorkspaceInfo}
+					onSnapshot={(snapshot) => {
+						latestSnapshot = snapshot;
+					}}
+				/>,
+			);
+		});
+
+		const initialSnapshot = requireSnapshot(latestSnapshot);
+		const follower = initialSnapshot.board.columns[0]?.cards[1];
+		if (!follower) {
+			throw new Error("Expected a follower task.");
+		}
+
+		await act(async () => {
+			initialSnapshot.handleOpenEditTask(follower);
+		});
+
+		expect(fetchTaskWorkspaceInfo).toHaveBeenCalledWith(
+			expect.objectContaining({ id: "task-follower" }),
+			{ worktreeTaskId: "task-root" },
+		);
+		expect(requireSnapshot(latestSnapshot).editTaskBranchRef).toBe("release/1.0");
+		expect(requireSnapshot(latestSnapshot).isEditTaskBaseRefLocked).toBe(true);
 	});
 
 	it("keeps the card's base ref when the editor has no branch value to save", async () => {

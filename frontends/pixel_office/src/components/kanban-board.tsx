@@ -16,6 +16,7 @@ import { DependencyOverlay } from "@/components/dependencies/dependency-overlay"
 import { useDependencyLinking } from "@/components/dependencies/use-dependency-linking";
 import type { RuntimeTaskSessionSummary } from "@/runtime/types";
 import { canCreateTaskDependency } from "@/state/board-state";
+import type { DragRenderContext } from "@/state/drag-index-mapping";
 import { findCardColumnId, type ProgrammaticCardMoveInFlight } from "@/state/drag-rules";
 import type { BoardCard, BoardColumnId, BoardData, BoardDependency } from "@/types";
 
@@ -114,7 +115,7 @@ export function KanbanBoard({
 	onReorderChain?: (orderedMemberIds: string[]) => void;
 	onBreakChain?: (memberIds: string[]) => void;
 	onRunChain?: (memberIds: string[]) => void;
-	onDragEnd: (result: DropResult) => void;
+	onDragEnd: (result: DropResult, options?: { renderContext?: DragRenderContext }) => void;
 	onRequestProgrammaticCardMoveReady?: (requestMove: RequestProgrammaticCardMove | null) => void;
 	workspacePath?: string | null;
 	defaultClineModelId?: string | null;
@@ -127,6 +128,13 @@ export function KanbanBoard({
 	const [activeDragTaskId, setActiveDragTaskId] = useState<string | null>(null);
 
 	const [activeDragSourceColumnId, setActiveDragSourceColumnId] = useState<BoardColumnId | null>(null);
+	// Chains default to collapsed (root + count badge); the user expands to see followers.
+	// Owned here rather than in BoardColumn because a drop has to be interpreted against
+	// the same expansion state the column rendered with.
+	const [expandedChainRootIds, setExpandedChainRootIds] = useState<Record<string, boolean>>({});
+	const toggleChainExpanded = useCallback((rootId: string) => {
+		setExpandedChainRootIds((current) => ({ ...current, [rootId]: !current[rootId] }));
+	}, []);
 	const [programmaticCardMoveInFlight, setProgrammaticCardMoveInFlight] =
 		useState<ProgrammaticCardMoveInFlight | null>(null);
 	const dependencyLinking = useDependencyLinking({
@@ -400,9 +408,15 @@ export function KanbanBoard({
 			requestAnimationFrame(() => {
 				dragOccurredRef.current = false;
 			});
-			onDragEnd(result);
+			onDragEnd(result, {
+				renderContext: {
+					chainGroupingEnabled: true,
+					editingTaskId,
+					expandedChainRootIds,
+				},
+			});
 		},
-		[clearProgrammaticCardMoveInFlight, onDragEnd],
+		[clearProgrammaticCardMoveInFlight, editingTaskId, expandedChainRootIds, onDragEnd],
 	);
 
 	// Dependency links should reroute as soon as motion starts, not only after drop.
@@ -476,6 +490,8 @@ export function KanbanBoard({
 						onReorderChain={column.id === "backlog" ? onReorderChain : undefined}
 						onBreakChain={column.id === "backlog" ? onBreakChain : undefined}
 						onRunChain={column.id === "backlog" ? onRunChain : undefined}
+						expandedChainRootIds={expandedChainRootIds}
+						onToggleChainExpanded={toggleChainExpanded}
 						workspacePath={workspacePath}
 						defaultClineModelId={defaultClineModelId}
 						onCardClick={(card) => {
