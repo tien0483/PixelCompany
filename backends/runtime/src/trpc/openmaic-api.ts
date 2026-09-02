@@ -4,7 +4,8 @@ import { join } from "node:path";
 import type { ClineApiSeatCredentials } from "../cline-sdk/cline-provider-service";
 import type { RuntimeOpenmaicHealth, RuntimeOpenmaicStatus } from "../core/api-contract";
 import type { ManagerMonitor } from "../manager/manager-monitor";
-import { type FlowiseLlmGeminiSeatSummary, resolveFlowiseLlmGeminiSeatSummary } from "../flowise/flowise-llm-proxy-seat";
+import { type FlowiseLlmGeminiSeatSummary, resolveFlowiseLlmGeminiSeatSummary, resolveFlowiseLlmOpenAiSeatContext } from "../flowise/flowise-llm-proxy-seat";
+import { isFlowiseLlmProxyEnabled } from "../flowise/flowise-llm-proxy-config";
 import {
 	DEFAULT_OPENMAIC_HOST,
 	findOpenmaicRoot,
@@ -21,7 +22,7 @@ const GEMINI_PROBE_TIMEOUT_MS = 4_000;
 const GEMINI_API_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models";
 
 const GEMINI_ENV_KEYS = ["GEMINI_API_KEY", "GOOGLE_API_KEY"];
-const ASR_PROVIDER_KEYS = ["OPENAI_API_KEY", "AZURE_OPENAI_API_KEY", "DEEPGRAM_API_KEY"];
+const ASR_PROVIDER_KEYS = ["ASR_OPENAI_API_KEY", "OPENAI_API_KEY", "AZURE_OPENAI_API_KEY", "DEEPGRAM_API_KEY"];
 const TTS_PROVIDER_KEYS = ["OPENAI_API_KEY", "ELEVENLABS_API_KEY", "MINIMAX_API_KEY", "AZURE_OPENAI_API_KEY"];
 const VIDEO_PROVIDER_KEYS = ["KLING_ACCESS_KEY", "KLING_SECRET_KEY", "LUMA_API_KEY", "PIKA_API_KEY", "VEO3_API_KEY"];
 
@@ -42,6 +43,7 @@ type OpenmaicCapabilitySource = "gemini-seat" | "gemini-api-key" | "browser-nati
 export interface CreateOpenmaicApiDependencies {
 	monitor?: ManagerMonitor;
 	resolveGeminiSeatSummary?: () => Promise<FlowiseLlmGeminiSeatSummary | null>;
+	resolveApiSeatCredentials?: (providerId: string) => Promise<ClineApiSeatCredentials | null>;
 	probeGeminiApiKey?: (apiKey: string) => Promise<GeminiProbeResult>;
 }
 
@@ -56,6 +58,7 @@ export interface BuildOpenmaicHealthInput {
 	envMap: Map<string, string>;
 	hasEnvFile: boolean;
 	seatSummary: FlowiseLlmGeminiSeatSummary | null;
+	asrSeatLabel: string | null;
 	geminiProbe: GeminiProbeResult | null;
 }
 
@@ -107,6 +110,22 @@ async function defaultResolveGeminiSeatSummary(monitor: ManagerMonitor | undefin
 	});
 }
 
+async function defaultResolveAsrSeatLabel(
+	monitor: ManagerMonitor | undefined,
+	resolveApiSeatCredentials: ((providerId: string) => Promise<ClineApiSeatCredentials | null>) | undefined,
+): Promise<string | null> {
+	if (!isFlowiseLlmProxyEnabled() || monitor === undefined || resolveApiSeatCredentials === undefined) {
+		return null;
+	}
+	const seat = await resolveFlowiseLlmOpenAiSeatContext({
+		monitor,
+		getAccountLaunchDir: async () => null,
+		getAccountLaunchCredential: async () => null,
+		resolveApiSeatCredentials,
+	});
+	return seat?.seatLabel ?? null;
+}
+
 /**
  * Availability for the Learning tab.
  *
@@ -149,12 +168,14 @@ export function createOpenmaicApi(deps: CreateOpenmaicApiDependencies = {}): Run
 			const envPath = join(root, ".env.local");
 			const envMap = parseEnvFile(envPath);
 			const seatSummary = await resolveSeatSummary();
+			const asrSeatLabel = await defaultResolveAsrSeatLabel(deps.monitor, deps.resolveApiSeatCredentials);
 			const geminiApiKey = resolveConfiguredSecret(envMap, GEMINI_ENV_KEYS);
 			const geminiProbe = geminiApiKey ? await probeGeminiKey(geminiApiKey) : null;
 			return buildOpenmaicHealth({
 				envMap,
 				hasEnvFile: existsSync(envPath),
 				seatSummary,
+				asrSeatLabel,
 				geminiProbe,
 			});
 		},
@@ -215,15 +236,24 @@ function buildCapabilityHealth({
 export function buildOpenmaicHealth(input: BuildOpenmaicHealthInput): RuntimeOpenmaicHealth {
 	const geminiAvailable = input.seatSummary !== null || hasAnyConfigured(input.envMap, GEMINI_ENV_KEYS);
 	const seatLabel = input.seatSummary?.accountLabel ?? null;
-	const asr = buildCapabilityHealth({
-		geminiAvailable,
-		geminiProbe: input.geminiProbe,
-		browserEnabled: isFeatureEnabled(input.envMap, "ASR_BROWSER_NATIVE_ENABLED"),
-		providerFallbackReady: hasAnyConfigured(input.envMap, ASR_PROVIDER_KEYS),
-		browserLabel: "Browser-native ASR enabled; browser runtime itself is not probed server-side.",
-		providerLabel: "ASR fallback provider key configured (non-Gemini).",
-		seatLabel,
-	});
+	const asrSeatWired = isFlowiseLlmProxyEnabled() && input.asrSeatLabel !== null;
+	const asr = asrSeatWired
+		? {
+				ready: true,
+				source: "provider-api-key" as const,
+				verified: false,
+				detail: `Whisper ASR routed via Manager API seat (${input.asrSeatLabel}) through PixelOffice proxy.`,
+			}
+		: buildCapabilityHealth({
+				// Gemini seat routing is for LLM proxy paths only — OpenMAIC has no Gemini ASR backend.
+				geminiAvailable: false,
+				geminiProbe: null,
+				browserEnabled: isBrowserNativeAsrAvailable(input.envMap),
+				providerFallbackReady: hasAnyConfigured(input.envMap, ASR_PROVIDER_KEYS),
+				browserLabel: "Browser-native ASR (Chrome/Edge Web Speech API); no server API key required.",
+				providerLabel: "Server ASR provider key configured (e.g. ASR_OPENAI_API_KEY).",
+				seatLabel: null,
+			});
 	const tts = buildCapabilityHealth({
 		geminiAvailable,
 		geminiProbe: input.geminiProbe,
@@ -333,6 +363,18 @@ function isFeatureEnabled(env: Map<string, string>, key: string): boolean {
 	return normalized === "true" || normalized === "1" || normalized === "yes";
 }
 
+/**
+ * OpenMAIC's client default ASR provider is browser-native. It is available unless
+ * the operator explicitly disables it — a Gemini seat does not wire to /api/transcription.
+ */
+function isBrowserNativeAsrAvailable(env: Map<string, string>): boolean {
+	const raw = env.get("ASR_BROWSER_NATIVE_ENABLED");
+	if (raw === undefined) {
+		return true;
+	}
+	return isFeatureEnabled(env, "ASR_BROWSER_NATIVE_ENABLED");
+}
+
 function hasAnyConfigured(env: Map<string, string>, keys: string[]): boolean {
 	for (const key of keys) {
 		if (isConfiguredSecret(env.get(key))) {
@@ -370,7 +412,9 @@ function collectMissingCapabilityKeys({
 		missing.push("Create `backends/openmaic/.env.local` from `.env.example`");
 	}
 	if (!asrReady) {
-		missing.push("ASR: enable browser ASR or configure a provider API key");
+		missing.push(
+			"ASR: configure a Manager API seat (OmniRoute) or use browser-native speech recognition",
+		);
 	}
 	if (!ttsReady) {
 		missing.push("TTS: enable browser TTS or configure a provider API key");

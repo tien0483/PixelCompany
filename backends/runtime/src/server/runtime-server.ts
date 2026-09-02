@@ -405,6 +405,8 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 	// reports Gemini seat-route readiness from the same manager monitor used by Flowise.
 	const openmaicApi = createOpenmaicApi({
 		monitor: deps.manager.monitor,
+		resolveApiSeatCredentials: async (providerId: string) =>
+			await clineProviderServiceForRestart.resolveApiSeatCredentials({ providerId }),
 	});
 	// One GitLab identity serves the whole runtime, so the client and the OAuth flow
 	// registry are singletons here rather than per request: a flow started by one
