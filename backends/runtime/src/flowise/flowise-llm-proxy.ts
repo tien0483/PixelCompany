@@ -37,7 +37,8 @@ export {
 
 const LOOPBACK_ADDRESSES = new Set(["127.0.0.1", "::1", "::ffff:127.0.0.1"]);
 /** OmniRoute's own id for "let the router choose a Cursor model". */
-const DEFAULT_CURSOR_ROUTER_MODEL = "cursor-api/auto";
+export const DEFAULT_CURSOR_ROUTER_MODEL = "cursor-api/auto";
+const CURSOR_MODEL_ALIASES = new Set(["auto"]);
 /**
  * Anthropic only honours a Claude Code OAuth bearer when the request opts into this beta. The
  * seat's token is exactly that kind of credential, and nothing downstream adds the header —
@@ -152,12 +153,7 @@ function appendAnthropicBeta(headers: Headers, beta: string): void {
 	headers.set("anthropic-beta", [...values, beta].join(","));
 }
 
-/**
- * Names a model for a router that only answers to its own ids, without discarding a model the
- * caller did choose. The node's selection is the user's intent; overwriting it unconditionally
- * meant every Cursor request ran on `cursor-api/auto` no matter what the canvas said.
- */
-function ensureOpenAiModelBody(body: Buffer | undefined, fallbackModelId: string): Buffer | undefined {
+function normalizeCursorProxyModelBody(body: Buffer | undefined, fallbackModelId: string): Buffer | undefined {
 	if (body === undefined || body.length === 0) {
 		return body;
 	}
@@ -168,10 +164,10 @@ function ensureOpenAiModelBody(body: Buffer | undefined, fallbackModelId: string
 		}
 		const record = parsed as Record<string, unknown>;
 		const model = typeof record.model === "string" ? record.model.trim() : "";
-		if (model.length > 0) {
-			return body;
+		if (model.length === 0 || CURSOR_MODEL_ALIASES.has(model)) {
+			return Buffer.from(JSON.stringify({ ...record, model: fallbackModelId }), "utf8");
 		}
-		return Buffer.from(JSON.stringify({ ...record, model: fallbackModelId }), "utf8");
+		return body;
 	} catch {
 		return body;
 	}
@@ -278,14 +274,13 @@ async function buildProviderForwardPlan(
 	}
 	const headers = copyRequestHeaders(req);
 	const upstreamBase = resolveFlowiseLlmCursorUpstreamBaseUrl();
-	let forwardBody = body;
+	let forwardBody = normalizeCursorProxyModelBody(body, DEFAULT_CURSOR_ROUTER_MODEL);
 	// An explicitly pinned Cursor seat wins: the OmniRoute router used to take every request
 	// merely by existing, so pinning a seat changed nothing.
 	if (cursorSeat !== null && isFlowiseLlmCursorSeatPinned()) {
 		headers.set("authorization", `Bearer ${cursorSeat.apiKey}`);
 	} else if (routerSeat !== null) {
 		headers.set("authorization", `Bearer ${routerSeat.apiKey}`);
-		forwardBody = ensureOpenAiModelBody(body, DEFAULT_CURSOR_ROUTER_MODEL);
 	} else if (cursorSeat !== null) {
 		headers.set("authorization", `Bearer ${cursorSeat.apiKey}`);
 	}

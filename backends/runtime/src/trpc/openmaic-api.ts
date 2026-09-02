@@ -7,6 +7,10 @@ import type { ManagerMonitor } from "../manager/manager-monitor";
 import { type FlowiseLlmGeminiSeatSummary, resolveFlowiseLlmGeminiSeatSummary, resolveFlowiseLlmOpenAiSeatContext } from "../flowise/flowise-llm-proxy-seat";
 import { isFlowiseLlmProxyEnabled } from "../flowise/flowise-llm-proxy-config";
 import {
+	type FlowiseLlmProxyProbeResult,
+	probeFlowiseLlmProxyProvider,
+} from "../flowise/flowise-llm-proxy-probe";
+import {
 	DEFAULT_OPENMAIC_HOST,
 	findOpenmaicRoot,
 	isOpenmaicBuilt,
@@ -54,12 +58,20 @@ interface OpenmaicCapabilityHealth {
 	detail?: string;
 }
 
+export interface OpenmaicSubscriptionProbeResults {
+	cursor: FlowiseLlmProxyProbeResult;
+	gemini: FlowiseLlmProxyProbeResult;
+	anthropic: FlowiseLlmProxyProbeResult;
+}
+
 export interface BuildOpenmaicHealthInput {
 	envMap: Map<string, string>;
 	hasEnvFile: boolean;
 	seatSummary: FlowiseLlmGeminiSeatSummary | null;
 	asrSeatLabel: string | null;
 	geminiProbe: GeminiProbeResult | null;
+	proxySubscriptionWired: boolean;
+	subscriptionProbes: OpenmaicSubscriptionProbeResults | null;
 }
 
 async function probeGeminiApiKey(apiKey: string): Promise<GeminiProbeResult> {
@@ -108,6 +120,40 @@ async function defaultResolveGeminiSeatSummary(monitor: ManagerMonitor | undefin
 		getAccountLaunchCredential: async () => null,
 		resolveApiSeatCredentials: async (): Promise<ClineApiSeatCredentials | null> => null,
 	});
+}
+
+async function defaultProbeSubscriptionRoutes(): Promise<OpenmaicSubscriptionProbeResults | null> {
+	if (!isFlowiseLlmProxyEnabled()) {
+		return null;
+	}
+	const [cursor, gemini, anthropic] = await Promise.all([
+		probeFlowiseLlmProxyProvider("cursor"),
+		probeFlowiseLlmProxyProvider("gemini"),
+		probeFlowiseLlmProxyProvider("anthropic"),
+	]);
+	return { cursor, gemini, anthropic };
+}
+
+function formatSubscriptionProbeDetail(probes: OpenmaicSubscriptionProbeResults): string {
+	const line = (label: string, probe: FlowiseLlmProxyProbeResult): string =>
+		probe.ok ? `${label}: ok` : `${label}: ${probe.detail ?? "route failed"}`;
+	return [line("Cursor", probes.cursor), line("Antigravity", probes.gemini), line("Claude", probes.anthropic)].join(
+		"; ",
+	);
+}
+
+function subscriptionRoutesReady(input: BuildOpenmaicHealthInput): boolean {
+	if (input.proxySubscriptionWired) {
+		if (input.subscriptionProbes === null) {
+			return false;
+		}
+		return (
+			input.subscriptionProbes.cursor.ok &&
+			input.subscriptionProbes.gemini.ok &&
+			input.subscriptionProbes.anthropic.ok
+		);
+	}
+	return input.seatSummary !== null;
 }
 
 async function defaultResolveAsrSeatLabel(
@@ -171,12 +217,16 @@ export function createOpenmaicApi(deps: CreateOpenmaicApiDependencies = {}): Run
 			const asrSeatLabel = await defaultResolveAsrSeatLabel(deps.monitor, deps.resolveApiSeatCredentials);
 			const geminiApiKey = resolveConfiguredSecret(envMap, GEMINI_ENV_KEYS);
 			const geminiProbe = geminiApiKey ? await probeGeminiKey(geminiApiKey) : null;
+			const proxySubscriptionWired = isFlowiseLlmProxyEnabled();
+			const subscriptionProbes = proxySubscriptionWired ? await defaultProbeSubscriptionRoutes() : null;
 			return buildOpenmaicHealth({
 				envMap,
 				hasEnvFile: existsSync(envPath),
 				seatSummary,
 				asrSeatLabel,
 				geminiProbe,
+				proxySubscriptionWired,
+				subscriptionProbes,
 			});
 		},
 	};
@@ -277,10 +327,13 @@ export function buildOpenmaicHealth(input: BuildOpenmaicHealthInput): RuntimeOpe
 		asrReady: asr.ready,
 		ttsReady: tts.ready,
 		videoReady: video.ready,
-		seatRoutingReady: input.seatSummary !== null,
+		seatRoutingReady: subscriptionRoutesReady(input),
+		proxySubscriptionWired: input.proxySubscriptionWired,
 	});
+	const subscriptionReady = subscriptionRoutesReady(input);
 	return {
-		openmaicConfigured: input.envMap.size > 0 || input.seatSummary !== null,
+		openmaicConfigured:
+			input.envMap.size > 0 || input.seatSummary !== null || input.proxySubscriptionWired,
 		asrReady: asr.ready,
 		ttsReady: tts.ready,
 		videoReady: video.ready,
@@ -293,9 +346,12 @@ export function buildOpenmaicHealth(input: BuildOpenmaicHealthInput): RuntimeOpe
 		asrDetail: asr.detail,
 		ttsDetail: tts.detail,
 		videoDetail: video.detail,
-		subscriptionSeatRoutingReady: input.seatSummary !== null,
-		subscriptionSeatRoutingDetail:
-			input.seatSummary === null
+		subscriptionSeatRoutingReady: subscriptionReady,
+		subscriptionSeatRoutingDetail: input.proxySubscriptionWired
+			? input.subscriptionProbes === null
+				? "PixelOffice proxy routes are not probeable."
+				: formatSubscriptionProbeDetail(input.subscriptionProbes)
+			: input.seatSummary === null
 				? "No Gemini seat credential detected."
 				: `Gemini seat routing is available${input.seatSummary.accountLabel ? ` (${input.seatSummary.accountLabel})` : ""}.`,
 		missingKeys,
@@ -400,15 +456,17 @@ function collectMissingCapabilityKeys({
 	ttsReady,
 	videoReady,
 	seatRoutingReady,
+	proxySubscriptionWired,
 }: {
 	hasEnvFile: boolean;
 	asrReady: boolean;
 	ttsReady: boolean;
 	videoReady: boolean;
 	seatRoutingReady: boolean;
+	proxySubscriptionWired: boolean;
 }): string[] {
 	const missing: string[] = [];
-	if (!hasEnvFile) {
+	if (!hasEnvFile && !proxySubscriptionWired) {
 		missing.push("Create `backends/openmaic/.env.local` from `.env.example`");
 	}
 	if (!asrReady) {
@@ -423,7 +481,11 @@ function collectMissingCapabilityKeys({
 		missing.push("Video: configure a video generation provider API key");
 	}
 	if (!seatRoutingReady) {
-		missing.push("Subscriptions (Antigravity/Cursor/Claude) are not auto-wired into OpenMAIC");
+		missing.push(
+			proxySubscriptionWired
+				? "Subscription proxy routes (Cursor/Antigravity/Claude) are not all reachable — check Seats and restart OpenMAIC"
+				: "Subscriptions (Antigravity/Cursor/Claude) are not auto-wired into OpenMAIC",
+		);
 	}
 	return missing;
 }

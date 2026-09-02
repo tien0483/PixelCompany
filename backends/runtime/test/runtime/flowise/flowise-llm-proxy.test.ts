@@ -326,6 +326,20 @@ describe("flowise-llm-proxy forwarding", () => {
 		);
 		expect(forwarded.headers.get("authorization")).toBe("Bearer cursor-seat-key");
 		expect(JSON.parse(forwarded.body).model).toBe("gpt-5");
+
+		const autoModel = await forwardThroughProxy(
+			{
+				monitor: createMonitor([{ id: 5, displayName: "Cursor seat", provider: "cursor" }], 5),
+				getAccountLaunchDir: async () => null,
+				getAccountLaunchCredential: async () => ({ apiKey: "cursor-seat-key" }),
+				useManagerAccount: async () => true,
+				resolveApiSeatCredentials: async () => null,
+			},
+			"/api/flowise-llm-proxy/cursor/chat/completions",
+			{ "content-type": "application/json" },
+			JSON.stringify({ model: "auto", messages: [] }),
+		);
+		expect(JSON.parse(autoModel.body).model).toBe("cursor-api/auto");
 	});
 
 	it("keeps the node's model when routing through OmniRoute", async () => {
@@ -359,6 +373,14 @@ describe("flowise-llm-proxy forwarding", () => {
 			JSON.stringify({ messages: [] }),
 		);
 		expect(JSON.parse(unset.body).model).toBe("cursor-api/auto");
+
+		const autoAlias = await forwardThroughProxy(
+			deps,
+			"/api/flowise-llm-proxy/cursor/chat/completions",
+			{ "content-type": "application/json" },
+			JSON.stringify({ model: "auto", messages: [] }),
+		);
+		expect(JSON.parse(autoAlias.body).model).toBe("cursor-api/auto");
 	});
 
 	it("forwards OpenAI Whisper without duplicating /v1 on OmniRoute seats", async () => {
