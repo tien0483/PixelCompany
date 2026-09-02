@@ -23,6 +23,7 @@ import {
 	updateTask,
 } from "@/state/board-state";
 import { computeChainGroups, isTaskInChain } from "@/state/chain-groups";
+import type { DragRenderContext } from "@/state/drag-index-mapping";
 import { clearTaskWorkspaceInfo, setTaskWorkspaceInfo } from "@/stores/workspace-metadata-store";
 import type { SendTerminalInputOptions } from "@/terminal/terminal-input";
 import type { BoardCard, BoardColumnId, BoardData } from "@/types";
@@ -93,11 +94,14 @@ export interface UseBoardInteractionsResult {
 	handleReorderChain: (orderedMemberIds: string[]) => void;
 	handleBreakChain: (memberIds: string[]) => void;
 	handleRunChain: (memberIds: string[]) => void;
-	handleDragEnd: (result: DropResult, options?: { selectDroppedTask?: boolean }) => void;
+	handleDragEnd: (
+		result: DropResult,
+		options?: { selectDroppedTask?: boolean; renderContext?: DragRenderContext },
+	) => void;
 	handleStartTask: (taskId: string) => void;
 	handleDeleteBacklogTask: (taskId: string) => void;
 	handleStartAllBacklogTasks: (taskIds?: string[]) => void;
-	handleDetailTaskDragEnd: (result: DropResult) => void;
+	handleDetailTaskDragEnd: (result: DropResult, options?: { renderContext?: DragRenderContext }) => void;
 	handleCardSelect: (taskId: string) => void;
 	handleMoveToTrash: () => void;
 	handleMoveReviewCardToTrash: (taskId: string) => void;
@@ -678,7 +682,7 @@ export function useBoardInteractions({
 	);
 
 	const handleDragEnd = useCallback(
-		(result: DropResult, options?: { selectDroppedTask?: boolean }) => {
+		(result: DropResult, options?: { selectDroppedTask?: boolean; renderContext?: DragRenderContext }) => {
 			if (options?.selectDroppedTask && result.type.startsWith("CARD") && result.destination) {
 				setSelectedTaskId(result.draggableId);
 			}
@@ -686,7 +690,10 @@ export function useBoardInteractions({
 				result.draggableId,
 			);
 
-			const applied = applyDragResult(board, result, { programmaticCardMoveInFlight });
+			const applied = applyDragResult(board, result, {
+				programmaticCardMoveInFlight,
+				renderContext: options?.renderContext,
+			});
 
 			const moveEvent = applied.moveEvent;
 			if (!moveEvent) {
@@ -1007,8 +1014,8 @@ export function useBoardInteractions({
 	);
 
 	const handleDetailTaskDragEnd = useCallback(
-		(result: DropResult) => {
-			handleDragEnd(result);
+		(result: DropResult, options?: { renderContext?: DragRenderContext }) => {
+			handleDragEnd(result, { renderContext: options?.renderContext });
 		},
 		[handleDragEnd],
 	);

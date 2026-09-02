@@ -4,6 +4,7 @@ import * as runtimeTaskState from "@runtime-task-state";
 
 import { createInitialBoardData } from "@/data/board-data";
 import { findFirstPresentChainDescendantIndex } from "@/state/chain-groups";
+import { type DragRenderContext, resolveDropInsertIndex } from "@/state/drag-index-mapping";
 import type {
 	RuntimeAgentId,
 	RuntimeClineReasoningEffort,
@@ -117,15 +118,6 @@ export interface TaskMoveEvent {
 	taskId: string;
 	fromColumnId: BoardColumnId;
 	toColumnId: BoardColumnId;
-}
-
-function reorder<T>(list: T[], startIndex: number, endIndex: number): T[] {
-	const result = Array.from(list);
-	const [removed] = result.splice(startIndex, 1);
-	if (removed !== undefined) {
-		result.splice(endIndex, 0, removed);
-	}
-	return result;
 }
 
 function updateTaskTimestamp(task: BoardCard): BoardCard {
@@ -548,7 +540,10 @@ export function trashTaskAndGetReadyLinkedTaskIds(
 export function applyDragResult(
 	board: BoardData,
 	result: DropResult,
-	options?: { programmaticCardMoveInFlight?: ProgrammaticCardMoveInFlight | null },
+	options?: {
+		programmaticCardMoveInFlight?: ProgrammaticCardMoveInFlight | null;
+		renderContext?: DragRenderContext;
+	},
 ): { board: BoardData; moveEvent?: TaskMoveEvent } {
 	const { source, destination, type } = result;
 
@@ -573,8 +568,30 @@ export function applyDragResult(
 		return { board };
 	}
 
+	// dnd reports positions among rendered draggables, and a column that hides cards
+	// (chain followers, inline editor) numbers those differently from `column.cards`.
+	// Resolving the card by its id is what keeps a drag from splicing out its neighbour.
+	const renderContext: DragRenderContext = options?.renderContext ?? { chainGroupingEnabled: false };
+
 	if (sourceColumn.id === destinationColumn.id) {
-		const movedCards = reorder(sourceColumn.cards, source.index, destination.index);
+		const sourceCardIndex = sourceColumn.cards.findIndex((card) => card.id === result.draggableId);
+		if (sourceCardIndex === -1) {
+			return { board };
+		}
+		const insertIndex = resolveDropInsertIndex({
+			columnId: sourceColumn.id,
+			cards: sourceColumn.cards,
+			dependencies: board.dependencies,
+			movedCardId: result.draggableId,
+			renderIndex: destination.index,
+			context: renderContext,
+		});
+		const movedCards = Array.from(sourceColumn.cards);
+		const [reorderedCard] = movedCards.splice(sourceCardIndex, 1);
+		if (!reorderedCard) {
+			return { board };
+		}
+		movedCards.splice(insertIndex, 0, reorderedCard);
 		const columns = Array.from(board.columns);
 		columns[sourceColumnIndex] = {
 			...sourceColumn,
@@ -592,13 +609,26 @@ export function applyDragResult(
 	}
 
 	const sourceCards = Array.from(sourceColumn.cards);
-	const [movedCard] = sourceCards.splice(source.index, 1);
+	const sourceCardIndex = sourceCards.findIndex((card) => card.id === result.draggableId);
+	if (sourceCardIndex === -1) {
+		return { board };
+	}
+	const [movedCard] = sourceCards.splice(sourceCardIndex, 1);
 	if (!movedCard) {
 		return { board };
 	}
 
 	const destinationCards = Array.from(destinationColumn.cards);
-	let destinationInsertIndex = options?.programmaticCardMoveInFlight?.insertAtTop ? 0 : destination.index;
+	let destinationInsertIndex = options?.programmaticCardMoveInFlight?.insertAtTop
+		? 0
+		: resolveDropInsertIndex({
+				columnId: destinationColumn.id,
+				cards: destinationColumn.cards,
+				dependencies: board.dependencies,
+				movedCardId: movedCard.id,
+				renderIndex: destination.index,
+				context: renderContext,
+			});
 	if (
 		options?.programmaticCardMoveInFlight?.insertAtTop &&
 		sourceColumn.id === "review" &&

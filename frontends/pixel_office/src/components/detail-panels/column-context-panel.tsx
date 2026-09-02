@@ -7,6 +7,7 @@ import { BoardCard } from "@/components/board-card";
 import { Button } from "@/components/ui/button";
 import { ColumnIndicator } from "@/components/ui/column-indicator";
 import type { RuntimeTaskSessionSummary } from "@/runtime/types";
+import { computeDraggableCardOrder, type DragRenderContext } from "@/state/drag-index-mapping";
 import { findCardColumnId, isCardDropDisabled } from "@/state/drag-rules";
 import type { BoardCard as BoardCardModel, BoardColumn, BoardColumnId, CardSelection } from "@/types";
 
@@ -180,7 +181,12 @@ function ColumnSection({
 								) : null}
 								{(() => {
 									const items: ReactNode[] = [];
-									let draggableIndex = 0;
+									const draggableIndexByCardId = new Map(
+										computeDraggableCardOrder(column.id, column.cards, [], {
+											chainGroupingEnabled: false,
+											editingTaskId,
+										}).map((cardId, index) => [cardId, index] as const),
+									);
 									for (const card of column.cards) {
 										if (column.id === "backlog" && editingTaskId === card.id) {
 											items.push(
@@ -194,7 +200,7 @@ function ColumnSection({
 											<BoardCard
 												key={card.id}
 												card={card}
-												index={draggableIndex}
+												index={draggableIndexByCardId.get(card.id) ?? 0}
 												columnId={column.id}
 												sessionSummary={taskSessions[card.id]}
 												selected={card.id === selectedCardId}
@@ -222,7 +228,6 @@ function ColumnSection({
 												}}
 											/>,
 										);
-										draggableIndex += 1;
 									}
 									return items;
 								})()}
@@ -271,7 +276,7 @@ export function ColumnContextPanel({
 	workspacePath?: string | null;
 	onCardSelect: (taskId: string) => void;
 	taskSessions: Record<string, RuntimeTaskSessionSummary>;
-	onTaskDragEnd: (result: DropResult) => void;
+	onTaskDragEnd: (result: DropResult, options?: { renderContext?: DragRenderContext }) => void;
 	onCreateTask?: () => void;
 	onStartTask?: (taskId: string) => void;
 	onPauseTask?: (taskId: string) => void;
@@ -307,9 +312,13 @@ export function ColumnContextPanel({
 	const handleDragEnd = useCallback(
 		(result: DropResult) => {
 			setActiveDragSourceColumnId(null);
-			onTaskDragEnd(result);
+			// This panel renders every card flat — no chain groups — so its draggable
+			// numbering differs from the board's for the same column.
+			onTaskDragEnd(result, {
+				renderContext: { chainGroupingEnabled: false, editingTaskId },
+			});
 		},
-		[onTaskDragEnd],
+		[editingTaskId, onTaskDragEnd],
 	);
 
 	useEffect(() => {

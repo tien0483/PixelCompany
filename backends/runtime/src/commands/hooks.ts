@@ -7,7 +7,7 @@ import type { RuntimeHookEvent, RuntimeTaskHookActivity } from "../core/api-cont
 import { buildKanbanCommandParts } from "../core/kanban-command";
 import { buildKanbanRuntimeUrl, getRuntimeFetch } from "../core/runtime-endpoint";
 import { buildWindowsCmdArgsArray, resolveWindowsComSpec, shouldUseWindowsCmdLaunch } from "../core/windows-cmd-launch";
-import { parseHookRuntimeContextFromEnv } from "../terminal/hook-runtime-context";
+import { hasHookRuntimeContext, parseHookRuntimeContextFromEnv } from "../terminal/hook-runtime-context";
 import type { RuntimeAppRouter } from "../trpc/app-router";
 import {
 	type CodexMappedHookEvent,
@@ -27,6 +27,9 @@ export {
 } from "./hook-events/codex-hook-events";
 
 const VALID_EVENTS = new Set<RuntimeHookEvent>(["to_review", "to_in_progress", "activity"]);
+
+/** Keeps the re-spawned `hooks notify` argv well inside the platform limit. */
+const GEMINI_NOTIFY_PAYLOAD_MAX_BASE64_LENGTH = 96 * 1024;
 
 interface HooksIngestArgs {
 	event: RuntimeHookEvent;
@@ -531,7 +534,7 @@ async function readStdinText(): Promise<string> {
 	return chunks.join("");
 }
 
-function mapGeminiHookEvent(eventName: string): RuntimeHookEvent | null {
+export function mapGeminiHookEvent(eventName: string): RuntimeHookEvent | null {
 	if (eventName === "to_review" || eventName === "to_in_progress" || eventName === "activity") {
 		return eventName;
 	}
@@ -541,16 +544,43 @@ function mapGeminiHookEvent(eventName: string): RuntimeHookEvent | null {
 	if (eventName === "BeforeAgent" || eventName === "PreInvocation") {
 		return "to_in_progress";
 	}
-	if (
-		eventName === "PreToolUse" ||
-		eventName === "PostToolUse" ||
-		eventName === "BeforeTool" ||
-		eventName === "AfterTool" ||
-		eventName === "Notification"
-	) {
+	if (eventName === "PostToolUse" || eventName === "AfterTool") {
+		return "to_in_progress";
+	}
+	if (eventName === "PreToolUse" || eventName === "BeforeTool" || eventName === "Notification") {
 		return "activity";
 	}
 	return null;
+}
+
+/**
+ * `hooks gemini-hook` answers the agent on stdout and then re-spawns `hooks notify`
+ * in the background, so the parsed payload has to survive the process hop. Without
+ * it `enrichGeminiReviewMetadata` never sees `transcript_path` / `conversationId`
+ * and cannot recover the final message for a review transition.
+ */
+export function buildGeminiNotifyArgs(
+	mappedEvent: RuntimeHookEvent,
+	metadata: Partial<RuntimeTaskHookActivity> | undefined,
+	payloadRecord: Record<string, unknown> | null,
+): string[] {
+	const args = appendMetadataFlags(["hooks", "notify", "--event", mappedEvent], metadata);
+	if (!payloadRecord) {
+		return args;
+	}
+	let encoded: string;
+	try {
+		encoded = Buffer.from(JSON.stringify(payloadRecord), "utf8").toString("base64");
+	} catch {
+		return args;
+	}
+	if (encoded.length > GEMINI_NOTIFY_PAYLOAD_MAX_BASE64_LENGTH) {
+		// A payload past the argv budget would fail the spawn outright; the flat
+		// metadata flags already carry everything the board renders.
+		return args;
+	}
+	args.push("--metadata-base64", encoded);
+	return args;
 }
 
 async function runCodexHookSubcommand(
@@ -620,11 +650,17 @@ async function runGeminiHookSubcommand(explicitEvent?: string, payloadArg?: stri
 	if (!mappedEvent) {
 		return;
 	}
+	// agy reads its hooks config from the workspace, so a stale hooks.json can fire
+	// outside a Kanban session. Without task context there is nothing to notify, and
+	// `hooks notify` would spawn only to swallow the same missing-env error.
+	if (!hasHookRuntimeContext()) {
+		return;
+	}
 	const metadata = normalizeHookMetadata(mappedEvent, payloadRecord, {
 		source: "gemini",
 		hookEventName: hookEventName || undefined,
 	});
-	spawnBackgroundKanban(appendMetadataFlags(["hooks", "notify", "--event", mappedEvent], metadata));
+	spawnBackgroundKanban(buildGeminiNotifyArgs(mappedEvent, metadata, payloadRecord));
 }
 
 export function buildCodexWrapperChildArgs(agentArgs: string[]): string[] {

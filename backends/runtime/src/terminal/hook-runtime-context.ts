@@ -21,6 +21,14 @@ export function createHookRuntimeEnv(context: HookRuntimeContext): Record<string
 	};
 }
 
+/**
+ * Feature-detect for hook entrypoints an agent can fire outside a Kanban session — a
+ * worktree-local config file outlives the task that wrote it.
+ */
+export function hasHookRuntimeContext(env: NodeJS.ProcessEnv = process.env): boolean {
+	return Boolean(env[KANBAN_HOOK_TASK_ID_ENV]?.trim()) && Boolean(env[KANBAN_HOOK_WORKSPACE_ID_ENV]?.trim());
+}
+
 export function parseHookRuntimeContextFromEnv(env: NodeJS.ProcessEnv = process.env): HookRuntimeContext {
 	const taskId = requireTrimmedEnv(env, KANBAN_HOOK_TASK_ID_ENV);
 	const workspaceId = requireTrimmedEnv(env, KANBAN_HOOK_WORKSPACE_ID_ENV);
