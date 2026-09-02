@@ -4,7 +4,7 @@ import { DEFAULT_OMNIROUTE_PORT, resolveOmniRouteBaseUrl } from "../omniroute/om
 const PROXY_ENV = "PIXELOFFICE_FLOWISE_LLM_PROXY";
 const PROXY_PATH = "/api/flowise-llm-proxy";
 const DEFAULT_SWITCHBOARD = "http://127.0.0.1:8000";
-const DEFAULT_GEMINI_UPSTREAM = "https://generativelanguage.googleapis.com";
+const DEFAULT_GEMINI_UPSTREAM = "https://cloudcode-pa.googleapis.com";
 
 /** Enabled by default; set PIXELOFFICE_FLOWISE_LLM_PROXY=0 to fall back to manual Flowise Credentials. */
 export function isFlowiseLlmProxyEnabled(): boolean {

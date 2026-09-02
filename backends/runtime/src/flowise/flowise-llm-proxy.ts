@@ -14,6 +14,10 @@ import {
 	resolveFlowiseLlmUpstreamBaseUrl,
 } from "./flowise-llm-proxy-config";
 import { probeFlowiseLlmProxyProvider } from "./flowise-llm-proxy-probe";
+import {
+	buildGeminiCodegenForwardPlan,
+	forwardGeminiCodegenResponse,
+} from "./flowise-llm-proxy-gemini-codegen";
 import { parseFlowiseLlmProxyRoute, type FlowiseLlmProxyProvider } from "./flowise-llm-proxy-routes";
 import {
 	activateFlowiseLlmGeminiSeatContext,
@@ -382,6 +386,22 @@ export function createFlowiseLlmProxyHandler(
 			res.writeHead(plan.errorStatus, { "Content-Type": "application/json; charset=utf-8" });
 			res.end(JSON.stringify(plan.errorBody));
 			return true;
+		}
+
+		if (route.provider === "gemini") {
+			const accessToken = plan.headers.get("authorization")?.replace(/^Bearer\s+/i, "").trim() ?? "";
+			if (accessToken.length > 0) {
+				const codegenPlan = await buildGeminiCodegenForwardPlan(
+					method,
+					route.upstreamPath,
+					body,
+					accessToken,
+				);
+				if (codegenPlan !== null) {
+					await forwardGeminiCodegenResponse(res, codegenPlan, deps.warn);
+					return true;
+				}
+			}
 		}
 
 		await forwardUpstream(res, method, { ...plan, headers: plan.headers }, deps.warn);
