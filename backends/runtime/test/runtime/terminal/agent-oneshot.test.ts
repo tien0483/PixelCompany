@@ -3,7 +3,7 @@ import { PassThrough, Readable } from "node:stream";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const spawnMock = vi.fn();
-const isBinaryAvailableOnPath = vi.fn(() => true);
+const isBinaryAvailableOnPath = vi.fn((_binary: string) => true);
 const resolveManagerAccountPin = vi.fn();
 
 vi.mock("node:child_process", () => ({
@@ -11,7 +11,7 @@ vi.mock("node:child_process", () => ({
 }));
 
 vi.mock("../../../src/terminal/command-discovery.js", () => ({
-	isBinaryAvailableOnPath: (...args: unknown[]) => isBinaryAvailableOnPath(...args),
+	isBinaryAvailableOnPath: (...args: [string]) => isBinaryAvailableOnPath(...args),
 }));
 
 vi.mock("../../../src/manager/manager-account-pin.js", () => ({

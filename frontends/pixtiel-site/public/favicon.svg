@@ -1,5 +1,18 @@
-<!-- TODO: replace with B0 favicon.svg when merged -->
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
-  <rect width="32" height="32" rx="6" fill="#0084FF"/>
-  <text x="16" y="22" font-family="system-ui, sans-serif" font-size="18" font-weight="bold" fill="#FFFFFF" text-anchor="middle">P</text>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none">
+  <defs>
+    <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0084FF" />
+      <stop offset="100%" stop-color="#26D0A8" />
+    </linearGradient>
+  </defs>
+  <rect width="32" height="32" rx="6" fill="#1F2428" />
+  <text
+    x="16"
+    y="23.5"
+    text-anchor="middle"
+    font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif"
+    font-size="20"
+    font-weight="900"
+    fill="url(#g)"
+  >P</text>
 </svg>

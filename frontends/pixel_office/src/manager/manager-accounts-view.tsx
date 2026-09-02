@@ -505,11 +505,11 @@ function AccountRow({
 				</label>
 				{isCursorAccount ? (
 					<p className="mt-1 text-[10px] text-text-tertiary">
-						Kanban: pin this account on a Cursor task — no IDE switch needed.
+						PIXTiel: pin this account on a Cursor task — no IDE switch needed.
 					</p>
 				) : isAntigravityAccount ? (
 					<p className="mt-1 text-[10px] text-text-tertiary">
-						Kanban: pin this account on an Antigravity task.
+						PIXTiel: pin this account on an Antigravity task.
 					</p>
 				) : null}
 				{account.lastError ? (
@@ -537,7 +537,7 @@ function AccountRow({
 						donateExhausted
 							? "Blocked — this seat is at or over its donate cap until usage resets"
 							: isCursorAccount
-								? "Use this Cursor seat in the IDE (writes state.vscdb — close Cursor first). Kanban tasks can pin instead."
+								? "Use this Cursor seat in the IDE (writes state.vscdb — close Cursor first). PIXTiel tasks can pin instead."
 								: isAntigravityAccount
 									? "Set this Antigravity seat as active"
 									: "Use this Claude Code seat as the active credential"
@@ -2075,7 +2075,7 @@ export function ManagerAccountsView({
 												}
 												return {
 													ok: false,
-													error: `${result.error ?? "Could not use Cursor account."} For Kanban, pin this account on a Cursor task card instead.`,
+													error: `${result.error ?? "Could not use Cursor account."} For PIXTiel, pin this account on a Cursor task card instead.`,
 												};
 											},
 											"Seat updated and set as primary.",

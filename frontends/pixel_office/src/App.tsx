@@ -1498,7 +1498,7 @@ export default function App(): ReactElement {
 											No projects yet
 										</h3>
 										<p className="text-[13px] text-text-secondary">
-											Add a git repository to start using Kanban.
+											Add a git repository to start using PIXTiel.
 										</p>
 										<Button
 											variant="primary"

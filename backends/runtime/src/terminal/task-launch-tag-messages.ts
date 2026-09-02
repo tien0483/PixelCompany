@@ -52,7 +52,7 @@ export function buildCursorLaunchTagPreface(settings?: RuntimeTaskLaunchSettings
 		return null;
 	}
 	const parts: string[] = [
-		"Task launch tags (PixelOffice): use only the following allowlisted Manager resources for this session.",
+		"Task launch tags (PIXTiel): use only the following allowlisted Manager resources for this session.",
 	];
 	if (skillIds.length > 0) {
 		parts.push(`Skills: ${skillIds.join(", ")}.`);
@@ -102,7 +102,7 @@ export function buildLaunchTagAllowlistUpdateNotice(
 	}
 
 	const parts: string[] = [
-		"[PixelOffice] Updated task launch tags for this session. Replace any earlier allowlist with the following:",
+		"[PIXTiel] Updated task launch tags for this session. Replace any earlier allowlist with the following:",
 	];
 
 	if (!hasAnyAllowlist(next)) {

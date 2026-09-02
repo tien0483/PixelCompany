@@ -574,7 +574,7 @@ function ProjectSupportFooter({
 				<Info size={14} className="mt-px shrink-0 text-text-tertiary" />
 				<div className="flex flex-col gap-1.5">
 					<p className="m-0 text-xs text-text-secondary">
-						Kanban is in beta. Help us improve by sharing your experience.
+						PIXTiel is in beta. Help us improve by sharing your experience.
 					</p>
 					<button
 						type="button"

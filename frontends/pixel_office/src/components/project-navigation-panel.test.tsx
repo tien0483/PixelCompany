@@ -213,7 +213,7 @@ describe("ProjectNavigationPanel width persistence", () => {
 
 	it("renders beta hint card with report issue in the projects view", () => {
 		renderPanel();
-		expect(container.textContent).toContain("Kanban is in beta. Help us improve by sharing your experience.");
+		expect(container.textContent).toContain("PIXTiel is in beta. Help us improve by sharing your experience.");
 		expect(container.textContent).toContain("Report issue");
 	});
 
@@ -227,7 +227,7 @@ describe("ProjectNavigationPanel width persistence", () => {
 				openFeedbackWidget: vi.fn(async () => {}),
 			},
 		});
-		expect(container.textContent).toContain("Kanban is in beta. Help us improve by sharing your experience.");
+		expect(container.textContent).toContain("PIXTiel is in beta. Help us improve by sharing your experience.");
 		expect(container.textContent).toContain("Send feedback");
 		expect(container.textContent).not.toContain("Report issue");
 	});

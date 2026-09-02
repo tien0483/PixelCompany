@@ -19,7 +19,10 @@ describe("link-stack-skills UA gating", () => {
 			}
 			symlinkSync("/tmp/fake-understand-chat", join(checkoutRoot, ".claude/skills/understand-chat"));
 
-			const mod = await import("../../../../../scripts/link-stack-skills.mjs");
+			const mod = await import(
+				// @ts-expect-error — plain .mjs script helper, no declaration file
+				"../../../../../scripts/link-stack-skills.mjs"
+			);
 			expect(mod.hasUnderstandAnythingGraph(checkoutRoot)).toBe(false);
 
 			const summary = mod.linkStackSkills({
@@ -52,7 +55,10 @@ describe("link-stack-skills UA gating", () => {
 			mkdirSync(join(checkoutRoot, ".ua"), { recursive: true });
 			writeFileSync(join(checkoutRoot, ".ua/knowledge-graph.json"), '{"nodes":[],"edges":[]}\n', "utf8");
 
-			const mod = await import("../../../../../scripts/link-stack-skills.mjs");
+			const mod = await import(
+				// @ts-expect-error — plain .mjs script helper, no declaration file
+				"../../../../../scripts/link-stack-skills.mjs"
+			);
 			expect(mod.hasUnderstandAnythingGraph(checkoutRoot)).toBe(true);
 
 			const summary = mod.linkStackSkills({

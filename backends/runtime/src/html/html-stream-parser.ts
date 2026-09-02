@@ -106,7 +106,7 @@ export function parseAgyLine(line: string, state: ParseState): AgentParse[] {
  * real content.
  */
 export function rescueHtmlFromToolUse(
-	content: Array<{ type?: string; name?: string; input?: unknown }> | undefined,
+	content: Array<{ type?: string; name?: string; input?: unknown; text?: string }> | undefined,
 ): string {
 	if (!Array.isArray(content)) return "";
 	const parts: string[] = [];

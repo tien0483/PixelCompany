@@ -44,7 +44,7 @@ function buildHints(input: {
 }): string[] {
 	const hints: string[] = [];
 	if (input.binary === null || input.binary.viaNpx) {
-		hints.push("Install dsh: npm install -g @deepseek-ai/dsh (or set PIXELOFFICE_DSH_BINARY).");
+		hints.push("Install dsh: npm install -g @deepseek-ai/dsh (or set PIXTIEL_DSH_BINARY).");
 	}
 	if (input.binary?.viaNpx) {
 		hints.push(

@@ -269,7 +269,7 @@ function createClineProviderDeps() {
 	};
 }
 
-function restoreEnvVar(name: "CLINE_API_KEY" | "OCA_API_KEY", value: string | undefined): void {
+function restoreEnvVar(name: "CLINE_API_KEY" | "OCA_API_KEY" | "CURSOR_API_KEY", value: string | undefined): void {
 	if (value === undefined) {
 		delete process.env[name];
 		return;

@@ -2046,7 +2046,7 @@ const orchestratorAdapter: AgentSessionAdapter = {
 		});
 		if (launch === null) {
 			throw new Error(
-				"Custom Agent (dsh) could not launch — install DeepSeek Harness (or set PIXELOFFICE_DSH_BINARY), and give the card a prompt.",
+				"Custom Agent (dsh) could not launch — install DeepSeek Harness (or set PIXTIEL_DSH_BINARY), and give the card a prompt.",
 			);
 		}
 		return {
