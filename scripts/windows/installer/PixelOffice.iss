@@ -5,7 +5,7 @@
 ; StageDir may be overridden on the ISCC command line to keep source paths
 ; under Windows MAX_PATH when the repo lives in a long worktree path:
 ;   ISCC.exe /DStageDir=C:\po-stage PixelOffice.iss
-#define MyAppName "PixelOffice"
+#define MyAppName "PIXTiel"
 #define MyAppVersion "1.0.0"
 #ifndef StageDir
   #define StageDir "stage"
@@ -16,11 +16,11 @@ AppId={{14563699-69D4-4F84-B774-9FF1CAC8F116}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 DefaultDirName={localappdata}\PixelOffice
-DefaultGroupName=PixelOffice
+DefaultGroupName=PIXTiel
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
 OutputDir=..\dist
-OutputBaseFilename=PixelOffice-Setup
+OutputBaseFilename=PIXTiel-Setup
 SetupIconFile=..\PixelOffice.ico
 UninstallDisplayIcon={app}\PixelOffice.exe
 Compression=lzma2
@@ -35,14 +35,14 @@ Source: "{#StageDir}\stop.mjs"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\PixelOffice.ico"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-Name: "{group}\PixelOffice"; Filename: "{app}\PixelOffice.exe"; IconFilename: "{app}\PixelOffice.ico"
-Name: "{group}\PixelOffice Stop"; Filename: "{app}\PixelOffice.exe"; Parameters: "--stop"; IconFilename: "{app}\PixelOffice.ico"
-Name: "{group}\Uninstall PixelOffice"; Filename: "{uninstallexe}"
-Name: "{userdesktop}\PixelOffice"; Filename: "{app}\PixelOffice.exe"; IconFilename: "{app}\PixelOffice.ico"
-Name: "{userdesktop}\PixelOffice Stop"; Filename: "{app}\PixelOffice.exe"; Parameters: "--stop"; IconFilename: "{app}\PixelOffice.ico"
+Name: "{group}\PIXTiel"; Filename: "{app}\PixelOffice.exe"; IconFilename: "{app}\PixelOffice.ico"
+Name: "{group}\PIXTiel Stop"; Filename: "{app}\PixelOffice.exe"; Parameters: "--stop"; IconFilename: "{app}\PixelOffice.ico"
+Name: "{group}\Uninstall PIXTiel"; Filename: "{uninstallexe}"
+Name: "{userdesktop}\PIXTiel"; Filename: "{app}\PixelOffice.exe"; IconFilename: "{app}\PixelOffice.ico"
+Name: "{userdesktop}\PIXTiel Stop"; Filename: "{app}\PixelOffice.exe"; Parameters: "--stop"; IconFilename: "{app}\PixelOffice.ico"
 
 [Run]
-Filename: "{app}\PixelOffice.exe"; Description: "Launch PixelOffice"; Flags: postinstall nowait skipifsilent unchecked
+Filename: "{app}\PixelOffice.exe"; Description: "Launch PIXTiel"; Flags: postinstall nowait skipifsilent unchecked
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}\app\node_modules"
@@ -80,7 +80,7 @@ var
 begin
   Exec(ExpandConstant('{app}\PixelOffice.exe'), '--stop', '', SW_HIDE,
        ewWaitUntilTerminated, ResultCode);
-  RemoveConfig := (MsgBox('Also remove PixelOffice configuration (config.json)?',
+  RemoveConfig := (MsgBox('Also remove PIXTiel configuration (config.json)?',
     mbConfirmation, MB_YESNO) = IDYES);
   Result := True;
 end;

@@ -31,8 +31,8 @@ const startMenu = join(
 );
 
 for (const dir of [desktop, startMenu]) {
-	removeIfExists(join(dir, "PixelOffice.lnk"));
-	removeIfExists(join(dir, "PixelOffice Stop.lnk"));
+	removeIfExists(join(dir, "PIXTiel.lnk"));
+	removeIfExists(join(dir, "PIXTiel Stop.lnk"));
 }
 
 const base = installDir();
