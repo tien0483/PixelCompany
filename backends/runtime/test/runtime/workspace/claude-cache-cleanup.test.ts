@@ -155,4 +155,36 @@ describe("claude-cache-cleanup", () => {
 		});
 		expect(result.ok).toBe(true);
 	});
+
+	it("cleans pnpm store and Playwright cache through the runtime cleanup request", async () => {
+		const previousHome = process.env.HOME;
+		process.env.HOME = claudeHomeDir;
+		try {
+			const pnpmStore = join(claudeHomeDir, ".pnpm-store", "v3");
+			const playwrightCache = join(claudeHomeDir, ".cache", "ms-playwright", "chromium");
+			mkdirSync(pnpmStore, { recursive: true });
+			mkdirSync(playwrightCache, { recursive: true });
+			writeFileSync(join(pnpmStore, "index.json"), "pnpm");
+			writeFileSync(join(playwrightCache, "chrome-linux.zip"), "playwright");
+
+			const result = await cleanClaudeCache({
+				claudeHomeDir,
+				includeTranscripts: false,
+				includeSafe: false,
+				includePnpmStore: true,
+				includePlaywrightCache: true,
+				dryRun: false,
+				disposeMode: "delete",
+			});
+			expect(result.ok).toBe(true);
+			expect(result.cleaned.some((item) => item.tier === "pnpm-store")).toBe(true);
+			expect(result.cleaned.some((item) => item.tier === "playwright-cache")).toBe(true);
+		} finally {
+			if (previousHome === undefined) {
+				delete process.env.HOME;
+			} else {
+				process.env.HOME = previousHome;
+			}
+		}
+	});
 });

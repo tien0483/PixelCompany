@@ -12,7 +12,7 @@ export interface HomeDiskLeftover {
 	path: string;
 	sizeBytes: number;
 	reason: string;
-	tier: "tmp" | "npm-cache" | "nvm-cache" | "nvm-version";
+	tier: "tmp" | "npm-cache" | "nvm-cache" | "nvm-version" | "pnpm-store" | "playwright-cache";
 }
 
 export interface NvmVersionScanEntry {
@@ -129,6 +129,41 @@ async function scanNvmCacheTier(): Promise<HomeDiskLeftover[]> {
 	];
 }
 
+function resolvePnpmStoreRoots(): string[] {
+	return [join(homedir(), ".pnpm-store"), join(homedir(), ".local", "share", "pnpm", "store")];
+}
+
+async function scanPnpmStoreTier(): Promise<HomeDiskLeftover[]> {
+	const leftovers: HomeDiskLeftover[] = [];
+	for (const path of resolvePnpmStoreRoots()) {
+		if (!(await directoryExists(path))) {
+			continue;
+		}
+		leftovers.push({
+			path,
+			sizeBytes: await measureDirectorySize(path),
+			reason: "pnpm package store — packages are re-fetched when missing.",
+			tier: "pnpm-store",
+		});
+	}
+	return leftovers;
+}
+
+async function scanPlaywrightCacheTier(): Promise<HomeDiskLeftover[]> {
+	const path = join(homedir(), ".cache", "ms-playwright");
+	if (!(await directoryExists(path))) {
+		return [];
+	}
+	return [
+		{
+			path,
+			sizeBytes: await measureDirectorySize(path),
+			reason: "Playwright browser cache — browser binaries re-install on demand.",
+			tier: "playwright-cache",
+		},
+	];
+}
+
 export async function scanNvmVersions(home: string = homedir()): Promise<NvmVersionScanEntry[]> {
 	const inUseVersion = await resolveInUseNvmNodeVersion(home);
 	const entries: NvmVersionScanEntry[] = [];
@@ -148,14 +183,18 @@ export async function scanHomeDiskCleanup(options?: { days?: number }): Promise<
 	npmCache: HomeDiskLeftover[];
 	nvmCache: HomeDiskLeftover[];
 	nvmVersions: NvmVersionScanEntry[];
+	pnpmStore: HomeDiskLeftover[];
+	playwrightCache: HomeDiskLeftover[];
 }> {
-	const [tmp, npmCache, nvmCache, nvmVersions] = await Promise.all([
+	const [tmp, npmCache, nvmCache, nvmVersions, pnpmStore, playwrightCache] = await Promise.all([
 		scanTmpTier(options),
 		scanNpmCacheTier(),
 		scanNvmCacheTier(),
 		scanNvmVersions(),
+		scanPnpmStoreTier(),
+		scanPlaywrightCacheTier(),
 	]);
-	return { tmp, npmCache, nvmCache, nvmVersions };
+	return { tmp, npmCache, nvmCache, nvmVersions, pnpmStore, playwrightCache };
 }
 
 export function summarizeHomeDiskCleanup(scan: {
@@ -163,6 +202,8 @@ export function summarizeHomeDiskCleanup(scan: {
 	npmCache: HomeDiskLeftover[];
 	nvmCache: HomeDiskLeftover[];
 	nvmVersions: NvmVersionScanEntry[];
+	pnpmStore: HomeDiskLeftover[];
+	playwrightCache: HomeDiskLeftover[];
 }): {
 	tmpItemCount: number;
 	tmpSizeBytes: number;
@@ -170,6 +211,10 @@ export function summarizeHomeDiskCleanup(scan: {
 	npmCacheSizeBytes: number;
 	nvmCacheItemCount: number;
 	nvmCacheSizeBytes: number;
+	pnpmStoreItemCount: number;
+	pnpmStoreSizeBytes: number;
+	playwrightCacheItemCount: number;
+	playwrightCacheSizeBytes: number;
 	nvmVersions: NvmVersionScanEntry[];
 } {
 	const sum = (items: HomeDiskLeftover[]) => items.reduce((total, item) => total + item.sizeBytes, 0);
@@ -180,6 +225,10 @@ export function summarizeHomeDiskCleanup(scan: {
 		npmCacheSizeBytes: sum(scan.npmCache),
 		nvmCacheItemCount: scan.nvmCache.length,
 		nvmCacheSizeBytes: sum(scan.nvmCache),
+		pnpmStoreItemCount: scan.pnpmStore.length,
+		pnpmStoreSizeBytes: sum(scan.pnpmStore),
+		playwrightCacheItemCount: scan.playwrightCache.length,
+		playwrightCacheSizeBytes: sum(scan.playwrightCache),
 		nvmVersions: scan.nvmVersions,
 	};
 }
@@ -191,6 +240,8 @@ export async function cleanHomeDiskCleanup(options: {
 	includeTmp?: boolean;
 	includeNpmCache?: boolean;
 	includeNvmCache?: boolean;
+	includePnpmStore?: boolean;
+	includePlaywrightCache?: boolean;
 	nvmVersions?: string[];
 }): Promise<{
 	cleaned: HomeDiskLeftover[];
@@ -210,6 +261,12 @@ export async function cleanHomeDiskCleanup(options: {
 	}
 	if (options.includeNvmCache) {
 		targets.push(...scan.nvmCache);
+	}
+	if (options.includePnpmStore) {
+		targets.push(...scan.pnpmStore);
+	}
+	if (options.includePlaywrightCache) {
+		targets.push(...scan.playwrightCache);
 	}
 	if (options.nvmVersions && options.nvmVersions.length > 0) {
 		const selected = new Set(options.nvmVersions);

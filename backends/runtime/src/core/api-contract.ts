@@ -3416,6 +3416,12 @@ export const runtimeClaudeCacheStatusResponseSchema = z.object({
 	/** `~/.nvm/.cache` download cache. */
 	nvmCacheItemCount: z.number().optional(),
 	nvmCacheSizeBytes: z.number().optional(),
+	/** pnpm package store, usually under `~/.pnpm-store` or `~/.local/share/pnpm/store`. */
+	pnpmStoreItemCount: z.number().optional(),
+	pnpmStoreSizeBytes: z.number().optional(),
+	/** Playwright browser binaries under `~/.cache/ms-playwright`. */
+	playwrightCacheItemCount: z.number().optional(),
+	playwrightCacheSizeBytes: z.number().optional(),
 	nvmVersions: z
 		.array(
 			z.object({
@@ -3460,6 +3466,8 @@ export const runtimeClaudeCacheCleanRequestSchema = z.object({
 	includeTmp: z.boolean().optional(),
 	includeNpmCache: z.boolean().optional(),
 	includeNvmCache: z.boolean().optional(),
+	includePnpmStore: z.boolean().optional(),
+	includePlaywrightCache: z.boolean().optional(),
 	nvmVersions: z.array(z.string()).optional(),
 	disposeMode: runtimeCleanupDisposeModeSchema.optional(),
 });
@@ -3485,6 +3493,8 @@ export const runtimeClaudeCacheCleanedItemSchema = z.object({
 		"tmp",
 		"npm-cache",
 		"nvm-cache",
+		"pnpm-store",
+		"playwright-cache",
 		"nvm-version",
 		"recycle-bin",
 	]),

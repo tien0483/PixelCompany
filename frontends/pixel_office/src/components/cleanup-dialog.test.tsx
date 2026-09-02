@@ -59,6 +59,10 @@ describe("CleanupDialog", () => {
 			npmCacheSizeBytes: 512,
 			nvmCacheItemCount: 1,
 			nvmCacheSizeBytes: 256,
+			pnpmStoreItemCount: 1,
+			pnpmStoreSizeBytes: 4096,
+			playwrightCacheItemCount: 1,
+			playwrightCacheSizeBytes: 8192,
 			nvmVersions: [{ version: "v22.0.0", path: "/home/x/.nvm/versions/node/v22.0.0", sizeBytes: 1000, inUse: false }],
 			recycleBinItemCount: 1,
 			recycleBinSizeBytes: 128,
@@ -262,6 +266,39 @@ describe("CleanupDialog", () => {
 		expect(mockShowAppToast).not.toHaveBeenCalledWith(expect.objectContaining({ message: "Cleanup complete" }));
 	});
 
+	it("includes enhanced home cleanup flags when pnpm and Playwright are selected", async () => {
+		mockCleanClaudeCache.mockResolvedValue({ ok: true, cleaned: [], skipped: [] });
+
+		await act(async () => {
+			root.render(
+				<TooltipProvider>
+					<CleanupDialog open={true} onOpenChange={() => {}} workspaceId={null} />
+				</TooltipProvider>,
+			);
+		});
+		await flush();
+
+		const pnpmStoreCheckbox = document.body.querySelector('[data-testid="cleanup-pnpm-store-checkbox"]') as HTMLElement;
+		const playwrightCacheCheckbox = document.body.querySelector(
+			'[data-testid="cleanup-playwright-cache-checkbox"]',
+		) as HTMLElement;
+		await act(async () => {
+			pnpmStoreCheckbox.click();
+			playwrightCacheCheckbox.click();
+		});
+		await flush();
+
+		const confirmButton = document.body.querySelector('[data-testid="cleanup-confirm-button"]') as HTMLButtonElement;
+		await act(async () => {
+			confirmButton.click();
+		});
+		await flush();
+
+		expect(mockCleanClaudeCache).toHaveBeenCalledWith(
+			expect.objectContaining({ includePnpmStore: true, includePlaywrightCache: true, dryRun: false }),
+		);
+	});
+
 	describe("worktree categories", () => {
 		const RECLAIMABLE = [
 			{
@@ -376,17 +413,19 @@ describe("CleanupDialog", () => {
 			});
 			await flush();
 
-		expect(mockCleanClaudeCache).toHaveBeenCalledWith(
-			expect.objectContaining({ includeLegacy: true, includeSafe: false, includeTranscripts: false }),
-		);
+			expect(mockCleanClaudeCache).toHaveBeenCalledWith(
+				expect.objectContaining({ includeLegacy: true, includeSafe: false, includeTranscripts: false }),
+			);
 		});
 
-		it("renders tmp/npm/nvm controls and recycle-bin disposal mode", async () => {
+		it("renders tmp/npm/nvm/pnpm/playwright controls and recycle-bin disposal mode", async () => {
 			await openDialog();
 
 			expect(document.body.querySelector('[data-testid="cleanup-tmp-checkbox"]')).not.toBeNull();
 			expect(document.body.querySelector('[data-testid="cleanup-npm-cache-checkbox"]')).not.toBeNull();
 			expect(document.body.querySelector('[data-testid="cleanup-nvm-cache-checkbox"]')).not.toBeNull();
+			expect(document.body.querySelector('[data-testid="cleanup-pnpm-store-checkbox"]')).not.toBeNull();
+			expect(document.body.querySelector('[data-testid="cleanup-playwright-cache-checkbox"]')).not.toBeNull();
 			expect(document.body.querySelector('[data-testid="cleanup-dispose-recycle-bin"]')).not.toBeNull();
 			expect(document.body.querySelector('[data-testid="cleanup-empty-recycle-bin-button"]')).not.toBeNull();
 		});

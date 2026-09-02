@@ -99,4 +99,26 @@ describe("home-disk-cleanup", () => {
 		expect(result.cleaned).toHaveLength(1);
 		expect(result.cleaned[0]?.tier).toBe("npm-cache");
 	});
+
+	it("scans and cleans pnpm store and Playwright cache tiers", async () => {
+		const pnpmStore = join(homeDir, ".pnpm-store", "v3");
+		const playwrightCache = join(homeDir, ".cache", "ms-playwright", "chromium");
+		mkdirSync(pnpmStore, { recursive: true });
+		mkdirSync(playwrightCache, { recursive: true });
+		writeFileSync(join(pnpmStore, "index.json"), "pnpm");
+		writeFileSync(join(playwrightCache, "chrome-linux.zip"), "pw");
+
+		const scan = await scanHomeDiskCleanup();
+		expect(scan.pnpmStore).toHaveLength(1);
+		expect(scan.playwrightCache).toHaveLength(1);
+
+		const result = await cleanHomeDiskCleanup({
+			dryRun: false,
+			disposeMode: "delete",
+			includePnpmStore: true,
+			includePlaywrightCache: true,
+		});
+		expect(result.cleaned.some((item) => item.tier === "pnpm-store")).toBe(true);
+		expect(result.cleaned.some((item) => item.tier === "playwright-cache")).toBe(true);
+	});
 });

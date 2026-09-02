@@ -404,6 +404,8 @@ export async function cleanClaudeCache(
 			includeTmp: options.includeTmp,
 			includeNpmCache: options.includeNpmCache,
 			includeNvmCache: options.includeNvmCache,
+			includePnpmStore: options.includePnpmStore,
+			includePlaywrightCache: options.includePlaywrightCache,
 			nvmVersions: options.nvmVersions,
 		});
 		for (const item of homeDiskResult.cleaned) {
