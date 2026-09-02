@@ -1490,6 +1490,21 @@ export const RuntimeOpenmaicStatusSchema = z.object({
 });
 export type RuntimeOpenmaicStatus = z.infer<typeof RuntimeOpenmaicStatusSchema>;
 
+export const RuntimeOpenmaicHealthSchema = z.object({
+	openmaicConfigured: z.boolean(),
+	asrReady: z.boolean(),
+	ttsReady: z.boolean(),
+	videoReady: z.boolean(),
+	/**
+	 * False means OpenMAIC is using only its own provider env/API keys; Manager account
+	 * subscriptions are not automatically forwarded into classroom provider calls.
+	 */
+	subscriptionSeatRoutingReady: z.boolean(),
+	/** Human-readable missing setup items; no secrets or key values. */
+	missingKeys: z.string().array(),
+});
+export type RuntimeOpenmaicHealth = z.infer<typeof RuntimeOpenmaicHealthSchema>;
+
 export const RuntimeFlowiseFlowSchema = z.object({
 	id: z.string().min(1),
 	name: z.string(),

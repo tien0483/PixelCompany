@@ -4,14 +4,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TooltipProvider } from "@/components/ui/tooltip";
 
-const { mockOpenmaicStatus } = vi.hoisted(() => ({
+const { mockOpenmaicStatus, mockOpenmaicHealth } = vi.hoisted(() => ({
 	mockOpenmaicStatus: vi.fn(),
+	mockOpenmaicHealth: vi.fn(),
 }));
 
 vi.mock("@/runtime/trpc-client", () => ({
 	getRuntimeTrpcClient: () => ({
 		openmaic: {
 			status: { query: mockOpenmaicStatus },
+			health: { query: mockOpenmaicHealth },
 		},
 	}),
 }));
@@ -40,6 +42,7 @@ describe("LearningView", () => {
 		document.body.appendChild(container);
 		root = createRoot(container);
 		mockOpenmaicStatus.mockReset();
+		mockOpenmaicHealth.mockReset();
 		currentThemeId = "light";
 	});
 
@@ -58,6 +61,14 @@ describe("LearningView", () => {
 			embeddable: true,
 			baseUrl: "http://127.0.0.1:3020",
 		});
+		mockOpenmaicHealth.mockResolvedValue({
+			openmaicConfigured: true,
+			asrReady: true,
+			ttsReady: true,
+			videoReady: false,
+			subscriptionSeatRoutingReady: false,
+			missingKeys: ["Video: configure a video generation provider API key"],
+		});
 
 		await act(async () => {
 			root.render(
@@ -71,6 +82,12 @@ describe("LearningView", () => {
 		const iframe = container.querySelector("iframe");
 		expect(iframe).not.toBeNull();
 		expect(iframe?.getAttribute("src")).toBe("http://127.0.0.1:3020?theme=light&themeId=light");
+		expect(iframe?.getAttribute("allow")).toBe("microphone; autoplay; camera");
+		expect(container.textContent).toContain("Speech recognition");
+		expect(container.textContent).toContain("Text to speech");
+		expect(container.textContent).toContain("Video generation");
+		expect(container.textContent).toContain("Subscription routing");
+		expect(container.textContent).toContain("Not auto-wired (uses OpenMAIC provider env keys)");
 	});
 
 	it("passes theme=dark and themeId query parameter to classroom iframe when theme is dark", async () => {
@@ -81,6 +98,14 @@ describe("LearningView", () => {
 			online: true,
 			embeddable: true,
 			baseUrl: "http://127.0.0.1:3020",
+		});
+		mockOpenmaicHealth.mockResolvedValue({
+			openmaicConfigured: true,
+			asrReady: true,
+			ttsReady: true,
+			videoReady: true,
+			subscriptionSeatRoutingReady: false,
+			missingKeys: [],
 		});
 
 		await act(async () => {
@@ -95,5 +120,6 @@ describe("LearningView", () => {
 		const iframe = container.querySelector("iframe");
 		expect(iframe).not.toBeNull();
 		expect(iframe?.getAttribute("src")).toBe("http://127.0.0.1:3020?theme=dark&themeId=graphite");
+		expect(iframe?.getAttribute("allow")).toBe("microphone; autoplay; camera");
 	});
 });
