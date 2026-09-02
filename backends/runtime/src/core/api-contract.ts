@@ -1512,8 +1512,8 @@ export const RuntimeOpenmaicHealthSchema = z.object({
 	ttsDetail: z.string().optional(),
 	videoDetail: z.string().optional(),
 	/**
-	 * False means OpenMAIC is using only its own provider env/API keys; Manager account
-	 * subscriptions are not automatically forwarded into classroom provider calls.
+	 * False means OmniRoute is not reachable through the PixelOffice proxy; OpenMAIC
+	 * falls back to manual provider env keys in `.env.local`.
 	 */
 	subscriptionSeatRoutingReady: z.boolean(),
 	subscriptionSeatRoutingDetail: z.string().optional(),

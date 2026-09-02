@@ -18,6 +18,7 @@ import {
 	resolveOpenmaicBaseUrl,
 	resolveOpenmaicPort,
 } from "../openmaic/openmaic-endpoint";
+import { type OmniRouteAudioProbeResult, probeOmniRouteAudioCapabilities } from "../openmaic/openmaic-omniroute-probe";
 import { probePort } from "../stack/stack-ports";
 import type { RuntimeTrpcContext } from "./app-router";
 
@@ -27,7 +28,7 @@ const GEMINI_API_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/mo
 
 const GEMINI_ENV_KEYS = ["GEMINI_API_KEY", "GOOGLE_API_KEY"];
 const ASR_PROVIDER_KEYS = ["ASR_OPENAI_API_KEY", "OPENAI_API_KEY", "AZURE_OPENAI_API_KEY", "DEEPGRAM_API_KEY"];
-const TTS_PROVIDER_KEYS = ["OPENAI_API_KEY", "ELEVENLABS_API_KEY", "MINIMAX_API_KEY", "AZURE_OPENAI_API_KEY"];
+const TTS_PROVIDER_KEYS = ["TTS_OPENAI_API_KEY", "OPENAI_API_KEY", "ELEVENLABS_API_KEY", "MINIMAX_API_KEY", "AZURE_OPENAI_API_KEY"];
 const VIDEO_PROVIDER_KEYS = ["KLING_ACCESS_KEY", "KLING_SECRET_KEY", "LUMA_API_KEY", "PIKA_API_KEY", "VEO3_API_KEY"];
 
 interface GeminiProbeResult {
@@ -58,12 +59,6 @@ interface OpenmaicCapabilityHealth {
 	detail?: string;
 }
 
-export interface OpenmaicSubscriptionProbeResults {
-	cursor: FlowiseLlmProxyProbeResult;
-	gemini: FlowiseLlmProxyProbeResult;
-	anthropic: FlowiseLlmProxyProbeResult;
-}
-
 export interface BuildOpenmaicHealthInput {
 	envMap: Map<string, string>;
 	hasEnvFile: boolean;
@@ -71,7 +66,8 @@ export interface BuildOpenmaicHealthInput {
 	asrSeatLabel: string | null;
 	geminiProbe: GeminiProbeResult | null;
 	proxySubscriptionWired: boolean;
-	subscriptionProbes: OpenmaicSubscriptionProbeResults | null;
+	omnirouteProbe: FlowiseLlmProxyProbeResult | null;
+	omnirouteAudioProbe: OmniRouteAudioProbeResult | null;
 }
 
 async function probeGeminiApiKey(apiKey: string): Promise<GeminiProbeResult> {
@@ -122,38 +118,22 @@ async function defaultResolveGeminiSeatSummary(monitor: ManagerMonitor | undefin
 	});
 }
 
-async function defaultProbeSubscriptionRoutes(): Promise<OpenmaicSubscriptionProbeResults | null> {
+async function defaultProbeOmniRouteSubscription(): Promise<FlowiseLlmProxyProbeResult | null> {
 	if (!isFlowiseLlmProxyEnabled()) {
 		return null;
 	}
-	const [cursor, gemini, anthropic] = await Promise.all([
-		probeFlowiseLlmProxyProvider("cursor"),
-		probeFlowiseLlmProxyProvider("gemini"),
-		probeFlowiseLlmProxyProvider("anthropic"),
-	]);
-	return { cursor, gemini, anthropic };
+	return await probeFlowiseLlmProxyProvider("openai");
 }
 
-function formatSubscriptionProbeDetail(probes: OpenmaicSubscriptionProbeResults): string {
-	const line = (label: string, probe: FlowiseLlmProxyProbeResult): string =>
-		probe.ok ? `${label}: ok` : `${label}: ${probe.detail ?? "route failed"}`;
-	return [line("Cursor", probes.cursor), line("Antigravity", probes.gemini), line("Claude", probes.anthropic)].join(
-		"; ",
-	);
+function formatOmniRouteProbeDetail(probe: FlowiseLlmProxyProbeResult): string {
+	return probe.ok ? "OmniRoute: ok" : `OmniRoute: ${probe.detail ?? "route failed"}`;
 }
 
 function subscriptionRoutesReady(input: BuildOpenmaicHealthInput): boolean {
 	if (input.proxySubscriptionWired) {
-		if (input.subscriptionProbes === null) {
-			return false;
-		}
-		return (
-			input.subscriptionProbes.cursor.ok &&
-			input.subscriptionProbes.gemini.ok &&
-			input.subscriptionProbes.anthropic.ok
-		);
+		return input.omnirouteProbe?.ok === true;
 	}
-	return input.seatSummary !== null;
+	return hasAnyConfigured(input.envMap, ["OMNIROUTE_API_KEY"]);
 }
 
 async function defaultResolveAsrSeatLabel(
@@ -218,7 +198,9 @@ export function createOpenmaicApi(deps: CreateOpenmaicApiDependencies = {}): Run
 			const geminiApiKey = resolveConfiguredSecret(envMap, GEMINI_ENV_KEYS);
 			const geminiProbe = geminiApiKey ? await probeGeminiKey(geminiApiKey) : null;
 			const proxySubscriptionWired = isFlowiseLlmProxyEnabled();
-			const subscriptionProbes = proxySubscriptionWired ? await defaultProbeSubscriptionRoutes() : null;
+			const omnirouteProbe = proxySubscriptionWired ? await defaultProbeOmniRouteSubscription() : null;
+			const omnirouteAudioProbe =
+				proxySubscriptionWired && asrSeatLabel !== null ? await probeOmniRouteAudioCapabilities() : null;
 			return buildOpenmaicHealth({
 				envMap,
 				hasEnvFile: existsSync(envPath),
@@ -226,7 +208,8 @@ export function createOpenmaicApi(deps: CreateOpenmaicApiDependencies = {}): Run
 				asrSeatLabel,
 				geminiProbe,
 				proxySubscriptionWired,
-				subscriptionProbes,
+				omnirouteProbe,
+				omnirouteAudioProbe,
 			});
 		},
 	};
@@ -286,13 +269,16 @@ function buildCapabilityHealth({
 export function buildOpenmaicHealth(input: BuildOpenmaicHealthInput): RuntimeOpenmaicHealth {
 	const geminiAvailable = input.seatSummary !== null || hasAnyConfigured(input.envMap, GEMINI_ENV_KEYS);
 	const seatLabel = input.seatSummary?.accountLabel ?? null;
-	const asrSeatWired = isFlowiseLlmProxyEnabled() && input.asrSeatLabel !== null;
-	const asr = asrSeatWired
+	const mediaSeatWired = isFlowiseLlmProxyEnabled() && input.asrSeatLabel !== null;
+	const asr = mediaSeatWired
 		? {
 				ready: true,
 				source: "provider-api-key" as const,
-				verified: false,
-				detail: `Whisper ASR routed via Manager API seat (${input.asrSeatLabel}) through PixelOffice proxy.`,
+				verified: input.omnirouteAudioProbe?.asr === true,
+				detail:
+					input.omnirouteAudioProbe?.asr === true
+						? `Whisper ASR routed via Manager API seat (${input.asrSeatLabel}) through OmniRoute.`
+						: `Whisper ASR routed via Manager API seat (${input.asrSeatLabel}) through PixelOffice proxy.`,
 			}
 		: buildCapabilityHealth({
 				// Gemini seat routing is for LLM proxy paths only — OpenMAIC has no Gemini ASR backend.
@@ -304,15 +290,25 @@ export function buildOpenmaicHealth(input: BuildOpenmaicHealthInput): RuntimeOpe
 				providerLabel: "Server ASR provider key configured (e.g. ASR_OPENAI_API_KEY).",
 				seatLabel: null,
 			});
-	const tts = buildCapabilityHealth({
-		geminiAvailable,
-		geminiProbe: input.geminiProbe,
-		browserEnabled: isFeatureEnabled(input.envMap, "TTS_BROWSER_NATIVE_ENABLED"),
-		providerFallbackReady: hasAnyConfigured(input.envMap, TTS_PROVIDER_KEYS),
-		browserLabel: "Browser-native TTS enabled; browser runtime itself is not probed server-side.",
-		providerLabel: "TTS fallback provider key configured (non-Gemini).",
-		seatLabel,
-	});
+	const tts = mediaSeatWired
+		? {
+				ready: true,
+				source: "provider-api-key" as const,
+				verified: input.omnirouteAudioProbe?.tts === true,
+				detail:
+					input.omnirouteAudioProbe?.tts === true
+						? `OpenAI TTS routed via Manager API seat (${input.asrSeatLabel}) through OmniRoute.`
+						: `OpenAI TTS routed via Manager API seat (${input.asrSeatLabel}) through PixelOffice proxy.`,
+			}
+		: buildCapabilityHealth({
+				geminiAvailable,
+				geminiProbe: input.geminiProbe,
+				browserEnabled: isFeatureEnabled(input.envMap, "TTS_BROWSER_NATIVE_ENABLED"),
+				providerFallbackReady: hasAnyConfigured(input.envMap, TTS_PROVIDER_KEYS),
+				browserLabel: "Browser-native TTS enabled; browser runtime itself is not probed server-side.",
+				providerLabel: "TTS fallback provider key configured (non-Gemini).",
+				seatLabel,
+			});
 	const video = buildCapabilityHealth({
 		geminiAvailable,
 		geminiProbe: input.geminiProbe,
@@ -348,12 +344,12 @@ export function buildOpenmaicHealth(input: BuildOpenmaicHealthInput): RuntimeOpe
 		videoDetail: video.detail,
 		subscriptionSeatRoutingReady: subscriptionReady,
 		subscriptionSeatRoutingDetail: input.proxySubscriptionWired
-			? input.subscriptionProbes === null
-				? "PixelOffice proxy routes are not probeable."
-				: formatSubscriptionProbeDetail(input.subscriptionProbes)
-			: input.seatSummary === null
-				? "No Gemini seat credential detected."
-				: `Gemini seat routing is available${input.seatSummary.accountLabel ? ` (${input.seatSummary.accountLabel})` : ""}.`,
+			? input.omnirouteProbe === null
+				? "OmniRoute proxy route is not probeable."
+				: formatOmniRouteProbeDetail(input.omnirouteProbe)
+			: hasAnyConfigured(input.envMap, ["OMNIROUTE_API_KEY"])
+				? "OmniRoute credentials configured in OpenMAIC env."
+				: "OmniRoute proxy unreachable — check Seats and restart OpenMAIC.",
 		missingKeys,
 	};
 }
@@ -483,8 +479,8 @@ function collectMissingCapabilityKeys({
 	if (!seatRoutingReady) {
 		missing.push(
 			proxySubscriptionWired
-				? "Subscription proxy routes (Cursor/Antigravity/Claude) are not all reachable — check Seats and restart OpenMAIC"
-				: "Subscriptions (Antigravity/Cursor/Claude) are not auto-wired into OpenMAIC",
+				? "OmniRoute proxy route is not reachable — check Seats and restart OpenMAIC"
+				: "OmniRoute is not auto-wired into OpenMAIC",
 		);
 	}
 	return missing;

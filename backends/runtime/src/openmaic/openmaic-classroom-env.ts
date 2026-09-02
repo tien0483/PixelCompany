@@ -9,33 +9,22 @@ export const OPENMAIC_SEAT_PLACEHOLDER_KEY = "pixeloffice-seat";
 
 /**
  * Server-managed subscription + media env for the OpenMAIC classroom supervisor.
- * OpenMAIC reads these at process start via `provider-config.ts` (LLM_ENV_MAP / IMAGE_ENV_MAP).
+ * OpenMAIC reads these at process start via `provider-config.ts` (LLM_ENV_MAP / TTS_ENV_MAP).
  */
 export function applyOpenmaicClassroomProxyEnv(env: NodeJS.ProcessEnv): void {
 	if (!isFlowiseLlmProxyEnabled()) {
 		return;
 	}
-	const cursorBase = `${resolveFlowiseLlmProxyProviderUrl("cursor")}/v1`;
-	const anthropicBase = `${resolveFlowiseLlmProxyProviderUrl("anthropic")}/v1`;
-	const geminiBase = `${resolveFlowiseLlmProxyProviderUrl("gemini")}/v1beta`;
 	const openaiBase = `${resolveFlowiseLlmProxyProviderUrl("openai")}/v1`;
 
-	env.CURSOR_API_KEY = OPENMAIC_SEAT_PLACEHOLDER_KEY;
-	env.CURSOR_BASE_URL = cursorBase;
-	env.ANTIGRAVITY_API_KEY = OPENMAIC_SEAT_PLACEHOLDER_KEY;
-	env.ANTIGRAVITY_BASE_URL = geminiBase;
-	env.ANTHROPIC_API_KEY = OPENMAIC_SEAT_PLACEHOLDER_KEY;
-	env.ANTHROPIC_BASE_URL = anthropicBase;
+	env.OMNIROUTE_API_KEY = OPENMAIC_SEAT_PLACEHOLDER_KEY;
+	env.OMNIROUTE_BASE_URL = openaiBase;
 
 	env.ASR_OPENAI_BASE_URL = openaiBase;
 	env.ASR_OPENAI_API_KEY = OPENMAIC_SEAT_PLACEHOLDER_KEY;
 
-	env.IMAGE_OPENAI_API_KEY = OPENMAIC_SEAT_PLACEHOLDER_KEY;
-	env.IMAGE_OPENAI_BASE_URL = cursorBase;
-	env.IMAGE_NANO_BANANA_API_KEY = OPENMAIC_SEAT_PLACEHOLDER_KEY;
-	env.IMAGE_NANO_BANANA_BASE_URL = geminiBase;
-
-	env.TTS_BROWSER_NATIVE_ENABLED = "true";
+	env.TTS_OPENAI_BASE_URL = openaiBase;
+	env.TTS_OPENAI_API_KEY = OPENMAIC_SEAT_PLACEHOLDER_KEY;
 }
 
 /**
