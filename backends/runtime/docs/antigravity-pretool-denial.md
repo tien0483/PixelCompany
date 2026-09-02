@@ -25,8 +25,12 @@ In this repository, the agy hook wiring is runtime-generated and currently route
 
 ## Commit Provenance
 
-- `7b77d78072184d75707042d523eb37df15ab2346` introduced agy-native `.agents/hooks.json` delivery.
 - `6b755df4758500862b7681848395af33183caf0a` added agy/gemini event mapping improvements.
+- `7b77d78072184d75707042d523eb37df15ab2346` introduced agy-native `.agents/hooks.json` delivery.
+- `f91de5c0ded4f1d048cb6d1bd7a75e445fb4fd42` made `hooks gemini-hook` acknowledge immediately (`{}`) before processing payload, so PreToolUse hook failures fail open.
+- `07422d6822cdec809fb8f2fc7fa6e95efb473834` fixed the generated PreToolUse wrapper to ack before any stdin read (`printf` before `cat`) and avoid shell-init side effects (`bash -c`).
+
+When investigating an affected workspace, a stale `.agents/hooks.json` that still uses the old `INPUT=$(cat ...) ... printf '{}'` wrapper is a known deadlock signature.
 
 ## Recovery Checklist
 
