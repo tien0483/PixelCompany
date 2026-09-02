@@ -1,0 +1,81 @@
+---
+title: "Multi-Account Seats"
+description: "How PIXTiel eliminates provider rate limits through multi-seat accounts, usage-aware swapping, and subagent quota isolation."
+order: 3
+---
+
+# Multi-Account Seat Management
+
+When orchestrating autonomous agents on complex tasks, hitting provider usage ceilings (such as Claude's 5-hour rolling token cap) can strand long-running tasks mid-execution. PIXTiel introduces **Seat Management** to turn rate limits into scheduled, self-healing events.
+
+---
+
+## What is a Seat?
+
+A **Seat** in PIXTiel represents a distinct account identity configured with:
+
+1. **Authentication State**: An OAuth session or API key.
+2. **Git Identity**: Committer name and email tied to the specific account.
+3. **Usage Window Snapshot**: Real-time tracking of 5-hour utilization percentage and token consumption.
+4. **Role Assignment**: Designating the seat for primary card execution, team donation, or subagent tasks.
+
+---
+
+## The 5-Hour Rate Limit Problem
+
+In conventional AI workflows:
+- A large refactor hits the 5-hour cap 80% through execution.
+- The session terminates.
+- You must wait hours for the window to reset, re-explain the architectural context from scratch, and burn another token quota catching up.
+
+PIXTiel tackles this problem with **Auto-Failover & Intelligent Parking**:
+
+```
+[Agent Active] ──► [Cap Reached (5h)] ──► [Save Workspace Checkpoint]
+                                                      │
+                                                      ▼
+[Resume --continue] ◄── [Window Cleared] ◄── [Escalating Backoff]
+        │
+   (or Failover)
+        │
+        ▼
+[Switch to Standby Seat] ──► [Continue Execution]
+```
+
+1. **State Preservation**: When a card hits the rate limit wall, PIXTiel halts the agent gracefully, capturing current file edits, git refs, and turn checkpoints.
+2. **Usage-Aware Backoff**: The runner periodically samples live usage snapshots with escalating backoff to avoid waking directly into another rate-limit spike.
+3. **Seamless Resume**: Once the window resets, the card resumes execution automatically using `--continue` without losing memory or context.
+4. **Standby Swapping**: If multiple seats are registered, PIXTiel automatically promotes a standby seat to take over the card immediately.
+
+---
+
+## Subagent Quota Isolation
+
+Complex coding tasks often invoke subagents for specialized subroutines:
+- Codebase researchers and symbol lookups
+- Test runners and linter passes
+- Knowledge graph indexing and AST parsers
+
+If subagents share your primary OAuth seat, orchestration overhead burns your developer token allowance before real code gets written.
+
+PIXTiel provides **Subagent Seats**:
+
+```
+Task Card (Primary Seat: OAuth Account A)
+   │
+   ├── Subagent 1: Research (Subagent Seat: API Key B)
+   ├── Subagent 2: Test Suite (Subagent Seat: API Key B)
+   └── Subagent 3: AST Indexer (Subagent Seat: API Key B)
+```
+
+- Subagents execute against a separate secondary seat or API key.
+- Your primary OAuth quota remains dedicated to the core coding agent.
+
+---
+
+## Configuring Seats in the UI
+
+1. Open **Settings** (shortcut: `Ctrl+Shift+S`) or click **Manager** in the sidebar.
+2. View registered accounts, current usage percentages, and rate-limit countdown timers.
+3. Mark seats as **Active**, **Standby**, or **Donate / Shared Team Pool**.
+4. When launching a task card, assign the **Primary Seat** and **Subagent Seat** directly from the launch settings modal.

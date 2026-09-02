@@ -1,0 +1,82 @@
+---
+title: "Agent CLIs & Skills"
+description: "Supported agent harnesses, per-card execution pinning, built-in skill shelves, and token optimization with RTK and Caveman."
+order: 4
+---
+
+# Agent CLIs & Skills Shelves
+
+PIXTiel decouples your workflow from any single AI vendor. The kanban board provides a swappable harness layer that supports leading AI developer tools while standardizing worktree isolation, checkpointing, and token budgeting.
+
+---
+
+## Supported Agent Harnesses
+
+PIXTiel natively orchestrates the following developer agents:
+
+| Agent Harness | Launch Mode | Best For | Capabilities |
+|---|---|---|---|
+| **Claude Code** | Native CLI / OAuth | Complex refactoring, full repo tasks | Terminal execution, multi-file diffs, subagents |
+| **Cursor** | Composer Agent | Rapid feature prototyping | Fast completion, targeted edits |
+| **Cline** | API Key / OpenRouter | Custom models & budget control | Multi-provider fallback, step inspection |
+| **Antigravity** | Headless CLI / Hooks | Autonomous task workflows | Subagent trees, reactive hooks, artifacts |
+| **OpenCode** | Local / Open Source | Air-gapped / on-premise execution | Self-hosted LLM endpoints |
+
+---
+
+## Per-Card Pinning & Launch Settings
+
+Every card on the board can be configured independently prior to launch:
+
+```
+┌────────────────────────────────────────────────────────┐
+│ Task Configuration: [Feature: Add OAuth JWKS Auth]    │
+├────────────────────────────────────────────────────────┤
+│ Harness:          [ Claude Code                     ▼] │
+│ Model:            [ claude-3-7-sonnet-20250219       ▼] │
+│ Reasoning Effort: [ High (32k thinking tokens)      ▼] │
+│ Primary Seat:     [ Account #1 (Anthropic Pro)      ▼] │
+│ Subagent Seat:    [ Account #2 (OpenRouter API)     ▼] │
+│ Base Branch:      [ main                            ▼] │
+│ Skills Shelf:     [✓ RTK  ✓ Caveman  ✓ Understand   ▼] │
+└────────────────────────────────────────────────────────┘
+```
+
+- **Harness & Model Selection**: Choose the exact model and reasoning level needed for the task's complexity.
+- **Allowed Tools & Command Allowlists**: Restrict dangerous shell commands or destructive filesystem operations per card.
+- **Base Branch Pinning**: The card's base branch is locked at worktree creation to guarantee clean merges even if upstream `main` advances.
+
+---
+
+## Built-in Skills Shelves
+
+PIXTiel includes a curated catalog of 30+ reusable skills mounted into the agent's runtime environment:
+
+### Token & Efficiency Shelves
+
+- **RTK (Rust Tool Kit)**: Low-token binary replacements for `grep`, `ls`, `find`, `read`, and `test` runners. Measured **88.9% token savings** across 3,800+ shell calls.
+- **Caveman Mode**: Strips unnecessary conversational filler and preamble, cutting response token volume by **~75%** while retaining full technical precision.
+- **Headroom Proxy**: Request-level token deduplication proxy that optimizes prompt caching and strips repeated headers.
+
+### Codebase & Analysis Shelves
+
+- **Understand-Anything**: Pre-indexes the codebase into an interactive knowledge graph. Multi-file architectural queries resolve in a single graph lookup instead of 10+ expensive file reads.
+- **review-papp**: Automated domain-specific code review engine for modern frontend and backend architectures.
+- **wgpu_orchestrator**: Specialized pipeline manager for high-performance graphics and compute shaders.
+
+---
+
+## Enabling Skills on a Project
+
+Skills can be enabled globally in your project settings or toggled on individual task cards via the **Stack Switchboard**:
+
+```bash
+# Skills reside in your local repository under:
+.agent/skills/
+├── rtk/
+├── caveman/
+├── understand/
+└── review-papp/
+```
+
+Agents discover and invoke these skills automatically during task execution without manual prompting.

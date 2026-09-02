@@ -1,0 +1,130 @@
+---
+title: "Installation & Setup"
+description: "Comprehensive guide to installing, configuring, and updating PIXTiel across Ubuntu Linux and Windows WSL2 environments."
+order: 2
+---
+
+# Installation & Setup
+
+PIXTiel provides a fast, zero-sudo installer that sets up the full multi-agent runtime, isolated supervisor, and web services in user-local directories.
+
+---
+
+## Platform Requirements & Limits
+
+- **Operating System**: Ubuntu 22.04 LTS+, Debian 12+, or Windows 11 with WSL2 (Ubuntu distribution).
+- **Filesystem (Critical)**: Must be installed on a **native Linux filesystem** (`ext4` under `/home/username/...`). WSL mounted paths (`/mnt/c/...` or `/mnt/d/...` via 9p) deadlock during package resolution and worktree git operations.
+- **Node.js**: Version ≥ 22.12.0 (managed automatically via NVM in user space).
+- **Python**: Version ≥ 3.10 (managed automatically via `uv` in user space).
+- **Permissions**: Zero root (`sudo`) required. All binaries, virtual environments, and caches live under `~/.nvm`, `~/.local`, and `~/.agent`.
+
+---
+
+## Interactive TUI Installation
+
+For an interactive setup with raw-mode component selection:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/tien0483/PixelCompany/main/install.sh | bash
+```
+
+The installer presents a checkbox interface to choose exactly which services to install:
+
+```text
+  ██████╗ ██╗██╗  ██╗████████╗██╗███████╗██╗     
+  ██╔══██╗██║╚██╗██╔╝╚══██╔══╝██║██╔════╝██║     
+  ██████╔╝██║ ╚███╔╝    ██║   ██║█████╗  ██║     
+  ██╔═══╝ ██║ ██╔██╗    ██║   ██║██╔══╝  ██║     
+  ██║     ██║██╔╝ ██╗   ██║   ██║███████╗███████╗
+  ╚═╝     ╚═╝╚═╝  ╚═╝   ╚═╝   ╚═╝╚══════╝╚══════╝
+
+  [x] Agent Stack     (Worktree supervisor, session runner, checkpoints)
+  [x] Kanban          (Web UI, boards, project switchboard)
+  [x] Plan Editor     (Interactive HTML planning, AI diff refine)
+  [ ] OmniRoute       (LLM routing and model proxy)
+  [ ] Review          (GitLab MR diff viewer and comment routing)
+  [ ] Agent Creation  (Flowise drag-and-drop studio canvas)
+```
+
+---
+
+## Feature Manifest Table
+
+The installer recognizes the following modular components:
+
+| Feature Identifier | Component Name | Description | Default |
+|---|---|---|---|
+| `agent_stack` | **Agent Stack** | Worktree lifecycle supervisor, turn checkpoints, agent runner | **Enabled** |
+| `kanban` | **Kanban UI** | React + Vite frontend, local runtime server (`:3484`) | **Enabled** |
+| `plan_editor` | **Plan Editor** | HTML plan scaffold, AI-assisted diff editor, sub-plan fanning | **Enabled** |
+| `review` | **Review Viewer** | GitLab-style MR diff viewer and agent comment routing | Optional |
+| `omniroute` | **OmniRoute** | Multi-provider reverse proxy, token budgeting, failover | Optional |
+| `flowise` | **Agent Studio** | Flowise visual canvas for drag-and-drop agent chains | Optional |
+| `openmaic` | **Learning Room** | OpenMAIC multi-agent classroom and knowledge indexing | Optional |
+
+---
+
+## Non-TTY & Automated Installs
+
+For headless environments, CI pipelines, or scriptable setups, pass the `--features` flag or preset flags:
+
+```bash
+# Install with specific components:
+./scripts/install/install.mjs --features=agent_stack,kanban,plan_editor
+
+# Install all available components:
+./scripts/install/install.mjs --all
+
+# Minimal headless install:
+./scripts/install/install.mjs --minimal
+```
+
+---
+
+## Install State & Manifest
+
+The installer writes its configuration atomically to `.pixtiel/install-manifest.json` in your repository root:
+
+```json
+{
+  "version": "1.0.131",
+  "installedAt": "2026-09-01T23:30:00.000Z",
+  "features": [
+    "agent_stack",
+    "kanban",
+    "plan_editor"
+  ],
+  "nodeVersion": "24.20.0",
+  "platform": "linux"
+}
+```
+
+If you re-run the installer, it reads the manifest, presents your previous selections, and applies only the necessary changes.
+
+---
+
+## Updating PIXTiel
+
+To update your workspace to the latest release and rebuild active features:
+
+```bash
+pnpm run update-tenant
+```
+
+To run only the core development stack:
+
+```bash
+pnpm run solo
+```
+
+---
+
+## Windows Native & Offline Installations
+
+For Windows users who prefer a native `.exe` or bundled source distribution rather than WSL2 bash:
+
+- **Offline One-File Installer**: A self-contained Inno Setup installer (`PixelOffice-Setup.exe`) is available that bundles Node, Python, and the pre-built UI into a standard Windows installer under `%LOCALAPPDATA%\PixelOffice`.
+- **Node Bundle Installer**: A zero-git zip bundle (`PixelOffice-windows.zip` with `PixelOffice-Setup.cmd`).
+- **PowerShell Shortcut Setup**: Direct `.ps1` launcher scripts pointing to existing local clones (`Install-PixelOfficeShortcut.ps1`).
+
+For detailed instructions on building or running the Windows standalone bundle, refer to `scripts/windows/README.md` in the repository.

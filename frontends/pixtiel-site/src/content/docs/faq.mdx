@@ -1,0 +1,80 @@
+---
+title: "Frequently Asked Questions"
+description: "Answers to common questions about PIXTiel architecture, worktree isolation, seat management, security, and troubleshooting."
+order: 6
+---
+
+# Frequently Asked Questions
+
+---
+
+## General & Architecture
+
+### What makes PIXTiel different from standard AI coding assistants?
+
+Standard AI coding tools operate in a single conversational thread directly on your primary working directory. PIXTiel is a complete multi-agent orchestration workspace where:
+- Every card runs in an **isolated git worktree** with its own branch.
+- Up to 3–4 agents execute in parallel without cross-contamination.
+- Multi-seat management prevents 5-hour rate-limit stalls through automated parking and failover.
+- Planning and code reviews are structured visual phases rather than scrollback chats.
+
+### Where does my project data and code live?
+
+All project data, task configurations, git branches, and session logs reside strictly on your local disk under `~/.agent` and within your repository's local worktree directories. PIXTiel does not send your code or telemetry to any external proprietary cloud service.
+
+### What agent CLIs and harnesses are supported?
+
+PIXTiel supports:
+- **Claude Code** (Native CLI and Anthropic OAuth)
+- **Cursor** (Composer Agent)
+- **Cline** (API Key mode with OpenRouter / Anthropic / OpenAI)
+- **Antigravity** (Autonomous agent engine)
+- **OpenCode** (Local and self-hosted models)
+
+---
+
+## Workspace & Worktrees
+
+### How does worktree isolation prevent file conflicts?
+
+When a task card is moved to **In Progress**, PIXTiel creates a dedicated git worktree (`.agent/worktrees/<task-id>/`) branched from the locked base reference. All file reads, writes, tests, and git commits by that agent occur exclusively within that isolated worktree. Other active agents work simultaneously in separate directories without lock contention.
+
+### What happens if a task worktree is accidentally deleted?
+
+PIXTiel maintains automatic **Turn Checkpoints** at `refs/kanban/checkpoints/` and patches under `~/.agent/kanban/trashed-task-patches/`. If a worktree is accidentally purged or closed mid-task, you can restore all uncommitted edits and history with a single click.
+
+### Can I chain dependent tasks together?
+
+Yes. You can declare dependencies between cards on the board. Dependent cards remain queued until their parent card passes code review and lands on the base branch, ensuring followers always inherit the latest merged code.
+
+---
+
+## Seats & Quotas
+
+### How does multi-seat failover handle the 5-hour Anthropic cap?
+
+When an agent hits Anthropic's 5-hour token cap, PIXTiel automatically parks the task, preserves working state, and begins monitoring live usage snapshots. If a secondary or standby seat is configured, execution immediately fails over to the standby seat. Otherwise, PIXTiel waits with escalating backoff and automatically resumes execution with `--continue` once the cap resets.
+
+### What are subagent seats and why do they matter?
+
+Orchestration tasks (such as symbol search, test execution, or knowledge graph parsing) often spawn subagents. If subagents share your primary OAuth token, they quickly consume your developer quota. PIXTiel allows subagents to bill against a dedicated secondary API key, keeping your primary developer seat available.
+
+---
+
+## Installation & System
+
+### What does the installer change on my operating system?
+
+The PIXTiel installer operates strictly in user space:
+- Manages Node.js via NVM (`~/.nvm`).
+- Manages Python tools via `uv` (`~/.local/bin/uv`).
+- Stores configurations in `~/.agent` and `.pixtiel/`.
+- **Zero sudo or root permissions** are required, and no system-level libraries are modified.
+
+### Why is a native Linux filesystem (ext4) required?
+
+Running developer tools and git worktrees over WSL 9p mounts (`/mnt/c/...` or `/mnt/d/...`) introduces significant file-system latency and file-locking deadlocks during dependency installation and parallel git branch operations. Native Linux filesystems (`/home/username/...` on ext4) guarantee standard POSIX semantics and full I/O throughput.
+
+### Can I access PIXTiel remotely across my local network?
+
+Yes. PIXTiel provides local loopback binding by default for security, with built-in passcode protection and Google OIDC authentication for secure remote access over local networks or VPNs.
