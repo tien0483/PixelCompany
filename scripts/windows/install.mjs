@@ -161,7 +161,7 @@ function findRepoRoot(extractDir) {
 		const nested = join(extractDir, kids[0].name);
 		if (existsSync(join(nested, "package.json"))) return nested;
 	}
-	throw new Error("Extracted archive is not a PixelOffice repo root (missing package.json).");
+	throw new Error("Extracted archive is not a PIXTiel repo root (missing package.json).");
 }
 
 function copyTree(src, dest) {
@@ -310,7 +310,7 @@ $sc = $wsh.CreateShortcut(${JSON.stringify(shortcutPath)})
 $sc.TargetPath = ${JSON.stringify(targetPath)}
 $sc.Arguments = ${JSON.stringify(args || "")}
 $sc.WorkingDirectory = ${JSON.stringify(workingDirectory || "")}
-$sc.Description = ${JSON.stringify(description || "PixelOffice")}
+$sc.Description = ${JSON.stringify(description || "PIXTiel")}
 $sc.WindowStyle = 7
 $sc.Save()
 `;
@@ -340,10 +340,10 @@ function installShortcuts(base) {
 	);
 	mkdirSync(startMenu, { recursive: true });
 	const targets = [
-		{ dir: desktop, name: "PixelOffice.lnk", cmd: launchCmd, desc: "Launch PixelOffice" },
-		{ dir: desktop, name: "PixelOffice Stop.lnk", cmd: stopCmd, desc: "Stop PixelOffice stack" },
-		{ dir: startMenu, name: "PixelOffice.lnk", cmd: launchCmd, desc: "Launch PixelOffice" },
-		{ dir: startMenu, name: "PixelOffice Stop.lnk", cmd: stopCmd, desc: "Stop PixelOffice stack" },
+		{ dir: desktop, name: "PIXTiel.lnk", cmd: launchCmd, desc: "Launch PIXTiel" },
+		{ dir: desktop, name: "PIXTiel Stop.lnk", cmd: stopCmd, desc: "Stop PIXTiel stack" },
+		{ dir: startMenu, name: "PIXTiel.lnk", cmd: launchCmd, desc: "Launch PIXTiel" },
+		{ dir: startMenu, name: "PIXTiel Stop.lnk", cmd: stopCmd, desc: "Stop PIXTiel stack" },
 	];
 	for (const t of targets) {
 		if (!existsSync(t.dir)) continue;
@@ -398,7 +398,7 @@ async function main() {
 	}
 
 	console.log("");
-	console.log("PixelOffice full setup (Windows-native, user-scope)");
+	console.log("PIXTiel full setup (Windows-native, user-scope)");
 	console.log("");
 
 	const here = __dirname;
@@ -437,7 +437,7 @@ async function main() {
 	console.log("Setup complete.");
 	console.log(`  App:       ${destApp}`);
 	console.log(`  Config:    ${configPath(base)}`);
-	console.log("  Shortcuts: Desktop / Start Menu — PixelOffice, PixelOffice Stop");
+	console.log("  Shortcuts: Desktop / Start Menu — PIXTiel, PIXTiel Stop");
 	console.log("");
 	console.log("Uninstall:");
 	console.log(`  ${join(base, "PixelOffice-Uninstall.cmd")}`);
@@ -445,7 +445,7 @@ async function main() {
 
 	if (opts.launch) {
 		const launch = join(base, "launch.mjs");
-		console.log("Launching PixelOffice...");
+		console.log("Launching PIXTiel...");
 		run(process.execPath, [launch], base);
 	}
 }

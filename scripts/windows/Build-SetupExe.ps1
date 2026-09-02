@@ -40,7 +40,7 @@ $companionFiles = @(
 )
 
 try {
-	Write-Host "Building PixelOffice Setup.exe..."
+	Write-Host "Building PIXTiel Setup.exe..."
 	Write-Host "  Source dir: $here"
 	Write-Host "  Output dir: $OutputDir"
 
@@ -106,10 +106,10 @@ try {
 		inputFile  = $staging
 		outputFile = $outExe
 		noConsole  = $false
-		title      = "PixelOffice Setup"
-		description = "PixelOffice Windows full setup"
-		company    = "PixelOffice"
-		product    = "PixelOffice Setup"
+		title      = "PIXTiel Setup"
+		description = "PIXTiel Windows full setup"
+		company    = "PIXTiel"
+		product    = "PIXTiel Setup"
 	}
 	if (Test-Path -LiteralPath $iconDst) {
 		$ps2exeParams["iconFile"] = $iconDst

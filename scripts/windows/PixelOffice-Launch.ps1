@@ -28,7 +28,7 @@ try {
 
 	$alreadyUp = Test-PixelOfficePortOpen -HostName $parts.Host -Port $parts.Port
 	if (-not $alreadyUp) {
-		Write-Host "PixelOffice not running on $($parts.Host):$($parts.Port) — starting ($($config.Runtime))..."
+		Write-Host "PIXTiel not running on $($parts.Host):$($parts.Port) — starting ($($config.Runtime))..."
 		Start-PixelOfficeStack -Config $config
 		$ready = Wait-PixelOfficeReady -Url $url -TimeoutSec 120
 		if (-not $ready) {
@@ -38,14 +38,14 @@ try {
 			else {
 				"Check the minimized WSL window and that the Linux repo path is on ext4 (not /mnt/...)."
 			}
-			Show-PixelOfficeMessage -Kind Error -Title "PixelOffice" -Message (
+			Show-PixelOfficeMessage -Kind Error -Title "PIXTiel" -Message (
 				"Timed out waiting for $url`n`n$hint"
 			)
 			exit 1
 		}
 	}
 	else {
-		Write-Host "PixelOffice already listening on $($parts.Host):$($parts.Port)"
+		Write-Host "PIXTiel already listening on $($parts.Host):$($parts.Port)"
 	}
 
 	if (-not $NoUi) {
@@ -54,6 +54,6 @@ try {
 	exit 0
 }
 catch {
-	Show-PixelOfficeMessage -Kind Error -Title "PixelOffice" -Message $_.Exception.Message
+	Show-PixelOfficeMessage -Kind Error -Title "PIXTiel" -Message $_.Exception.Message
 	exit 1
 }

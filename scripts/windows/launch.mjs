@@ -15,7 +15,7 @@ function installDir() {
 function readConfig() {
 	const path = join(installDir(), "config.json");
 	if (!existsSync(path)) {
-		throw new Error(`PixelOffice config not found: ${path}\nRun install.mjs first.`);
+		throw new Error(`PIXTiel config not found: ${path}\nRun install.mjs first.`);
 	}
 	return JSON.parse(readFileSync(path, "utf8"));
 }
@@ -103,7 +103,7 @@ async function main() {
 		if (!repo || !existsSync(join(repo, "package.json"))) {
 			throw new Error(`WindowsRepoPath missing or invalid: ${repo}`);
 		}
-		console.log(`PixelOffice not running on ${host}:${port} — starting (windows)...`);
+		console.log(`PIXTiel not running on ${host}:${port} — starting (windows)...`);
 		startSolo(repo);
 		const ready = await waitReady(url, 120);
 		if (!ready) {
@@ -112,7 +112,7 @@ async function main() {
 			);
 		}
 	} else {
-		console.log(`PixelOffice already listening on ${host}:${port}`);
+		console.log(`PIXTiel already listening on ${host}:${port}`);
 	}
 
 	if (!noUi) {
@@ -129,7 +129,7 @@ main().catch((err) => {
 			"-ExecutionPolicy",
 			"Bypass",
 			"-Command",
-			`Add-Type -AssemblyName PresentationFramework; [System.Windows.MessageBox]::Show(${JSON.stringify(String(err?.message ?? err))}, 'PixelOffice')`,
+			`Add-Type -AssemblyName PresentationFramework; [System.Windows.MessageBox]::Show(${JSON.stringify(String(err?.message ?? err))}, 'PIXTiel')`,
 		],
 		{ windowsHide: true },
 	);

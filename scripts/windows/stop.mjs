@@ -13,7 +13,7 @@ function installDir() {
 function readConfig() {
 	const path = join(installDir(), "config.json");
 	if (!existsSync(path)) {
-		throw new Error(`PixelOffice config not found: ${path}`);
+		throw new Error(`PIXTiel config not found: ${path}`);
 	}
 	return JSON.parse(readFileSync(path, "utf8"));
 }
@@ -40,7 +40,7 @@ function pidsOnPorts(ports) {
 function main() {
 	const config = readConfig();
 	const runtime = String(config.Runtime || "windows");
-	console.log(`Stopping PixelOffice (${runtime})...`);
+	console.log(`Stopping PIXTiel (${runtime})...`);
 	if (runtime !== "windows") {
 		console.warn("This Node stop helper only clears Windows listeners (3484/8321).");
 	}

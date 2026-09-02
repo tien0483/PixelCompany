@@ -40,7 +40,7 @@ function buildInvitePlainText(formUrl: string, senderName?: string): string {
 	return [
 		buildInviteGreeting(senderName),
 		"",
-		"You've been invited to add your Claude account to our shared PixelOffice account pool.",
+		"You've been invited to add your Claude account to our shared PIXTiel account pool.",
 		"",
 		"Open the secure form below. On that page you will:",
 		"  1. Choose how much of this Claude plan's usage windows (5h / 7d) auto tasks may use.",
@@ -72,10 +72,10 @@ function buildInviteClipboardHtml(formUrl: string, senderName?: string): string 
 		`<tr><td align="center">`,
 		`<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="580" style="max-width:580px;width:100%;background-color:#ffffff;border:1px solid #d0d7de;border-radius:12px;">`,
 		`<tr><td style="padding:28px;font-family:${font};font-size:15px;line-height:1.55;color:#24292f;">`,
-		`<p style="margin:0 0 8px 0;font-size:12px;font-weight:600;letter-spacing:0.04em;text-transform:uppercase;color:#0084FF;text-align:center;">PixelOffice</p>`,
+		`<p style="margin:0 0 8px 0;font-size:12px;font-weight:600;letter-spacing:0.04em;text-transform:uppercase;color:#0084FF;text-align:center;">PIXTiel</p>`,
 		`<h1 style="margin:0 0 16px 0;font-size:22px;font-weight:600;color:#1f2328;text-align:center;line-height:1.3;">Join our shared Claude account pool</h1>`,
 		`<p style="margin:0 0 16px 0;font-size:15px;color:#24292f;">${greeting}</p>`,
-		`<p style="margin:0 0 16px 0;font-size:15px;color:#24292f;">You've been invited to add your Claude account to our shared PixelOffice account pool.</p>`,
+		`<p style="margin:0 0 16px 0;font-size:15px;color:#24292f;">You've been invited to add your Claude account to our shared PIXTiel account pool.</p>`,
 		`<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="margin:0 0 20px 0;">`,
 		`<tr><td style="background-color:#f6f8fa;border-left:4px solid #0084FF;border-radius:8px;padding:14px 16px;font-size:14px;color:#424a53;">`,
 		`On the form you will choose a usage share for auto tasks (5h / 7d windows), authorize your Claude account, and paste the code there. `,
@@ -106,7 +106,7 @@ function buildInviteHtmlDocument(fragment: string): string {
 <head>
 <meta name="viewport" content="width=device-width" />
 <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
-<title>Authorize Claude for PixelOffice</title>
+<title>Authorize Claude for PIXTiel</title>
 </head>
 <body style="margin:0;padding:0;">
 <!--StartFragment-->
@@ -153,7 +153,7 @@ export function buildClaudeOAuthInviteEmail(
 	formUrl: string,
 	options: ClaudeOAuthInviteOptions = {},
 ): ClaudeOAuthInviteEmail {
-	const subject = "Authorize your Claude account for PixelOffice";
+	const subject = "Authorize your Claude account for PIXTiel";
 	const body = buildInvitePlainText(formUrl, options.senderName);
 	const clipboardHtml = buildInviteClipboardHtml(formUrl, options.senderName);
 	const htmlBody = buildInviteHtmlDocument(clipboardHtml);
@@ -173,11 +173,11 @@ export function buildClaudeReauthInviteEmail(
 		accountEmail && accountEmail.length > 0
 			? [`This re-authorization is for the seat: ${accountEmail}`, ""]
 			: [];
-	const subject = "Re-authorize your Claude account for PixelOffice";
+	const subject = "Re-authorize your Claude account for PIXTiel";
 	const body = [
 		buildInviteGreeting(options.senderName),
 		"",
-		"You've been asked to re-authorize a Claude account in our shared PixelOffice pool.",
+		"You've been asked to re-authorize a Claude account in our shared PIXTiel pool.",
 		"",
 		...seatLine,
 		"Open the secure form below. On that page you will authorize with Claude and paste the code into the form.",
@@ -201,10 +201,10 @@ export function buildClaudeReauthInviteEmail(
 		`<tr><td align="center">`,
 		`<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="580" style="max-width:580px;width:100%;background-color:#ffffff;border:1px solid #d0d7de;border-radius:12px;">`,
 		`<tr><td style="padding:28px;font-family:${font};font-size:15px;line-height:1.55;color:#24292f;">`,
-		`<p style="margin:0 0 8px 0;font-size:12px;font-weight:600;letter-spacing:0.04em;text-transform:uppercase;color:#0084FF;text-align:center;">PixelOffice</p>`,
+		`<p style="margin:0 0 8px 0;font-size:12px;font-weight:600;letter-spacing:0.04em;text-transform:uppercase;color:#0084FF;text-align:center;">PIXTiel</p>`,
 		`<h1 style="margin:0 0 16px 0;font-size:22px;font-weight:600;color:#1f2328;text-align:center;line-height:1.3;">Re-authorize Claude account</h1>`,
 		`<p style="margin:0 0 16px 0;font-size:15px;color:#24292f;">${buildInviteGreetingHtml(options.senderName)}</p>`,
-		`<p style="margin:0 0 16px 0;font-size:15px;color:#24292f;">You've been asked to re-authorize a Claude account in our shared PixelOffice pool.</p>`,
+		`<p style="margin:0 0 16px 0;font-size:15px;color:#24292f;">You've been asked to re-authorize a Claude account in our shared PIXTiel pool.</p>`,
 		seatBlock,
 		`<table role="presentation" border="0" cellpadding="0" cellspacing="0" style="margin:8px auto 20px auto;">`,
 		`<tr><td align="center" style="border-radius:8px;background-color:#0084FF;">`,

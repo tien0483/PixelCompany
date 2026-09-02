@@ -21,7 +21,7 @@ try {
 	}
 	$config = Read-PixelOfficeConfig -ConfigPath $ConfigPath
 	$runtime = [string]$config.Runtime
-	Write-Host "Stopping PixelOffice ($runtime)..."
+	Write-Host "Stopping PIXTiel ($runtime)..."
 	if ($runtime -eq "wsl") {
 		Stop-PixelOfficeStackWsl -WslDistro ([string]$config.WslDistro)
 	}
@@ -32,6 +32,6 @@ try {
 	exit 0
 }
 catch {
-	Show-PixelOfficeMessage -Kind Error -Title "PixelOffice Stop" -Message $_.Exception.Message
+	Show-PixelOfficeMessage -Kind Error -Title "PIXTiel Stop" -Message $_.Exception.Message
 	exit 1
 }

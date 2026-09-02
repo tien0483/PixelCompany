@@ -293,8 +293,8 @@ export function ManagerAccountActions({
 					offlineReason ??
 					(isCursor || isAntigravity
 						? account.isActive
-							? "Deactivate (excluded from Kanban Auto account pick)"
-							: "Activate for Kanban Auto account pick"
+							? "Deactivate (excluded from PIXTiel Auto account pick)"
+							: "Activate for PIXTiel Auto account pick"
 						: account.isActive
 							? "Deactivate (excluded from auto-swap)"
 							: "Activate for auto-swap")

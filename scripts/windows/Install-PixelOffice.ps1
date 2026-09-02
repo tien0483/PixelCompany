@@ -84,7 +84,7 @@ try {
 	. (Join-Path $here "PixelOffice.Common.ps1")
 
 	Write-Host ""
-	Write-Host "PixelOffice full setup (Windows-native, user-scope)"
+	Write-Host "PIXTiel full setup (Windows-native, user-scope)"
 	Write-Host ""
 
 	$installDir = Get-PixelOfficeInstallDir
@@ -160,7 +160,7 @@ try {
 	Write-Host "Setup complete."
 	Write-Host "  App:       $appDir"
 	Write-Host "  Config:    $(Get-PixelOfficeConfigPath -InstallDir $installDir)"
-	Write-Host "  Shortcuts: Desktop / Start Menu — PixelOffice, PixelOffice Stop"
+	Write-Host "  Shortcuts: Desktop / Start Menu — PIXTiel, PIXTiel Stop"
 	Write-Host ""
 	Write-Host "Uninstall:"
 	Write-Host "  $($installDir)\Uninstall-PixelOfficeShortcut.ps1"
@@ -172,7 +172,7 @@ try {
 		if (-not (Test-Path -LiteralPath $launch)) {
 			$launch = Join-Path $here "PixelOffice-Launch.ps1"
 		}
-		Write-Host "Launching PixelOffice..."
+		Write-Host "Launching PIXTiel..."
 		& $launch
 	}
 
@@ -182,7 +182,7 @@ catch {
 	$msg = $_.Exception.Message
 	Write-Error $msg
 	try {
-		Show-PixelOfficeMessage -Kind Error -Title "PixelOffice Setup" -Message $msg
+		Show-PixelOfficeMessage -Kind Error -Title "PIXTiel Setup" -Message $msg
 	}
 	catch {
 		# Ignore UI failures in non-interactive hosts.

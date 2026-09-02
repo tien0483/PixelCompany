@@ -78,7 +78,7 @@ function main() {
 	}
 
 	const outDir = resolve(opts.outDir || join(__dirname, "dist"));
-	console.log("Building PixelOffice Windows dist...");
+	console.log("Building PIXTiel Windows dist...");
 	console.log(`  Output: ${outDir}`);
 	mkdirSync(outDir, { recursive: true });
 

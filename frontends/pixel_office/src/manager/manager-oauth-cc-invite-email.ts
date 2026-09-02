@@ -32,7 +32,7 @@ function buildCcInvitePlainText(
 	return [
 		buildInviteGreeting(senderName),
 		"",
-		"You've been asked to authorize Claude Code (CC) for our shared PixelOffice account pool.",
+		"You've been asked to authorize Claude Code (CC) for our shared PIXTiel account pool.",
 		"",
 		...seatLine,
 		"Why this matters — the ~8 hour refresh token:",
@@ -68,10 +68,10 @@ function buildCcInviteClipboardHtml(
 		`<tr><td align="center">`,
 		`<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="580" style="max-width:580px;width:100%;background-color:#ffffff;border:1px solid #d0d7de;border-radius:12px;">`,
 		`<tr><td style="padding:28px;font-family:${font};font-size:15px;line-height:1.55;color:#24292f;">`,
-		`<p style="margin:0 0 8px 0;font-size:12px;font-weight:600;letter-spacing:0.04em;text-transform:uppercase;color:#D29922;text-align:center;">PixelOffice · Claude Code</p>`,
+		`<p style="margin:0 0 8px 0;font-size:12px;font-weight:600;letter-spacing:0.04em;text-transform:uppercase;color:#D29922;text-align:center;">PIXTiel · Claude Code</p>`,
 		`<h1 style="margin:0 0 16px 0;font-size:22px;font-weight:600;color:#1f2328;text-align:center;line-height:1.3;">Authorize Claude Code (CC)</h1>`,
 		`<p style="margin:0 0 16px 0;font-size:15px;color:#24292f;">${buildInviteGreetingHtml(senderName)}</p>`,
-		`<p style="margin:0 0 16px 0;font-size:15px;color:#24292f;">You've been asked to authorize <strong style="color:#1f2328;">Claude Code (CC)</strong> for our shared PixelOffice account pool.</p>`,
+		`<p style="margin:0 0 16px 0;font-size:15px;color:#24292f;">You've been asked to authorize <strong style="color:#1f2328;">Claude Code (CC)</strong> for our shared PIXTiel account pool.</p>`,
 		seatBlock,
 		`<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="margin:0 0 20px 0;">`,
 		`<tr><td style="background-color:#fff8e6;border-left:4px solid #D29922;border-radius:8px;padding:14px 16px;font-size:14px;color:#424a53;">`,
@@ -104,7 +104,7 @@ function buildCcInviteHtmlDocument(fragment: string): string {
 <head>
 <meta name="viewport" content="width=device-width" />
 <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
-<title>Authorize Claude Code (CC) for PixelOffice</title>
+<title>Authorize Claude Code (CC) for PIXTiel</title>
 </head>
 <body style="margin:0;padding:0;">
 <!--StartFragment-->
@@ -123,7 +123,7 @@ export function buildClaudeCcOAuthInviteEmail(
 	options: ClaudeCcOAuthInviteOptions = {},
 ): ClaudeOAuthInviteEmail {
 	const accountEmail = options.accountEmail?.trim();
-	const subject = "Authorize Claude Code (CC) for PixelOffice";
+	const subject = "Authorize Claude Code (CC) for PIXTiel";
 	const body = buildCcInvitePlainText(formUrl, accountEmail, options.senderName);
 	const clipboardHtml = buildCcInviteClipboardHtml(
 		formUrl,

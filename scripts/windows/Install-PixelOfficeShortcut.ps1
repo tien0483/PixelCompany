@@ -39,7 +39,7 @@ function Read-Choice {
 
 try {
 	Write-Host ""
-	Write-Host "PixelOffice shortcut install (user-scope, no admin)"
+	Write-Host "PIXTiel shortcut install (user-scope, no admin)"
 	Write-Host ""
 
 	if ([string]::IsNullOrWhiteSpace($Runtime)) {
@@ -138,20 +138,20 @@ try {
 	$startMenu = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs"
 
 	if (-not $SkipDesktop) {
-		New-PixelOfficeShortcut -ShortcutPath (Join-Path $desktop "PixelOffice.lnk") `
+		New-PixelOfficeShortcut -ShortcutPath (Join-Path $desktop "PIXTiel.lnk") `
 			-TargetPath $psExe -Arguments $launchArgs -WorkingDirectory $installDir `
-			-IconLocation $iconLoc -Description "Launch PixelOffice"
-		New-PixelOfficeShortcut -ShortcutPath (Join-Path $desktop "PixelOffice Stop.lnk") `
+			-IconLocation $iconLoc -Description "Launch PIXTiel"
+		New-PixelOfficeShortcut -ShortcutPath (Join-Path $desktop "PIXTiel Stop.lnk") `
 			-TargetPath $psExe -Arguments $stopArgs -WorkingDirectory $installDir `
-			-IconLocation $iconLoc -Description "Stop PixelOffice stack"
+			-IconLocation $iconLoc -Description "Stop PIXTiel stack"
 	}
 	if (-not $SkipStartMenu) {
-		New-PixelOfficeShortcut -ShortcutPath (Join-Path $startMenu "PixelOffice.lnk") `
+		New-PixelOfficeShortcut -ShortcutPath (Join-Path $startMenu "PIXTiel.lnk") `
 			-TargetPath $psExe -Arguments $launchArgs -WorkingDirectory $installDir `
-			-IconLocation $iconLoc -Description "Launch PixelOffice"
-		New-PixelOfficeShortcut -ShortcutPath (Join-Path $startMenu "PixelOffice Stop.lnk") `
+			-IconLocation $iconLoc -Description "Launch PIXTiel"
+		New-PixelOfficeShortcut -ShortcutPath (Join-Path $startMenu "PIXTiel Stop.lnk") `
 			-TargetPath $psExe -Arguments $stopArgs -WorkingDirectory $installDir `
-			-IconLocation $iconLoc -Description "Stop PixelOffice stack"
+			-IconLocation $iconLoc -Description "Stop PIXTiel stack"
 	}
 
 	Write-Host ""
@@ -166,8 +166,8 @@ try {
 	}
 	Write-Host "URL:          $Url"
 	Write-Host ""
-	Write-Host "Desktop shortcuts: PixelOffice / PixelOffice Stop"
-	Write-Host "Double-click PixelOffice to start (if needed) and open the app window."
+	Write-Host "Desktop shortcuts: PIXTiel / PIXTiel Stop"
+	Write-Host "Double-click PIXTiel to start (if needed) and open the app window."
 	Write-Host "Re-run this installer anytime to switch WSL vs Windows."
 	exit 0
 }
