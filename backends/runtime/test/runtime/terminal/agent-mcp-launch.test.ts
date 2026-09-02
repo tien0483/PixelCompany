@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -73,6 +73,48 @@ describe("agent-mcp-launch", () => {
 
 		await prepared!.cleanup();
 		expect(existsSync(join(cwd, ".cursor", "mcp.json"))).toBe(false);
+		rmSync(cwd, { recursive: true, force: true });
+	});
+
+	it("prepareProjectMcpConfig injects vault secrets into the server env and keeps the file 0600", async () => {
+		const home = setupTempHome();
+		const cwd = mkdtempSync(join(tmpdir(), "kanban-cursor-vault-cwd-"));
+		mkdirSync(join(home, ".cursor"), { recursive: true });
+		writeFileSync(
+			join(home, ".cursor", "mcp.json"),
+			JSON.stringify({ mcpServers: { postgres: { command: "uvx", env: { PGHOST: "localhost" } } } }),
+			"utf8",
+		);
+		mkdirSync(join(home, ".agent", "kanban", "vault"), { recursive: true });
+		writeFileSync(
+			join(home, ".agent", "kanban", "vault", "mcp:postgres.json"),
+			JSON.stringify({
+				env: { DATABASE_URL: "postgres://secret@localhost/db" },
+				updatedAt: "2026-09-02T00:00:00.000Z",
+			}),
+			"utf8",
+		);
+
+		const prepared = await prepareProjectMcpConfig({
+			cwd,
+			mcpServerIds: ["postgres"],
+			format: "cursor",
+		});
+		expect(prepared).not.toBeNull();
+
+		const file = join(cwd, ".cursor", "mcp.json");
+		const parsed = JSON.parse(readFileSync(file, "utf8")) as {
+			mcpServers: Record<string, { env?: Record<string, string> }>;
+		};
+		// Vault value present, and the globally configured env is not clobbered.
+		expect(parsed.mcpServers.postgres?.env).toEqual({
+			PGHOST: "localhost",
+			DATABASE_URL: "postgres://secret@localhost/db",
+		});
+		expect(statSync(file).mode & 0o777).toBe(0o600);
+
+		await prepared!.cleanup();
+		expect(existsSync(file)).toBe(false);
 		rmSync(cwd, { recursive: true, force: true });
 	});
 
