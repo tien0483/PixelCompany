@@ -225,7 +225,7 @@ async function main() {
 	};
 
 	console.log("");
-	console.log("  Starting Pixel Office stack...");
+	console.log("  Starting PIXTiel stack...");
 	console.log(`  UI:       http://127.0.0.1:${WEB_UI_PORT}`);
 	console.log(`  Runtime:  http://127.0.0.1:${RUNTIME_PORT}`);
 	console.log(`  Manager:   http://127.0.0.1:${MANAGER_PORT} (started by the runtime)`);

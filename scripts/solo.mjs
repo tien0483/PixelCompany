@@ -633,7 +633,7 @@ async function main() {
 	const proxyEnv = resolveStackProxyEnv();
 
 	console.log("");
-	console.log("  Pixel Office (solo) — one process, one URL");
+	console.log("  PIXTiel (solo) — one process, one URL");
 	console.log(`  App:     http://127.0.0.1:${RUNTIME_PORT}`);
 	console.log(`  Manager:  http://127.0.0.1:${MANAGER_PORT} (headless child of the runtime)`);
 	console.log(`  HTML:     http://127.0.0.1:${HTML_PORT} (template sidecar, headless)`);

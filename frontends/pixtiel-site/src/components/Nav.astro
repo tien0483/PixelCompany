@@ -9,11 +9,7 @@ const { class: className } = Astro.props;
 <nav class={`w-full border-b border-[#30363D] bg-[#1F2428]/80 backdrop-blur-md sticky top-0 z-50 ${className ?? ""}`}>
 	<div class="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
 		<a href="/" class="flex items-center gap-2.5 text-[#E6EDF3] hover:text-white transition-colors group">
-			<!-- TODO: Replace with B0 SVG wordmark when merged -->
-			<div class="w-8 h-8 rounded-md bg-[#0084FF] flex items-center justify-center font-bold text-white shadow-sm group-hover:bg-[#339DFF] transition-colors">
-				P
-			</div>
-			<span class="font-bold text-lg tracking-tight">PIXTiel</span>
+			<img src="/pixtiel-logo.svg" alt="PIXTiel" class="h-8 w-auto" />
 		</a>
 
 		<div class="flex items-center gap-3 sm:gap-6 text-xs sm:text-sm font-medium text-[#8B949E]">

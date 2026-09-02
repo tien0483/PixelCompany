@@ -157,7 +157,7 @@ function resolveLaunchTarget(
 	// blank frame rather than leaving it a mystery.
 	if (!isOpenmaicBuiltForEmbedding(openmaicRoot)) {
 		warn("OpenMAIC was built without ALLOWED_FRAME_ANCESTORS, so it serves X-Frame-Options: SAMEORIGIN.");
-		warn("  PixelOffice is a different origin, so the Learning frame will render blank. Rebuild with:");
+		warn("  PIXTiel is a different origin, so the Learning frame will render blank. Rebuild with:");
 		for (const line of installHint) {
 			warn(line);
 		}

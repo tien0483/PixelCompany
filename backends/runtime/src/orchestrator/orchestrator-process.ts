@@ -58,7 +58,7 @@ export async function startOrchestratorProcess(
 	deps: StartOrchestratorProcessDependencies,
 ): Promise<OrchestratorProcess> {
 	if (!isWebSidecarEnabled()) {
-		deps.log?.("Orchestrator web sidecar disabled (set PIXELOFFICE_DSH_WEB=1 to listen on :3020).");
+		deps.log?.("Orchestrator web sidecar disabled (set PIXTIEL_DSH_WEB=1 to listen on :3020).");
 		return createNoopProcess(false);
 	}
 

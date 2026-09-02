@@ -278,7 +278,7 @@ export function buildOpenmaicHealth(input: BuildOpenmaicHealthInput): RuntimeOpe
 				detail:
 					input.omnirouteAudioProbe?.asr === true
 						? `Whisper ASR routed via Manager API seat (${input.asrSeatLabel}) through OmniRoute.`
-						: `Whisper ASR routed via Manager API seat (${input.asrSeatLabel}) through PixelOffice proxy.`,
+						: `Whisper ASR routed via Manager API seat (${input.asrSeatLabel}) through PIXTiel proxy.`,
 			}
 		: buildCapabilityHealth({
 				// Gemini seat routing is for LLM proxy paths only — OpenMAIC has no Gemini ASR backend.
@@ -298,7 +298,7 @@ export function buildOpenmaicHealth(input: BuildOpenmaicHealthInput): RuntimeOpe
 				detail:
 					input.omnirouteAudioProbe?.tts === true
 						? `OpenAI TTS routed via Manager API seat (${input.asrSeatLabel}) through OmniRoute.`
-						: `OpenAI TTS routed via Manager API seat (${input.asrSeatLabel}) through PixelOffice proxy.`,
+						: `OpenAI TTS routed via Manager API seat (${input.asrSeatLabel}) through PIXTiel proxy.`,
 			}
 		: buildCapabilityHealth({
 				geminiAvailable,

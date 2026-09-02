@@ -5,8 +5,8 @@ interface Props {
 
 const { class: className = "" } = Astro.props;
 
-// TODO: update with published I4 URL when available
-const installCommand = "curl -fsSL https://raw.githubusercontent.com/<org>/<repo>/main/install.sh | bash";
+// Must stay in step with install.sh's own REPO_URL default.
+const installCommand = "curl -fsSL https://raw.githubusercontent.com/tien0483/PixelCompany/main/install.sh | bash";
 ---
 
 <div class={`w-full max-w-3xl mx-auto rounded-xl border border-[#30363D] bg-[#1F2428] overflow-hidden shadow-2xl ${className}`}>

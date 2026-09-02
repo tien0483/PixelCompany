@@ -85,7 +85,7 @@ export function resolveStudioNodeBinary(options?: {
 export function describeMissingStudioNode(minMajor = MIN_STUDIO_NODE_MAJOR): string[] {
 	return [
 		`Flowise needs Node ${minMajor}+, but this runtime is on ${process.version}.`,
-		`  Install one: nvm install ${minMajor}   (PixelOffice keeps using its own Node)`,
+		`  Install one: nvm install ${minMajor}   (PIXTiel keeps using its own Node)`,
 		`  Or name a binary explicitly: PIXTIEL_FLOWISE_NODE=/path/to/node`,
 	];
 }

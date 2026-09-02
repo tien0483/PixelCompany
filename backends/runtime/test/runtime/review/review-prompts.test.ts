@@ -25,7 +25,17 @@ function ann(overrides: Partial<RuntimeReviewAnnotation> = {}): RuntimeReviewAnn
 }
 
 function rule(id: string): RuntimeReviewRule {
-	return { id, name: id, category: "Test", description: "" };
+	return {
+		id,
+		title: id,
+		category: "Test",
+		severity: "LOW",
+		summary: "",
+		antiPattern: "",
+		bestPractice: "",
+		sourcePath: "",
+		sourceAnchor: "",
+	};
 }
 
 describe("formatAnnotationsForPrompt", () => {

@@ -95,7 +95,7 @@ export function createManagerApi(deps: CreateManagerApiDependencies): RuntimeTrp
 		}
 		const account = state.accounts.find((entry) => entry.id === accountId) ?? null;
 		if (!account || !MANAGED_PROVIDERS.has(account.provider)) {
-			return { account: null, error: "Account is not available from PixelOffice." as const };
+			return { account: null, error: "Account is not available from PIXTiel." as const };
 		}
 		return { account, error: null };
 	};

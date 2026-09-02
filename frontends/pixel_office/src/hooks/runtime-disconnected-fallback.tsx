@@ -17,7 +17,7 @@ export function RuntimeDisconnectedFallback(): ReactElement {
 				<AlertCircle size={48} />
 				<h3 className="font-semibold text-text-primary">Disconnected from Cline</h3>
 				<p className="max-w-md text-center text-text-secondary">
-					Kanban runtime is not reachable (expected on port 3484). From the repo root run{" "}
+					PIXTiel runtime is not reachable (expected on port 3484). From the repo root run{" "}
 					<code className="rounded bg-surface-2 px-1.5 py-0.5 text-text-primary">npm run restart</code>
 					, then reload this tab.
 				</p>

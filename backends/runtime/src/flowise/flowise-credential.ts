@@ -131,7 +131,7 @@ export async function seedFlowiseEmbedAccount(deps: SeedFlowiseEmbedAccountDepen
 		return false;
 	}
 	if (registered.status < 400) {
-		log("Seeded the Flowise studio's PixelOffice account.");
+		log("Seeded the Flowise studio's PIXTiel account.");
 		return true;
 	}
 

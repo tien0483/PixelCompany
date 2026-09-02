@@ -17,7 +17,7 @@ function isLoopbackRequest(req: IncomingMessage): boolean {
 	return LOOPBACK_ADDRESSES.has(address);
 }
 
-function writeJson(res: ServerResponse, status: number, body: Record<string, unknown>): void {
+function writeJson(res: ServerResponse, status: number, body: unknown): void {
 	res.writeHead(status, {
 		"Content-Type": "application/json; charset=utf-8",
 		"Cache-Control": "no-store",

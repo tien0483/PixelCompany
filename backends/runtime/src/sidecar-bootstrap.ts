@@ -157,12 +157,14 @@ export function attachFlowiseEmbedSeeding(
 	deps: SidecarLogging & {
 		flowiseClientBaseUrl: string;
 		resolveFlowiseDataDir: () => string | null;
+		// Returns whether it seeded; the caller does not care, so keep the dep type
+		// wide enough for the real implementation (which resolves a boolean).
 		seedFlowiseEmbedAccount: (input: {
 			baseUrl: string;
 			dataDir: string;
 			warn: (message: string) => void;
 			log: (message: string) => void;
-		}) => Promise<void>;
+		}) => Promise<unknown>;
 	},
 ): void {
 	void bundle.flowise.ready.then(async (isUp) => {

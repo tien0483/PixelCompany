@@ -248,7 +248,7 @@ async function fetchIdentity(host: string, accessToken: string): Promise<GitlabI
 const CALLBACK_HTML = `<!doctype html><meta charset="utf-8"><title>GitLab connected</title>
 <body style="font-family:system-ui;background:#1F2428;color:#E6EDF3;padding:3rem">
 <h1 style="font-size:1.1rem">GitLab connected</h1>
-<p style="color:#8B949E">You can close this tab and return to PixelOffice.</p>`;
+<p style="color:#8B949E">You can close this tab and return to PIXTiel.</p>`;
 
 function listenOnCallbackPort(server: Server, port: number): Promise<void> {
 	return new Promise((resolve, reject) => {

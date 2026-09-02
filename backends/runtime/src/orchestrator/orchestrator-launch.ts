@@ -30,7 +30,7 @@ export interface PreparedOrchestratorLaunch {
 }
 
 const CUSTOM_AGENT_PREFACE = [
-	"PixelOffice Custom Agent session (DeepSeek Harness headless).",
+	"PIXTiel Custom Agent session (DeepSeek Harness headless).",
 	"You may delegate to product subagents when appropriate:",
 	"- cursor_agent — Cursor CLI (ACP); use for repo edits and Cursor MCP.",
 	"- gemini_agent — Antigravity / Gemini CLI (ACP); uses your Gemini subscription for search, reasoning and Google tools.",
@@ -83,7 +83,7 @@ export async function prepareOrchestratorLaunch(
 	const binary = resolveDshBinary();
 	if (binary === null) {
 		input.warn?.(
-			"DeepSeek Harness (dsh) not found on PATH. Install from https://github.com/deepseek-ai/deepseek-harness or set PIXELOFFICE_DSH_BINARY.",
+			"DeepSeek Harness (dsh) not found on PATH. Install from https://github.com/deepseek-ai/deepseek-harness or set PIXTIEL_DSH_BINARY.",
 		);
 		return null;
 	}

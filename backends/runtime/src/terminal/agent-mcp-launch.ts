@@ -1,12 +1,13 @@
 // Auto-wires card MCP allowlists into agent-specific project config (Cursor `.cursor/mcp.json`,
 // Antigravity/Gemini `.gemini/settings.json`) and shared allowlist resolution for Claude.
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
 import { createFlowiseClient } from "../flowise/flowise-client";
 import type { FlowiseClient } from "../flowise/flowise-client";
 import { isFlowiseMcpServerId, resolveFlowiseMcpAllowlistEntries } from "../flowise/flowise-mcp";
+import { collectVaultLaunchEnv } from "../vault";
 
 export type ProjectMcpFormat = "cursor" | "gemini";
 
@@ -134,6 +135,22 @@ export async function prepareProjectMcpConfig(
 		existedBefore = false;
 	}
 
+	// Vault-stored MCP secrets, merged the same way the Claude allowlist does it
+	// (`task-launch-settings.ts:765`). Without this, a card that pins an MCP server with
+	// vault credentials launched Cursor/Antigravity with the server but no secrets
+	// (X0 finding A5, deferred by A2).
+	const { mcpEnvByServerId } = await collectVaultLaunchEnv(input.mcpServerIds);
+	for (const [serverId, rawConfig] of Object.entries(resolved)) {
+		const vaultEnv = mcpEnvByServerId[serverId];
+		if (vaultEnv && Object.keys(vaultEnv).length > 0 && rawConfig && typeof rawConfig === "object") {
+			const serverConfig = rawConfig as Record<string, unknown>;
+			serverConfig.env = {
+				...((serverConfig.env as Record<string, string> | undefined) ?? {}),
+				...vaultEnv,
+			};
+		}
+	}
+
 	let mergedServers = { ...resolved };
 	if (existedBefore && beforeContent !== null) {
 		try {
@@ -151,6 +168,9 @@ export async function prepareProjectMcpConfig(
 	const payload = mergeProjectMcpPayload(beforeContent, input.format, mergedServers);
 	await mkdir(dir, { recursive: true });
 	await writeFile(file, JSON.stringify(payload, null, 2), "utf8");
+	// The file can now hold vault secrets, so it gets the same 0600 the Claude
+	// allowlist gets (PXT-6). `cleanup` restores or removes it after the session.
+	await chmod(file, 0o600).catch(() => {});
 
 	return {
 		cleanup: async () => {

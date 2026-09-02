@@ -244,7 +244,7 @@ async function buildProviderForwardPlan(
 				errorBody: {
 					error: {
 						type: "flowise_llm_proxy_unavailable",
-						message: "No Cline API seat configured — set PIXELOFFICE_FLOWISE_LLM_API_SEAT_ID.",
+						message: "No Cline API seat configured — set PIXTIEL_FLOWISE_LLM_API_SEAT_ID.",
 					},
 				},
 			};
@@ -427,10 +427,10 @@ export interface ResolveFlowiseLlmProxyStatusInput {
 
 /** The studio node each route belongs to. `null` name = no dedicated PixelOffice node yet. */
 const PROVIDER_NODES: Record<FlowiseLlmProxyProvider, { label: string; name: string | null }> = {
-	anthropic: { label: "Claude (PixelOffice seat)", name: "pixelOfficeClaude" },
-	gemini: { label: "Antigravity (PixelOffice seat)", name: "pixelOfficeAntigravity" },
+	anthropic: { label: "Claude (PIXTiel seat)", name: "pixelOfficeClaude" },
+	gemini: { label: "Antigravity (PIXTiel seat)", name: "pixelOfficeAntigravity" },
 	openai: { label: "ChatOpenAI + Base Path", name: null },
-	cursor: { label: "Cursor (PixelOffice seat)", name: "pixelOfficeCursor" },
+	cursor: { label: "Cursor (PIXTiel seat)", name: "pixelOfficeCursor" },
 };
 
 async function resolveProviderSeatLabel(
@@ -505,7 +505,7 @@ export async function resolveFlowiseLlmProxyStatus(
 	const available = providers.some((entry) => entry.available);
 	const hints: string[] = [];
 	if (!enabled) {
-		hints.push("Flowise LLM proxy disabled (PIXELOFFICE_FLOWISE_LLM_PROXY=0). Use Flowise Credentials.");
+		hints.push("Flowise LLM proxy disabled (PIXTIEL_FLOWISE_LLM_PROXY=0). Use Flowise Credentials.");
 	} else {
 		for (const entry of providers) {
 			if (entry.available) {

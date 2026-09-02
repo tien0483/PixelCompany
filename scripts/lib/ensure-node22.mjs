@@ -61,7 +61,7 @@ export function ensureNode22() {
 	for (const candidate of resolveNode22Candidates()) {
 		const node22 = probeNodeBinary(candidate);
 		if (node22) {
-			console.warn(`PixelOffice requires Node >= ${MIN_NODE_MAJOR} (found ${process.version}).`);
+			console.warn(`PIXTiel requires Node >= ${MIN_NODE_MAJOR} (found ${process.version}).`);
 			console.warn(`Re-launching with ${node22}`);
 			const result = spawnSync(node22, [entryScript, ...process.argv.slice(2)], {
 				stdio: "inherit",
@@ -70,7 +70,7 @@ export function ensureNode22() {
 			process.exit(result.status ?? 1);
 		}
 	}
-	console.error(`PixelOffice requires Node.js >= ${MIN_NODE_MAJOR} (current: ${process.version}).`);
-	console.error("Install Node 22 (nvm install 22 && nvm use 22) or set PIXELOFFICE_NODE to a Node 22 binary.");
+	console.error(`PIXTiel requires Node.js >= ${MIN_NODE_MAJOR} (current: ${process.version}).`);
+	console.error("Install Node 22 (nvm install 22 && nvm use 22) or set PIXTIEL_NODE to a Node 22 binary.");
 	process.exit(1);
 }
