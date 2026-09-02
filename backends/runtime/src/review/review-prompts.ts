@@ -4,7 +4,7 @@
 // so two of them have to emit machine-readable JSON with nothing around it. The
 // parsers in `review-rules.ts` are tolerant of a code fence and trailing prose
 // anyway, but asking for clean output is what keeps the common case cheap.
-import type { RuntimeReviewRule } from "../core/api-contract";
+import type { RuntimeReviewAnnotation, RuntimeReviewRule } from "../core/api-contract";
 import { expandReviewCommand } from "./review-command-expansion";
 import type { ReviewGraphFreshness, ReviewGraphImpact, ReviewGraphImpactComponent } from "./review-graph";
 
@@ -12,6 +12,8 @@ import type { ReviewGraphFreshness, ReviewGraphImpact, ReviewGraphImpactComponen
 const RULES_PROMPT_BUDGET = 24_000;
 /** Budget for the patches pasted into an audit prompt, in characters. */
 const DIFF_PROMPT_BUDGET = 60_000;
+/** Budget for reviewer annotations pasted into prompts, in characters. */
+export const ANNOTATIONS_PROMPT_BUDGET = 8_000;
 
 /**
  * The knowledge-graph brief, rendered for a prompt.
@@ -191,6 +193,40 @@ export function formatDiffsForPrompt(
 	return { text: blocks.join("\n\n"), omittedPaths };
 }
 
+/** One line per annotation, budget-capped like `formatRulesForPrompt`. */
+export function formatAnnotationsForPrompt(
+	annotations: RuntimeReviewAnnotation[],
+	currentHeadSha?: string | null,
+	budget = ANNOTATIONS_PROMPT_BUDGET,
+): string {
+	const lines: string[] = [];
+	let used = 0;
+	let omitted = 0;
+	for (const annotation of annotations) {
+		const isOldSide = annotation.newLine === null && annotation.oldLine !== null;
+		const end = isOldSide ? annotation.oldLine : annotation.newLine;
+		const start = isOldSide ? annotation.lineRange?.startOldLine : annotation.lineRange?.startNewLine;
+		const range = start != null && start !== end ? `${start}-${end}` : `${end}`;
+		const side = isOldSide ? "old/deleted side" : "new side";
+		const note = annotation.note.length > 0 ? ` — Note: "${annotation.note}"` : "";
+		const stale =
+			currentHeadSha && annotation.headSha && annotation.headSha !== currentHeadSha
+				? " (added against an earlier revision — line numbers may have shifted)"
+				: "";
+		const line = `- [${annotation.id}] ${annotation.newPath}:${range} (${side}) — Tag: ${annotation.tag.label}${note}${stale}`;
+		if (used + line.length > budget) {
+			omitted += 1;
+			continue;
+		}
+		lines.push(line);
+		used += line.length;
+	}
+	if (omitted > 0) {
+		lines.push(`- (${omitted} further annotations omitted for length)`);
+	}
+	return lines.join("\n");
+}
+
 export function buildAuditPrompt(input: {
 	title: string;
 	sourceBranch: string;
@@ -202,6 +238,7 @@ export function buildAuditPrompt(input: {
 	 * project has never been analyzed, which must read as "no graph", not "no impact".
 	 */
 	graphImpact?: string;
+	annotations?: RuntimeReviewAnnotation[];
 }): string {
 	const { text: diffText, omittedPaths } = formatDiffsForPrompt(input.files);
 	const omittedNote =
@@ -211,6 +248,14 @@ export function buildAuditPrompt(input: {
 	// Placed after the patches and before the output contract: the diff is still the
 	// evidence, and the graph is context for judging how much a violation costs.
 	const graphSection = input.graphImpact ? `\n\n${input.graphImpact}` : "";
+	const annotationsSection =
+		input.annotations && input.annotations.length > 0
+			? `\n\n## Reviewer annotations\n\nThe reviewer flagged these spots by hand before running this review. Each is a hunch, not a confirmed defect.\n\n${formatAnnotationsForPrompt(input.annotations)}`
+			: "";
+	const verdictContract =
+		input.annotations && input.annotations.length > 0
+			? `\n- In the SAME array, additionally include exactly one verdict element per reviewer annotation listed above, shaped {"annotationId": "<the id in brackets>", "verdict": "confirmed" | "not_an_issue" | "partial", "reasoning": "one or two sentences"}. Echo the annotationId exactly as given. A verdict element never replaces a normal finding: when you confirm an annotation, also emit the finding as usual.`
+			: "";
 
 	return `You are reviewing a merge request against the team's own rules. Report only what the diff actually shows.
 
@@ -223,7 +268,7 @@ ${formatRulesForPrompt(input.rules)}
 
 ## Changed files
 
-${diffText}${omittedNote}${graphSection}
+${diffText}${omittedNote}${graphSection}${annotationsSection}
 
 ## Output
 
@@ -244,7 +289,7 @@ Rules for the review itself:
 - Report a rule violation only when the diff demonstrates it. Do not guess about code you were not shown, and do not report the absence of something outside these files.
 - Correctness and security problems outrank style. If the diff is clean, return an empty array — a padded review is worse than a short one.
 - One finding per problem. Do not restate the same issue per line of a block.
-- The knowledge-graph section, when present, tells you what depends on the changed code. Use it to judge severity and to say *what* a change breaks, and cite the dependent by path in the message. It is not evidence of a defect on its own: a finding must still be anchored to a line in the diff above, never to an affected file you were not shown.`;
+- The knowledge-graph section, when present, tells you what depends on the changed code. Use it to judge severity and to say *what* a change breaks, and cite the dependent by path in the message. It is not evidence of a defect on its own: a finding must still be anchored to a line in the diff above, never to an affected file you were not shown.${verdictContract}`;
 }
 
 /**
@@ -364,6 +409,7 @@ export function buildChatPrompt(input: {
 	isFirstTurn: boolean;
 	/** Ask for the machine-readable suggestions block (slash commands only). */
 	expectSuggestions?: boolean;
+	annotations?: RuntimeReviewAnnotation[];
 	/**
 	 * Pre-computed blast radius from the project's knowledge graph. First turn for the
 	 * same reason the diff is — on a resumed turn it is already in the session — plus
@@ -424,6 +470,9 @@ export function buildChatPrompt(input: {
 				? `Diff of the file the reviewer is looking at:\n\n\`\`\`diff\n${input.activeDiff}\n\`\`\``
 				: null,
 			isMergeRequestScope ? null : screenBlock,
+			(input.annotations?.length ?? 0) > 0
+				? `## Reviewer-flagged spots\n\nThe reviewer marked these places as suspect before this run. Pay extra attention to them and address them where relevant to this request. They are hunches, not confirmed defects — it is fine to conclude one is not a problem, but say so.\n\n${formatAnnotationsForPrompt(input.annotations ?? [])}`
+				: null,
 			input.graphImpact ?? null,
 		]
 			.filter((part): part is string => part !== null)

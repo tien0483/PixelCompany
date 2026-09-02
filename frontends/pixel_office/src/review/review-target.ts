@@ -1,6 +1,7 @@
 import type {
 	RuntimeGitlabDiffFile,
 	RuntimeGitlabDiscussion,
+	RuntimeReviewAnnotation,
 	RuntimeReviewDraftComment,
 	RuntimeReviewFinding,
 } from "@/runtime/types";
@@ -75,12 +76,14 @@ export function formatSelectionLabel(selection: ReviewLineSelection): string {
 	return `${selection.path}:${range}`;
 }
 
-/** Draft comments and threads indexed by the line they hang off. */
+/** Draft comments, threads and tag annotations indexed by the line they hang off. */
 export interface ReviewLineAnnotations {
 	draftsByNewLine: Map<number, RuntimeReviewDraftComment[]>;
 	draftsByOldLine: Map<number, RuntimeReviewDraftComment[]>;
 	threadsByNewLine: Map<number, RuntimeGitlabDiscussion[]>;
 	threadsByOldLine: Map<number, RuntimeGitlabDiscussion[]>;
+	tagsByNewLine: Map<number, RuntimeReviewAnnotation[]>;
+	tagsByOldLine: Map<number, RuntimeReviewAnnotation[]>;
 }
 
 const EMPTY_ANNOTATIONS: ReviewLineAnnotations = {
@@ -88,6 +91,8 @@ const EMPTY_ANNOTATIONS: ReviewLineAnnotations = {
 	draftsByOldLine: new Map(),
 	threadsByNewLine: new Map(),
 	threadsByOldLine: new Map(),
+	tagsByNewLine: new Map(),
+	tagsByOldLine: new Map(),
 };
 
 function pushInto<T>(map: Map<number, T[]>, line: number | null | undefined, value: T): void {
@@ -103,7 +108,7 @@ function pushInto<T>(map: Map<number, T[]>, line: number | null | undefined, val
 }
 
 /**
- * Indexes a file's drafts and threads by line, both sides.
+ * Indexes a file's drafts, threads, and tag annotations by line, both sides.
  *
  * Both sides matter: a note on a deleted line is anchored by its old-side number
  * and has no new-side number at all, so a new-line-only index would silently hide
@@ -114,8 +119,13 @@ export function buildLineAnnotations(input: {
 	oldPath: string;
 	draftComments: RuntimeReviewDraftComment[];
 	discussions: RuntimeGitlabDiscussion[];
+	annotations?: RuntimeReviewAnnotation[];
 }): ReviewLineAnnotations {
-	if (input.draftComments.length === 0 && input.discussions.length === 0) {
+	if (
+		input.draftComments.length === 0 &&
+		input.discussions.length === 0 &&
+		(input.annotations?.length ?? 0) === 0
+	) {
 		return EMPTY_ANNOTATIONS;
 	}
 	const annotations: ReviewLineAnnotations = {
@@ -123,6 +133,8 @@ export function buildLineAnnotations(input: {
 		draftsByOldLine: new Map(),
 		threadsByNewLine: new Map(),
 		threadsByOldLine: new Map(),
+		tagsByNewLine: new Map(),
+		tagsByOldLine: new Map(),
 	};
 
 	for (const draft of input.draftComments) {
@@ -145,6 +157,14 @@ export function buildLineAnnotations(input: {
 		}
 		pushInto(annotations.threadsByNewLine, position.newLine, discussion);
 		pushInto(annotations.threadsByOldLine, position.oldLine, discussion);
+	}
+
+	for (const annotation of input.annotations ?? []) {
+		if (annotation.newPath !== input.path && annotation.oldPath !== input.oldPath) {
+			continue;
+		}
+		pushInto(annotations.tagsByNewLine, annotation.newLine, annotation);
+		pushInto(annotations.tagsByOldLine, annotation.oldLine, annotation);
 	}
 
 	return annotations;

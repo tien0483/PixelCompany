@@ -10,6 +10,7 @@ import { ReviewFilesPanel } from "@/components/review/review-files-panel";
 import { ReviewImpactPanel } from "@/components/review/review-impact-panel";
 import { ReviewRulesPanel } from "@/components/review/review-rules-panel";
 import { ReviewRunDot, type ReviewRunState } from "@/components/review/review-run-dot";
+import { ReviewTagPalette } from "@/components/review/review-tag-palette";
 import { SeatPicker } from "@/manager/seat-picker";
 import {
 	ReviewSubmitDialog,
@@ -27,8 +28,9 @@ import {
 	readStoredReviewAgentModel,
 	writeStoredReviewAgentModel,
 } from "@/review/review-agent-model";
-import { parseFindingsFromStream } from "@/review/review-findings-parse";
+import { parseFindingsFromStream, parseVerdictsFromStream } from "@/review/review-findings-parse";
 import { isTypingTarget, resolveNavKey } from "@/review/review-nav-keys";
+import { buildTagPalette, type ReviewTag } from "@/review/review-tags";
 import {
 	countReviewProgress,
 	formatSelectionLabel,
@@ -54,6 +56,7 @@ import { useReviewSession } from "@/review/use-review-session";
 import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
 import type {
 	RuntimeManagerAccount,
+	RuntimeReviewAnnotation,
 	RuntimeReviewAuditRequest,
 	RuntimeReviewChatMessage,
 	RuntimeReviewDraftComment,
@@ -62,7 +65,7 @@ import type {
 	RuntimeReviewSuggestCommentRequest,
 } from "@/runtime/types";
 
-type LeftTab = "files" | "impact" | "threads" | "rules";
+type LeftTab = "files" | "impact" | "threads" | "rules" | "tags";
 
 /**
  * What the dot on "Run Claude review" means. Spelled out rather than left to colour:
@@ -114,6 +117,7 @@ export function ReviewWorkspaceView({
 	const [agentError, setAgentError] = useState<string | null>(null);
 	/** Lines the reviewer has focused in the diff — what the chat can "see". */
 	const [selection, setSelection] = useState<ReviewLineSelection | null>(null);
+	const [draggedTag, setDraggedTag] = useState<ReviewTag | null>(null);
 	const [visibleRange, setVisibleRange] = useState<ReviewVisibleRange | null>(null);
 	/** The line the last jump asked the diff pane to scroll to. */
 	const [lineFocus, setLineFocus] = useState<ReviewLineFocus | null>(null);
@@ -302,6 +306,41 @@ export function ReviewWorkspaceView({
 		[draftComments, session.activePath],
 	);
 
+	const annotations = session.session?.annotations ?? [];
+	const currentHeadSha = session.versions[0]?.headSha ?? session.diffRefs?.headSha ?? null;
+	const staleAnnotationIds = useMemo(
+		() =>
+			new Set(
+				annotations
+					.filter((a) => a.headSha !== null && currentHeadSha !== null && a.headSha !== currentHeadSha)
+					.map((a) => a.id),
+			),
+		[annotations, currentHeadSha],
+	);
+	const tagPalette = useMemo(() => buildTagPalette(session.rules), [session.rules]);
+	const jumpToAnnotation = useCallback(
+		(annotation: RuntimeReviewAnnotation) => {
+			session.setActivePath(annotation.newPath);
+			setLineFocus((current) => ({
+				path: annotation.newPath,
+				oldLine: annotation.oldLine,
+				newLine: annotation.newLine,
+				nonce: (current?.nonce ?? 0) + 1,
+			}));
+		},
+		[session],
+	);
+	const tagAnnotationsGroup = useMemo(
+		() => ({
+			annotations,
+			draggedTag,
+			currentHeadSha,
+			onAdd: session.addAnnotation,
+			onRemove: session.removeAnnotation,
+		}),
+		[annotations, currentHeadSha, draggedTag, session.addAnnotation, session.removeAnnotation],
+	);
+
 	// Audit findings land in the session only once, when the stream finishes. Parsing
 	// mid-stream would repeatedly rewrite the triage queue from half a JSON array.
 	// Depends on the primitives plus the stable callbacks, not on the hook objects:
@@ -310,6 +349,7 @@ export function ReviewWorkspaceView({
 	const auditText = audit.text;
 	const auditReset = audit.reset;
 	const setFindings = session.setFindings;
+	const applyAnnotationVerdicts = session.applyAnnotationVerdicts;
 	const markPassRun = session.markPassRun;
 	useEffect(() => {
 		if (auditStatus !== "done" || auditText.length === 0) {
@@ -317,6 +357,10 @@ export function ReviewWorkspaceView({
 		}
 		const findings = parseFindingsFromStream(auditText);
 		setFindings(findings);
+		const verdicts = parseVerdictsFromStream(auditText);
+		if (verdicts.length > 0) {
+			applyAnnotationVerdicts(verdicts);
+		}
 		// Recorded even when nothing was flagged: "ran and found nothing" is the answer
 		// the reviewer paid for, and an empty findings list must not read as "not run".
 		markPassRun("audit");
@@ -325,10 +369,12 @@ export function ReviewWorkspaceView({
 			message:
 				findings.length === 0
 					? "Claude found nothing to flag against the rules."
-					: `Claude flagged ${findings.length} item${findings.length === 1 ? "" : "s"} to triage.`,
+					: `Claude flagged ${findings.length} item${findings.length === 1 ? "" : "s"} to triage.${
+							verdicts.length > 0 ? ` Verdicts on ${verdicts.length} annotation${verdicts.length === 1 ? "" : "s"}.` : ""
+						}`,
 		});
 		auditReset();
-	}, [auditReset, auditStatus, auditText, markPassRun, setFindings]);
+	}, [applyAnnotationVerdicts, auditReset, auditStatus, auditText, markPassRun, setFindings]);
 
 	const rulesExtractStatus = rulesExtract.status;
 	const rulesExtractReset = rulesExtract.reset;
@@ -543,8 +589,9 @@ export function ReviewWorkspaceView({
 			projectKey: target.projectKey,
 			model: agentModel,
 			managerAccountId: effectiveAccountId,
+			...(annotations.length > 0 ? { annotations } : {}),
 		});
-	}, [agentModel, audit, effectiveAccountId, session.files, session.mergeRequest, target]);
+	}, [agentModel, annotations, audit, effectiveAccountId, session.files, session.mergeRequest, target]);
 
 	const sendChat = useCallback(
 		(prompt: string, options?: { expectSuggestions?: boolean }) => {
@@ -578,6 +625,13 @@ export function ReviewWorkspaceView({
 									.map((file) => ({ newPath: file.newPath, diff: file.diff })),
 							}
 						: {}),
+					...(annotations.length > 0
+						? {
+								annotations: isMergeRequestScopedPrompt(prompt)
+									? annotations
+									: annotations.filter((a) => a.newPath === session.activePath),
+							}
+						: {}),
 					...(selection ? { screen: selection } : {}),
 					...(visibleRange && !selection ? { visible: visibleRange } : {}),
 					...(expectSuggestions ? { expectSuggestions: true } : {}),
@@ -590,12 +644,14 @@ export function ReviewWorkspaceView({
 		},
 		[
 			agentModel,
+			annotations,
 			chat,
 			effectiveAccountId,
 			localRepoPath,
 			projectCommands,
 			selection,
 			session.activeFile,
+			session.activePath,
 			session.files,
 			target,
 			visibleRange,
@@ -1091,6 +1147,11 @@ export function ReviewWorkspaceView({
 							active={leftTab === "rules"}
 							onSelect={() => setLeftTab("rules")}
 						/>
+						<LeftTabButton
+							label={`Tags (${annotations.length})`}
+							active={leftTab === "tags"}
+							onSelect={() => setLeftTab("tags")}
+						/>
 					</div>
 
 					{leftTab === "impact" ? (
@@ -1126,6 +1187,16 @@ export function ReviewWorkspaceView({
 								}
 							}}
 						/>
+					) : leftTab === "tags" ? (
+						<ReviewTagPalette
+							tags={tagPalette}
+							annotations={annotations}
+							staleAnnotationIds={staleAnnotationIds}
+							onTagDragStart={setDraggedTag}
+							onTagDragEnd={() => setDraggedTag(null)}
+							onJumpToAnnotation={jumpToAnnotation}
+							onRemoveAnnotation={session.removeAnnotation}
+						/>
 					) : (
 						<ReviewRulesPanel
 							rules={session.rules}
@@ -1160,6 +1231,7 @@ export function ReviewWorkspaceView({
 						isReviewed={session.activePath !== null && reviewedPaths.includes(session.activePath)}
 						draftComments={activeDraftComments}
 						discussions={session.discussions}
+						tagAnnotations={tagAnnotationsGroup}
 						pendingCitations={pendingCitations}
 						deltaBanner={session.newCommitsSinceLastReview}
 						onModeChange={setDiffMode}

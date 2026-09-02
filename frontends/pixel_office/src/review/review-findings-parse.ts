@@ -105,3 +105,49 @@ export function parseSuggestionsFromChat(text: string): RuntimeReviewFinding[] {
 export function stripSuggestionsBlock(text: string): string {
 	return text.replace(new RegExp(`\`\`\`${SUGGESTIONS_FENCE}[\\s\\S]*?\`\`\``, "g"), "").trimEnd();
 }
+
+export interface ReviewAnnotationVerdictResult {
+	annotationId: string;
+	verdict: "confirmed" | "not_an_issue" | "partial";
+	reasoning: string;
+}
+
+/**
+ * Verdict elements mixed into the audit's findings array. Same lenient extraction as
+ * `parseFindingsFromStream`; strict about shape — an unknown verdict value is dropped,
+ * not defaulted, because a wrong verdict is worse than none.
+ */
+export function parseVerdictsFromStream(text: string): ReviewAnnotationVerdictResult[] {
+	const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+	for (const body of [fenced?.[1], text]) {
+		if (typeof body !== "string") {
+			continue;
+		}
+		const parsed = parseFirstArray(body);
+		if (parsed === null || !Array.isArray(parsed)) {
+			continue;
+		}
+		const verdicts: ReviewAnnotationVerdictResult[] = [];
+		for (const item of parsed) {
+			if (typeof item !== "object" || item === null || Array.isArray(item)) {
+				continue;
+			}
+			const record = item as Record<string, unknown>;
+			const annotationId = typeof record.annotationId === "string" ? record.annotationId : null;
+			const verdict = record.verdict;
+			if (
+				!annotationId ||
+				(verdict !== "confirmed" && verdict !== "not_an_issue" && verdict !== "partial")
+			) {
+				continue;
+			}
+			verdicts.push({
+				annotationId,
+				verdict,
+				reasoning: typeof record.reasoning === "string" ? record.reasoning : "",
+			});
+		}
+		return verdicts;
+	}
+	return [];
+}

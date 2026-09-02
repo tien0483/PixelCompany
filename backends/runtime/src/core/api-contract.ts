@@ -3977,6 +3977,43 @@ export const runtimeReviewRulesConfigResponseSchema = z.object({
 });
 export type RuntimeReviewRulesConfigResponse = z.infer<typeof runtimeReviewRulesConfigResponseSchema>;
 
+export const runtimeReviewAnnotationTagSchema = z.object({
+	/** A curated tag, or one derived from the rules bundle's category values. */
+	kind: z.enum(["builtin", "rule-category"]),
+	label: z.string().min(1),
+});
+export type RuntimeReviewAnnotationTag = z.infer<typeof runtimeReviewAnnotationTagSchema>;
+
+export const runtimeReviewAnnotationVerdictSchema = z.object({
+	verdict: z.enum(["confirmed", "not_an_issue", "partial"]),
+	reasoning: z.string(),
+	/** Head the audit that produced this verdict ran against. */
+	headSha: z.string().nullable(),
+	at: z.string(),
+});
+export type RuntimeReviewAnnotationVerdict = z.infer<typeof runtimeReviewAnnotationVerdictSchema>;
+
+/**
+ * A reviewer's hunch pinned to a diff line: "I think this spot has a <tag> problem".
+ * Anchor fields mirror `runtimeReviewDraftCommentSchema` exactly — `oldLine`/`newLine`
+ * are the range *end*, `lineRange` holds the start pair (GitLab's convention).
+ */
+export const runtimeReviewAnnotationSchema = z.object({
+	id: z.string().min(1),
+	newPath: z.string(),
+	oldPath: z.string(),
+	oldLine: z.number().nullable(),
+	newLine: z.number().nullable(),
+	lineRange: runtimeGitlabNoteLineRangeSchema.optional(),
+	tag: runtimeReviewAnnotationTagSchema,
+	note: z.string(),
+	createdAt: z.string(),
+	/** Head at creation time, for the stale marker. */
+	headSha: z.string().nullable(),
+	verdict: runtimeReviewAnnotationVerdictSchema.nullable().default(null),
+});
+export type RuntimeReviewAnnotation = z.infer<typeof runtimeReviewAnnotationSchema>;
+
 export const runtimeReviewDraftCommentSchema = z.object({
 	id: z.string().min(1),
 	/** Post-image path; the pre-image path is only needed for a deleted-side note. */
@@ -4065,6 +4102,8 @@ export const runtimeReviewSessionSchema = z.object({
 	 * draft comments are silently discarded.
 	 */
 	completedPasses: z.array(runtimeReviewCompletedPassSchema).default([]),
+	/** `.default([])` for the same reason `chatMessages` has one — see comment above. */
+	annotations: z.array(runtimeReviewAnnotationSchema).default([]),
 	updatedAt: z.string(),
 });
 export type RuntimeReviewSession = z.infer<typeof runtimeReviewSessionSchema>;
@@ -4261,6 +4300,7 @@ export const runtimeReviewAuditRequestSchema = z.object({
 	 * without this the pass cannot see what the change affects.
 	 */
 	cwd: z.string().optional(),
+	annotations: z.array(runtimeReviewAnnotationSchema).optional(),
 	model: z.string().optional(),
 	managerAccountId: z.number().int().positive().optional(),
 });
@@ -4321,6 +4361,7 @@ export const runtimeReviewChatRequestSchema = z.object({
 		.optional(),
 	/** Ask for the machine-readable suggestions block. Set for slash commands. */
 	expectSuggestions: z.boolean().optional(),
+	annotations: z.array(runtimeReviewAnnotationSchema).optional(),
 	projectKey: z.string().min(1),
 	cwd: z.string().optional(),
 	model: z.string().optional(),

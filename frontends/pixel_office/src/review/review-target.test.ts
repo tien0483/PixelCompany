@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { selectNextUnreviewedPath, selectPreviousUnreviewedPath } from "@/review/review-target";
-import type { RuntimeGitlabDiffFile } from "@/runtime/types";
+import { buildLineAnnotations, selectNextUnreviewedPath, selectPreviousUnreviewedPath } from "@/review/review-target";
+import type { RuntimeGitlabDiffFile, RuntimeReviewAnnotation } from "@/runtime/types";
 
 function file(newPath: string): RuntimeGitlabDiffFile {
 	return {
@@ -119,5 +119,94 @@ describe("selectPreviousUnreviewedPath", () => {
 
 	it("returns null for an empty changeset", () => {
 		expect(selectPreviousUnreviewedPath({ files: [], reviewedPaths: [], activePath: null })).toBeNull();
+	});
+});
+
+function annotation(
+	newPath: string,
+	newLine: number | null,
+	oldLine: number | null = null,
+): RuntimeReviewAnnotation {
+	return {
+		id: `${newPath}:${newLine}`,
+		newPath,
+		oldPath: newPath,
+		newLine,
+		oldLine,
+		tag: { kind: "builtin", label: "Bug Risk" },
+		note: "",
+		headSha: null,
+		verdict: null,
+		createdAt: "2026-09-01T00:00:00.000Z",
+	};
+}
+
+describe("buildLineAnnotations — tag indexing", () => {
+	it("returns empty maps when there are no annotations", () => {
+		const result = buildLineAnnotations({
+			path: "a.ts",
+			oldPath: "a.ts",
+			draftComments: [],
+			discussions: [],
+		});
+
+		expect(result.tagsByNewLine.size).toBe(0);
+		expect(result.tagsByOldLine.size).toBe(0);
+	});
+
+	it("indexes an annotation by its new-side line", () => {
+		const ann = annotation("a.ts", 10);
+		const result = buildLineAnnotations({
+			path: "a.ts",
+			oldPath: "a.ts",
+			draftComments: [],
+			discussions: [],
+			annotations: [ann],
+		});
+
+		expect(result.tagsByNewLine.get(10)).toHaveLength(1);
+		expect(result.tagsByNewLine.get(10)?.[0]?.id).toBe(ann.id);
+	});
+
+	it("indexes an annotation on a deleted line by its old-side line", () => {
+		const ann = annotation("a.ts", null, 5);
+		const result = buildLineAnnotations({
+			path: "a.ts",
+			oldPath: "a.ts",
+			draftComments: [],
+			discussions: [],
+			annotations: [ann],
+		});
+
+		expect(result.tagsByNewLine.size).toBe(0);
+		expect(result.tagsByOldLine.get(5)).toHaveLength(1);
+	});
+
+	it("groups multiple annotations on the same line", () => {
+		const a1 = annotation("a.ts", 7);
+		const a2 = { ...annotation("a.ts", 7), id: "a.ts:7b" };
+		const result = buildLineAnnotations({
+			path: "a.ts",
+			oldPath: "a.ts",
+			draftComments: [],
+			discussions: [],
+			annotations: [a1, a2],
+		});
+
+		expect(result.tagsByNewLine.get(7)).toHaveLength(2);
+	});
+
+	it("skips annotations for a different file", () => {
+		const ann = annotation("b.ts", 3);
+		const result = buildLineAnnotations({
+			path: "a.ts",
+			oldPath: "a.ts",
+			draftComments: [],
+			discussions: [],
+			annotations: [ann],
+		});
+
+		expect(result.tagsByNewLine.size).toBe(0);
+		expect(result.tagsByOldLine.size).toBe(0);
 	});
 });

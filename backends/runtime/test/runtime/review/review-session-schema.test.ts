@@ -104,3 +104,101 @@ describe("runtimeReviewSessionSchema chat fields", () => {
 		expect(parsed.success).toBe(false);
 	});
 });
+
+/**
+ * The annotations field was added after the initial chat fields. Sessions written before
+ * it must still parse — `.default([])` is the guard; these tests confirm it is in place.
+ */
+describe("runtimeReviewSessionSchema annotations field", () => {
+	const legacyDocument = {
+		host: "code.example.com",
+		projectId: 12,
+		iid: 142,
+		lastReviewedHeadSha: null,
+		reviewedPaths: [],
+		draftComments: [],
+		findings: [],
+		dismissedFindingIds: [],
+		updatedAt: "2026-08-01T00:00:00.000Z",
+	};
+
+	it("defaults annotations to [] when the field is absent (backward-compat)", () => {
+		const parsed = runtimeReviewSessionSchema.safeParse(legacyDocument);
+
+		expect(parsed.success).toBe(true);
+		expect(parsed.success && parsed.data.annotations).toEqual([]);
+	});
+
+	it("accepts and round-trips a full annotation object", () => {
+		const annotation = {
+			id: "ann-1",
+			newPath: "src/app.ts",
+			oldPath: "src/app.ts",
+			newLine: 42,
+			oldLine: null,
+			tag: { kind: "builtin", label: "Bug Risk" },
+			note: "looks risky",
+			headSha: "abc123",
+			createdAt: "2026-09-01T00:00:00.000Z",
+			verdict: {
+				verdict: "confirmed",
+				reasoning: "yes, it is a bug",
+				headSha: "abc123",
+				at: "2026-09-01T01:00:00.000Z",
+			},
+		};
+		const parsed = runtimeReviewSessionSchema.parse({
+			...legacyDocument,
+			annotations: [annotation],
+		});
+
+		expect(parsed.annotations).toHaveLength(1);
+		expect(parsed.annotations[0]?.id).toBe("ann-1");
+		expect(parsed.annotations[0]?.verdict?.verdict).toBe("confirmed");
+	});
+
+	it("accepts an annotation without a verdict (pre-audit state)", () => {
+		const parsed = runtimeReviewSessionSchema.safeParse({
+			...legacyDocument,
+			annotations: [
+				{
+					id: "ann-2",
+					newPath: "src/index.ts",
+					oldPath: "src/index.ts",
+					newLine: 10,
+					oldLine: null,
+					tag: { kind: "rule-category", label: "Security" },
+					note: "",
+					headSha: null,
+					createdAt: "2026-09-01T00:00:00.000Z",
+					verdict: null,
+				},
+			],
+		});
+
+		expect(parsed.success).toBe(true);
+	});
+
+	it("rejects an annotation with an unknown verdict value", () => {
+		const parsed = runtimeReviewSessionSchema.safeParse({
+			...legacyDocument,
+			annotations: [
+				{
+					id: "ann-3",
+					newPath: "a.ts",
+					oldPath: "a.ts",
+					newLine: 1,
+					oldLine: null,
+					tag: { kind: "builtin", label: "Pattern" },
+					note: "",
+					headSha: null,
+					createdAt: "2026-09-01T00:00:00.000Z",
+					verdict: { verdict: "unsure", reasoning: "?", headSha: null, at: "2026-09-01T00:00:00.000Z" },
+				},
+			],
+		});
+
+		expect(parsed.success).toBe(false);
+	});
+});
+

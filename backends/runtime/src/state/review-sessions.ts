@@ -71,6 +71,7 @@ export function createEmptyReviewSession(host: string, projectId: number, iid: n
 		chatSessionId: null,
 		chatMessages: [],
 		completedPasses: [],
+		annotations: [],
 		updatedAt: new Date().toISOString(),
 	};
 }

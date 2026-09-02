@@ -10,6 +10,7 @@ import type {
 	RuntimeGitlabDiscussion,
 	RuntimeGitlabMergeRequestDetail,
 	RuntimeGitlabMergeRequestVersion,
+	RuntimeReviewAnnotation,
 	RuntimeReviewChatMessage,
 	RuntimeReviewCompletedPass,
 	RuntimeReviewDraftComment,
@@ -49,6 +50,14 @@ export interface ReviewSessionApi extends ReviewSessionState {
 	) => void;
 	removeDraftComment: (id: string) => void;
 	clearDraftComments: () => void;
+	addAnnotation: (
+		input: Omit<RuntimeReviewAnnotation, "id" | "createdAt" | "headSha" | "verdict">,
+	) => void;
+	removeAnnotation: (id: string) => void;
+	updateAnnotationNote: (id: string, note: string) => void;
+	applyAnnotationVerdicts: (
+		verdicts: Array<{ annotationId: string; verdict: "confirmed" | "not_an_issue" | "partial"; reasoning: string }>,
+	) => void;
 	setFindings: (findings: RuntimeReviewFinding[]) => void;
 	/** Persists the chat transcript and the CLI session it resumes into. */
 	setChat: (update: { messages: RuntimeReviewChatMessage[]; sessionId: string | null }) => void;
@@ -298,6 +307,83 @@ export function useReviewSession(target: ReviewTarget, workspaceId: string | nul
 		updateSession((session) => ({ ...session, draftComments: [] }));
 	}, [updateSession]);
 
+	const currentHeadSha = state.versions[0]?.headSha ?? state.diffRefs?.headSha ?? null;
+
+	const addAnnotation = useCallback(
+		(input: Omit<RuntimeReviewAnnotation, "id" | "createdAt" | "headSha" | "verdict">) => {
+			updateSession((session) => ({
+				...session,
+				annotations: [
+					...session.annotations,
+					{
+						...input,
+						id: `annotation-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+						createdAt: new Date().toISOString(),
+						headSha: currentHeadSha,
+						verdict: null,
+					},
+				],
+			}));
+		},
+		[currentHeadSha, updateSession],
+	);
+
+	const removeAnnotation = useCallback(
+		(id: string) => {
+			updateSession((session) => ({
+				...session,
+				annotations: session.annotations.filter((annotation) => annotation.id !== id),
+			}));
+		},
+		[updateSession],
+	);
+
+	const updateAnnotationNote = useCallback(
+		(id: string, note: string) => {
+			updateSession((session) => ({
+				...session,
+				annotations: session.annotations.map((annotation) =>
+					annotation.id === id ? { ...annotation, note } : annotation,
+				),
+			}));
+		},
+		[updateSession],
+	);
+
+	const applyAnnotationVerdicts = useCallback(
+		(
+			verdicts: Array<{
+				annotationId: string;
+				verdict: "confirmed" | "not_an_issue" | "partial";
+				reasoning: string;
+			}>,
+		) => {
+			if (verdicts.length === 0) {
+				return;
+			}
+			const byId = new Map(verdicts.map((entry) => [entry.annotationId, entry]));
+			updateSession((session) => ({
+				...session,
+				annotations: session.annotations.map((annotation) => {
+					const match = byId.get(annotation.id);
+					// Unmatched ids (model typo) are dropped silently; the badge stays "no verdict".
+					return match
+						? {
+								...annotation,
+								verdict: {
+									verdict: match.verdict,
+									reasoning: match.reasoning,
+									headSha: currentHeadSha,
+									at: new Date().toISOString(),
+								},
+							}
+						: annotation;
+				}),
+			}));
+		},
+		[currentHeadSha, updateSession],
+	);
+
 	const setFindings = useCallback(
 		(findings: RuntimeReviewFinding[]) => {
 			updateSession((session) => ({ ...session, findings }));
@@ -360,8 +446,6 @@ export function useReviewSession(target: ReviewTarget, workspaceId: string | nul
 		updateSession((session) => ({ ...session, lastReviewedHeadSha: headSha }));
 	}, [state.diffRefs?.headSha, state.versions, updateSession]);
 
-	const currentHeadSha = state.versions[0]?.headSha ?? state.diffRefs?.headSha ?? null;
-
 	const markPassRun = useCallback(
 		(pass: RuntimeReviewCompletedPass["pass"]) => {
 			updateSession((session) => ({
@@ -406,6 +490,10 @@ export function useReviewSession(target: ReviewTarget, workspaceId: string | nul
 		addDraftComment,
 		removeDraftComment,
 		clearDraftComments,
+		addAnnotation,
+		removeAnnotation,
+		updateAnnotationNote,
+		applyAnnotationVerdicts,
 		setFindings,
 		setChat,
 		dismissFinding,

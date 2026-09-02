@@ -42,6 +42,7 @@ import {
 	normalizeWheelDeltaPx,
 } from "@/review/review-deep-scroll";
 import { buildFullFileRows } from "@/review/review-full-file-rows";
+import type { ReviewTag } from "@/review/review-tags";
 import {
 	buildLineAnnotations,
 	type ReviewDiffMode,
@@ -56,6 +57,7 @@ import type {
 	RuntimeGitlabDiffFile,
 	RuntimeGitlabDiscussion,
 	RuntimeGitlabNoteLineRange,
+	RuntimeReviewAnnotation,
 	RuntimeReviewDraftComment,
 } from "@/runtime/types";
 
@@ -224,6 +226,7 @@ export function ReviewDiffPane({
 	lineFocus,
 	onNavigate,
 	navTargets,
+	tagAnnotations,
 }: {
 	file: RuntimeGitlabDiffFile | null;
 	mode: ReviewDiffMode;
@@ -270,10 +273,36 @@ export function ReviewDiffPane({
 	onNavigate?: (direction: ReviewNavDirection) => void;
 	/** Whether a target exists each way, so the buttons disable instead of no-op. */
 	navTargets?: { previous: boolean; next: boolean };
+	/** Reviewer tag annotations: data + the tag being dragged from the palette. */
+	tagAnnotations?: {
+		annotations: RuntimeReviewAnnotation[];
+		draggedTag: ReviewTag | null;
+		currentHeadSha: string | null;
+		onAdd: (input: {
+			newPath: string;
+			oldPath: string;
+			oldLine: number | null;
+			newLine: number | null;
+			lineRange?: RuntimeGitlabNoteLineRange;
+			tag: ReviewTag;
+			note: string;
+		}) => void;
+		onRemove: (id: string) => void;
+	};
 }): ReactElement {
 	const [composer, setComposer] = useState<ComposerAnchor | null>(null);
 	const [composerText, setComposerText] = useState("");
 	const [drag, setDrag] = useState<DragState | null>(null);
+	/** A tag dropped on a row, waiting for its optional note. */
+	const [pendingAnnotation, setPendingAnnotation] = useState<{
+		rowKey: string;
+		side: SplitDiffSide;
+		tag: ReviewTag;
+		anchor: { oldLine: number | null; newLine: number | null; lineRange?: RuntimeGitlabNoteLineRange };
+	} | null>(null);
+	const [pendingNote, setPendingNote] = useState("");
+	/** Row currently hovered by a tag drag, for the drop highlight. */
+	const [dropTargetKey, setDropTargetKey] = useState<string | null>(null);
 	const [forceRenderLargeDiff, setForceRenderLargeDiff] = useState(false);
 	const [showFullFile, setShowFullFile] = useState(false);
 	/** The row a jump just landed on, tinted for a moment so the eye can find it. */
@@ -402,8 +431,9 @@ export function ReviewDiffPane({
 				oldPath: file?.oldPath ?? path,
 				draftComments,
 				discussions,
+				annotations: tagAnnotations?.annotations,
 			}),
-		[discussions, draftComments, file?.oldPath, path],
+		[discussions, draftComments, file?.oldPath, path, tagAnnotations?.annotations],
 	);
 
 	// The hook owns fetching and its per-file invalidation; this only records intent, so
@@ -612,6 +642,9 @@ export function ReviewDiffPane({
 		// "Render it anyway" was a judgement about the previous file's size, not this one's.
 		setForceRenderLargeDiff(false);
 		closeComposerRef.current();
+		setPendingAnnotation(null);
+		setPendingNote("");
+		setDropTargetKey(null);
 		if (scrollRef.current) {
 			scrollRef.current.scrollTop = 0;
 		}
@@ -670,7 +703,8 @@ export function ReviewDiffPane({
 	onNavigateRef.current = onNavigate;
 	// A note in progress must never have the file moved out from under it.
 	const isNavSuppressedRef = useRef(false);
-	isNavSuppressedRef.current = composer !== null || drag !== null;
+	isNavSuppressedRef.current =
+		composer !== null || drag !== null || pendingAnnotation !== null || (tagAnnotations?.draggedTag ?? null) !== null;
 
 	useEffect(() => {
 		const element = scrollRef.current;
@@ -719,6 +753,12 @@ export function ReviewDiffPane({
 			// A removed row's number is an old-side number; everything else is new-side.
 			// Mixing these up is what silently posts a note against the wrong revision;
 			// `resolveRowLines` is the single place that decision is made.
+			const draggedTag = tagAnnotations?.draggedTag ?? null;
+			const rowTags = commentable
+				? (row.variant === "removed"
+						? annotations.tagsByOldLine.get(lineNumber)
+						: annotations.tagsByNewLine.get(lineNumber)) ?? []
+				: [];
 			const rowDrafts = commentable
 				? (row.variant === "removed"
 						? annotations.draftsByOldLine.get(lineNumber)
@@ -729,7 +769,7 @@ export function ReviewDiffPane({
 						? annotations.threadsByOldLine.get(lineNumber)
 						: annotations.threadsByNewLine.get(lineNumber)) ?? []
 				: [];
-			const hasAnnotation = rowDrafts.length > 0 || rowThreads.length > 0;
+			const hasAnnotation = rowDrafts.length > 0 || rowThreads.length > 0 || rowTags.length > 0;
 
 			const variantClass =
 				row.variant === "added"
@@ -755,6 +795,7 @@ export function ReviewDiffPane({
 							variantClass,
 							hasAnnotation && "kb-diff-row-commented",
 							isSelected && "kb-diff-row-selected",
+							dropTargetKey === row.key && "kb-diff-row-selected",
 							isFocused && "kb-diff-row-focused",
 							!commentable && "kb-diff-row-noncommentable",
 						)}
@@ -764,6 +805,70 @@ export function ReviewDiffPane({
 						// resolves to a one-row range, which is the old click-to-comment.
 						onMouseDown={commentable ? () => startDrag(side, row.key) : undefined}
 						onMouseEnter={commentable ? () => extendDrag(side, row.key) : undefined}
+						onDragOver={
+							draggedTag && commentable
+								? (event) => {
+										// preventDefault is what makes the row a valid drop target at all.
+										event.preventDefault();
+										event.dataTransfer.dropEffect = "copy";
+										setDropTargetKey(row.key);
+									}
+								: undefined
+						}
+						onDragLeave={
+							draggedTag && commentable
+								? () => setDropTargetKey((k) => (k === row.key ? null : k))
+								: undefined
+						}
+						onDrop={
+							draggedTag && commentable
+								? (event) => {
+										event.preventDefault();
+										setDropTargetKey(null);
+										const lines = resolveRowLines(row);
+										// Drop inside the active selection (same file, same side, line within range)
+										// tags the whole range; anywhere else tags the single row.
+										const rowLine = row.lineNumber;
+										const sel = selection;
+										const inSelection =
+											sel != null &&
+											file != null &&
+											sel.path === file.newPath &&
+											sel.side === rowSide(row.variant) &&
+											rowLine != null &&
+											rowLine >= sel.startLine &&
+											rowLine <= sel.endLine;
+										if (inSelection && sel.startLine !== sel.endLine) {
+											const startRow = rows.find(
+												(candidate) =>
+													rowSide(candidate.variant) === sel.side && candidate.lineNumber === sel.startLine,
+											);
+											const endRow = rows.find(
+												(candidate) =>
+													rowSide(candidate.variant) === sel.side && candidate.lineNumber === sel.endLine,
+											);
+											if (startRow && endRow) {
+												const startLines = resolveRowLines(startRow);
+												const endLines = resolveRowLines(endRow);
+												setPendingAnnotation({
+													rowKey: endRow.key,
+													side,
+													tag: draggedTag,
+													anchor: {
+														oldLine: endLines.oldLine,
+														newLine: endLines.newLine,
+														lineRange: { startOldLine: startLines.oldLine, startNewLine: startLines.newLine },
+													},
+												});
+												setPendingNote("");
+												return;
+											}
+										}
+										setPendingAnnotation({ rowKey: row.key, side, tag: draggedTag, anchor: lines });
+										setPendingNote("");
+									}
+								: undefined
+						}
 					>
 						<span
 							className="kb-diff-line-number"
@@ -852,6 +957,95 @@ export function ReviewDiffPane({
 						</div>
 					))}
 
+					{rowTags.map((annotation) => (
+						<div
+							key={annotation.id}
+							className="flex items-start justify-between gap-2 border-l-2 border-status-purple bg-surface-1 px-2.5 py-1 text-[11px]"
+						>
+							<div className="min-w-0 space-y-0.5">
+								<div className="flex flex-wrap items-center gap-1">
+									<span className="rounded border border-border-bright bg-surface-2 px-1 text-[9px] text-text-secondary">
+										{annotation.tag.label}
+									</span>
+									{annotation.verdict ? (
+										<span
+											title={annotation.verdict.reasoning}
+											className={cn(
+												"rounded px-1 text-[9px]",
+												annotation.verdict.verdict === "confirmed" && "bg-status-red/20 text-status-red",
+												annotation.verdict.verdict === "partial" && "bg-status-orange/20 text-status-orange",
+												annotation.verdict.verdict === "not_an_issue" && "bg-status-green/20 text-status-green",
+											)}
+										>
+											{annotation.verdict.verdict === "confirmed"
+												? "Confirmed"
+												: annotation.verdict.verdict === "partial"
+													? "Partial"
+													: "Not an issue"}
+										</span>
+									) : null}
+									{tagAnnotations?.currentHeadSha &&
+									annotation.headSha &&
+									annotation.headSha !== tagAnnotations.currentHeadSha ? (
+										<span className="text-[9px] text-status-orange" title="Added against an earlier revision">
+											stale
+										</span>
+									) : null}
+								</div>
+								{annotation.note.length > 0 ? (
+									<div className="truncate text-text-secondary" title={annotation.note}>
+										{annotation.note}
+									</div>
+								) : null}
+							</div>
+							<button
+								type="button"
+								aria-label="Delete annotation"
+								className="shrink-0 cursor-pointer text-text-tertiary hover:text-status-red"
+								onClick={(event) => {
+									event.stopPropagation();
+									tagAnnotations?.onRemove(annotation.id);
+								}}
+							>
+								×
+							</button>
+						</div>
+					))}
+
+					{pendingAnnotation?.rowKey === row.key && pendingAnnotation.side === side && tagAnnotations && file ? (
+						<div className="flex items-center gap-1.5 border-l-2 border-status-purple bg-surface-2 px-2.5 py-1.5">
+							<span className="shrink-0 rounded border border-border-bright bg-surface-1 px-1 text-[9px] text-text-secondary">
+								{pendingAnnotation.tag.label}
+							</span>
+							<input
+								// biome-ignore lint/a11y/noAutofocus: the popover exists to take the note.
+								autoFocus
+								value={pendingNote}
+								onChange={(event) => setPendingNote(event.target.value)}
+								placeholder="Optional note — why does this spot worry you? Enter to save, Esc to cancel"
+								className="min-w-0 flex-1 rounded border border-border bg-surface-1 px-1.5 py-0.5 text-[11px] text-text-primary focus:border-border-focus focus:outline-none"
+								onKeyDown={(event) => {
+									if (event.key === "Enter") {
+										tagAnnotations.onAdd({
+											newPath: file.newPath,
+											oldPath: file.oldPath,
+											oldLine: pendingAnnotation.anchor.oldLine,
+											newLine: pendingAnnotation.anchor.newLine,
+											...(pendingAnnotation.anchor.lineRange ? { lineRange: pendingAnnotation.anchor.lineRange } : {}),
+											tag: pendingAnnotation.tag,
+											note: pendingNote.trim(),
+										});
+										setPendingAnnotation(null);
+										setPendingNote("");
+									} else if (event.key === "Escape") {
+										setPendingAnnotation(null);
+										setPendingNote("");
+									}
+								}}
+							/>
+						</div>
+					) : null}
+
 					{isComposerHere && composer ? (
 						<ReviewCommentComposer
 							path={path}
@@ -873,17 +1067,24 @@ export function ReviewDiffPane({
 			closeComposer,
 			composer,
 			composerText,
+			dropTargetKey,
 			extendDrag,
+			file,
 			focusedRowKey,
 			onRemoveCitation,
 			onRemoveDraft,
 			path,
+			pendingAnnotation,
 			pendingCitations,
+			pendingNote,
 			prismGrammar,
 			prismLanguage,
+			rows,
 			saveComposer,
 			selectedRowKeys,
+			selection,
 			startDrag,
+			tagAnnotations,
 		],
 	);
 
