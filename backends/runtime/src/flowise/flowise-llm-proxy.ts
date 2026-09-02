@@ -126,6 +126,15 @@ function copyRequestHeaders(req: IncomingMessage, stripAuth = true): Headers {
 	return headers;
 }
 
+/** Avoid `/v1` + `/v1/audio/...` when the seat base URL already ends with `/v1`. */
+function joinUpstreamUrl(upstreamBase: string, upstreamPath: string): string {
+	const base = upstreamBase.replace(/\/$/, "");
+	if (upstreamPath.startsWith("/v1/") && base.endsWith("/v1")) {
+		return `${base}${upstreamPath.slice(3)}`;
+	}
+	return `${base}${upstreamPath}`;
+}
+
 /** Adds a beta flag without dropping any the node already asked for (prompt caching, etc.). */
 function appendAnthropicBeta(headers: Headers, beta: string): void {
 	const existing = headers.get("anthropic-beta");
@@ -294,7 +303,7 @@ async function forwardUpstream(
 	plan: ProviderForwardPlan,
 	warn?: (message: string) => void,
 ): Promise<void> {
-	const upstreamUrl = `${plan.upstreamBase}${plan.upstreamPath}`;
+	const upstreamUrl = joinUpstreamUrl(plan.upstreamBase, plan.upstreamPath);
 	let upstream: Response;
 	try {
 		upstream = await fetch(upstreamUrl, {

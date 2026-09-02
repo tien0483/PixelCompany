@@ -352,6 +352,22 @@ async function checkOpenmaicSidecarFreshness() {
 	return { state: sourceStamp <= distStamp ? "fresh" : "stale", distStamp };
 }
 
+/**
+ * Learning frames OpenMAIC cross-origin; a build without ALLOWED_FRAME_ANCESTORS bakes
+ * X-Frame-Options: SAMEORIGIN into the routes manifest and the tab renders blank.
+ */
+function isOpenmaicBuiltForEmbedding() {
+	const manifest = join(openmaicDist, "routes-manifest.json");
+	if (!existsSync(manifest)) {
+		return false;
+	}
+	try {
+		return !readFileSync(manifest, "utf8").includes('"X-Frame-Options"');
+	} catch {
+		return false;
+	}
+}
+
 async function hasBuiltFlowiseSidecar() {
 	return await pathExists(join(flowiseServerDist, "index.js"));
 }
@@ -615,33 +631,59 @@ async function main() {
 	}
 
 	const htmlFreshness = await checkHtmlSidecarFreshness();
-	if (htmlFreshness.state !== "fresh" && !skipBuild) {
+	if (forceBuild && !skipBuild && htmlFreshness.state !== "fresh") {
 		if (htmlFreshness.state === "stale") {
 			console.log("  HTML sidecar build is older than its sources — rebuilding.");
 		}
 		buildHtmlSidecar();
-	} else if (htmlFreshness.state === "missing" && skipBuild) {
-		console.warn("  HTML sidecar .next missing — templates stay offline (--skip-build).");
+	} else if (htmlFreshness.state === "stale") {
+		console.warn(
+			"  HTML sidecar build is older than its sources — templates may stay stale. Run: npm run solo -- --build",
+		);
+	} else if (htmlFreshness.state === "missing") {
+		console.warn("  HTML sidecar .next missing — templates stay offline.");
 	}
 
 	const openmaicFreshness = await checkOpenmaicSidecarFreshness();
-	if (openmaicFreshness.state !== "fresh" && !skipBuild) {
-		if (openmaicFreshness.state === "stale") {
-			console.log("  OpenMAIC build is older than its sources — rebuilding.");
+	const openmaicPresent = existsSync(join(openmaicRoot, "package.json"));
+	const openmaicEmbedBad = openmaicFreshness.state !== "missing" && !isOpenmaicBuiltForEmbedding();
+	if (!skipBuild && openmaicPresent) {
+		const shouldRebuildOpenmaic =
+			forceBuild || openmaicFreshness.state !== "fresh" || openmaicEmbedBad;
+		if (shouldRebuildOpenmaic) {
+			if (openmaicFreshness.state === "stale") {
+				console.log("  OpenMAIC build is older than its sources — rebuilding.");
+			} else if (openmaicEmbedBad) {
+				console.log(
+					"  OpenMAIC was built without ALLOWED_FRAME_ANCESTORS — rebuilding for the Learning embed.",
+				);
+			}
+			buildOpenmaicSidecar();
 		}
-		buildOpenmaicSidecar();
-	} else if (openmaicFreshness.state === "missing" && skipBuild) {
-		console.warn("  OpenMAIC build missing — Learning sidecar may stay offline/stale (--skip-build).");
+	} else if (openmaicFreshness.state === "stale") {
+		console.warn(
+			"  OpenMAIC build is older than its sources — Learning may stay stale. Run: npm run solo -- --build",
+		);
+	} else if (openmaicFreshness.state === "missing") {
+		console.warn("  OpenMAIC build missing — Learning sidecar may stay offline.");
+	} else if (openmaicEmbedBad) {
+		console.warn(
+			"  OpenMAIC build blocks embedding — Learning frame may be blank. Run: npm run solo -- --build",
+		);
 	}
 
 	const flowiseFreshness = await checkFlowiseSidecarFreshness();
-	if (flowiseFreshness.state !== "fresh" && !skipBuild) {
+	if (forceBuild && !skipBuild && flowiseFreshness.state !== "fresh") {
 		if (flowiseFreshness.state === "stale") {
 			console.log("  Flowise build is older than its sources — rebuilding.");
 		}
 		buildFlowiseSidecar();
-	} else if (flowiseFreshness.state === "missing" && skipBuild) {
-		console.warn("  Flowise build missing — Agents studio may stay offline/stale (--skip-build).");
+	} else if (flowiseFreshness.state === "stale") {
+		console.warn(
+			"  Flowise build is older than its sources — Agents studio may stay stale. Run: npm run solo -- --build",
+		);
+	} else if (flowiseFreshness.state === "missing") {
+		console.warn("  Flowise build missing — Agents studio may stay offline.");
 	}
 
 	const omniRoutePresence = await checkOmniRouteSourcePresence();
