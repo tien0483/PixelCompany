@@ -360,4 +360,28 @@ describe("flowise-llm-proxy forwarding", () => {
 		);
 		expect(JSON.parse(unset.body).model).toBe("cursor-api/auto");
 	});
+
+	it("forwards OpenAI Whisper without duplicating /v1 on OmniRoute seats", async () => {
+		delete process.env.PIXELOFFICE_FLOWISE_LLM_PROXY;
+		const forwarded = await forwardThroughProxy(
+			{
+				monitor: createMonitor([], null),
+				getAccountLaunchDir: async () => null,
+				getAccountLaunchCredential: async () => null,
+				useManagerAccount: async () => true,
+				resolveApiSeatCredentials: async () => ({
+					providerId: "omniroute",
+					baseUrl: "http://127.0.0.1:8400/v1",
+					apiKey: "router-key",
+					modelId: "whisper-1",
+					name: "OmniRoute",
+				}),
+			},
+			"/api/flowise-llm-proxy/openai/v1/audio/transcriptions",
+			{ "content-type": "multipart/form-data; boundary=test" },
+			"--test\r\n",
+		);
+		expect(forwarded.url).toBe("http://127.0.0.1:8400/v1/audio/transcriptions");
+		expect(forwarded.headers.get("authorization")).toBe("Bearer router-key");
+	});
 });

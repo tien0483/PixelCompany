@@ -14,6 +14,10 @@ import { join } from "node:path";
 
 import { terminateProcessForTimeout } from "../server/process-termination";
 import { getKanbanRuntimeOrigin } from "../core/runtime-endpoint";
+import {
+	isFlowiseLlmProxyEnabled,
+	resolveFlowiseLlmProxyProviderUrl,
+} from "../flowise/flowise-llm-proxy-config";
 import { nextRestartDelayMs, shouldGiveUpRestarting } from "../stack/stack-daemon";
 import { probePort, waitForPort } from "../stack/stack-ports";
 import {
@@ -129,7 +133,16 @@ function buildClassroomEnv(host: string, port: number): NodeJS.ProcessEnv {
 		// in its `.env.local`, the bind is the entire boundary — never widen it to 0.0.0.0.
 		// `next start` ignores HOSTNAME, so this is belt-and-braces behind the explicit `-H`.
 		HOSTNAME: host,
+		// Browser-native is OpenMAIC's default mic path; keep it enabled when PixelOffice
+		// embeds the classroom unless the operator explicitly turned it off in .env.local.
+		ASR_BROWSER_NATIVE_ENABLED: "true",
 	};
+	if (isFlowiseLlmProxyEnabled()) {
+		// Whisper ASR bills through the Manager API seat (OmniRoute/Cline) via the same
+		// loopback proxy Flowise uses — no separate key in backends/openmaic/.env.local.
+		env.ASR_OPENAI_BASE_URL = `${resolveFlowiseLlmProxyProviderUrl("openai")}/v1`;
+		env.ASR_OPENAI_API_KEY = "pixeloffice-seat";
+	}
 	delete env.ANTHROPIC_BASE_URL;
 	delete env.ANTHROPIC_API_KEY;
 	return env;

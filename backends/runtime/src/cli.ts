@@ -2,7 +2,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { stat } from "node:fs/promises";
 import { createServer as createNetServer } from "node:net";
-import { join, resolve } from "node:path";
+import { resolve } from "node:path";
 import { Command, Option } from "commander";
 import ora, { type Ora } from "ora";
 import packageJson from "../package.json" with { type: "json" };
@@ -411,26 +411,22 @@ async function startServer(): Promise<{
 		{ createManagerMonitor },
 		{ startManagerProcess },
 		{ createHtmlClient },
-		{ startHtmlProcess },
-		{ startStackProcess },
-		{ linkStackSkillsAtStartup },
-		{ startHeadroomProcess },
-		{ startCcrProcess, startDevToolsProcess },
 		{ stopAllSeatRouters },
 		{ createDocSkillClient },
-		{ startDocSkillProcess },
 		{ createFlowiseClient },
-		{ resolveFlowiseDataDir, seedFlowiseEmbedAccount },
-		{ startFlowiseProcess },
-		{ startOpenmaicProcess },
 		{ createOrchestratorClient },
-		{ startOrchestratorProcess },
 		{ resolveDefaultDshHome },
 		{ ensureDshProductSubagents },
 		{ describeRuntimeHomeMigration, migrateRuntimeHome },
-		{ startOmniRouteProcess },
 		{ findAgentDataRoot },
 		{ reconcileAllBranchRegistries },
+		{
+			attachFlowiseEmbedSeeding,
+			bootstrapOptionalSidecars,
+			closeSidecarBundle,
+			createNoopSidecarBundle,
+			resolveExpectedTemplateSkillsDir,
+		},
 	] = await Promise.all([
 		import("./projects/project-path.js"),
 		import("./server/directory-picker.js"),
@@ -444,26 +440,16 @@ async function startServer(): Promise<{
 		import("./manager/manager-monitor.js"),
 		import("./manager/manager-process.js"),
 		import("./html/html-client.js"),
-		import("./html/html-process.js"),
-		import("./stack/stack-process.js"),
-		import("./stack/link-stack-skills-runtime.js"),
-		import("./stack/headroom-process.js"),
-		import("./stack/stack-extra-daemons.js"),
 		import("./stack/ccr-process.js"),
 		import("./doc-skill/doc-skill-client.js"),
-		import("./doc-skill/doc-skill-process.js"),
 		import("./flowise/flowise-client.js"),
-		import("./flowise/flowise-credential.js"),
-		import("./flowise/flowise-process.js"),
-		import("./openmaic/openmaic-process.js"),
 		import("./orchestrator/orchestrator-client.js"),
-		import("./orchestrator/orchestrator-process.js"),
 		import("./orchestrator/dsh-endpoint.js"),
 		import("./orchestrator/dsh-home-setup.js"),
 		import("./state/runtime-home-migration.js"),
-		import("./omniroute/omniroute-process.js"),
 		import("./state/agent-data-manifest.js"),
 		import("./workspace/git-worktree-cleanup.js"),
+		import("./sidecar-bootstrap.js"),
 	]);
 
 	// Must run before the workspace registry, which is the first reader of the
@@ -512,14 +498,6 @@ async function startServer(): Promise<{
 	// Bring Manager up before the client so the first snapshot poll finds it. It is
 	// optional: a missing Python install only means Accounts report offline.
 	const ManagerProcess = await startManagerProcess({
-		warn: (message) => {
-			console.warn(`[kanban] ${message}`);
-		},
-		log: (message) => {
-			console.log(`[kanban] ${message}`);
-		},
-	});
-	const OmniRouteProcess = await startOmniRouteProcess({
 		warn: (message) => {
 			console.warn(`[kanban] ${message}`);
 		},
@@ -646,44 +624,7 @@ async function startServer(): Promise<{
 			},
 		});
 	};
-	// Stating the expected template-skills dir keeps this launch off a sidecar belonging to
-	// another install (e.g. the standalone Plan Editor package), which would otherwise be
-	// adopted for its port alone and serve that install's much smaller template list.
-	const agentDataRoot = findAgentDataRoot();
-	const HtmlProcess = await startHtmlProcess({
-		warn: (message) => {
-			console.warn(`[kanban] ${message}`);
-		},
-		log: (message) => {
-			console.log(`[kanban] ${message}`);
-		},
-		...(agentDataRoot === null ? {} : { expectedTemplateSkillsDir: join(agentDataRoot, "templates", "skills") }),
-	});
-	const HtmlClient = createHtmlClient({
-		warn: (message) => {
-			console.warn(`[kanban] ${message}`);
-		},
-	});
-	// The agent-stack switchboard backs the Stack Control dialog in the top bar.
-	// Absent on any checkout that never installed the stack, which is why a
-	// missing package is logged rather than warned about.
-	const StackProcess = await startStackProcess({
-		warn: (message) => {
-			console.warn(`[kanban] ${message}`);
-		},
-		log: (message) => {
-			console.log(`[kanban] ${message}`);
-		},
-	});
-	// Filesystem half of activate-stack.sh: UA/Caveman/Ponytail skills into the
-	// home repo so task worktree sync and direct linking have sources to mirror.
-	await linkStackSkillsAtStartup({ quiet: true });
-	// The rest of what `activate-stack.sh` starts, so a `pnpm run solo` needs no
-	// sourced shell. Each one is flag-gated and skips a port that is already
-	// served, so an activated shell keeps ownership of its own daemons.
-	// `server.py` probes these ports per request, so coming up after the
-	// switchboard needs no coordination.
-	const stackDaemonLogging = {
+	const sidecarLogging = {
 		warn: (message: string) => {
 			console.warn(`[kanban] ${message}`);
 		},
@@ -691,95 +632,12 @@ async function startServer(): Promise<{
 			console.log(`[kanban] ${message}`);
 		},
 	};
-	const HeadroomProcess = await startHeadroomProcess(stackDaemonLogging);
-	const CcrProcess = await startCcrProcess(stackDaemonLogging);
-	const DevToolsProcess = await startDevToolsProcess(stackDaemonLogging);
-	const DocSkillProcess = await startDocSkillProcess({
-		warn: (message) => {
-			console.warn(`[kanban] ${message}`);
-		},
-		log: (message) => {
-			console.log(`[kanban] ${message}`);
-		},
-	});
-	const DocSkillClient = createDocSkillClient({
-		warn: (message) => {
-			console.warn(`[kanban] ${message}`);
-		},
-	});
-	// The Agents tab's studio (`backends/flowise`). Absent on any checkout that never
-	// initialized the submodule, which is logged rather than warned about — same posture as
-	// the switchboard above.
-	const FlowiseProcess = await startFlowiseProcess({
-		warn: (message) => {
-			console.warn(`[kanban] ${message}`);
-		},
-		log: (message) => {
-			console.log(`[kanban] ${message}`);
-		},
-	});
-	const FlowiseClient = createFlowiseClient({
-		warn: (message) => {
-			console.warn(`[kanban] ${message}`);
-		},
-	});
-	// The Learning tab's classroom (`backends/openmaic`). Same posture as the studio above:
-	// absent or unbuilt is logged, not warned about, and the tab explains itself.
-	const OpenmaicProcess = await startOpenmaicProcess({
-		warn: (message) => {
-			console.warn(`[kanban] ${message}`);
-		},
-		log: (message) => {
-			console.log(`[kanban] ${message}`);
-		},
-	});
-	const OrchestratorProcess = await startOrchestratorProcess({
-		warn: (message) => {
-			console.warn(`[kanban] ${message}`);
-		},
-		log: (message) => {
-			console.log(`[kanban] ${message}`);
-		},
-	});
-	const OrchestratorClient = createOrchestratorClient({
-		warn: (message) => {
-			console.warn(`[kanban] ${message}`);
-		},
-	});
-	// Product plugins (cursor_agent, subagent_claude_code, the MCP client, …) install into the dsh
-	// task profile on first boot — same non-blocking posture as Flowise embed seeding.
-	void ensureDshProductSubagents({
-		dshHome: resolveDefaultDshHome(),
-		warn: (message) => {
-			console.warn(`[kanban] ${message}`);
-		},
-		log: (message) => {
-			console.log(`[kanban] ${message}`);
-		},
-	}).catch((error: unknown) => {
-		console.warn(
-			`[kanban] dsh product subagent bootstrap failed: ${error instanceof Error ? error.message : String(error)}`,
-		);
-	});
-	// Seeding the studio's single local account needs it listening, so it rides the readiness
-	// promise instead of blocking startup — the board must never wait on an optional sidecar's
-	// first boot, which is minutes on a cold build.
-	void FlowiseProcess.ready.then(async (isUp) => {
-		const dataDir = resolveFlowiseDataDir();
-		if (!isUp || dataDir === null) {
-			return;
-		}
-		await seedFlowiseEmbedAccount({
-			baseUrl: FlowiseClient.baseUrl,
-			dataDir,
-			warn: (message) => {
-				console.warn(`[kanban] ${message}`);
-			},
-			log: (message) => {
-				console.log(`[kanban] ${message}`);
-			},
-		});
-	});
+	const HtmlClient = createHtmlClient(sidecarLogging);
+	const DocSkillClient = createDocSkillClient(sidecarLogging);
+	const FlowiseClient = createFlowiseClient(sidecarLogging);
+	const OrchestratorClient = createOrchestratorClient(sidecarLogging);
+	const sidecarRef = { current: createNoopSidecarBundle() };
+	const expectedTemplateSkillsDir = resolveExpectedTemplateSkillsDir(findAgentDataRoot);
 	runtimeStateHub = createRuntimeStateHub({
 		workspaceRegistry,
 		ManagerMonitor,
@@ -870,6 +728,40 @@ async function startServer(): Promise<{
 		},
 	});
 
+	// Optional sidecars start only after the board is listening — see sidecar-bootstrap.ts.
+	const sidecarBootstrap = bootstrapOptionalSidecars({
+		...sidecarLogging,
+		...(expectedTemplateSkillsDir === undefined ? {} : { expectedTemplateSkillsDir }),
+	})
+		.then(async (bundle) => {
+			sidecarRef.current = bundle;
+			const { resolveFlowiseDataDir, seedFlowiseEmbedAccount } = await import("./flowise/flowise-credential.js");
+			attachFlowiseEmbedSeeding(bundle, {
+				...sidecarLogging,
+				flowiseClientBaseUrl: FlowiseClient.baseUrl,
+				resolveFlowiseDataDir,
+				seedFlowiseEmbedAccount,
+			});
+			return bundle;
+		})
+		.catch((error: unknown) => {
+			console.warn(
+				`[kanban] Optional sidecar bootstrap failed: ${error instanceof Error ? error.message : String(error)}`,
+			);
+			return sidecarRef.current;
+		});
+
+	// Product plugins (cursor_agent, subagent_claude_code, the MCP client, …) install into the dsh
+	// task profile on first boot — same non-blocking posture as Flowise embed seeding.
+	void ensureDshProductSubagents({
+		dshHome: resolveDefaultDshHome(),
+		...sidecarLogging,
+	}).catch((error: unknown) => {
+		console.warn(
+			`[kanban] dsh product subagent bootstrap failed: ${error instanceof Error ? error.message : String(error)}`,
+		);
+	});
+
 	const close = async () => {
 		loginRecoveryDaemon.stop();
 		await runtimeServer.close();
@@ -878,24 +770,11 @@ async function startServer(): Promise<{
 		// Graph dashboards are started on demand from the review tab and spawned
 		// detached, so nothing else would reap them.
 		await closeAllReviewGraphDashboards();
-		await OmniRouteProcess.close();
-		await HtmlProcess.close();
-		// Same rule for the switchboard: a shell that sourced activate-stack.sh owns
-		// its own daemon and must survive the runtime exiting.
-		await StackProcess.close();
-		await HeadroomProcess.close();
-		await CcrProcess.close();
-		await DevToolsProcess.close();
+		await sidecarBootstrap;
+		await closeSidecarBundle(sidecarRef.current);
 		// Per-seat subagent routers are always ours — they only exist because a task pinned
 		// a subagent seat — so unlike the daemons above they are unconditionally stopped.
 		await stopAllSeatRouters();
-		await DocSkillProcess.close();
-		// Only stops a studio this runtime spawned; one started by hand in the submodule keeps
-		// the port and is left alone (`startFlowiseProcess` adopts rather than fights for it).
-		await FlowiseProcess.close();
-		// Likewise only stops a classroom this runtime spawned.
-		await OpenmaicProcess.close();
-		await OrchestratorProcess.close();
 	};
 
 	const shutdown = async (options?: { skipSessionCleanup?: boolean }) => {
