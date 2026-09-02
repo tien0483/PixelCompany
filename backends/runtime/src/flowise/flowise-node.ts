@@ -60,18 +60,24 @@ export interface StudioNodeBinary {
  * shows up as "not installed", and a studio that somehow runs on an older node is not worth
  * blocking a launch over.
  */
-export function resolveStudioNodeBinary(options?: { home?: string; minMajor?: number }): StudioNodeBinary {
+export function resolveStudioNodeBinary(options?: {
+	home?: string;
+	minMajor?: number;
+	currentMajor?: number;
+}): StudioNodeBinary {
 	const minMajor = options?.minMajor ?? MIN_STUDIO_NODE_MAJOR;
+	const currentMajor = options?.currentMajor ?? currentNodeMajor();
 	const override = readBrandEnv("FLOWISE_NODE")?.trim();
 	if (override) {
 		return { path: override, satisfiesMinimum: true };
 	}
-	if (currentNodeMajor() >= minMajor) {
+	if (currentMajor >= minMajor) {
 		return { path: process.execPath, satisfiesMinimum: true };
 	}
-	const fromNvm = findNvmNodeBinary(minMajor, options?.home ?? homedir());
-	if (fromNvm !== null) {
-		return { path: fromNvm, satisfiesMinimum: true };
+	const home = options?.home ?? homedir();
+	const nvmBinary = findNvmNodeBinary(minMajor, home);
+	if (nvmBinary !== null) {
+		return { path: nvmBinary, satisfiesMinimum: true };
 	}
 	return { path: process.execPath, satisfiesMinimum: false };
 }
