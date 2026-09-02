@@ -451,6 +451,21 @@ describe("task chains", () => {
 		expect(getTaskColumnId(trashed.board, "bbbbb")).toBe("backlog");
 	});
 
+	it("unlocks a Backlog chain follower when the root skips Review straight to Done", () => {
+		// A→B chain, but B was never pulled into In Progress — it is still queued in Backlog.
+		// The root going in_progress → Done directly must still start it; otherwise the chain
+		// stalls with no card left to advance it.
+		const linkAB = addTaskDependency(boardWithThreeBacklogTasks(), "aaaaa", "bbbbb");
+		expect(linkAB.dependency?.chain).toBe(true);
+		const board = moveTaskToColumn(linkAB.board, "aaaaa", "in_progress").board;
+		expect(getTaskColumnId(board, "bbbbb")).toBe("backlog");
+
+		const trashed = trashTaskAndGetReadyLinkedTaskIds(board, "aaaaa");
+
+		expect(trashed.moved).toBe(true);
+		expect(trashed.readyTaskIds).toEqual(["bbbbb"]);
+	});
+
 	it("unlocks every direct waiter of a forked chain when the root is Done", () => {
 		// Fork without linearize: B and C both wait on A, so both unlock together.
 		const linkAB = addTaskDependency(boardWithThreeBacklogTasks(), "aaaaa", "bbbbb");

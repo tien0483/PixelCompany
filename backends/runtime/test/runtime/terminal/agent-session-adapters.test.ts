@@ -282,6 +282,102 @@ describe("prepareAgentLaunch hook strategies", () => {
 		expect(existsSync(hookScriptPath)).toBe(false);
 	});
 
+	it("writes Antigravity hooks into the worktree instead of Gemini settings", async () => {
+		setupTempHome();
+		const cwd = mkdtempSync(join(tmpdir(), "kanban-agy-cwd-"));
+		try {
+			const launch = await prepareAgentLaunch({
+				taskId: "task-agy",
+				agentId: "gemini",
+				binary: "/usr/local/bin/agy",
+				args: [],
+				cwd,
+				prompt: "",
+				workspaceId: "workspace-1",
+			});
+
+			// agy reads neither the env var nor gemini-cli's settings shape.
+			expect(launch.env.GEMINI_CLI_SYSTEM_SETTINGS_PATH).toBeUndefined();
+			expect(
+				existsSync(join(homedir(), RUNTIME_HOME_PARENT_DIR_NAME, "kanban", "hooks", "gemini", "settings.json")),
+			).toBe(false);
+			expect(launch.env.KANBAN_HOOK_TASK_ID).toBe("task-agy");
+			expect(launch.env.KANBAN_HOOK_WORKSPACE_ID).toBe("workspace-1");
+
+			const hooksPath = join(cwd, ".agents", "hooks.json");
+			const hooks = JSON.parse(readFileSync(hooksPath, "utf8")) as Record<
+				string,
+				Record<string, Array<{ matcher?: string; hooks?: Array<{ command?: string }>; command?: string }>>
+			>;
+
+			// Native agy event names only — the gemini-cli aliases would never fire.
+			expect(Object.keys(hooks).sort()).toEqual([
+				"kanban-post-invocation",
+				"kanban-post-tool-use",
+				"kanban-pre-invocation",
+				"kanban-pre-tool-use",
+				"kanban-stop",
+			]);
+			const serialized = JSON.stringify(hooks);
+			for (const unsupported of ["AfterAgent", "BeforeAgent", "BeforeTool", "AfterTool", "Notification"]) {
+				expect(serialized).not.toContain(unsupported);
+			}
+
+			// Stop is a flat handler list; tool events carry a matcher wrapper.
+			const stopHandler = hooks["kanban-stop"]?.Stop?.[0];
+			expect(stopHandler?.matcher).toBeUndefined();
+			expect(stopHandler?.command).toContain("gemini-hook");
+			expect(stopHandler?.command).toContain("Stop");
+			const preToolHandler = hooks["kanban-pre-tool-use"]?.PreToolUse?.[0];
+			expect(preToolHandler?.matcher).toBe("*");
+			expect(preToolHandler?.hooks?.[0]?.command).toContain("PreToolUse");
+
+			await launch.cleanup?.();
+			expect(existsSync(hooksPath)).toBe(false);
+		} finally {
+			rmSync(cwd, { recursive: true, force: true });
+		}
+	});
+
+	it("merges Antigravity hooks with foreign entries and restores them on cleanup", async () => {
+		setupTempHome();
+		const cwd = mkdtempSync(join(tmpdir(), "kanban-agy-merge-"));
+		try {
+			const hooksPath = join(cwd, ".agents", "hooks.json");
+			mkdirSync(join(cwd, ".agents"), { recursive: true });
+			const before = `${JSON.stringify(
+				{
+					"team-lint": { PostToolUse: [{ matcher: "*", hooks: [{ type: "command", command: "lint" }] }] },
+					"kanban-stale": { Stop: [{ type: "command", command: "old-binary" }] },
+				},
+				null,
+				2,
+			)}\n`;
+			writeFileSync(hooksPath, before, "utf8");
+
+			const launch = await prepareAgentLaunch({
+				taskId: "task-agy",
+				agentId: "gemini",
+				binary: "agy",
+				args: [],
+				cwd,
+				prompt: "",
+				workspaceId: "workspace-1",
+			});
+
+			const merged = JSON.parse(readFileSync(hooksPath, "utf8")) as Record<string, unknown>;
+			expect(merged["team-lint"]).toBeDefined();
+			// A stale Kanban row would keep pointing at whatever binary wrote it.
+			expect(merged["kanban-stale"]).toBeUndefined();
+			expect(merged["kanban-stop"]).toBeDefined();
+
+			await launch.cleanup?.();
+			expect(readFileSync(hooksPath, "utf8")).toBe(before);
+		} finally {
+			rmSync(cwd, { recursive: true, force: true });
+		}
+	});
+
 	it("writes OpenCode plugin with root-session filtering and permission hooks", async () => {
 		setupTempHome();
 		await prepareAgentLaunch({

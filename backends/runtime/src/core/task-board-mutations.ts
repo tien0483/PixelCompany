@@ -381,9 +381,10 @@ export function hasLiveChainMemberSharingWorktree(
  * unlock still runs.
  *
  * Classic Backlog wait-links only unlock when the prerequisite went through Review (the
- * conventional review-before-done flow). Chain queue-stack followers unlock regardless —
- * a chain root can be dragged straight from In Progress to Done (skipping Review) and its
- * follower must still start, since the shared worktree is otherwise left stalled forever.
+ * conventional review-before-done flow). Chain followers unlock regardless of which column
+ * they wait in — a chain root can be dragged straight from In Progress to Done (skipping
+ * Review) and its follower must still start, since the shared worktree is otherwise left
+ * stalled forever.
  */
 export function getReadyLinkedTaskIdsAfterLeavingReview(
 	board: RuntimeBoardData,
@@ -401,8 +402,10 @@ export function getReadyLinkedTaskIdsAfterLeavingReview(
 		}
 		const waiterColumnId = getTaskColumnId(board, dependency.fromTaskId);
 		// Classic wait-link: unlock a Backlog follower once its review prerequisite is Done.
+		// A chain follower gets the same skip-review parity it has in In Progress below —
+		// otherwise a root dragged straight to Done strands the rest of its chain.
 		if (waiterColumnId === "backlog") {
-			if (fromColumnId === "review") {
+			if (fromColumnId === "review" || dependency.chain === true) {
 				readyTaskIds.add(dependency.fromTaskId);
 			}
 			continue;
