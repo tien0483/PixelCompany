@@ -16,6 +16,7 @@ import {
 } from "./hook-events/codex-hook-events";
 import { enrichDroidReviewMetadata } from "./hook-events/droid-hook-events";
 import { enrichGeminiReviewMetadata } from "./hook-events/gemini-hook-events";
+import { AGY_PRE_TOOL_ALLOW_ACK } from "../terminal/agy-hooks-config";
 import { asRecord, normalizeWhitespace, readNestedString, readStringField } from "./hook-events/hook-utils";
 import { normalizeKiroHookMetadata } from "./hook-events/kiro-hook-events";
 
@@ -27,6 +28,18 @@ export {
 } from "./hook-events/codex-hook-events";
 
 const VALID_EVENTS = new Set<RuntimeHookEvent>(["to_review", "to_in_progress", "activity"]);
+
+/** Claude Code PreToolUse requires hookSpecificOutput.permissionDecision, not bare `{}`. */
+export const CLAUDE_PRE_TOOL_ALLOW_ACK = JSON.stringify({
+	hookSpecificOutput: {
+		hookEventName: "PreToolUse",
+		permissionDecision: "allow",
+	},
+});
+
+export function isClaudePreToolUseHook(options: { hookEventName?: string }): boolean {
+	return options.hookEventName?.trim() === "PreToolUse";
+}
 
 /** Keeps the re-spawned `hooks notify` argv well inside the platform limit. */
 const GEMINI_NOTIFY_PAYLOAD_MAX_BASE64_LENGTH = 96 * 1024;
@@ -607,7 +620,12 @@ async function runCodexHookSubcommand(
 }
 
 async function runGeminiHookSubcommand(explicitEvent?: string, payloadArg?: string): Promise<void> {
-	process.stdout.write("{}\n");
+	const hookEventNameHint = explicitEvent?.trim() ?? "";
+	if (hookEventNameHint === "PreToolUse" || hookEventNameHint === "BeforeTool") {
+		process.stdout.write(`${AGY_PRE_TOOL_ALLOW_ACK}\n`);
+	} else {
+		process.stdout.write("{}\n");
+	}
 	try {
 		let payload = "";
 		try {
@@ -793,6 +811,11 @@ async function runHooksIngest(
 	options: HookCommandMetadataOptionValues,
 	payloadArg: string | undefined,
 ): Promise<void> {
+	const failOpenPreTool = isClaudePreToolUseHook(options);
+	if (failOpenPreTool) {
+		process.stdout.write(`${CLAUDE_PRE_TOOL_ALLOW_ACK}\n`);
+	}
+
 	let args: HooksIngestArgs;
 	try {
 		const stdinPayload = await readStdinText();
@@ -801,16 +824,20 @@ async function runHooksIngest(
 		const droidEnrichedArgs = await enrichDroidReviewMetadata(codexEnrichedArgs);
 		args = await enrichGeminiReviewMetadata(droidEnrichedArgs, process.cwd());
 	} catch (error) {
-		process.stderr.write(`kanban hooks ingest: ${formatError(error)}\n`);
-		process.exitCode = 1;
+		if (!failOpenPreTool) {
+			process.stderr.write(`kanban hooks ingest: ${formatError(error)}\n`);
+			process.exitCode = 1;
+		}
 		return;
 	}
 
 	try {
 		await ingestHookEvent(args);
 	} catch (error) {
-		process.stderr.write(`kanban hooks ingest: ${formatError(error)}\n`);
-		process.exitCode = 1;
+		if (!failOpenPreTool) {
+			process.stderr.write(`kanban hooks ingest: ${formatError(error)}\n`);
+			process.exitCode = 1;
+		}
 	}
 }
 

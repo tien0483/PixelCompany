@@ -11,6 +11,9 @@ export const AGY_KANBAN_HOOK_KEY_PREFIX = "kanban-";
 
 const AGY_HOOKS_EXCLUDE_ENTRY = `/${AGY_CUSTOMIZATION_DIR_NAME}/${AGY_HOOKS_FILE_NAME}`;
 
+/** agy PreToolUse requires an explicit allow decision; bare `{}` is treated as deny. */
+export const AGY_PRE_TOOL_ALLOW_ACK = '{"decision":"allow"}';
+
 export type AgyHookCommandBuilder = (args: string[]) => string;
 
 interface AgyCommandHandler {
@@ -34,12 +37,8 @@ function buildAgyFailOpenPreToolCommand(command: string, platform: NodeJS.Platfo
 	if (platform === "win32") {
 		return command;
 	}
-	const escapedCommand = command
-		.replaceAll("\\", "\\\\")
-		.replaceAll('"', '\\"')
-		.replaceAll("$", "\\$")
-		.replaceAll("`", "\\`");
-	return `bash -c "printf '{}\\\\n'; (cat | ${escapedCommand} >/dev/null 2>&1 || true) & exit 0"`;
+	// agy runs hooks via `sh -c`; ack-only echo avoids WaitDelay from background stdin readers.
+	return `echo '${AGY_PRE_TOOL_ALLOW_ACK}'`;
 }
 
 /**

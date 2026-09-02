@@ -846,7 +846,12 @@ const claudeAdapter: AgentSessionAdapter = {
 					PreToolUse: [
 						{
 							matcher: "*",
-							hooks: [{ type: "command", command: buildHookCommand("activity", { source: "claude" }) }],
+							hooks: [
+								{
+									type: "command",
+									command: buildHookCommand("activity", { source: "claude", hookEventName: "PreToolUse" }),
+								},
+							],
 						},
 					],
 					PermissionRequest: [

@@ -330,7 +330,7 @@ describe("prepareAgentLaunch hook strategies", () => {
 			expect(stopHandler?.command).toContain("Stop");
 			const preToolHandler = hooks["kanban-pre-tool-use"]?.PreToolUse?.[0];
 			expect(preToolHandler?.matcher).toBe("*");
-			expect(preToolHandler?.hooks?.[0]?.command).toContain("PreToolUse");
+			expect(preToolHandler?.hooks?.[0]?.command).toContain("allow");
 
 			await launch.cleanup?.();
 			expect(existsSync(hooksPath)).toBe(false);
