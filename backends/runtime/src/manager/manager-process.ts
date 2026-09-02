@@ -1,4 +1,4 @@
-﻿// Supervises the Manager Python service so a single Kanban launch brings up
+// Supervises the Manager Python service so a single Kanban launch brings up
 // the whole product: board + PTY + Claude account management.
 //
 // Manager stays headless here — no browser, no tray. PixelOffice renders every
@@ -198,8 +198,20 @@ export async function startManagerProcess(deps: StartManagerProcessDependencies)
 	const repoRoot = resolve(managerBackendRoot, "../..");
 	const agentCatalog = resolveAgentDataDir(repoRoot, "catalog", "data", isCatalogRoot);
 	const agentRuntime = resolveAgentDataDir(repoRoot, "runtime", "runtime", isRuntimeRoot);
-	const catalogEnv = agentCatalog === null ? {} : { PIXELOFFICE_AGENT_MANAGER_DATA: agentCatalog };
-	const runtimeEnv = agentRuntime === null ? {} : { PIXELOFFICE_AGENT_MANAGER_RUNTIME: agentRuntime };
+	const catalogEnv =
+		agentCatalog === null
+			? {}
+			: {
+					PIXTIEL_AGENT_MANAGER_DATA: agentCatalog,
+					PIXELOFFICE_AGENT_MANAGER_DATA: agentCatalog,
+				};
+	const runtimeEnv =
+		agentRuntime === null
+			? {}
+			: {
+					PIXTIEL_AGENT_MANAGER_RUNTIME: agentRuntime,
+					PIXELOFFICE_AGENT_MANAGER_RUNTIME: agentRuntime,
+				};
 	let child: ChildProcess;
 	try {
 		child = spawn(

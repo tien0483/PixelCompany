@@ -6,6 +6,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import type { RuntimeFlowiseFlow, RuntimeMcpInventory, RuntimeMcpInventoryItem } from "../core/api-contract";
+import { readBrandEnv } from "../brand";
 import type { FlowiseClient } from "./flowise-client";
 import { resolveFlowiseBaseUrl } from "./flowise-endpoint";
 import { buildFlowiseMcpServerId, parseFlowiseMcpServerId, sanitizeFlowiseToolName } from "./flowise-mcp-id";
@@ -25,7 +26,7 @@ export {
  * `dist/cli.js` layouts — the same candidate walk as `findFlowiseRoot()`.
  */
 export function resolveFlowiseMcpShimPath(): string | null {
-	const override = process.env.PIXELOFFICE_FLOWISE_MCP_SHIM?.trim();
+	const override = readBrandEnv("FLOWISE_MCP_SHIM")?.trim();
 	if (override && existsSync(override)) {
 		return override;
 	}
@@ -116,9 +117,13 @@ export function buildFlowiseShimSpec(input: BuildFlowiseMcpServerEntryInput): Fl
 		command: process.execPath,
 		args: [input.shimPath],
 		env: {
+			PIXTIEL_FLOWISE_URL: input.baseUrl.replace(/\/$/, ""),
 			PIXELOFFICE_FLOWISE_URL: input.baseUrl.replace(/\/$/, ""),
+			PIXTIEL_FLOWISE_FLOW_ID: input.flow.id,
 			PIXELOFFICE_FLOWISE_FLOW_ID: input.flow.id,
+			PIXTIEL_FLOWISE_TOOL_NAME: toolName,
 			PIXELOFFICE_FLOWISE_TOOL_NAME: toolName,
+			PIXTIEL_FLOWISE_TOOL_DESCRIPTION: description,
 			PIXELOFFICE_FLOWISE_TOOL_DESCRIPTION: description,
 		},
 		toolName,

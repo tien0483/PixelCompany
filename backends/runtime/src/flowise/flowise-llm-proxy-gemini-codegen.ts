@@ -1,7 +1,9 @@
 import { randomUUID } from "node:crypto";
 
+import { readBrandEnv } from "../brand";
+
 const CODE_ASSIST_BASE =
-	process.env.PIXELOFFICE_FLOWISE_LLM_GEMINI_UPSTREAM?.trim()?.replace(/\/$/, "") ||
+	readBrandEnv("FLOWISE_LLM_GEMINI_UPSTREAM")?.trim()?.replace(/\/$/, "") ||
 	"https://cloudcode-pa.googleapis.com";
 const LOAD_CODE_ASSIST_URL = `${CODE_ASSIST_BASE}/v1internal:loadCodeAssist`;
 const FETCH_MODELS_URL = `${CODE_ASSIST_BASE}/v1internal:fetchAvailableModels`;

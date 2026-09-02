@@ -17,8 +17,8 @@ import { connect } from "node:net";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { spawn, spawnSync } from "node:child_process";
+import { readBrandEnv } from "./lib/brand-env.mjs";
 
 const MIN_NODE_MAJOR = 22;
 const __filename = fileURLToPath(import.meta.url);
@@ -47,7 +47,7 @@ function probeNodeBinary(nodePath) {
 }
 
 function resolveNode22Candidates() {
-	const fromEnv = process.env.PIXELOFFICE_NODE?.trim() || process.env.KANBAN_NODE?.trim();
+	const fromEnv = readBrandEnv("NODE")?.trim() || process.env.KANBAN_NODE?.trim();
 	const candidates = [];
 	if (fromEnv) {
 		candidates.push(fromEnv);
@@ -116,10 +116,10 @@ const viteCli = resolveDependencyEntry(webUiRoot, "vite", "bin", "vite.js");
 const RUNTIME_PORT = 3484;
 const WEB_UI_PORT = 5173;
 const MANAGER_PORT = Number(process.env.MANAGER_PORT ?? process.env.JACKED_PORT ?? 8321);
-const HTML_PORT = Number(process.env.PIXELOFFICE_HTML_PORT ?? 8322);
+const HTML_PORT = Number(readBrandEnv("HTML_PORT") ?? 8322);
 const OMNIROUTE_PORT = Number(process.env.OMNIROUTE_PORT ?? 8400);
-const DOC_SKILL_PORT = Number(process.env.PIXELOFFICE_DOCSKILL_PORT ?? 8323);
-const FLOWISE_PORT = Number(process.env.PIXELOFFICE_FLOWISE_PORT ?? 3010);
+const DOC_SKILL_PORT = Number(readBrandEnv("DOCSKILL_PORT") ?? 8323);
+const FLOWISE_PORT = Number(readBrandEnv("FLOWISE_PORT") ?? 3010);
 /** Freed by --restart: a stale Manager/HTML/OmniRoute/Doc-Skill/Flowise sidecar would stop the runtime from starting its own. */
 const RESTART_PORTS = [
 	RUNTIME_PORT,

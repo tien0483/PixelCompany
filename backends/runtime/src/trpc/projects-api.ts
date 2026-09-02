@@ -312,7 +312,7 @@ export function createProjectsApi(deps: CreateProjectsApiDependencies): RuntimeT
 				}
 
 				const dirEntries = await readdir(resolvedPath, { withFileTypes: true });
-				const directoryEntries = dirEntries.filter((entry) => entry.isDirectory());
+				const directoryEntries = dirEntries.filter((entry) => entry.isDirectory() && !entry.name.startsWith("."));
 				const planFileEntries = body.includeFiles
 					? dirEntries.filter(
 							(entry) => entry.isFile() && isPlanFileName(entry.name) && !isPlanAuxiliaryFileName(entry.name),
