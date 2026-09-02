@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { buildOpenmaicHealth } from "../../../src/trpc/openmaic-api";
 
 describe("buildOpenmaicHealth", () => {
-	it("prioritizes Gemini API key for TTS/Video but not ASR when present", () => {
+	it("prioritizes Gemini API key for video but not ASR/TTS when proxy is off", () => {
 		const envMap = new Map<string, string>([
 			["GEMINI_API_KEY", "AIza-test"],
 			["OPENAI_API_KEY", "sk-openai"],
@@ -16,7 +16,8 @@ describe("buildOpenmaicHealth", () => {
 			asrSeatLabel: null,
 			geminiProbe: { ok: true, detail: "Gemini models endpoint reachable." },
 			proxySubscriptionWired: false,
-			subscriptionProbes: null,
+			omnirouteProbe: null,
+			omnirouteAudioProbe: null,
 		});
 
 		expect(health.asrReady).toBe(true);
@@ -30,7 +31,7 @@ describe("buildOpenmaicHealth", () => {
 		expect(health.videoVerified).toBe(true);
 	});
 
-	it("uses Gemini seat routing for TTS/video but not ASR (no Gemini transcription backend)", () => {
+	it("uses Gemini seat routing for video but not ASR when proxy is off", () => {
 		const envMap = new Map<string, string>([["OPENAI_API_KEY", "sk-openai"]]);
 
 		const health = buildOpenmaicHealth({
@@ -40,16 +41,14 @@ describe("buildOpenmaicHealth", () => {
 			asrSeatLabel: null,
 			geminiProbe: null,
 			proxySubscriptionWired: false,
-			subscriptionProbes: null,
+			omnirouteProbe: null,
+			omnirouteAudioProbe: null,
 		});
 
-		expect(health.ttsSource).toBe("gemini-seat");
 		expect(health.videoSource).toBe("gemini-seat");
 		expect(health.asrSource).toBe("browser-native");
 		expect(health.asrReady).toBe(true);
-		expect(health.subscriptionSeatRoutingReady).toBe(true);
-		expect(health.subscriptionSeatRoutingDetail).toContain("Antigravity seat");
-		expect(health.asrVerified).toBe(false);
+		expect(health.subscriptionSeatRoutingReady).toBe(false);
 	});
 
 	it("reports Manager API seat routing for ASR when the proxy seat is available", () => {
@@ -59,13 +58,32 @@ describe("buildOpenmaicHealth", () => {
 			seatSummary: null,
 			asrSeatLabel: "OmniRoute",
 			geminiProbe: null,
-			proxySubscriptionWired: false,
-			subscriptionProbes: null,
+			proxySubscriptionWired: true,
+			omnirouteProbe: { ok: true },
+			omnirouteAudioProbe: { asr: true, tts: false },
 		});
 
 		expect(health.asrReady).toBe(true);
 		expect(health.asrSource).toBe("provider-api-key");
+		expect(health.asrVerified).toBe(true);
 		expect(health.asrDetail).toContain("OmniRoute");
+	});
+
+	it("reports verified TTS when OmniRoute catalog lists speech models", () => {
+		const health = buildOpenmaicHealth({
+			envMap: new Map(),
+			hasEnvFile: false,
+			seatSummary: null,
+			asrSeatLabel: "OmniRoute",
+			geminiProbe: null,
+			proxySubscriptionWired: true,
+			omnirouteProbe: { ok: true },
+			omnirouteAudioProbe: { asr: true, tts: true },
+		});
+
+		expect(health.ttsReady).toBe(true);
+		expect(health.ttsVerified).toBe(true);
+		expect(health.ttsDetail).toContain("OmniRoute");
 	});
 
 	it("falls back to browser/native and provider keys when Gemini is unavailable", () => {
@@ -82,14 +100,15 @@ describe("buildOpenmaicHealth", () => {
 			asrSeatLabel: null,
 			geminiProbe: null,
 			proxySubscriptionWired: false,
-			subscriptionProbes: null,
+			omnirouteProbe: null,
+			omnirouteAudioProbe: null,
 		});
 
 		expect(health.asrSource).toBe("browser-native");
 		expect(health.ttsSource).toBe("browser-native");
 		expect(health.videoSource).toBe("provider-api-key");
 		expect(health.videoReady).toBe(true);
-		expect(health.missingKeys).toContain("Subscriptions (Antigravity/Cursor/Claude) are not auto-wired into OpenMAIC");
+		expect(health.missingKeys).toContain("OmniRoute is not auto-wired into OpenMAIC");
 	});
 
 	it("reports missing setup when nothing is configured", () => {
@@ -100,7 +119,8 @@ describe("buildOpenmaicHealth", () => {
 			asrSeatLabel: null,
 			geminiProbe: null,
 			proxySubscriptionWired: false,
-			subscriptionProbes: null,
+			omnirouteProbe: null,
+			omnirouteAudioProbe: null,
 		});
 
 		expect(health.asrReady).toBe(true);
@@ -115,7 +135,7 @@ describe("buildOpenmaicHealth", () => {
 		expect(health.missingKeys).toContain("Video: configure a video generation provider API key");
 	});
 
-	it("marks subscription routes ready when proxy probes all pass", () => {
+	it("marks subscription routing ready when OmniRoute proxy probe passes", () => {
 		const health = buildOpenmaicHealth({
 			envMap: new Map(),
 			hasEnvFile: false,
@@ -123,22 +143,19 @@ describe("buildOpenmaicHealth", () => {
 			asrSeatLabel: "OmniRoute",
 			geminiProbe: null,
 			proxySubscriptionWired: true,
-			subscriptionProbes: {
-				cursor: { ok: true },
-				gemini: { ok: true },
-				anthropic: { ok: true },
-			},
+			omnirouteProbe: { ok: true },
+			omnirouteAudioProbe: { asr: true, tts: true },
 		});
 
 		expect(health.subscriptionSeatRoutingReady).toBe(true);
 		expect(health.openmaicConfigured).toBe(true);
-		expect(health.subscriptionSeatRoutingDetail).toContain("Cursor: ok");
+		expect(health.subscriptionSeatRoutingDetail).toContain("OmniRoute: ok");
 		expect(health.missingKeys).not.toContain(
-			"Subscription proxy routes (Cursor/Antigravity/Claude) are not all reachable — check Seats and restart OpenMAIC",
+			"OmniRoute proxy route is not reachable — check Seats and restart OpenMAIC",
 		);
 	});
 
-	it("reports failing subscription probes", () => {
+	it("reports failing OmniRoute subscription probe", () => {
 		const health = buildOpenmaicHealth({
 			envMap: new Map(),
 			hasEnvFile: false,
@@ -146,14 +163,11 @@ describe("buildOpenmaicHealth", () => {
 			asrSeatLabel: null,
 			geminiProbe: null,
 			proxySubscriptionWired: true,
-			subscriptionProbes: {
-				cursor: { ok: true },
-				gemini: { ok: false, detail: "403 forbidden" },
-				anthropic: { ok: true },
-			},
+			omnirouteProbe: { ok: false, detail: "401 unauthorized" },
+			omnirouteAudioProbe: null,
 		});
 
 		expect(health.subscriptionSeatRoutingReady).toBe(false);
-		expect(health.subscriptionSeatRoutingDetail).toContain("Antigravity: 403 forbidden");
+		expect(health.subscriptionSeatRoutingDetail).toContain("OmniRoute: 401 unauthorized");
 	});
 });

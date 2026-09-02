@@ -406,4 +406,28 @@ describe("flowise-llm-proxy forwarding", () => {
 		expect(forwarded.url).toBe("http://127.0.0.1:8400/v1/audio/transcriptions");
 		expect(forwarded.headers.get("authorization")).toBe("Bearer router-key");
 	});
+
+	it("forwards OpenAI speech without duplicating /v1 on OmniRoute seats", async () => {
+		delete process.env.PIXELOFFICE_FLOWISE_LLM_PROXY;
+		const forwarded = await forwardThroughProxy(
+			{
+				monitor: createMonitor([], null),
+				getAccountLaunchDir: async () => null,
+				getAccountLaunchCredential: async () => null,
+				useManagerAccount: async () => true,
+				resolveApiSeatCredentials: async () => ({
+					providerId: "omniroute",
+					baseUrl: "http://127.0.0.1:8400/v1",
+					apiKey: "router-key",
+					modelId: "openai/tts-1",
+					name: "OmniRoute",
+				}),
+			},
+			"/api/flowise-llm-proxy/openai/v1/audio/speech",
+			{ "content-type": "application/json" },
+			JSON.stringify({ model: "openai/tts-1", input: "hello", voice: "alloy" }),
+		);
+		expect(forwarded.url).toBe("http://127.0.0.1:8400/v1/audio/speech");
+		expect(forwarded.headers.get("authorization")).toBe("Bearer router-key");
+	});
 });

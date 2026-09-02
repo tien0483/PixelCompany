@@ -74,7 +74,7 @@ describe("LearningView", () => {
 			ttsDetail: "Gemini models endpoint reachable.",
 			videoDetail: "Gemini models probe failed (403).",
 			subscriptionSeatRoutingReady: false,
-			subscriptionSeatRoutingDetail: "No Gemini seat credential detected.",
+			subscriptionSeatRoutingDetail: "OmniRoute: 401 unauthorized",
 			missingKeys: ["Video: configure a video generation provider API key"],
 		});
 
@@ -97,7 +97,7 @@ describe("LearningView", () => {
 		expect(container.textContent).toContain("Subscription routing");
 		expect(container.textContent).toContain("Ready (verified)");
 		expect(container.textContent).toContain("Needs provider setup");
-		expect(container.textContent).toContain("Not auto-wired (uses OpenMAIC provider env keys)");
+		expect(container.textContent).toContain("Not auto-wired (OmniRoute proxy unreachable)");
 	});
 
 	it("passes theme=dark and themeId query parameter to classroom iframe when theme is dark", async () => {
@@ -118,7 +118,7 @@ describe("LearningView", () => {
 			ttsVerified: true,
 			videoVerified: true,
 			subscriptionSeatRoutingReady: false,
-			subscriptionSeatRoutingDetail: "No Gemini seat credential detected.",
+			subscriptionSeatRoutingDetail: "OmniRoute: 401 unauthorized",
 			missingKeys: [],
 		});
 
@@ -154,7 +154,7 @@ describe("LearningView", () => {
 			ttsVerified: true,
 			videoVerified: true,
 			subscriptionSeatRoutingReady: true,
-			subscriptionSeatRoutingDetail: "Gemini seat routing is available.",
+			subscriptionSeatRoutingDetail: "OmniRoute: ok",
 			missingKeys: [],
 		});
 
@@ -197,7 +197,7 @@ describe("LearningView", () => {
 			ttsVerified: true,
 			videoVerified: true,
 			subscriptionSeatRoutingReady: true,
-			subscriptionSeatRoutingDetail: "Gemini seat routing is available.",
+			subscriptionSeatRoutingDetail: "OmniRoute: ok",
 			missingKeys: [],
 		});
 

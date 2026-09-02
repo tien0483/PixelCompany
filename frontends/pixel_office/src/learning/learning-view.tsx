@@ -222,7 +222,7 @@ export function LearningView({ workspaceId, onClose }: LearningViewProps): React
 							>
 								{health.subscriptionSeatRoutingReady
 									? "Ready"
-									: "Not auto-wired (uses OpenMAIC provider env keys)"}
+									: "Not auto-wired (OmniRoute proxy unreachable)"}
 							</p>
 							{health.subscriptionSeatRoutingDetail ? (
 								<p className="mt-0.5 text-[10px] text-text-tertiary">{health.subscriptionSeatRoutingDetail}</p>
