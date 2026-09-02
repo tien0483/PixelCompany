@@ -66,6 +66,8 @@ export function CleanupDialog({
 	const [tmpChecked, setTmpChecked] = useState(false);
 	const [npmCacheChecked, setNpmCacheChecked] = useState(false);
 	const [nvmCacheChecked, setNvmCacheChecked] = useState(false);
+	const [pnpmStoreChecked, setPnpmStoreChecked] = useState(false);
+	const [playwrightCacheChecked, setPlaywrightCacheChecked] = useState(false);
 	const [nvmVersionsChecked, setNvmVersionsChecked] = useState(false);
 	const [selectedNvmVersions, setSelectedNvmVersions] = useState<ReadonlySet<string>>(() => new Set());
 	const [disposeMode, setDisposeMode] = useState<RuntimeCleanupDisposeMode>("recycle-bin");
@@ -96,6 +98,10 @@ export function CleanupDialog({
 		npmCacheSizeBytes?: number;
 		nvmCacheItemCount?: number;
 		nvmCacheSizeBytes?: number;
+		pnpmStoreItemCount?: number;
+		pnpmStoreSizeBytes?: number;
+		playwrightCacheItemCount?: number;
+		playwrightCacheSizeBytes?: number;
 		nvmVersions?: {
 			version: string;
 			path: string;
@@ -251,6 +257,22 @@ export function CleanupDialog({
 	const handleNvmCacheCheckedChange = useCallback(
 		(checked: boolean | "indeterminate") => {
 			setNvmCacheChecked(checked === true);
+			invalidatePreview();
+		},
+		[invalidatePreview],
+	);
+
+	const handlePnpmStoreCheckedChange = useCallback(
+		(checked: boolean | "indeterminate") => {
+			setPnpmStoreChecked(checked === true);
+			invalidatePreview();
+		},
+		[invalidatePreview],
+	);
+
+	const handlePlaywrightCacheCheckedChange = useCallback(
+		(checked: boolean | "indeterminate") => {
+			setPlaywrightCacheChecked(checked === true);
 			invalidatePreview();
 		},
 		[invalidatePreview],
@@ -429,6 +451,8 @@ export function CleanupDialog({
 		tmpChecked ||
 		npmCacheChecked ||
 		nvmCacheChecked ||
+		pnpmStoreChecked ||
+		playwrightCacheChecked ||
 		(nvmVersionsChecked && selectedNvmVersions.size > 0);
 	const canPreview = claudeCacheChecked || worktreesChecked || orphanNodeModulesChecked;
 
@@ -446,6 +470,8 @@ export function CleanupDialog({
 			includeTmp: tmpChecked,
 			includeNpmCache: npmCacheChecked,
 			includeNvmCache: nvmCacheChecked,
+			includePnpmStore: pnpmStoreChecked,
+			includePlaywrightCache: playwrightCacheChecked,
 			nvmVersions:
 				nvmVersionsChecked && selectedNvmVersions.size > 0
 					? [...selectedNvmVersions]
@@ -466,6 +492,8 @@ export function CleanupDialog({
 			tmpChecked,
 			npmCacheChecked,
 			nvmCacheChecked,
+			pnpmStoreChecked,
+			playwrightCacheChecked,
 			nvmVersionsChecked,
 			selectedNvmVersions,
 			disposeMode,
@@ -506,6 +534,8 @@ export function CleanupDialog({
 		(tmpChecked ? (claudeStatus?.tmpSizeBytes ?? 0) : 0) +
 		(npmCacheChecked ? (claudeStatus?.npmCacheSizeBytes ?? 0) : 0) +
 		(nvmCacheChecked ? (claudeStatus?.nvmCacheSizeBytes ?? 0) : 0) +
+		(pnpmStoreChecked ? (claudeStatus?.pnpmStoreSizeBytes ?? 0) : 0) +
+		(playwrightCacheChecked ? (claudeStatus?.playwrightCacheSizeBytes ?? 0) : 0) +
 		selectedNvmVersionBytes;
 	const totalReclaimableWorktreeBytes = useMemo(
 		() =>
@@ -528,6 +558,8 @@ export function CleanupDialog({
 		setTmpChecked(true);
 		setNpmCacheChecked(true);
 		setNvmCacheChecked(true);
+		setPnpmStoreChecked(true);
+		setPlaywrightCacheChecked(true);
 		setNvmVersionsChecked(true);
 		setSelectedNvmVersions(
 			new Set(
@@ -602,6 +634,8 @@ export function CleanupDialog({
 				setTmpChecked(false);
 				setNpmCacheChecked(false);
 				setNvmCacheChecked(false);
+				setPnpmStoreChecked(false);
+				setPlaywrightCacheChecked(false);
 				setNvmVersionsChecked(false);
 				setSelectedNvmVersions(new Set());
 				setDisposeMode("recycle-bin");
@@ -948,6 +982,50 @@ export function CleanupDialog({
 						</span>
 					) : null}
 				</label>
+				<label className="flex items-center gap-2 text-[13px] text-text-primary cursor-pointer select-none">
+					<RadixCheckbox.Root
+						data-testid="cleanup-pnpm-store-checkbox"
+						checked={pnpmStoreChecked}
+						onCheckedChange={handlePnpmStoreCheckedChange}
+						className="flex h-3.5 w-3.5 items-center justify-center rounded-sm border border-border-bright bg-surface-3 data-[state=checked]:bg-accent data-[state=checked]:border-accent"
+					>
+						<RadixCheckbox.Indicator>
+							<Check size={10} className="text-white" />
+						</RadixCheckbox.Indicator>
+					</RadixCheckbox.Root>
+					pnpm store (<code className="text-[10px]">~/.pnpm-store</code>)
+					{claudeStatus?.pnpmStoreItemCount !== undefined ? (
+						<span className="text-text-secondary">
+							({claudeStatus.pnpmStoreItemCount} dirs, {formatBytes(claudeStatus.pnpmStoreSizeBytes ?? 0)})
+						</span>
+					) : null}
+				</label>
+				<p className="ml-6 -mt-2 text-[11px] text-text-tertiary">
+					Includes <code className="text-[10px]">~/.pnpm-store</code> and{" "}
+					<code className="text-[10px]">~/.local/share/pnpm/store</code> when present.
+				</p>
+				<label className="flex items-center gap-2 text-[13px] text-text-primary cursor-pointer select-none">
+					<RadixCheckbox.Root
+						data-testid="cleanup-playwright-cache-checkbox"
+						checked={playwrightCacheChecked}
+						onCheckedChange={handlePlaywrightCacheCheckedChange}
+						className="flex h-3.5 w-3.5 items-center justify-center rounded-sm border border-border-bright bg-surface-3 data-[state=checked]:bg-accent data-[state=checked]:border-accent"
+					>
+						<RadixCheckbox.Indicator>
+							<Check size={10} className="text-white" />
+						</RadixCheckbox.Indicator>
+					</RadixCheckbox.Root>
+					Playwright browser cache (<code className="text-[10px]">~/.cache/ms-playwright</code>)
+					{claudeStatus?.playwrightCacheItemCount !== undefined ? (
+						<span className="text-text-secondary">
+							({claudeStatus.playwrightCacheItemCount} dirs,{" "}
+							{formatBytes(claudeStatus.playwrightCacheSizeBytes ?? 0)})
+						</span>
+					) : null}
+				</label>
+				<p className="ml-6 -mt-2 text-[11px] text-text-tertiary">
+					Browser binaries are reinstalled automatically when tests run.
+				</p>
 				{(claudeStatus?.nvmVersions?.length ?? 0) > 0 ? (
 					<>
 						<label className="flex items-center gap-2 text-[13px] text-text-primary cursor-pointer select-none">
