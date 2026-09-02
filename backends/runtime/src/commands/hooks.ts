@@ -607,60 +607,65 @@ async function runCodexHookSubcommand(
 }
 
 async function runGeminiHookSubcommand(explicitEvent?: string, payloadArg?: string): Promise<void> {
-	let payload = "";
-	try {
-		payload = await readStdinText();
-	} catch {
-		payload = "";
-	}
-	if (!payload.trim() && payloadArg) {
-		payload = payloadArg;
-	}
-
-	let hookEventName = explicitEvent?.trim() ?? "";
-	let payloadRecord: Record<string, unknown> | null = null;
-	try {
-		const parsed = JSON.parse(payload || "{}") as { hook_event_name?: unknown };
-		payloadRecord = asRecord(parsed);
-		if (!hookEventName) {
-			hookEventName =
-				typeof parsed.hook_event_name === "string"
-					? parsed.hook_event_name
-					: payloadRecord && typeof payloadRecord.hookEventName === "string"
-						? payloadRecord.hookEventName
-						: "";
-		}
-	} catch {
-		payloadRecord = null;
-	}
-
-	if (!hookEventName && payloadRecord) {
-		if ("terminationReason" in payloadRecord || "executionNum" in payloadRecord) {
-			hookEventName = "Stop";
-		} else if ("toolCall" in payloadRecord || "tool_name" in payloadRecord) {
-			hookEventName = "PreToolUse";
-		} else if ("invocationNum" in payloadRecord) {
-			hookEventName = "PreInvocation";
-		}
-	}
-
 	process.stdout.write("{}\n");
+	try {
+		let payload = "";
+		try {
+			payload = await readStdinText();
+		} catch {
+			payload = "";
+		}
+		if (!payload.trim() && payloadArg) {
+			payload = payloadArg;
+		}
 
-	const mappedEvent = mapGeminiHookEvent(hookEventName);
-	if (!mappedEvent) {
-		return;
+		let hookEventName = explicitEvent?.trim() ?? "";
+		let payloadRecord: Record<string, unknown> | null = null;
+		try {
+			const parsed = JSON.parse(payload || "{}") as { hook_event_name?: unknown };
+			payloadRecord = asRecord(parsed);
+			if (!hookEventName) {
+				hookEventName =
+					typeof parsed.hook_event_name === "string"
+						? parsed.hook_event_name
+						: payloadRecord && typeof payloadRecord.hookEventName === "string"
+							? payloadRecord.hookEventName
+							: "";
+			}
+		} catch {
+			payloadRecord = null;
+		}
+
+		if (!hookEventName && payloadRecord) {
+			if ("terminationReason" in payloadRecord || "executionNum" in payloadRecord) {
+				hookEventName = "Stop";
+			} else if ("toolCall" in payloadRecord || "tool_name" in payloadRecord) {
+				hookEventName = "PreToolUse";
+			} else if ("invocationNum" in payloadRecord) {
+				hookEventName = "PreInvocation";
+			}
+		}
+
+		const mappedEvent = mapGeminiHookEvent(hookEventName);
+		if (!mappedEvent) {
+			return;
+		}
+		// agy reads its hooks config from the workspace, so a stale hooks.json can fire
+		// outside a Kanban session. Without task context there is nothing to notify, and
+		// `hooks notify` would spawn only to swallow the same missing-env error.
+		if (!hasHookRuntimeContext()) {
+			return;
+		}
+		const metadata = normalizeHookMetadata(mappedEvent, payloadRecord, {
+			source: "gemini",
+			hookEventName: hookEventName || undefined,
+		});
+		spawnBackgroundKanban(buildGeminiNotifyArgs(mappedEvent, metadata, payloadRecord));
+	} catch {
+		// Best effort only.
+	} finally {
+		process.exitCode = 0;
 	}
-	// agy reads its hooks config from the workspace, so a stale hooks.json can fire
-	// outside a Kanban session. Without task context there is nothing to notify, and
-	// `hooks notify` would spawn only to swallow the same missing-env error.
-	if (!hasHookRuntimeContext()) {
-		return;
-	}
-	const metadata = normalizeHookMetadata(mappedEvent, payloadRecord, {
-		source: "gemini",
-		hookEventName: hookEventName || undefined,
-	});
-	spawnBackgroundKanban(buildGeminiNotifyArgs(mappedEvent, metadata, payloadRecord));
 }
 
 export function buildCodexWrapperChildArgs(agentArgs: string[]): string[] {
