@@ -320,10 +320,10 @@ describe("useGitActions", () => {
 		const sendTaskChatMessage = vi.fn(async () => ({ ok: true }));
 		let latestSnapshot: HookSnapshot | null = null;
 		const board = createBoard();
-		board.columns[0].cards[0] = {
-			...board.columns[0].cards[0],
-			agentId: "cursor",
-		};
+		const firstColumn = board.columns[0];
+		const firstCard = firstColumn?.cards[0];
+		if (!firstColumn || !firstCard) throw new Error("createBoard() must seed a first card");
+		firstColumn.cards[0] = { ...firstCard, agentId: "cursor" };
 
 		await act(async () => {
 			root.render(

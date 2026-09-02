@@ -130,7 +130,7 @@ function HookHarness({
 	startTaskSession: UseTaskSessionsResult["startTaskSession"];
 	stopTaskSession?: (taskId: string) => Promise<void>;
 	cleanupTaskWorkspace?: (taskId: string) => Promise<unknown>;
-	fetchTaskWorkspaceInfo?: (task: BoardCard) => Promise<unknown>;
+	fetchTaskWorkspaceInfo?: UseTaskSessionsResult["fetchTaskWorkspaceInfo"];
 	selectedCard?: { card: BoardCard; column: { id: "backlog" | "in_progress" | "review" | "trash" } } | null;
 	setSelectedTaskIdOverride?: Dispatch<SetStateAction<string | null>>;
 	onSnapshot?: (snapshot: HookSnapshot) => void;

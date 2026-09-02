@@ -28,6 +28,7 @@ function baseAccount(overrides: Partial<RuntimeManagerAccount> = {}): RuntimeMan
 		canTrackUsage: true,
 		hasCcToken: true,
 		ccNeedsAuth: false,
+		donateLimitLocked: false,
 		isActiveForProvider: false,
 		validationStatus: "valid",
 		lastError: null,

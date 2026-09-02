@@ -25,7 +25,7 @@ interface UseOpenWorkspaceParams {
 	workspacePath?: string;
 }
 
-interface UseOpenWorkspaceResult {
+export interface UseOpenWorkspaceResult {
 	openTargetOptions: readonly OpenTargetOption[];
 	selectedOpenTargetId: OpenTargetId;
 	onSelectOpenTarget: (targetId: OpenTargetId) => void;

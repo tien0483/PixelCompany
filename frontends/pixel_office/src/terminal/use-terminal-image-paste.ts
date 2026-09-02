@@ -1,4 +1,8 @@
-import { type ClipboardEvent, type DragEvent, useCallback, useRef } from "react";
+import { useCallback, useRef } from "react";
+
+// Native DOM events, not React's synthetic ones: these handlers are attached with
+// `container.addEventListener` in `use-persistent-terminal-session.ts`, so a synthetic
+// signature never matches what the listener actually receives.
 
 import { showAppToast } from "@/components/app-toaster";
 import {

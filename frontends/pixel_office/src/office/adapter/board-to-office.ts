@@ -43,6 +43,7 @@ const AGENT_APPEARANCE: Record<RuntimeAgentId, { palette: number; hueShift: numb
 	kiro: { palette: 5, hueShift: 0 },
 	opencode: { palette: 0, hueShift: 140 },
 	cursor: { palette: 1, hueShift: 200 },
+	orchestrator: { palette: 2, hueShift: 260 },
 };
 
 const DEFAULT_APPEARANCE = { palette: 0, hueShift: 60 };

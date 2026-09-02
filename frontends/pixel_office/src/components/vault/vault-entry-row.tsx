@@ -3,7 +3,7 @@ import { type ReactElement, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
-import type { RuntimeVaultEntrySummary } from "@/core/api-contract";
+import type { RuntimeVaultEntrySummary } from "@runtime-contract";
 
 export interface VaultEntryRowProps {
 	entry: RuntimeVaultEntrySummary;

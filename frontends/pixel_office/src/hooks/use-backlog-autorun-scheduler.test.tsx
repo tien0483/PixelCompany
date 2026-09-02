@@ -120,7 +120,7 @@ describe("useBacklogAutorunScheduler", () => {
 		const onStartTask = vi.fn();
 		// "a" depends on "b"; both in backlog → "a" is not startable.
 		renderHarness({
-			board: board([card("a", 500_000), card("b", null)], [], [{ id: "d1", fromTaskId: "a", toTaskId: "b" }]),
+			board: board([card("a", 500_000), card("b", null)], [], [{ id: "d1", fromTaskId: "a", toTaskId: "b", createdAt: 0 }]),
 			maxRunningTasks: 3,
 			onStartTask,
 		});

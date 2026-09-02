@@ -406,7 +406,8 @@ describe("useWorkspaceSync", () => {
 		await act(async () => {
 			await Promise.resolve();
 		});
-		expect(latestSnapshot.board.columns[0]?.cards[0]?.id).toBe("task-1");
+		const syncedSnapshot: HookSnapshot = latestSnapshot;
+		expect(syncedSnapshot.board.columns[0]?.cards[0]?.id).toBe("task-1");
 
 		await act(async () => {
 			latestSnapshot!.setBoard((current) => {
@@ -427,7 +428,8 @@ describe("useWorkspaceSync", () => {
 		if (latestSnapshot === null) {
 			throw new Error("Expected a hook snapshot after save-echo.");
 		}
-		const card = latestSnapshot.board.columns[0]?.cards[0];
+		const echoedSnapshot: HookSnapshot = latestSnapshot;
+		const card = echoedSnapshot.board.columns[0]?.cards[0];
 		expect(card?.taskLaunchSettings?.skillIds).toEqual(["alpha", "beta"]);
 	});
 });

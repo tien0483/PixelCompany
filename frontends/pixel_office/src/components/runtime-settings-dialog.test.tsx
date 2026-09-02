@@ -498,7 +498,7 @@ describe("RuntimeSettingsDialog", () => {
 		expect(skipPermissionsCheckbox).toBeTruthy();
 
 		await act(async () => {
-			skipPermissionsCheckbox?.click();
+			(skipPermissionsCheckbox as HTMLElement | null)?.click();
 		});
 
 		expect(saveButton?.disabled).toBe(false);

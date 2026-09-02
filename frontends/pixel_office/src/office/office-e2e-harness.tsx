@@ -206,6 +206,8 @@ function buildFixtureManager(pressure: number): RuntimeManagerSnapshot {
 		isActiveForProvider: provider === "cursor" ? id === 3 : id === 1,
 		validationStatus: "valid",
 		lastError: null,
+		donateLimitLocked: false,
+		ccNeedsAuth: provider === "claude",
 	});
 	return {
 		version: "e2e",
