@@ -24,7 +24,7 @@
   },
   "type": "module",
   "bin": {
-    "kanban": "dist/cli.js"
+    "kanban": "bin/kanban.mjs"
   },
   "man": "./man/kanban.1",
   "main": "./dist/index.js",
@@ -37,6 +37,7 @@
   },
   "files": [
     "dist",
+    "bin",
     "man",
     "README.md",
     "LICENSE"
