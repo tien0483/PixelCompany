@@ -1,7 +1,10 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import type { ClineApiSeatCredentials } from "../cline-sdk/cline-provider-service";
 import type { RuntimeOpenmaicHealth, RuntimeOpenmaicStatus } from "../core/api-contract";
+import type { ManagerMonitor } from "../manager/manager-monitor";
+import { type FlowiseLlmGeminiSeatSummary, resolveFlowiseLlmGeminiSeatSummary } from "../flowise/flowise-llm-proxy-seat";
 import {
 	DEFAULT_OPENMAIC_HOST,
 	findOpenmaicRoot,
@@ -13,6 +16,97 @@ import {
 import { probePort } from "../stack/stack-ports";
 import type { RuntimeTrpcContext } from "./app-router";
 
+const GEMINI_PROBE_TTL_MS = 60_000;
+const GEMINI_PROBE_TIMEOUT_MS = 4_000;
+const GEMINI_API_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models";
+
+const GEMINI_ENV_KEYS = ["GEMINI_API_KEY", "GOOGLE_API_KEY"];
+const ASR_PROVIDER_KEYS = ["OPENAI_API_KEY", "AZURE_OPENAI_API_KEY", "DEEPGRAM_API_KEY"];
+const TTS_PROVIDER_KEYS = ["OPENAI_API_KEY", "ELEVENLABS_API_KEY", "MINIMAX_API_KEY", "AZURE_OPENAI_API_KEY"];
+const VIDEO_PROVIDER_KEYS = ["KLING_ACCESS_KEY", "KLING_SECRET_KEY", "LUMA_API_KEY", "PIKA_API_KEY", "VEO3_API_KEY"];
+
+interface GeminiProbeResult {
+	ok: boolean;
+	detail: string;
+}
+
+interface CachedGeminiProbe extends GeminiProbeResult {
+	apiKey: string;
+	expiresAtMs: number;
+}
+
+let cachedGeminiProbe: CachedGeminiProbe | null = null;
+
+type OpenmaicCapabilitySource = "gemini-seat" | "gemini-api-key" | "browser-native" | "provider-api-key" | "missing";
+
+export interface CreateOpenmaicApiDependencies {
+	monitor?: ManagerMonitor;
+	resolveGeminiSeatSummary?: () => Promise<FlowiseLlmGeminiSeatSummary | null>;
+	probeGeminiApiKey?: (apiKey: string) => Promise<GeminiProbeResult>;
+}
+
+interface OpenmaicCapabilityHealth {
+	ready: boolean;
+	source: OpenmaicCapabilitySource;
+	verified: boolean;
+	detail?: string;
+}
+
+export interface BuildOpenmaicHealthInput {
+	envMap: Map<string, string>;
+	hasEnvFile: boolean;
+	seatSummary: FlowiseLlmGeminiSeatSummary | null;
+	geminiProbe: GeminiProbeResult | null;
+}
+
+async function probeGeminiApiKey(apiKey: string): Promise<GeminiProbeResult> {
+	if (cachedGeminiProbe && cachedGeminiProbe.apiKey === apiKey && cachedGeminiProbe.expiresAtMs > Date.now()) {
+		return { ok: cachedGeminiProbe.ok, detail: cachedGeminiProbe.detail };
+	}
+
+	const controller = new AbortController();
+	const timeout = setTimeout(() => {
+		controller.abort();
+	}, GEMINI_PROBE_TIMEOUT_MS);
+
+	let result: GeminiProbeResult;
+	try {
+		const response = await fetch(`${GEMINI_API_BASE_URL}?key=${encodeURIComponent(apiKey)}&pageSize=1`, {
+			method: "GET",
+			signal: controller.signal,
+		});
+		if (response.ok) {
+			result = { ok: true, detail: "Gemini models endpoint reachable." };
+		} else {
+			result = { ok: false, detail: `Gemini models probe failed (${response.status}).` };
+		}
+	} catch (error) {
+		result = { ok: false, detail: error instanceof Error ? error.message : String(error) };
+	} finally {
+		clearTimeout(timeout);
+	}
+
+	cachedGeminiProbe = {
+		apiKey,
+		ok: result.ok,
+		detail: result.detail,
+		expiresAtMs: Date.now() + GEMINI_PROBE_TTL_MS,
+	};
+	return result;
+}
+
+async function defaultResolveGeminiSeatSummary(monitor: ManagerMonitor | undefined): Promise<FlowiseLlmGeminiSeatSummary | null> {
+	if (monitor === undefined) {
+		return null;
+	}
+	return await resolveFlowiseLlmGeminiSeatSummary({
+		monitor,
+		getAccountLaunchDir: async () => null,
+		getAccountLaunchCredential: async () => null,
+		resolveApiSeatCredentials: async (): Promise<ClineApiSeatCredentials | null> => null,
+	});
+}
+
 /**
  * Availability for the Learning tab.
  *
@@ -20,7 +114,9 @@ import type { RuntimeTrpcContext } from "./app-router";
  * worth depending on, and the only question the tab asks is "can I frame it". A TCP probe
  * answers that without pulling a Next.js page render on every 5 s poll.
  */
-export function createOpenmaicApi(): RuntimeTrpcContext["openmaicApi"] {
+export function createOpenmaicApi(deps: CreateOpenmaicApiDependencies = {}): RuntimeTrpcContext["openmaicApi"] {
+	const resolveSeatSummary = deps.resolveGeminiSeatSummary ?? (async () => await defaultResolveGeminiSeatSummary(deps.monitor));
+	const probeGeminiKey = deps.probeGeminiApiKey ?? probeGeminiApiKey;
 	return {
 		status: async (): Promise<RuntimeOpenmaicStatus> => {
 			const root = findOpenmaicRoot();
@@ -52,18 +148,127 @@ export function createOpenmaicApi(): RuntimeTrpcContext["openmaicApi"] {
 			}
 			const envPath = join(root, ".env.local");
 			const envMap = parseEnvFile(envPath);
-			const missingKeys = collectMissingCapabilityKeys(envMap, existsSync(envPath));
-			return {
-				openmaicConfigured: envMap.size > 0,
-				asrReady: isAsrReady(envMap),
-				ttsReady: isTtsReady(envMap),
-				videoReady: isVideoReady(envMap),
-				// OpenMAIC calls providers from its own Next server config; it does not use
-				// PixelOffice Manager seat subscriptions automatically.
-				subscriptionSeatRoutingReady: false,
-				missingKeys,
-			};
+			const seatSummary = await resolveSeatSummary();
+			const geminiApiKey = resolveConfiguredSecret(envMap, GEMINI_ENV_KEYS);
+			const geminiProbe = geminiApiKey ? await probeGeminiKey(geminiApiKey) : null;
+			return buildOpenmaicHealth({
+				envMap,
+				hasEnvFile: existsSync(envPath),
+				seatSummary,
+				geminiProbe,
+			});
 		},
+	};
+}
+
+function buildCapabilityHealth({
+	geminiAvailable,
+	geminiProbe,
+	browserEnabled,
+	providerFallbackReady,
+	browserLabel,
+	providerLabel,
+	seatLabel,
+}: {
+	geminiAvailable: boolean;
+	geminiProbe: GeminiProbeResult | null;
+	browserEnabled: boolean;
+	providerFallbackReady: boolean;
+	browserLabel: string;
+	providerLabel: string;
+	seatLabel: string | null;
+}): OpenmaicCapabilityHealth {
+	if (geminiAvailable) {
+		const source: OpenmaicCapabilitySource = seatLabel ? "gemini-seat" : "gemini-api-key";
+		return {
+			ready: true,
+			source,
+			verified: geminiProbe?.ok ?? false,
+			detail:
+				geminiProbe?.detail ??
+				(seatLabel ? `Using Gemini seat${seatLabel ? ` (${seatLabel})` : ""}; no API-key probe available.` : "Gemini key configured."),
+		};
+	}
+	if (browserEnabled) {
+		return {
+			ready: true,
+			source: "browser-native",
+			verified: false,
+			detail: browserLabel,
+		};
+	}
+	if (providerFallbackReady) {
+		return {
+			ready: true,
+			source: "provider-api-key",
+			verified: false,
+			detail: providerLabel,
+		};
+	}
+	return {
+		ready: false,
+		source: "missing",
+		verified: false,
+	};
+}
+
+export function buildOpenmaicHealth(input: BuildOpenmaicHealthInput): RuntimeOpenmaicHealth {
+	const geminiAvailable = input.seatSummary !== null || hasAnyConfigured(input.envMap, GEMINI_ENV_KEYS);
+	const seatLabel = input.seatSummary?.accountLabel ?? null;
+	const asr = buildCapabilityHealth({
+		geminiAvailable,
+		geminiProbe: input.geminiProbe,
+		browserEnabled: isFeatureEnabled(input.envMap, "ASR_BROWSER_NATIVE_ENABLED"),
+		providerFallbackReady: hasAnyConfigured(input.envMap, ASR_PROVIDER_KEYS),
+		browserLabel: "Browser-native ASR enabled; browser runtime itself is not probed server-side.",
+		providerLabel: "ASR fallback provider key configured (non-Gemini).",
+		seatLabel,
+	});
+	const tts = buildCapabilityHealth({
+		geminiAvailable,
+		geminiProbe: input.geminiProbe,
+		browserEnabled: isFeatureEnabled(input.envMap, "TTS_BROWSER_NATIVE_ENABLED"),
+		providerFallbackReady: hasAnyConfigured(input.envMap, TTS_PROVIDER_KEYS),
+		browserLabel: "Browser-native TTS enabled; browser runtime itself is not probed server-side.",
+		providerLabel: "TTS fallback provider key configured (non-Gemini).",
+		seatLabel,
+	});
+	const video = buildCapabilityHealth({
+		geminiAvailable,
+		geminiProbe: input.geminiProbe,
+		browserEnabled: false,
+		providerFallbackReady: hasAnyConfigured(input.envMap, VIDEO_PROVIDER_KEYS),
+		browserLabel: "",
+		providerLabel: "Video fallback provider key configured (non-Gemini).",
+		seatLabel,
+	});
+	const missingKeys = collectMissingCapabilityKeys({
+		hasEnvFile: input.hasEnvFile,
+		asrReady: asr.ready,
+		ttsReady: tts.ready,
+		videoReady: video.ready,
+		seatRoutingReady: input.seatSummary !== null,
+	});
+	return {
+		openmaicConfigured: input.envMap.size > 0 || input.seatSummary !== null,
+		asrReady: asr.ready,
+		ttsReady: tts.ready,
+		videoReady: video.ready,
+		asrSource: asr.source,
+		ttsSource: tts.source,
+		videoSource: video.source === "browser-native" ? "provider-api-key" : video.source,
+		asrVerified: asr.verified,
+		ttsVerified: tts.verified,
+		videoVerified: video.verified,
+		asrDetail: asr.detail,
+		ttsDetail: tts.detail,
+		videoDetail: video.detail,
+		subscriptionSeatRoutingReady: input.seatSummary !== null,
+		subscriptionSeatRoutingDetail:
+			input.seatSummary === null
+				? "No Gemini seat credential detected."
+				: `Gemini seat routing is available${input.seatSummary.accountLabel ? ` (${input.seatSummary.accountLabel})` : ""}.`,
+		missingKeys,
 	};
 }
 
@@ -137,55 +342,44 @@ function hasAnyConfigured(env: Map<string, string>, keys: string[]): boolean {
 	return false;
 }
 
-function isAsrReady(env: Map<string, string>): boolean {
-	const browserAsr = isFeatureEnabled(env, "ASR_BROWSER_NATIVE_ENABLED");
-	const providerAsr = hasAnyConfigured(env, [
-		"GEMINI_API_KEY",
-		"OPENAI_API_KEY",
-		"AZURE_OPENAI_API_KEY",
-		"DEEPGRAM_API_KEY",
-	]);
-	return browserAsr || providerAsr;
+function resolveConfiguredSecret(env: Map<string, string>, keys: string[]): string | null {
+	for (const key of keys) {
+		const value = env.get(key);
+		if (isConfiguredSecret(value)) {
+			return value!;
+		}
+	}
+	return null;
 }
 
-function isTtsReady(env: Map<string, string>): boolean {
-	const browserTts = isFeatureEnabled(env, "TTS_BROWSER_NATIVE_ENABLED");
-	const providerTts = hasAnyConfigured(env, [
-		"GEMINI_API_KEY",
-		"OPENAI_API_KEY",
-		"ELEVENLABS_API_KEY",
-		"MINIMAX_API_KEY",
-		"AZURE_OPENAI_API_KEY",
-	]);
-	return browserTts || providerTts;
-}
-
-function isVideoReady(env: Map<string, string>): boolean {
-	return hasAnyConfigured(env, [
-		"GOOGLE_API_KEY",
-		"GEMINI_API_KEY",
-		"KLING_ACCESS_KEY",
-		"KLING_SECRET_KEY",
-		"LUMA_API_KEY",
-		"PIKA_API_KEY",
-		"VEO3_API_KEY",
-	]);
-}
-
-function collectMissingCapabilityKeys(env: Map<string, string>, hasEnvFile: boolean): string[] {
+function collectMissingCapabilityKeys({
+	hasEnvFile,
+	asrReady,
+	ttsReady,
+	videoReady,
+	seatRoutingReady,
+}: {
+	hasEnvFile: boolean;
+	asrReady: boolean;
+	ttsReady: boolean;
+	videoReady: boolean;
+	seatRoutingReady: boolean;
+}): string[] {
 	const missing: string[] = [];
 	if (!hasEnvFile) {
 		missing.push("Create `backends/openmaic/.env.local` from `.env.example`");
 	}
-	if (!isAsrReady(env)) {
+	if (!asrReady) {
 		missing.push("ASR: enable browser ASR or configure a provider API key");
 	}
-	if (!isTtsReady(env)) {
+	if (!ttsReady) {
 		missing.push("TTS: enable browser TTS or configure a provider API key");
 	}
-	if (!isVideoReady(env)) {
+	if (!videoReady) {
 		missing.push("Video: configure a video generation provider API key");
 	}
-	missing.push("Subscriptions (Antigravity/Cursor/Claude) are not auto-wired into OpenMAIC");
+	if (!seatRoutingReady) {
+		missing.push("Subscriptions (Antigravity/Cursor/Claude) are not auto-wired into OpenMAIC");
+	}
 	return missing;
 }

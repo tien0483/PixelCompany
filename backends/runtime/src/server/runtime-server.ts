@@ -401,8 +401,11 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 		client: deps.orchestrator.client,
 	});
 	// No dependencies: the Learning tab's whole question is "is the submodule there, built,
-	// and listening", all of which are answered from disk and a TCP probe.
-	const openmaicApi = createOpenmaicApi();
+	// and listening", all of which are answered from disk and a TCP probe. Health now also
+	// reports Gemini seat-route readiness from the same manager monitor used by Flowise.
+	const openmaicApi = createOpenmaicApi({
+		monitor: deps.manager.monitor,
+	});
 	// One GitLab identity serves the whole runtime, so the client and the OAuth flow
 	// registry are singletons here rather than per request: a flow started by one
 	// request is polled by the next, and the client caches the credential in process.

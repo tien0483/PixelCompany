@@ -39,6 +39,7 @@ export enum LocalStorageKey {
 	PlanEditorTemplatePaneCollapsed = "kanban.plan-editor-template-pane-collapsed",
 	/** Which of the plan editor's panes are on screen: "editor", "split" or "preview". */
 	PlanEditorPaneViewMode = "kanban.plan-editor-pane-view-mode",
+	LearningHealthPanelExpanded = "kanban.learning-health-panel-expanded",
 	AddProjectLastBrowseFolder = "kanban.add-project-last-browse-folder",
 	/**
 	 * Seats "Max donate" toggle: whether every eligible seat was pushed to a 100%

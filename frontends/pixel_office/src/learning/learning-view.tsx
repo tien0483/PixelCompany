@@ -1,12 +1,15 @@
-import { ExternalLink, GraduationCap, X } from "lucide-react";
+import * as Collapsible from "@radix-ui/react-collapsible";
+import { ChevronDown, ChevronRight, ExternalLink, GraduationCap, X } from "lucide-react";
 import { type ReactElement, useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { Tooltip } from "@/components/ui/tooltip";
 import { isLightUiTheme, useTheme } from "@/hooks/use-theme";
+import { loadBooleanResizePreference, persistBooleanResizePreference } from "@/resize/resize-preferences";
 import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
 import type { RuntimeOpenmaicHealth, RuntimeOpenmaicStatus } from "@/runtime/types";
+import { LocalStorageKey } from "@/storage/local-storage-store";
 
 export interface LearningViewProps {
 	/** Selects which runtime the tRPC client talks to. The classroom itself is global. */
@@ -16,6 +19,10 @@ export interface LearningViewProps {
 
 /** Matches the Agents sidebar's studio poll; only runs while the classroom is down. */
 const POLL_INTERVAL_MS = 5_000;
+const HEALTH_PANEL_EXPANDED_PREFERENCE = {
+	key: LocalStorageKey.LearningHealthPanelExpanded,
+	defaultValue: true,
+} as const;
 
 /**
  * `ALLOWED_FRAME_ANCESTORS` is upstream's own opt-in for embedding, and it has to be set at
@@ -58,6 +65,9 @@ export function LearningView({ workspaceId, onClose }: LearningViewProps): React
 	const [status, setStatus] = useState<RuntimeOpenmaicStatus | null>(null);
 	const [health, setHealth] = useState<RuntimeOpenmaicHealth | null>(null);
 	const [error, setError] = useState<string | null>(null);
+	const [healthExpanded, setHealthExpanded] = useState<boolean>(() =>
+		loadBooleanResizePreference(HEALTH_PANEL_EXPANDED_PREFERENCE),
+	);
 	const iframeRef = useRef<HTMLIFrameElement | null>(null);
 
 	// Synchronize theme changes to embedded classroom iframe dynamically
@@ -141,44 +151,92 @@ export function LearningView({ workspaceId, onClose }: LearningViewProps): React
 
 	const healthPanel =
 		status?.online === true && health !== null ? (
-			<div className="grid grid-cols-1 gap-2 border-b border-border bg-surface-1 px-3 py-2 md:grid-cols-2">
-				<div className="rounded-md border border-border bg-surface-2 px-2 py-1">
-					<p className="text-[11px] font-medium text-text-secondary">Speech recognition</p>
-					<p className={health.asrReady ? "text-xs text-status-green" : "text-xs text-status-orange"}>
-						{health.asrReady ? "Ready" : "Needs provider/browser setup"}
-					</p>
-				</div>
-				<div className="rounded-md border border-border bg-surface-2 px-2 py-1">
-					<p className="text-[11px] font-medium text-text-secondary">Text to speech</p>
-					<p className={health.ttsReady ? "text-xs text-status-green" : "text-xs text-status-orange"}>
-						{health.ttsReady ? "Ready" : "Needs provider/browser setup"}
-					</p>
-				</div>
-				<div className="rounded-md border border-border bg-surface-2 px-2 py-1">
-					<p className="text-[11px] font-medium text-text-secondary">Video generation</p>
-					<p className={health.videoReady ? "text-xs text-status-green" : "text-xs text-status-orange"}>
-						{health.videoReady ? "Ready" : "Needs provider setup"}
-					</p>
-				</div>
-				<div className="rounded-md border border-border bg-surface-2 px-2 py-1">
-					<p className="text-[11px] font-medium text-text-secondary">Subscription routing</p>
-					<p
-						className={
-							health.subscriptionSeatRoutingReady ? "text-xs text-status-green" : "text-xs text-status-orange"
-						}
+			<Collapsible.Root
+				open={healthExpanded}
+				onOpenChange={(open) => {
+					setHealthExpanded(persistBooleanResizePreference(HEALTH_PANEL_EXPANDED_PREFERENCE, open));
+				}}
+				className="shrink-0 border-b border-border bg-surface-1"
+			>
+				<Collapsible.Trigger asChild>
+					<button
+						type="button"
+						data-testid="learning-health-toggle"
+						className="flex w-full items-center justify-between gap-2 px-3 py-1.5 text-[11px] text-text-secondary hover:bg-surface-2"
 					>
-						{health.subscriptionSeatRoutingReady
-							? "Ready"
-							: "Not auto-wired (uses OpenMAIC provider env keys)"}
-					</p>
-				</div>
-				{health.missingKeys.length > 0 ? (
-					<div className="col-span-1 rounded-md border border-border bg-surface-2 px-2 py-1 md:col-span-2">
-						<p className="text-[11px] font-medium text-text-secondary">Learning health notes</p>
-						<p className="text-xs text-text-tertiary">{health.missingKeys.join(" | ")}</p>
+						<span>
+							Learning health
+							{!healthExpanded && (health.asrReady || health.ttsReady || health.videoReady) ? (
+								<span className="ml-2 text-[10px] text-text-tertiary">
+									{health.asrReady && health.ttsReady && health.videoReady ? "3/3 media ready" : "partial"}
+								</span>
+							) : null}
+						</span>
+						{healthExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+					</button>
+				</Collapsible.Trigger>
+				<Collapsible.Content
+					data-testid="learning-health-content"
+					className="overflow-hidden data-[state=closed]:animate-[kb-collapsible-up_200ms_ease-out] data-[state=open]:animate-[kb-collapsible-down_200ms_ease-out]"
+				>
+					<div className="grid grid-cols-1 gap-2 px-3 py-2 md:grid-cols-2">
+						<div className="rounded-md border border-border bg-surface-2 px-2 py-1">
+							<p className="text-[11px] font-medium text-text-secondary">Speech recognition</p>
+							<p className={health.asrReady && health.asrVerified === true ? "text-xs text-status-green" : "text-xs text-status-orange"}>
+								{health.asrReady
+									? health.asrVerified === true
+										? "Ready (verified)"
+										: "Ready (unverified)"
+									: "Needs provider/browser setup"}
+							</p>
+							{health.asrDetail ? <p className="mt-0.5 text-[10px] text-text-tertiary">{health.asrDetail}</p> : null}
+						</div>
+						<div className="rounded-md border border-border bg-surface-2 px-2 py-1">
+							<p className="text-[11px] font-medium text-text-secondary">Text to speech</p>
+							<p className={health.ttsReady && health.ttsVerified === true ? "text-xs text-status-green" : "text-xs text-status-orange"}>
+								{health.ttsReady
+									? health.ttsVerified === true
+										? "Ready (verified)"
+										: "Ready (unverified)"
+									: "Needs provider/browser setup"}
+							</p>
+							{health.ttsDetail ? <p className="mt-0.5 text-[10px] text-text-tertiary">{health.ttsDetail}</p> : null}
+						</div>
+						<div className="rounded-md border border-border bg-surface-2 px-2 py-1">
+							<p className="text-[11px] font-medium text-text-secondary">Video generation</p>
+							<p className={health.videoReady && health.videoVerified === true ? "text-xs text-status-green" : "text-xs text-status-orange"}>
+								{health.videoReady
+									? health.videoVerified === true
+										? "Ready (verified)"
+										: "Ready (unverified)"
+									: "Needs provider setup"}
+							</p>
+							{health.videoDetail ? <p className="mt-0.5 text-[10px] text-text-tertiary">{health.videoDetail}</p> : null}
+						</div>
+						<div className="rounded-md border border-border bg-surface-2 px-2 py-1">
+							<p className="text-[11px] font-medium text-text-secondary">Subscription routing</p>
+							<p
+								className={
+									health.subscriptionSeatRoutingReady ? "text-xs text-status-green" : "text-xs text-status-orange"
+								}
+							>
+								{health.subscriptionSeatRoutingReady
+									? "Ready"
+									: "Not auto-wired (uses OpenMAIC provider env keys)"}
+							</p>
+							{health.subscriptionSeatRoutingDetail ? (
+								<p className="mt-0.5 text-[10px] text-text-tertiary">{health.subscriptionSeatRoutingDetail}</p>
+							) : null}
+						</div>
+						{health.missingKeys.length > 0 ? (
+							<div className="col-span-1 rounded-md border border-border bg-surface-2 px-2 py-1 md:col-span-2">
+								<p className="text-[11px] font-medium text-text-secondary">Learning health notes</p>
+								<p className="text-xs text-text-tertiary">{health.missingKeys.join(" | ")}</p>
+							</div>
+						) : null}
 					</div>
-				) : null}
-			</div>
+				</Collapsible.Content>
+			</Collapsible.Root>
 		) : null;
 
 	const body = ((): ReactElement => {
