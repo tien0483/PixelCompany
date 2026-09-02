@@ -45,6 +45,7 @@ import { findDocSkillRoot } from "../doc-skill/doc-skill-process";
 import { buildDocAuditPrompt, buildDocRoundPrompt, loadDocSkillText } from "../doc-skill/doc-skill-prompts";
 import type { FlowiseClient } from "../flowise/flowise-client";
 import { createFlowiseLlmProxyHandler } from "../flowise/flowise-llm-proxy";
+import { handleOpenmaicAgentModelsRequest } from "../openmaic/openmaic-agent-models-route";
 import type { OrchestratorClient } from "../orchestrator/orchestrator-client";
 import { createGitlabClient } from "../gitlab/gitlab-client";
 import { createGitlabOauthSession } from "../gitlab/gitlab-oauth";
@@ -782,6 +783,10 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 
 			// Loopback-only; Flowise has no session cookie when calling Anthropic through us.
 			if (await flowiseLlmProxy(req, res, pathname)) {
+				return;
+			}
+
+			if (await handleOpenmaicAgentModelsRequest(req, res, pathname, requestUrl.searchParams)) {
 				return;
 			}
 
