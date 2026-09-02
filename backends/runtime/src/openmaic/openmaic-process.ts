@@ -13,11 +13,7 @@ import { closeSync, existsSync, mkdirSync, openSync, readFileSync } from "node:f
 import { join } from "node:path";
 
 import { terminateProcessForTimeout } from "../server/process-termination";
-import { getKanbanRuntimeOrigin } from "../core/runtime-endpoint";
-import {
-	isFlowiseLlmProxyEnabled,
-	resolveFlowiseLlmProxyProviderUrl,
-} from "../flowise/flowise-llm-proxy-config";
+import { buildOpenmaicClassroomEnv } from "./openmaic-classroom-env";
 import { nextRestartDelayMs, shouldGiveUpRestarting } from "../stack/stack-daemon";
 import { probePort, waitForPort } from "../stack/stack-ports";
 import {
@@ -110,42 +106,6 @@ function readStartScript(openmaicRoot: string): string | null {
 	} catch {
 		return null;
 	}
-}
-
-/**
- * `ANTHROPIC_*` is stripped on purpose. `scripts/solo.mjs` exports `ANTHROPIC_BASE_URL`
- * for *task agents*; inheriting it would route every OpenMAIC LLM call through the
- * switchboard, and `ANTHROPIC_API_KEY` may be the `sk-dummy-key-*` placeholder.
- *
- * Nothing here redirects OpenMAIC's own state: Next.js reads `.env.local` from the process
- * cwd and nowhere else, and no env var for a data directory is documented, so inventing
- * one would only imply a contract upstream does not honour. Its state stays where upstream
- * puts it (all of it already covered by the submodule's own `.gitignore` — `.env*`,
- * `/data`, `/logs`); `.openmaic/` holds only what this supervisor writes.
- */
-function buildClassroomEnv(host: string, port: number): NodeJS.ProcessEnv {
-	const env: NodeJS.ProcessEnv = {
-		...process.env,
-		NODE_ENV: "production",
-		PORT: String(port),
-		PIXELOFFICE_RUNTIME_ORIGIN: getKanbanRuntimeOrigin(),
-		// Loopback only. With no login in front of the classroom and a provider key sitting
-		// in its `.env.local`, the bind is the entire boundary — never widen it to 0.0.0.0.
-		// `next start` ignores HOSTNAME, so this is belt-and-braces behind the explicit `-H`.
-		HOSTNAME: host,
-		// Browser-native is OpenMAIC's default mic path; keep it enabled when PixelOffice
-		// embeds the classroom unless the operator explicitly turned it off in .env.local.
-		ASR_BROWSER_NATIVE_ENABLED: "true",
-	};
-	if (isFlowiseLlmProxyEnabled()) {
-		// Whisper ASR bills through the Manager API seat (OmniRoute/Cline) via the same
-		// loopback proxy Flowise uses — no separate key in backends/openmaic/.env.local.
-		env.ASR_OPENAI_BASE_URL = `${resolveFlowiseLlmProxyProviderUrl("openai")}/v1`;
-		env.ASR_OPENAI_API_KEY = "pixeloffice-seat";
-	}
-	delete env.ANTHROPIC_BASE_URL;
-	delete env.ANTHROPIC_API_KEY;
-	return env;
 }
 
 function createNoopProcess(isAlreadyUp: boolean): OpenmaicProcess {
@@ -284,7 +244,7 @@ export async function startOpenmaicProcess(deps: StartOpenmaicProcessDependencie
 		try {
 			spawned = spawn(target.binary, target.args, {
 				cwd: target.cwd,
-				env: buildClassroomEnv(host, port),
+				env: buildOpenmaicClassroomEnv(host, port),
 				stdio: classroomLog === null ? "ignore" : ["ignore", classroomLog.fd, classroomLog.fd],
 				shell: false,
 				windowsHide: true,

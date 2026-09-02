@@ -39,7 +39,7 @@ function buildAgyFailOpenPreToolCommand(command: string, platform: NodeJS.Platfo
 		.replaceAll('"', '\\"')
 		.replaceAll("$", "\\$")
 		.replaceAll("`", "\\`");
-	return `bash -lc "INPUT=\\$(cat || true); (printf '%s' \\"\\$INPUT\\" | ${escapedCommand} >/dev/null 2>&1 || true) & printf '{}\\\\n'; exit 0"`;
+	return `bash -c "printf '{}\\\\n'; (cat | ${escapedCommand} >/dev/null 2>&1 || true) & exit 0"`;
 }
 
 /**

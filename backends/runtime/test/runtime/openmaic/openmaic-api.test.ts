@@ -15,6 +15,8 @@ describe("buildOpenmaicHealth", () => {
 			seatSummary: null,
 			asrSeatLabel: null,
 			geminiProbe: { ok: true, detail: "Gemini models endpoint reachable." },
+			proxySubscriptionWired: false,
+			subscriptionProbes: null,
 		});
 
 		expect(health.asrReady).toBe(true);
@@ -37,6 +39,8 @@ describe("buildOpenmaicHealth", () => {
 			seatSummary: { accountId: 7, accountLabel: "Antigravity seat" },
 			asrSeatLabel: null,
 			geminiProbe: null,
+			proxySubscriptionWired: false,
+			subscriptionProbes: null,
 		});
 
 		expect(health.ttsSource).toBe("gemini-seat");
@@ -55,6 +59,8 @@ describe("buildOpenmaicHealth", () => {
 			seatSummary: null,
 			asrSeatLabel: "OmniRoute",
 			geminiProbe: null,
+			proxySubscriptionWired: false,
+			subscriptionProbes: null,
 		});
 
 		expect(health.asrReady).toBe(true);
@@ -75,6 +81,8 @@ describe("buildOpenmaicHealth", () => {
 			seatSummary: null,
 			asrSeatLabel: null,
 			geminiProbe: null,
+			proxySubscriptionWired: false,
+			subscriptionProbes: null,
 		});
 
 		expect(health.asrSource).toBe("browser-native");
@@ -91,16 +99,61 @@ describe("buildOpenmaicHealth", () => {
 			seatSummary: null,
 			asrSeatLabel: null,
 			geminiProbe: null,
+			proxySubscriptionWired: false,
+			subscriptionProbes: null,
 		});
 
-		expect(health.asrReady).toBe(false);
+		expect(health.asrReady).toBe(true);
+		expect(health.asrSource).toBe("browser-native");
 		expect(health.ttsReady).toBe(false);
 		expect(health.videoReady).toBe(false);
 		expect(health.missingKeys).toContain("Create `backends/openmaic/.env.local` from `.env.example`");
-		expect(health.missingKeys).toContain(
+		expect(health.missingKeys).not.toContain(
 			"ASR: configure a Manager API seat (OmniRoute) or use browser-native speech recognition",
 		);
 		expect(health.missingKeys).toContain("TTS: enable browser TTS or configure a provider API key");
 		expect(health.missingKeys).toContain("Video: configure a video generation provider API key");
+	});
+
+	it("marks subscription routes ready when proxy probes all pass", () => {
+		const health = buildOpenmaicHealth({
+			envMap: new Map(),
+			hasEnvFile: false,
+			seatSummary: null,
+			asrSeatLabel: "OmniRoute",
+			geminiProbe: null,
+			proxySubscriptionWired: true,
+			subscriptionProbes: {
+				cursor: { ok: true },
+				gemini: { ok: true },
+				anthropic: { ok: true },
+			},
+		});
+
+		expect(health.subscriptionSeatRoutingReady).toBe(true);
+		expect(health.openmaicConfigured).toBe(true);
+		expect(health.subscriptionSeatRoutingDetail).toContain("Cursor: ok");
+		expect(health.missingKeys).not.toContain(
+			"Subscription proxy routes (Cursor/Antigravity/Claude) are not all reachable — check Seats and restart OpenMAIC",
+		);
+	});
+
+	it("reports failing subscription probes", () => {
+		const health = buildOpenmaicHealth({
+			envMap: new Map(),
+			hasEnvFile: false,
+			seatSummary: null,
+			asrSeatLabel: null,
+			geminiProbe: null,
+			proxySubscriptionWired: true,
+			subscriptionProbes: {
+				cursor: { ok: true },
+				gemini: { ok: false, detail: "403 forbidden" },
+				anthropic: { ok: true },
+			},
+		});
+
+		expect(health.subscriptionSeatRoutingReady).toBe(false);
+		expect(health.subscriptionSeatRoutingDetail).toContain("Antigravity: 403 forbidden");
 	});
 });

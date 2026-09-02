@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash -lc \"INPUT=\\$(cat || true); (printf '%s' \\\"\\$INPUT\\\" | <kanban-hooks-gemini-hook-command> >/dev/null 2>&1 || true) & printf '{}\\\\n'; exit 0\""
+            "command": "bash -c \"printf '{}\\\\n'; (cat | <kanban-hooks-gemini-hook-command> >/dev/null 2>&1 || true) & exit 0\""
           }
         ]
       }

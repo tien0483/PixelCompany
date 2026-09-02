@@ -66,9 +66,10 @@ describe("buildAgyHooksJson", () => {
 			throw new Error("Expected a matcher wrapper for PreToolUse");
 		}
 		const wrappedPreToolCommand = preToolMatcher.hooks[0]?.command ?? "";
-		expect(wrappedPreToolCommand).toContain("bash -lc");
+		expect(wrappedPreToolCommand).toContain("bash -c");
 		expect(wrappedPreToolCommand).toContain("gemini-hook --event PreToolUse");
 		expect(wrappedPreToolCommand).toContain("exit 0");
+		expect(wrappedPreToolCommand.indexOf("printf")).toBeLessThan(wrappedPreToolCommand.indexOf("cat"));
 	});
 });
 
