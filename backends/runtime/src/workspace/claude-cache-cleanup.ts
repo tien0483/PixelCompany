@@ -1,5 +1,5 @@
 import type { Dirent } from "node:fs";
-import { lstat, readdir, realpath, rm, stat } from "node:fs/promises";
+import { lstat, readdir, realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, sep } from "node:path";
 
@@ -7,10 +7,14 @@ import type {
 	RuntimeClaudeCacheCleanRequest,
 	RuntimeClaudeCacheCleanResponse,
 	RuntimeClaudeCacheStatusResponse,
+	RuntimeEmptyRecycleBinRequest,
+	RuntimeEmptyRecycleBinResponse,
 } from "../core/api-contract";
 import { resolveDefaultDshHome, resolveDshProfileDir } from "../orchestrator/dsh-endpoint";
 import { getLegacyRuntimeHomePath, getRuntimeHomePath, getTaskWorktreesHomePath } from "../state/workspace-state";
 import { cleanAgentHomes, scanAgentHomes, summarizeAgentHomes } from "./agent-home-cleanup";
+import { cleanHomeDiskCleanup, scanHomeDiskCleanup, summarizeHomeDiskCleanup } from "./home-disk-cleanup";
+import { disposePath, emptyRecycleBin, scanRecycleBin } from "./recycle-bin";
 import { measureDirectorySize } from "./worktree-disk-usage";
 
 const SAFE_TIER_SUBDIRS = ["cache", "paste-cache", "shell-snapshots", "file-history"] as const;
@@ -233,6 +237,19 @@ async function claudeHomeDirExists(claudeHomeDir: string): Promise<boolean> {
 	}
 }
 
+async function buildExtendedStatusFields(options?: { days?: number }) {
+	const [homeDiskScan, recycleBinScan] = await Promise.all([
+		scanHomeDiskCleanup({ days: options?.days }),
+		scanRecycleBin(),
+	]);
+	return {
+		...summarizeHomeDiskCleanup(homeDiskScan),
+		recycleBinItemCount: recycleBinScan.itemCount,
+		recycleBinSizeBytes: recycleBinScan.sizeBytes,
+		recycleBinPath: recycleBinScan.path,
+	};
+}
+
 export async function getClaudeCacheStatus(options?: {
 	claudeHomeDir?: string;
 	days?: number;
@@ -244,6 +261,7 @@ export async function getClaudeCacheStatus(options?: {
 		const legacyLeftovers = await scanLegacyTier();
 		const cliCacheLeftovers = await scanEntireCliCacheTier();
 		const dshPackageLeftovers = await scanDshPackagesTier();
+		const extendedFields = await buildExtendedStatusFields({ days: options?.days });
 
 		if (!claudePresent) {
 			return {
@@ -259,6 +277,7 @@ export async function getClaudeCacheStatus(options?: {
 				dshPackageItemCount: dshPackageLeftovers.length,
 				dshPackageSizeBytes: dshPackageLeftovers.reduce((sum, item) => sum + item.sizeBytes, 0),
 				...agentHomeSummary,
+				...extendedFields,
 			};
 		}
 		const ageCutoffMs = (options?.days ?? DEFAULT_SAFE_AGE_DAYS) * 24 * 60 * 60 * 1000;
@@ -281,6 +300,7 @@ export async function getClaudeCacheStatus(options?: {
 			dshPackageItemCount: dshPackageLeftovers.length,
 			dshPackageSizeBytes: dshPackageLeftovers.reduce((sum, item) => sum + item.sizeBytes, 0),
 			...agentHomeSummary,
+			...extendedFields,
 		};
 	} catch (error) {
 		return {
@@ -298,6 +318,7 @@ export async function cleanClaudeCache(
 	options: RuntimeClaudeCacheCleanRequest & { claudeHomeDir?: string },
 ): Promise<RuntimeClaudeCacheCleanResponse> {
 	try {
+		const disposeMode = options.disposeMode ?? "recycle-bin";
 		const claudeHomeDir = resolveClaudeHomeDir(options.claudeHomeDir);
 		const claudePresent = await claudeHomeDirExists(claudeHomeDir);
 		const needsClaude =
@@ -323,24 +344,19 @@ export async function cleanClaudeCache(
 			}
 		}
 
-		const cleaned: {
-			path: string;
-			sizeBytes: number;
-			tier: "safe" | "transcript" | "legacy" | "cli-cache" | "dsh" | "cursor" | "gemini" | "antigravity";
-		}[] = [];
+		const cleaned: RuntimeClaudeCacheCleanResponse["cleaned"] = [];
 		const skipped: { path: string; reason: string }[] = [];
 
 		async function removeLegacyLeftover(
 			leftover: LegacyLeftover,
 			tier: "legacy" | "cli-cache" | "dsh",
 		): Promise<void> {
-			if (options.dryRun) {
-				cleaned.push({ path: leftover.path, sizeBytes: leftover.sizeBytes, tier });
-				return;
-			}
 			try {
-				await rm(leftover.path, { recursive: true, force: true });
-				cleaned.push({ path: leftover.path, sizeBytes: leftover.sizeBytes, tier });
+				const result = await disposePath(leftover.path, disposeMode, {
+					dryRun: options.dryRun,
+					sizeBytes: leftover.sizeBytes,
+				});
+				cleaned.push({ path: result.destPath, sizeBytes: result.sizeBytes, tier });
 			} catch (error) {
 				skipped.push({
 					path: leftover.path,
@@ -371,6 +387,7 @@ export async function cleanClaudeCache(
 		const agentHomeResult = await cleanAgentHomes({
 			days: options.days,
 			dryRun: options.dryRun,
+			disposeMode,
 			includeCursor: options.includeCursorCache,
 			includeGemini: options.includeGeminiCache,
 			includeAntigravityHome: options.includeAntigravityHome,
@@ -379,6 +396,20 @@ export async function cleanClaudeCache(
 			cleaned.push({ path: item.path, sizeBytes: item.sizeBytes, tier: item.tier });
 		}
 		skipped.push(...agentHomeResult.skipped);
+
+		const homeDiskResult = await cleanHomeDiskCleanup({
+			days: options.days,
+			dryRun: options.dryRun,
+			disposeMode,
+			includeTmp: options.includeTmp,
+			includeNpmCache: options.includeNpmCache,
+			includeNvmCache: options.includeNvmCache,
+			nvmVersions: options.nvmVersions,
+		});
+		for (const item of homeDiskResult.cleaned) {
+			cleaned.push({ path: item.path, sizeBytes: item.sizeBytes, tier: item.tier });
+		}
+		skipped.push(...homeDiskResult.skipped);
 
 		for (const candidate of candidates) {
 			if (options.dryRun) {
@@ -398,8 +429,10 @@ export async function cleanClaudeCache(
 					skipped.push({ path: candidate.file.path, reason: "Path escapes allowlisted directory" });
 					continue;
 				}
-				await rm(candidate.file.path, { force: true });
-				cleaned.push({ path: candidate.file.path, sizeBytes: candidate.file.sizeBytes, tier: candidate.tier });
+				const result = await disposePath(candidate.file.path, disposeMode, {
+					sizeBytes: candidate.file.sizeBytes,
+				});
+				cleaned.push({ path: result.destPath, sizeBytes: result.sizeBytes, tier: candidate.tier });
 			} catch (error) {
 				skipped.push({
 					path: candidate.file.path,
@@ -409,6 +442,25 @@ export async function cleanClaudeCache(
 		}
 
 		return { ok: true, cleaned, skipped };
+	} catch (error) {
+		return { ok: false, cleaned: [], skipped: [], error: error instanceof Error ? error.message : String(error) };
+	}
+}
+
+export async function emptyRuntimeRecycleBin(
+	options?: RuntimeEmptyRecycleBinRequest,
+): Promise<RuntimeEmptyRecycleBinResponse> {
+	try {
+		const result = await emptyRecycleBin({ dryRun: options?.dryRun });
+		return {
+			ok: true,
+			cleaned: result.cleaned.map((item) => ({
+				path: item.path,
+				sizeBytes: item.sizeBytes,
+				tier: "recycle-bin" as const,
+			})),
+			skipped: result.skipped,
+		};
 	} catch (error) {
 		return { ok: false, cleaned: [], skipped: [], error: error instanceof Error ? error.message : String(error) };
 	}

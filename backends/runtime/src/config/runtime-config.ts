@@ -95,6 +95,7 @@ const DEFAULT_READY_FOR_REVIEW_NOTIFICATIONS_ENABLED = true;
 const DEFAULT_COMMIT_PROMPT_TEMPLATE = `You are in a worktree on a detached HEAD, created from {{base_ref}}. When you finish the task, commit the working changes onto a dedicated task branch. Do NOT modify {{base_ref}} — a human merges the task branch into {{base_ref}} later from the board (the "Merge → {{base_ref}}" button on the task card takes effect in {{base_ref}}).
 
 - Do not run destructive commands: git reset --hard, git clean -fdx, git worktree remove, rm/mv on repository paths.
+- To remove files when rm is disallowed, move them to ~/.agent/recycle-bin/ — the user empties it from the Cleanup dialog.
 - Do not check out, cherry-pick onto, or otherwise touch the {{base_ref}} worktree.
 - Keep all work in the current task worktree.
 
@@ -116,6 +117,7 @@ Steps:
 const DEFAULT_OPEN_PR_PROMPT_TEMPLATE = `You are in a worktree on a detached HEAD. When you are finished with the task, open a pull request against {{base_ref}}.
 
 - Do not run destructive commands: git reset --hard, git clean -fdx, git worktree remove, rm/mv on repository paths.
+- To remove files when rm is disallowed, move them to ~/.agent/recycle-bin/ — the user empties it from the Cleanup dialog.
 - Do not modify the base worktree.
 - Keep all PR preparation in the current task worktree.
 

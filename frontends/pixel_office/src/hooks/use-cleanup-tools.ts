@@ -38,6 +38,13 @@ export function useCleanupTools(workspaceId: string | null): UseCleanupToolsResu
 				total += status.cursorCacheSizeBytes ?? 0;
 				total += status.geminiCacheSizeBytes ?? 0;
 				total += status.antigravityHomeSizeBytes ?? 0;
+				total += status.tmpSizeBytes ?? 0;
+				total += status.npmCacheSizeBytes ?? 0;
+				total += status.nvmCacheSizeBytes ?? 0;
+				total += (status.nvmVersions ?? [])
+					.filter((entry) => !entry.inUse)
+					.reduce((sum, entry) => sum + entry.sizeBytes, 0);
+				total += status.recycleBinSizeBytes ?? 0;
 			}
 			// Both sides failing is the "no project open" case, which should read as
 			// "nothing to show" rather than surfacing an error the user can't act on.

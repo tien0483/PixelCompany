@@ -8,6 +8,7 @@ import type {
 	RuntimeClaudeCacheCleanRequest,
 	RuntimeClaudeCacheCleanResponse,
 	RuntimeClaudeCacheStatusResponse,
+	RuntimeEmptyRecycleBinResponse,
 	RuntimeCleanMergedWorktreesRequest,
 	RuntimeCleanMergedWorktreesResponse,
 	RuntimeCleanStashResponse,
@@ -366,6 +367,14 @@ export async function cleanClaudeCache(
 ): Promise<RuntimeClaudeCacheCleanResponse> {
 	const trpcClient = getRuntimeTrpcClient(workspaceId);
 	return await trpcClient.runtime.cleanClaudeCache.mutate(input);
+}
+
+export async function emptyRuntimeRecycleBin(
+	workspaceId: string | null,
+	input?: { dryRun?: boolean },
+): Promise<RuntimeEmptyRecycleBinResponse> {
+	const trpcClient = getRuntimeTrpcClient(workspaceId);
+	return await trpcClient.runtime.emptyRecycleBin.mutate(input);
 }
 
 export async function cleanRuntimeMergedWorktrees(
