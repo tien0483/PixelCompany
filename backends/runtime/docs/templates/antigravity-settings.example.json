@@ -1,0 +1,16 @@
+{
+  "model": "Gemini 3.7 Flash (High)",
+  "allowNonWorkspaceAccess": true,
+  "permissions": {
+    "allow": [
+      "command(npx)",
+      "command(ln)"
+    ],
+    "deny": [],
+    "ask": []
+  },
+  "toolPermission": "request-review",
+  "trustedWorkspaces": [
+    "/path/to/PixelCompany"
+  ]
+}

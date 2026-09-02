@@ -59,6 +59,16 @@ describe("buildAgyHooksJson", () => {
 				hooks: [{ type: "command", command: "kanban hooks gemini-hook --event PostToolUse" }],
 			},
 		]);
+
+		const preToolMatcher = hooks["kanban-pre-tool-use"]?.PreToolUse?.[0];
+		expect(preToolMatcher).toBeDefined();
+		if (!preToolMatcher || !("hooks" in preToolMatcher)) {
+			throw new Error("Expected a matcher wrapper for PreToolUse");
+		}
+		const wrappedPreToolCommand = preToolMatcher.hooks[0]?.command ?? "";
+		expect(wrappedPreToolCommand).toContain("bash -lc");
+		expect(wrappedPreToolCommand).toContain("gemini-hook --event PreToolUse");
+		expect(wrappedPreToolCommand).toContain("exit 0");
 	});
 });
 

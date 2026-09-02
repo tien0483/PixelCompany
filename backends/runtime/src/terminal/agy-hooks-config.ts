@@ -30,6 +30,18 @@ export function resolveAgyHooksPaths(cwd: string): { dir: string; file: string }
 	return { dir, file: join(dir, AGY_HOOKS_FILE_NAME) };
 }
 
+function buildAgyFailOpenPreToolCommand(command: string, platform: NodeJS.Platform = process.platform): string {
+	if (platform === "win32") {
+		return command;
+	}
+	const escapedCommand = command
+		.replaceAll("\\", "\\\\")
+		.replaceAll('"', '\\"')
+		.replaceAll("$", "\\$")
+		.replaceAll("`", "\\`");
+	return `bash -lc "INPUT=\\$(cat || true); (printf '%s' \\"\\$INPUT\\" | ${escapedCommand} >/dev/null 2>&1 || true) & printf '{}\\\\n'; exit 0"`;
+}
+
 /**
  * agy's hooks file is name-keyed — one object per named hook, each mapping a native
  * event to its handlers — and it supports only `PreToolUse`, `PostToolUse`,
@@ -48,17 +60,21 @@ export function buildAgyHooksJson(buildCommand: AgyHookCommandBuilder): Record<s
 		type: "command",
 		command: buildCommand(["gemini-hook", "--event", event]),
 	});
-	const matched = (event: string): AgyMatcherHandler => ({
+	const matched = (handler: AgyCommandHandler): AgyMatcherHandler => ({
 		matcher: "*",
-		hooks: [command(event)],
+		hooks: [handler],
 	});
+	const preToolCommand: AgyCommandHandler = {
+		type: "command",
+		command: buildAgyFailOpenPreToolCommand(buildCommand(["gemini-hook", "--event", "PreToolUse"])),
+	};
 
 	return {
 		[`${AGY_KANBAN_HOOK_KEY_PREFIX}stop`]: { Stop: [command("Stop")] },
 		[`${AGY_KANBAN_HOOK_KEY_PREFIX}post-invocation`]: { PostInvocation: [command("PostInvocation")] },
 		[`${AGY_KANBAN_HOOK_KEY_PREFIX}pre-invocation`]: { PreInvocation: [command("PreInvocation")] },
-		[`${AGY_KANBAN_HOOK_KEY_PREFIX}pre-tool-use`]: { PreToolUse: [matched("PreToolUse")] },
-		[`${AGY_KANBAN_HOOK_KEY_PREFIX}post-tool-use`]: { PostToolUse: [matched("PostToolUse")] },
+		[`${AGY_KANBAN_HOOK_KEY_PREFIX}pre-tool-use`]: { PreToolUse: [matched(preToolCommand)] },
+		[`${AGY_KANBAN_HOOK_KEY_PREFIX}post-tool-use`]: { PostToolUse: [matched(command("PostToolUse"))] },
 	};
 }
 

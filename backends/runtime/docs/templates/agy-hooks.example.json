@@ -1,0 +1,52 @@
+{
+  "kanban-pre-tool-use": {
+    "PreToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -lc \"INPUT=\\$(cat || true); (printf '%s' \\\"\\$INPUT\\\" | <kanban-hooks-gemini-hook-command> >/dev/null 2>&1 || true) & printf '{}\\\\n'; exit 0\""
+          }
+        ]
+      }
+    ]
+  },
+  "kanban-post-tool-use": {
+    "PostToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "<kanban-hooks-gemini-hook-command-for-PostToolUse>"
+          }
+        ]
+      }
+    ]
+  },
+  "kanban-pre-invocation": {
+    "PreInvocation": [
+      {
+        "type": "command",
+        "command": "<kanban-hooks-gemini-hook-command-for-PreInvocation>"
+      }
+    ]
+  },
+  "kanban-post-invocation": {
+    "PostInvocation": [
+      {
+        "type": "command",
+        "command": "<kanban-hooks-gemini-hook-command-for-PostInvocation>"
+      }
+    ]
+  },
+  "kanban-stop": {
+    "Stop": [
+      {
+        "type": "command",
+        "command": "<kanban-hooks-gemini-hook-command-for-Stop>"
+      }
+    ]
+  }
+}
