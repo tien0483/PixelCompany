@@ -310,7 +310,7 @@ export async function startOpenmaicProcess(deps: StartOpenmaicProcessDependencie
 				}
 				deps.warn(`OpenMAIC did not open ${host}:${port} within ${Math.round(startupTimeoutMs / 1000)}s.`);
 				deps.warn(`  Its output is in ${join(target.dataDir, "classroom.log")}.`);
-				deps.warn(`  A slower disk may just need longer: raise ${STARTUP_TIMEOUT_ENV}.`);
+				deps.warn(`  A slower disk may just need longer: raise PIXTIEL_OPENMAIC_STARTUP_TIMEOUT_MS.`);
 				resolveReady(false);
 			})
 			.catch(() => {

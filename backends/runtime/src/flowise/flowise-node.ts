@@ -86,6 +86,6 @@ export function describeMissingStudioNode(minMajor = MIN_STUDIO_NODE_MAJOR): str
 	return [
 		`Flowise needs Node ${minMajor}+, but this runtime is on ${process.version}.`,
 		`  Install one: nvm install ${minMajor}   (PixelOffice keeps using its own Node)`,
-		`  Or name a binary explicitly: ${NODE_BINARY_ENV}=/path/to/node`,
+		`  Or name a binary explicitly: PIXTIEL_FLOWISE_NODE=/path/to/node`,
 	];
 }

@@ -22,6 +22,8 @@ function account(partial: Partial<RuntimeManagerAccount> & Pick<RuntimeManagerAc
 		isActiveForProvider: false,
 		validationStatus: "valid",
 		lastError: null,
+		donateLimitLocked: false,
+		ccNeedsAuth: false,
 		...partial,
 	};
 }

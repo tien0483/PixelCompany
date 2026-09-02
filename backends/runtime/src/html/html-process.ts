@@ -437,7 +437,7 @@ export async function startHtmlProcess(deps: StartHtmlProcessDependencies): Prom
 		if (sidecarLog !== null) {
 			deps.warn(`  Its output is in ${sidecarLog.path}.`);
 		}
-		deps.warn(`  A slower disk may just need longer: raise ${STARTUP_TIMEOUT_ENV}.`);
+		deps.warn(`  A slower disk may just need longer: raise PIXTIEL_HTML_STARTUP_TIMEOUT_MS.`);
 		deps.warn("  Board and office keep running; HTML templates stay offline until the sidecar is up.");
 		return false;
 	});

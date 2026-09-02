@@ -32,8 +32,10 @@ export function VaultMcpSecretForm({ onSuccess, onCancel }: VaultMcpSecretFormPr
 			.runtime.listMcpInventory.query()
 			.then((inventory) => {
 				if (cancelled || !inventory?.servers) return;
-				const serverNames = inventory.servers.map((s) => s.name).filter(Boolean);
-				setServerOptions(Array.from(new Set(serverNames)));
+				// The vault keys MCP secrets as `mcp:<serverId>` (vault-services.ts:23), so the
+				// picker offers ids, not display names.
+				const serverIds = inventory.servers.map((s) => s.id).filter(Boolean);
+				setServerOptions(Array.from(new Set(serverIds)));
 			})
 			.catch(() => {
 				// Ignore inventory fetch error; manual input fallback is active
@@ -173,7 +175,7 @@ export function VaultMcpSecretForm({ onSuccess, onCancel }: VaultMcpSecretFormPr
 							/>
 							<Button
 								variant="ghost"
-								size="xs"
+								size="sm"
 								icon={<Trash2 size={12} className="text-text-tertiary hover:text-status-red" />}
 								disabled={rows.length === 1 && index === 0 && !row.key && !row.value}
 								onClick={() => removeRow(row.id)}
@@ -182,7 +184,7 @@ export function VaultMcpSecretForm({ onSuccess, onCancel }: VaultMcpSecretFormPr
 						</div>
 					))}
 
-					<Button variant="default" size="xs" icon={<Plus size={11} />} onClick={addRow}>
+					<Button variant="default" size="sm" icon={<Plus size={11} />} onClick={addRow}>
 						Add environment variable
 					</Button>
 				</div>

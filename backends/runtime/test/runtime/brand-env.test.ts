@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { readBrandEnv } from "../../src/brand";
+// @ts-expect-error — plain .mjs script helper, no declaration file
 import { readBrandEnv as readBrandEnvEsm } from "../../../../scripts/lib/brand-env.mjs";
 
 describe("readBrandEnv (runtime src)", () => {

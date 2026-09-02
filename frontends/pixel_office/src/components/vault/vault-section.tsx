@@ -3,7 +3,7 @@ import { type ReactElement, useCallback, useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
-import type { RuntimeVaultEntrySummary } from "@/core/api-contract";
+import type { RuntimeVaultEntrySummary } from "@runtime-contract";
 import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
 import { VaultEntryRow } from "./vault-entry-row";
 import { VaultGithubForm } from "./vault-github-form";
@@ -66,7 +66,7 @@ export function VaultSection(): ReactElement {
 				</div>
 				<Button
 					variant="ghost"
-					size="xs"
+					size="sm"
 					icon={isLoading ? <Spinner size={12} /> : <RefreshCw size={12} />}
 					disabled={isLoading}
 					onClick={() => void fetchEntries()}

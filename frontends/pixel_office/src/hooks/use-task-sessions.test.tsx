@@ -393,9 +393,11 @@ describe("useTaskSessions", () => {
 		if (latestSnapshot === null) {
 			throw new Error("Expected a hook snapshot.");
 		}
+		// Re-bind: the narrowing is lost inside the async callback below.
+		const snapshot: HookSnapshot = latestSnapshot;
 
 		await act(async () => {
-			const result = await latestSnapshot?.startTaskSession(createTask());
+			const result = await snapshot.startTaskSession(createTask());
 			expect(result.ok).toBe(true);
 		});
 

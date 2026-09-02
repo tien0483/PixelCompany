@@ -80,7 +80,7 @@ describe("DocsRunPanel build failure handling", () => {
 		vi.stubGlobal("fetch", fetchMock);
 
 		await act(async () => {
-			root.render(<DocsRunPanel project={PROJECT} onBuildDone={onBuildDone} />);
+			root.render(<DocsRunPanel project={PROJECT} onBuildDone={onBuildDone as () => void} />);
 			await flush();
 		});
 		await clickBuild();
@@ -100,7 +100,7 @@ describe("DocsRunPanel build failure handling", () => {
 		vi.stubGlobal("fetch", fetchMock);
 
 		await act(async () => {
-			root.render(<DocsRunPanel project={PROJECT} onBuildDone={onBuildDone} />);
+			root.render(<DocsRunPanel project={PROJECT} onBuildDone={onBuildDone as () => void} />);
 			await flush();
 		});
 		await clickBuild();

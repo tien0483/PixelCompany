@@ -338,7 +338,7 @@ export async function startFlowiseProcess(deps: StartFlowiseProcessDependencies)
 				}
 				deps.warn(`Flowise studio did not open ${host}:${port} within ${Math.round(startupTimeoutMs / 1000)}s.`);
 				deps.warn(`  Its output is in ${join(target.dataDir, "studio.log")}.`);
-				deps.warn(`  A slower disk may just need longer: raise ${STARTUP_TIMEOUT_ENV}.`);
+				deps.warn(`  A slower disk may just need longer: raise PIXTIEL_FLOWISE_STARTUP_TIMEOUT_MS.`);
 				resolveReady(false);
 			})
 			.catch(() => {
