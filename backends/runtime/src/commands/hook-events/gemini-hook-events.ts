@@ -1,8 +1,9 @@
 import { open, stat } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 
 import type { RuntimeHookEvent, RuntimeTaskHookActivity } from "../../core/api-contract";
+import { AGY_CUSTOMIZATION_DIR_NAME } from "../../terminal/agy-hooks-config";
 
 const GEMINI_TRANSCRIPT_TAIL_SCAN_BYTES = 2 * 1024 * 1024;
 
@@ -152,8 +153,8 @@ async function resolveGeminiReviewFinalMessageFromPayload(
 	}
 
 	// Check local project workspace transcript
-	if (cwd) {
-		const localTranscriptPath = join(cwd, ".gemini", "antigravity-cli", "transcript.jsonl");
+	for (const workspaceDir of resolveGeminiWorkspaceProbeDirs(cwd)) {
+		const localTranscriptPath = join(workspaceDir, ".gemini", "antigravity-cli", "transcript.jsonl");
 		const transcriptTail = await readFileTail(localTranscriptPath, GEMINI_TRANSCRIPT_TAIL_SCAN_BYTES);
 		if (transcriptTail) {
 			const resolved = resolveGeminiFinalMessageFromTranscriptText(transcriptTail);
@@ -164,6 +165,20 @@ async function resolveGeminiReviewFinalMessageFromPayload(
 	}
 
 	return null;
+}
+
+/**
+ * agy runs a hook with its cwd set to the directory holding `hooks.json`, i.e.
+ * `<worktree>/.agents` — one level below the workspace whose transcript we want.
+ */
+export function resolveGeminiWorkspaceProbeDirs(cwd?: string): string[] {
+	if (!cwd) {
+		return [];
+	}
+	if (basename(cwd) === AGY_CUSTOMIZATION_DIR_NAME) {
+		return [cwd, dirname(cwd)];
+	}
+	return [cwd];
 }
 
 export async function enrichGeminiReviewMetadata<

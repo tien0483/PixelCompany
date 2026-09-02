@@ -10,6 +10,7 @@ import { cn } from "@/components/ui/cn";
 import { ColumnIndicator } from "@/components/ui/column-indicator";
 import type { RuntimeTaskSessionSummary } from "@/runtime/types";
 import { computeChainGroups } from "@/state/chain-groups";
+import { computeDraggableCardOrder } from "@/state/drag-index-mapping";
 import { isCardDropDisabled, type ProgrammaticCardMoveInFlight } from "@/state/drag-rules";
 import type {
 	BoardCard as BoardCardModel,
@@ -65,6 +66,8 @@ export function BoardColumn({
 	onReorderChain,
 	onBreakChain,
 	onRunChain,
+	expandedChainRootIds: expandedChainRootIdsProp,
+	onToggleChainExpanded,
 	workspacePath,
 	defaultClineModelId,
 }: {
@@ -118,6 +121,9 @@ export function BoardColumn({
 	onReorderChain?: (orderedMemberIds: string[]) => void;
 	onBreakChain?: (memberIds: string[]) => void;
 	onRunChain?: (memberIds: string[]) => void;
+	/** Owned by the board so `applyDragResult` can reproduce this column's render order. */
+	expandedChainRootIds?: Record<string, boolean>;
+	onToggleChainExpanded?: (rootId: string) => void;
 	workspacePath?: string | null;
 	defaultClineModelId?: string | null;
 }): React.ReactElement {
@@ -138,10 +144,22 @@ export function BoardColumn({
 		}
 		return map;
 	}, [column.cards]);
-	// Chains default to collapsed (root + count badge); the user expands to see followers.
-	const [expandedChainRootIds, setExpandedChainRootIds] = useState<Record<string, boolean>>({});
-	const toggleChainExpanded = (rootId: string) =>
-		setExpandedChainRootIds((current) => ({ ...current, [rootId]: !current[rootId] }));
+	const expandedChainRootIds = expandedChainRootIdsProp ?? {};
+	const toggleChainExpanded = (rootId: string) => onToggleChainExpanded?.(rootId);
+	// The renderer must number its draggables exactly the way `applyDragResult` reads
+	// them back, so both sides derive the order from the same function.
+	const draggableIndexByCardId = useMemo(() => {
+		const order = computeDraggableCardOrder(column.id, column.cards, dependencies ?? [], {
+			chainGroupingEnabled: true,
+			editingTaskId,
+			expandedChainRootIds,
+		});
+		const map = new Map<string, number>();
+		order.forEach((cardId, index) => {
+			map.set(cardId, index);
+		});
+		return map;
+	}, [column.id, column.cards, dependencies, editingTaskId, expandedChainRootIds]);
 	const isDropDisabled = isCardDropDisabled(column.id, activeDragSourceColumnId ?? null, {
 		activeDragTaskId,
 		programmaticCardMoveInFlight,
@@ -218,7 +236,6 @@ export function BoardColumn({
 
 							{(() => {
 								const items: ReactNode[] = [];
-								let draggableIndex = 0;
 								const renderInlineEditor = (card: BoardCardModel) => (
 									<div
 										key={card.id}
@@ -229,15 +246,11 @@ export function BoardColumn({
 										{inlineTaskEditor}
 									</div>
 								);
-								const renderCard = (
-									card: BoardCardModel,
-									index: number,
-									options?: { suppressStart?: boolean },
-								) => (
+								const renderCard = (card: BoardCardModel, options?: { suppressStart?: boolean }) => (
 									<BoardCard
 										key={card.id}
 										card={card}
-										index={index}
+										index={draggableIndexByCardId.get(card.id) ?? 0}
 										columnId={column.id}
 										sessionSummary={taskSessions[card.id]}
 										onStart={options?.suppressStart ? undefined : onStartTask}
@@ -327,10 +340,6 @@ export function BoardColumn({
 										const followerCount = chainGroup.memberIdsInOrder.length - 1;
 										const rootIsEditing = editingTaskId === card.id;
 										const headHasSession = Boolean(taskSessions[card.id]);
-										// Collapsed backlog shows the root as its full card. Expanded backlog
-										// swaps to reorderable rows. In Progress always shows head card + queued rows.
-										const rootRenderedAsCard =
-											isInProgressStack || (!isExpanded && !rootIsEditing);
 										const queuedMemberIds = chainGroup.memberIdsInOrder.slice(1);
 										items.push(
 											<div
@@ -406,7 +415,7 @@ export function BoardColumn({
 												<div className="kb-chain-group-body">
 													{isInProgressStack ? (
 														<>
-															{renderCard(card, draggableIndex, {
+															{renderCard(card, {
 																suppressStart: !headHasSession,
 															})}
 															{queuedMemberIds.length > 0
@@ -429,22 +438,18 @@ export function BoardColumn({
 													) : rootIsEditing ? (
 														renderInlineEditor(card)
 													) : (
-														renderCard(card, draggableIndex)
+														renderCard(card)
 													)}
 												</div>
 											</div>,
 										);
-										if (rootRenderedAsCard) {
-											draggableIndex += 1;
-										}
 										continue;
 									}
 									if (column.id === "backlog" && editingTaskId === card.id) {
 										items.push(renderInlineEditor(card));
 										continue;
 									}
-									items.push(renderCard(card, draggableIndex));
-									draggableIndex += 1;
+									items.push(renderCard(card));
 								}
 								return items;
 							})()}

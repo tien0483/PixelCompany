@@ -43,6 +43,7 @@ import type { SessionTransitionEvent } from "./session-state-machine";
 import { prepareOrchestratorLaunch } from "../orchestrator/orchestrator-launch";
 import { resolveSubagentSeatEnv } from "./subagent-seat-launch";
 import { prepareProjectMcpConfig } from "./agent-mcp-launch";
+import { prepareAgyHooksConfig } from "./agy-hooks-config";
 import { prepareTaskPromptWithImages } from "./task-image-prompt";
 import {
 	applyModelAndEffortArgs,
@@ -1237,7 +1238,24 @@ const geminiAdapter: AgentSessionAdapter = {
 		}
 
 		const hooks = resolveHookContext(input);
-		if (hooks) {
+		if (hooks && isAgy) {
+			// agy reads neither `GEMINI_CLI_SYSTEM_SETTINGS_PATH` nor gemini-cli's settings
+			// shape: hooks come from `<cwd>/.agents/hooks.json`, name-keyed, native events
+			// only. Writing the gemini-cli config here meant no agy hook ever fired, so a
+			// card never left In Progress and its chain never advanced.
+			const agyHooks = await prepareAgyHooksConfig({
+				cwd: input.cwd,
+				buildCommand: buildHooksCommand,
+			});
+			launchCleanups.push(agyHooks.cleanup);
+			Object.assign(
+				env,
+				createHookRuntimeEnv({
+					taskId: hooks.taskId,
+					workspaceId: hooks.workspaceId,
+				}),
+			);
+		} else if (hooks) {
 			const configPath = join(getHookAgentDirectory("gemini"), "settings.json");
 			const stopHookCommand = buildHooksCommand(["gemini-hook", "--event", "to_review"]);
 			const preToolHookCommand = buildHooksCommand(["gemini-hook", "--event", "activity"]);

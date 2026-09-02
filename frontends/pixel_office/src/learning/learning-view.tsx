@@ -6,7 +6,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { Tooltip } from "@/components/ui/tooltip";
 import { isLightUiTheme, useTheme } from "@/hooks/use-theme";
 import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
-import type { RuntimeOpenmaicStatus } from "@/runtime/types";
+import type { RuntimeOpenmaicHealth, RuntimeOpenmaicStatus } from "@/runtime/types";
 
 export interface LearningViewProps {
 	/** Selects which runtime the tRPC client talks to. The classroom itself is global. */
@@ -56,6 +56,7 @@ export function LearningView({ workspaceId, onClose }: LearningViewProps): React
 	const themeParam = isLight ? "light" : "dark";
 
 	const [status, setStatus] = useState<RuntimeOpenmaicStatus | null>(null);
+	const [health, setHealth] = useState<RuntimeOpenmaicHealth | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const iframeRef = useRef<HTMLIFrameElement | null>(null);
 
@@ -89,9 +90,13 @@ export function LearningView({ workspaceId, onClose }: LearningViewProps): React
 		const poll = async (): Promise<void> => {
 			try {
 				const client = getRuntimeTrpcClient(workspaceId);
-				const response = await client.openmaic.status.query();
+				const [statusResponse, healthResponse] = await Promise.all([
+					client.openmaic.status.query(),
+					client.openmaic.health.query(),
+				]);
 				if (!cancelled) {
-					setStatus(response);
+					setStatus(statusResponse);
+					setHealth(healthResponse);
 					setError(null);
 				}
 			} catch (caught) {
@@ -134,6 +139,48 @@ export function LearningView({ workspaceId, onClose }: LearningViewProps): React
 		</div>
 	);
 
+	const healthPanel =
+		status?.online === true && health !== null ? (
+			<div className="grid grid-cols-1 gap-2 border-b border-border bg-surface-1 px-3 py-2 md:grid-cols-2">
+				<div className="rounded-md border border-border bg-surface-2 px-2 py-1">
+					<p className="text-[11px] font-medium text-text-secondary">Speech recognition</p>
+					<p className={health.asrReady ? "text-xs text-status-green" : "text-xs text-status-orange"}>
+						{health.asrReady ? "Ready" : "Needs provider/browser setup"}
+					</p>
+				</div>
+				<div className="rounded-md border border-border bg-surface-2 px-2 py-1">
+					<p className="text-[11px] font-medium text-text-secondary">Text to speech</p>
+					<p className={health.ttsReady ? "text-xs text-status-green" : "text-xs text-status-orange"}>
+						{health.ttsReady ? "Ready" : "Needs provider/browser setup"}
+					</p>
+				</div>
+				<div className="rounded-md border border-border bg-surface-2 px-2 py-1">
+					<p className="text-[11px] font-medium text-text-secondary">Video generation</p>
+					<p className={health.videoReady ? "text-xs text-status-green" : "text-xs text-status-orange"}>
+						{health.videoReady ? "Ready" : "Needs provider setup"}
+					</p>
+				</div>
+				<div className="rounded-md border border-border bg-surface-2 px-2 py-1">
+					<p className="text-[11px] font-medium text-text-secondary">Subscription routing</p>
+					<p
+						className={
+							health.subscriptionSeatRoutingReady ? "text-xs text-status-green" : "text-xs text-status-orange"
+						}
+					>
+						{health.subscriptionSeatRoutingReady
+							? "Ready"
+							: "Not auto-wired (uses OpenMAIC provider env keys)"}
+					</p>
+				</div>
+				{health.missingKeys.length > 0 ? (
+					<div className="col-span-1 rounded-md border border-border bg-surface-2 px-2 py-1 md:col-span-2">
+						<p className="text-[11px] font-medium text-text-secondary">Learning health notes</p>
+						<p className="text-xs text-text-tertiary">{health.missingKeys.join(" | ")}</p>
+					</div>
+				) : null}
+			</div>
+		) : null;
+
 	const body = ((): ReactElement => {
 		if (error !== null) {
 			return (
@@ -152,7 +199,15 @@ export function LearningView({ workspaceId, onClose }: LearningViewProps): React
 		}
 		if (status.online && status.embeddable) {
 			const iframeSrc = `${status.baseUrl}${status.baseUrl.includes("?") ? "&" : "?"}theme=${themeParam}&themeId=${encodeURIComponent(themeId)}`;
-			return <iframe ref={iframeRef} src={iframeSrc} title="Learning" className="h-full w-full flex-1 border-0" />;
+			return (
+				<iframe
+					ref={iframeRef}
+					src={iframeSrc}
+					title="Learning"
+					allow="microphone; autoplay; camera"
+					className="h-full w-full flex-1 border-0"
+				/>
+			);
 		}
 		// Four distinct states, because each has a different fix — see
 		// `RuntimeOpenmaicStatusSchema`. The `online && !embeddable` case is the subtle one:
@@ -228,6 +283,7 @@ export function LearningView({ workspaceId, onClose }: LearningViewProps): React
 	return (
 		<div className="flex flex-1 min-h-0 min-w-0 flex-col bg-surface-0">
 			{header}
+			{healthPanel}
 			{body}
 		</div>
 	);
