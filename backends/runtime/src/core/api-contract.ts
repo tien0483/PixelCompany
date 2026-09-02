@@ -1496,10 +1496,27 @@ export const RuntimeOpenmaicHealthSchema = z.object({
 	ttsReady: z.boolean(),
 	videoReady: z.boolean(),
 	/**
+	 * Per-capability source selected by the Gemini-first resolver.
+	 *
+	 * Optional to preserve compatibility with older fixtures/callers.
+	 */
+	asrSource: z.enum(["gemini-seat", "gemini-api-key", "browser-native", "provider-api-key", "missing"]).optional(),
+	ttsSource: z.enum(["gemini-seat", "gemini-api-key", "browser-native", "provider-api-key", "missing"]).optional(),
+	videoSource: z.enum(["gemini-seat", "gemini-api-key", "provider-api-key", "missing"]).optional(),
+	/** Connection probe verdicts for the source above. */
+	asrVerified: z.boolean().optional(),
+	ttsVerified: z.boolean().optional(),
+	videoVerified: z.boolean().optional(),
+	/** Human-readable probe details; no secrets or key values. */
+	asrDetail: z.string().optional(),
+	ttsDetail: z.string().optional(),
+	videoDetail: z.string().optional(),
+	/**
 	 * False means OpenMAIC is using only its own provider env/API keys; Manager account
 	 * subscriptions are not automatically forwarded into classroom provider calls.
 	 */
 	subscriptionSeatRoutingReady: z.boolean(),
+	subscriptionSeatRoutingDetail: z.string().optional(),
 	/** Human-readable missing setup items; no secrets or key values. */
 	missingKeys: z.string().array(),
 });
