@@ -15,30 +15,30 @@ const links = [
 const path = Astro.url.pathname;
 ---
 
-<nav class={`w-full border-b border-[#30363D] bg-[#1F2428]/80 backdrop-blur-md sticky top-0 z-50 ${className ?? ""}`}>
+<nav class={`w-full border-b border-border bg-surface-0/80 backdrop-blur-md sticky top-0 z-50 ${className ?? ""}`}>
 	<div class="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
-		<a href="/" class="flex items-center gap-2.5 text-[#E6EDF3] hover:text-white transition-colors group">
+		<a href="/" class="flex items-center gap-2.5 text-text-primary hover:opacity-80 transition-opacity group">
 			<img src="/pixtiel-logo.svg" alt="PIXTiel" class="h-8 w-auto" />
 		</a>
 
-		<div class="flex items-center gap-3 sm:gap-6 text-xs sm:text-sm font-medium text-[#8B949E]">
+		<div class="flex items-center gap-3 sm:gap-6 text-xs sm:text-sm font-medium text-text-secondary">
 			{
 				links.map((link) => (
 					<a
 						href={link.href}
 						aria-current={link.match.test(path) ? "page" : undefined}
-						class={`transition-colors ${link.match.test(path) ? "text-[#E6EDF3]" : "hover:text-[#E6EDF3]"}`}
+						class={`transition-colors ${link.match.test(path) ? "text-text-primary" : "hover:text-text-primary"}`}
 					>
 						{link.label}
 					</a>
 				))
 			}
-			<a href="/#install" class="hidden sm:inline-block hover:text-[#E6EDF3] transition-colors">Install</a>
+			<a href="/#install" class="hidden sm:inline-block hover:text-text-primary transition-colors">Install</a>
 			<a
 				href="https://github.com/tien0483/PixelCompany"
 				target="_blank"
 				rel="noopener noreferrer"
-				class="hover:text-[#E6EDF3] transition-colors inline-flex items-center gap-1"
+				class="hover:text-text-primary transition-colors inline-flex items-center gap-1"
 			>
 				GitHub
 				<svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">

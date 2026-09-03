@@ -1,143 +1,141 @@
 /* Long-form typography, shared by the docs pages and the blog. */
 /* Docs Typography & Styling */
-	.docs-content h1 {
-		font-size: 2.25rem;
-		font-weight: 800;
-		color: #E6EDF3;
-		letter-spacing: -0.025em;
-		line-height: 1.2;
-		margin-bottom: 1rem;
-	}
+.docs-content h1 {
+	font-size: 2.25rem;
+	font-weight: 800;
+	color: var(--color-text-primary);
+	letter-spacing: -0.025em;
+	line-height: 1.2;
+	margin-bottom: 1rem;
+}
 
-	.docs-content h2 {
-		font-size: 1.5rem;
-		font-weight: 700;
-		color: #E6EDF3;
-		letter-spacing: -0.02em;
-		margin-top: 2.5rem;
-		margin-bottom: 1rem;
-		padding-top: 1rem;
-		border-top: 1px solid #30363D;
-	}
+.docs-content h2 {
+	font-size: 1.5rem;
+	font-weight: 700;
+	color: var(--color-text-primary);
+	letter-spacing: -0.02em;
+	margin-top: 2.5rem;
+	margin-bottom: 1rem;
+	padding-top: 1rem;
+	border-top: 1px solid var(--color-border);
+}
 
-	.docs-content h3 {
-		font-size: 1.25rem;
-		font-weight: 600;
-		color: #E6EDF3;
-		letter-spacing: -0.01em;
-		margin-top: 1.75rem;
-		margin-bottom: 0.75rem;
-	}
+.docs-content h3 {
+	font-size: 1.25rem;
+	font-weight: 600;
+	color: var(--color-text-primary);
+	letter-spacing: -0.01em;
+	margin-top: 1.75rem;
+	margin-bottom: 0.75rem;
+}
 
-	.docs-content h4 {
-		font-size: 1.1rem;
-		font-weight: 600;
-		color: #E6EDF3;
-		margin-top: 1.25rem;
-		margin-bottom: 0.5rem;
-	}
+.docs-content h4 {
+	font-size: 1.1rem;
+	font-weight: 600;
+	color: var(--color-text-primary);
+	margin-top: 1.25rem;
+	margin-bottom: 0.5rem;
+}
 
-	.docs-content p {
-		margin-bottom: 1.25rem;
-		line-height: 1.7;
-	}
+.docs-content p {
+	margin-bottom: 1.25rem;
+	line-height: 1.7;
+}
 
-	.docs-content ul {
-		list-style-type: disc;
-		padding-left: 1.5rem;
-		margin-bottom: 1.25rem;
-		space-y: 0.5rem;
-	}
+.docs-content ul {
+	list-style-type: disc;
+	padding-left: 1.5rem;
+	margin-bottom: 1.25rem;
+}
 
-	.docs-content ol {
-		list-style-type: decimal;
-		padding-left: 1.5rem;
-		margin-bottom: 1.25rem;
-		space-y: 0.5rem;
-	}
+.docs-content ol {
+	list-style-type: decimal;
+	padding-left: 1.5rem;
+	margin-bottom: 1.25rem;
+}
 
-	.docs-content li {
-		margin-bottom: 0.35rem;
-	}
+.docs-content li {
+	margin-bottom: 0.35rem;
+}
 
-	.docs-content hr {
-		border: 0;
-		border-top: 1px solid #30363D;
-		margin: 2.5rem 0;
-	}
+.docs-content hr {
+	border: 0;
+	border-top: 1px solid var(--color-border);
+	margin: 2.5rem 0;
+}
 
-	.docs-content a {
-		color: #0084FF;
-		text-decoration: underline;
-		text-underline-offset: 3px;
-		transition: color 0.15s ease;
-	}
+.docs-content a {
+	color: var(--color-accent);
+	text-decoration: underline;
+	text-underline-offset: 3px;
+	transition: color 0.15s ease;
+}
 
-	.docs-content a:hover {
-		color: #339DFF;
-	}
+.docs-content a:hover {
+	color: var(--color-accent-hover);
+}
 
-	.docs-content code:not(pre code) {
-		background-color: #24292E;
-		border: 1px solid #30363D;
-		color: #E6EDF3;
-		padding: 0.2rem 0.4rem;
-		border-radius: 0.375rem;
-		font-size: 0.85em;
-		font-family: var(--font-mono);
-	}
+.docs-content code:not(pre code) {
+	background-color: var(--color-surface-1);
+	border: 1px solid var(--color-border);
+	color: var(--color-text-primary);
+	padding: 0.2rem 0.4rem;
+	border-radius: 0.375rem;
+	font-size: 0.85em;
+	font-family: var(--font-mono);
+}
 
-	.docs-content pre {
-		background-color: #181C20 !important;
-		border: 1px solid #30363D;
-		border-radius: 0.75rem;
-		padding: 1.25rem;
-		margin: 1.5rem 0;
-		overflow-x: auto;
-		font-size: 0.875rem;
-		font-family: var(--font-mono);
-		line-height: 1.6;
-	}
+.docs-content pre {
+	background-color: var(--color-surface-1) !important;
+	border: 1px solid var(--color-border);
+	border-radius: 0.75rem;
+	padding: 1.25rem;
+	margin: 1.5rem 0;
+	overflow-x: auto;
+	font-size: 0.875rem;
+	font-family: var(--font-mono);
+	line-height: 1.6;
+}
 
-	.docs-content pre code {
-		background-color: transparent !important;
-		border: none !important;
-		padding: 0 !important;
-		color: #E6EDF3;
-	}
+.docs-content pre code {
+	background-color: transparent !important;
+	border: none !important;
+	padding: 0 !important;
+	color: var(--color-text-primary);
+}
 
-	.docs-content blockquote {
-		border-left: 4px solid #0084FF;
-		background-color: rgba(36, 41, 46, 0.6);
-		padding: 1rem 1.25rem;
-		border-radius: 0 0.5rem 0.5rem 0;
-		margin: 1.5rem 0;
-		color: #8B949E;
-		font-style: normal;
-	}
+.docs-content blockquote {
+	border-left: 4px solid var(--color-accent);
+	background-color: color-mix(in srgb, var(--color-surface-1) 60%, transparent);
+	padding: 1rem 1.25rem;
+	border-radius: 0 0.5rem 0.5rem 0;
+	margin: 1.5rem 0;
+	color: var(--color-text-secondary);
+	font-style: normal;
+}
 
-	.docs-content table {
-		width: 100%;
-		border-collapse: collapse;
-		margin: 1.5rem 0;
-		font-size: 0.875rem;
-	}
+.docs-content table {
+	width: 100%;
+	border-collapse: collapse;
+	margin: 1.5rem 0;
+	font-size: 0.875rem;
+}
 
-	.docs-content th {
-		background-color: #24292E;
-		color: #E6EDF3;
-		font-weight: 600;
-		text-align: left;
-		padding: 0.75rem 1rem;
-		border: 1px solid #30363D;
-	}
+.docs-content th {
+	background-color: var(--color-surface-1);
+	color: var(--color-text-primary);
+	font-weight: 600;
+	text-align: left;
+	padding: 0.75rem 1rem;
+	border: 1px solid var(--color-border);
+}
 
-	.docs-content td {
-		padding: 0.75rem 1rem;
-		border: 1px solid #30363D;
-		color: #8B949E;
-	}
+.docs-content td {
+	padding: 0.75rem 1rem;
+	border: 1px solid var(--color-border);
+	color: var(--color-text-secondary);
+}
 
-	.docs-content tr:nth-child(even) td {
-		background-color: rgba(36, 41, 46, 0.3);
-	}
+.docs-content tr:nth-child(even) td {
+	background-color: color-mix(in srgb, var(--color-surface-1) 30%, transparent);
+}
