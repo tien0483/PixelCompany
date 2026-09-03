@@ -56,7 +56,8 @@ const HTML_PORT = Number(readBrandEnv("HTML_PORT") ?? 8322);
 const OMNIROUTE_PORT = Number(process.env.OMNIROUTE_PORT ?? 8400);
 const DOC_SKILL_PORT = Number(readBrandEnv("DOCSKILL_PORT") ?? 8323);
 const FLOWISE_PORT = Number(readBrandEnv("FLOWISE_PORT") ?? 3010);
-/** Freed by --restart: a stale Manager/HTML/OmniRoute/Doc-Skill/Flowise sidecar would stop the runtime from starting its own. */
+const OPENMAIC_PORT = Number(readBrandEnv("OPENMAIC_PORT") ?? 3020);
+/** Freed by --restart: a stale Manager/HTML/OmniRoute/Doc-Skill/Flowise/OpenMAIC sidecar would stop the runtime from starting its own. */
 const RESTART_PORTS = [
 	RUNTIME_PORT,
 	WEB_UI_PORT,
@@ -65,6 +66,7 @@ const RESTART_PORTS = [
 	OMNIROUTE_PORT,
 	DOC_SKILL_PORT,
 	FLOWISE_PORT,
+	OPENMAIC_PORT,
 ];
 /** Must be free to start: an already-running Manager/HTML sidecar is reused, not an error. */
 const REQUIRED_FREE_PORTS = [RUNTIME_PORT, WEB_UI_PORT];
