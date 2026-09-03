@@ -911,6 +911,7 @@ export default function App(): ReactElement {
 		handleToggleGitHistory,
 		handleCloseGitHistory: closeGitHistory,
 		handleToggleOffice,
+		handleToggleDocs: hasNoProjects ? undefined : handleToggleDocs,
 		onStartAllTasks: handleStartAllBacklogTasksFromBoard,
 	});
 

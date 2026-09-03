@@ -14,17 +14,17 @@ const [featured, ...rest] = posts;
 	title="Blog"
 	description="Engineering notes from building PIXTiel: worktree isolation, seat management, token cost and the traps found along the way."
 >
-	<section class="border-b border-[#30363D]">
+	<section class="border-b border-border">
 		<div class="max-w-4xl mx-auto px-4 sm:px-6 py-16 sm:py-20">
-			<p class="text-xs font-mono uppercase tracking-widest text-[#0084FF] mb-4">Blog</p>
-			<h1 class="text-3xl sm:text-5xl font-bold tracking-tight text-[#E6EDF3]">Engineering notes</h1>
-			<p class="mt-5 text-base sm:text-lg text-[#8B949E] max-w-2xl leading-relaxed">
+			<p class="text-xs font-mono uppercase tracking-widest text-accent mb-4">Blog</p>
+			<h1 class="text-3xl sm:text-5xl font-bold tracking-tight text-text-primary">Engineering notes</h1>
+			<p class="mt-5 text-base sm:text-lg text-text-secondary max-w-2xl leading-relaxed">
 				How PIXTiel is built and why it is built that way — the decisions, the measurements, and the
 				traps that only show up once agents run in parallel on real repositories.
 			</p>
 			<a
 				href="/rss.xml"
-				class="mt-6 inline-flex items-center gap-1.5 text-xs font-mono text-[#8B949E] hover:text-[#E6EDF3] transition-colors"
+				class="mt-6 inline-flex items-center gap-1.5 text-xs font-mono text-text-secondary hover:text-text-primary transition-colors"
 			>
 				<svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 					<path d="M4 11a9 9 0 0 1 9 9"></path>
@@ -39,29 +39,29 @@ const [featured, ...rest] = posts;
 	<div class="max-w-4xl mx-auto px-4 sm:px-6 py-12 sm:py-16">
 		{
 			posts.length === 0 ? (
-				<p class="text-sm text-[#8B949E]">No posts yet.</p>
+				<p class="text-sm text-text-secondary">No posts yet.</p>
 			) : (
 				<div class="space-y-10">
 					{featured ? (
 						<a
 							href={`/blog/${featured.id.replace(/\.mdx?$/, "")}`}
-							class="block group rounded-2xl border border-[#30363D] bg-[#24292E]/60 p-6 sm:p-8 hover:border-[#444C56] transition-colors"
+							class="block group rounded-2xl border border-border bg-surface-1 p-6 sm:p-8 hover:border-border-bright transition-colors"
 						>
-							<div class="flex flex-wrap items-center gap-3 text-xs font-mono text-[#8B949E]">
+							<div class="flex flex-wrap items-center gap-3 text-xs font-mono text-text-secondary">
 								<time datetime={featured.data.date.toISOString()}>
 									{dateFormat.format(featured.data.date)}
 								</time>
 								{featured.data.tags.map((tag) => (
-									<span class="px-2 py-0.5 rounded border border-[#30363D] bg-[#1F2428]">{tag}</span>
+									<span class="px-2 py-0.5 rounded border border-border bg-surface-0">{tag}</span>
 								))}
 							</div>
-							<h2 class="mt-4 text-2xl sm:text-3xl font-bold tracking-tight text-[#E6EDF3] group-hover:text-white transition-colors">
+							<h2 class="mt-4 text-2xl sm:text-3xl font-bold tracking-tight text-text-primary group-hover:text-white transition-colors">
 								{featured.data.title}
 							</h2>
-							<p class="mt-3 text-sm sm:text-base text-[#8B949E] leading-relaxed">
+							<p class="mt-3 text-sm sm:text-base text-text-secondary leading-relaxed">
 								{featured.data.description}
 							</p>
-							<span class="mt-5 inline-flex items-center gap-1.5 text-sm font-semibold text-[#0084FF]">
+							<span class="mt-5 inline-flex items-center gap-1.5 text-sm font-semibold text-accent">
 								Read the post
 								<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 									<line x1="5" y1="12" x2="19" y2="12"></line>
@@ -72,22 +72,22 @@ const [featured, ...rest] = posts;
 					) : null}
 
 					{rest.length > 0 ? (
-						<div class="divide-y divide-[#30363D] border-t border-[#30363D]">
+						<div class="divide-y divide-border border-t border-border">
 							{rest.map((post) => (
 								<a
 									href={`/blog/${post.id.replace(/\.mdx?$/, "")}`}
-									class="block group py-7 hover:bg-[#24292E]/30 transition-colors -mx-4 px-4 rounded-lg"
+									class="block group py-7 hover:bg-surface-1/30 transition-colors -mx-4 px-4 rounded-lg"
 								>
-									<div class="flex flex-wrap items-center gap-3 text-xs font-mono text-[#8B949E]">
+									<div class="flex flex-wrap items-center gap-3 text-xs font-mono text-text-secondary">
 										<time datetime={post.data.date.toISOString()}>{dateFormat.format(post.data.date)}</time>
 										{post.data.tags.map((tag) => (
-											<span class="px-2 py-0.5 rounded border border-[#30363D] bg-[#1F2428]">{tag}</span>
+											<span class="px-2 py-0.5 rounded border border-border bg-surface-0">{tag}</span>
 										))}
 									</div>
-									<h3 class="mt-2.5 text-lg sm:text-xl font-semibold text-[#E6EDF3] group-hover:text-white transition-colors">
+									<h3 class="mt-2.5 text-lg sm:text-xl font-semibold text-text-primary group-hover:text-white transition-colors">
 										{post.data.title}
 									</h3>
-									<p class="mt-2 text-sm text-[#8B949E] leading-relaxed">{post.data.description}</p>
+									<p class="mt-2 text-sm text-text-secondary leading-relaxed">{post.data.description}</p>
 								</a>
 							))}
 						</div>

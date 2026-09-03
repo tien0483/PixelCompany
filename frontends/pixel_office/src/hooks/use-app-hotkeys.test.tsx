@@ -199,4 +199,42 @@ describe("useAppHotkeys", () => {
 
 		expect(handleOpenCreateTask).not.toHaveBeenCalled();
 	});
+
+	it("registers docs shortcut and toggles docs view on mod+shift+d", async () => {
+		const handleToggleDocs = vi.fn();
+
+		await act(async () => {
+			root.render(
+				<HookHarness
+					selectedCard={null}
+					isDetailTerminalOpen={false}
+					isHomeTerminalOpen={false}
+					isHomeGitHistoryOpen={false}
+					canUseCreateTaskShortcut={false}
+					handleToggleDetailTerminal={() => {}}
+					handleToggleHomeTerminal={() => {}}
+					handleToggleExpandDetailTerminal={() => {}}
+					handleToggleExpandHomeTerminal={() => {}}
+					handleOpenCreateTask={() => {}}
+					handleOpenSettings={() => {}}
+					handleToggleGitHistory={() => {}}
+					handleCloseGitHistory={() => {}}
+					handleToggleDocs={handleToggleDocs}
+					onStartAllTasks={() => {}}
+				/>,
+			);
+		});
+
+		const docsCall = mockUseHotkeys.mock.calls.find(([shortcut]) => shortcut === "mod+shift+d");
+		if (!docsCall || typeof docsCall[1] !== "function") {
+			throw new Error("Expected docs shortcut to be registered.");
+		}
+
+		act(() => {
+			const docsHandler = docsCall[1] as () => void;
+			docsHandler();
+		});
+
+		expect(handleToggleDocs).toHaveBeenCalledTimes(1);
+	});
 });

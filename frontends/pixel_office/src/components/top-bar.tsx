@@ -917,7 +917,7 @@ export function TopBar({
 								</Tooltip>
 							) : null}
 							{onToggleDocs ? (
-								<Tooltip side="bottom" content="Toggle docs view">
+								<Tooltip side="bottom" content="Toggle docs view (Ctrl/⌘+Shift+D)">
 									<Button
 										variant={isDocsOpen ? "primary" : "ghost"}
 										size="sm"
