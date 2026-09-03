@@ -321,12 +321,20 @@ import {
 	RuntimeManagerUsageAuthSessionCreateRequestSchema,
 	RuntimeManagerUsageAuthSessionCreateResponseSchema,
 	RuntimeManagerUsageOverviewSchema,
+	type RuntimeReviewCheckProjectsGraphRequest,
+	type RuntimeReviewCheckProjectsGraphResponse,
 	type RuntimeReviewCommandsRequest,
 	type RuntimeReviewCommandsResponse,
 	type RuntimeReviewGraphDashboardRequest,
 	type RuntimeReviewGraphDashboardResponse,
 	type RuntimeReviewGraphImpactRequest,
 	type RuntimeReviewGraphImpactResponse,
+	type RuntimeReviewGraphRebuildActionRequest,
+	type RuntimeReviewGraphRebuildActionResponse,
+	type RuntimeReviewGraphRebuildStatusRequest,
+	type RuntimeReviewGraphRebuildStatusResponse,
+	type RuntimeReviewImportGraphRequest,
+	type RuntimeReviewImportGraphResponse,
 	type RuntimeReviewRulesConfig,
 	type RuntimeReviewRulesConfigResponse,
 	type RuntimeReviewRulesReadRequest,
@@ -502,12 +510,20 @@ import {
 	runtimeProjectRemoveRequestSchema,
 	runtimeProjectRemoveResponseSchema,
 	runtimeProjectsResponseSchema,
+	runtimeReviewCheckProjectsGraphRequestSchema,
+	runtimeReviewCheckProjectsGraphResponseSchema,
 	runtimeReviewCommandsRequestSchema,
 	runtimeReviewCommandsResponseSchema,
 	runtimeReviewGraphDashboardRequestSchema,
 	runtimeReviewGraphDashboardResponseSchema,
 	runtimeReviewGraphImpactRequestSchema,
 	runtimeReviewGraphImpactResponseSchema,
+	runtimeReviewGraphRebuildActionRequestSchema,
+	runtimeReviewGraphRebuildActionResponseSchema,
+	runtimeReviewGraphRebuildStatusRequestSchema,
+	runtimeReviewGraphRebuildStatusResponseSchema,
+	runtimeReviewImportGraphRequestSchema,
+	runtimeReviewImportGraphResponseSchema,
 	runtimeReviewRulesConfigResponseSchema,
 	runtimeReviewRulesConfigSchema,
 	runtimeReviewRulesReadRequestSchema,
@@ -1003,6 +1019,12 @@ export interface RuntimeTrpcContext {
 		listCommands: (input: RuntimeReviewCommandsRequest) => Promise<RuntimeReviewCommandsResponse>;
 		getGraphImpact: (input: RuntimeReviewGraphImpactRequest) => Promise<RuntimeReviewGraphImpactResponse>;
 		openGraphDashboard: (input: RuntimeReviewGraphDashboardRequest) => Promise<RuntimeReviewGraphDashboardResponse>;
+		importGraph: (input: RuntimeReviewImportGraphRequest) => Promise<RuntimeReviewImportGraphResponse>;
+		getRebuildStatus: (input: RuntimeReviewGraphRebuildStatusRequest) => Promise<RuntimeReviewGraphRebuildStatusResponse>;
+		pauseRebuild: (input: RuntimeReviewGraphRebuildActionRequest) => Promise<RuntimeReviewGraphRebuildActionResponse>;
+		resumeRebuild: (input: RuntimeReviewGraphRebuildActionRequest) => Promise<RuntimeReviewGraphRebuildActionResponse>;
+		cancelRebuild: (input: RuntimeReviewGraphRebuildActionRequest) => Promise<RuntimeReviewGraphRebuildActionResponse>;
+		checkProjectsGraph: (input: RuntimeReviewCheckProjectsGraphRequest) => Promise<RuntimeReviewCheckProjectsGraphResponse>;
 	};
 	vaultApi?: RuntimeVaultApi;
 }
@@ -2195,6 +2217,42 @@ export const runtimeAppRouter = t.router({
 			.output(runtimeReviewGraphDashboardResponseSchema)
 			.mutation(async ({ ctx, input }) => {
 				return await ctx.reviewApi.openGraphDashboard(input);
+			}),
+		importGraph: t.procedure
+			.input(runtimeReviewImportGraphRequestSchema)
+			.output(runtimeReviewImportGraphResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.reviewApi.importGraph(input);
+			}),
+		getRebuildStatus: t.procedure
+			.input(runtimeReviewGraphRebuildStatusRequestSchema)
+			.output(runtimeReviewGraphRebuildStatusResponseSchema)
+			.query(async ({ ctx, input }) => {
+				return await ctx.reviewApi.getRebuildStatus(input);
+			}),
+		pauseRebuild: t.procedure
+			.input(runtimeReviewGraphRebuildActionRequestSchema)
+			.output(runtimeReviewGraphRebuildActionResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.reviewApi.pauseRebuild(input);
+			}),
+		resumeRebuild: t.procedure
+			.input(runtimeReviewGraphRebuildActionRequestSchema)
+			.output(runtimeReviewGraphRebuildActionResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.reviewApi.resumeRebuild(input);
+			}),
+		cancelRebuild: t.procedure
+			.input(runtimeReviewGraphRebuildActionRequestSchema)
+			.output(runtimeReviewGraphRebuildActionResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.reviewApi.cancelRebuild(input);
+			}),
+		checkProjectsGraph: t.procedure
+			.input(runtimeReviewCheckProjectsGraphRequestSchema)
+			.output(runtimeReviewCheckProjectsGraphResponseSchema)
+			.query(async ({ ctx, input }) => {
+				return await ctx.reviewApi.checkProjectsGraph(input);
 			}),
 	}),
 	vault: t.router({

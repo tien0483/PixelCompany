@@ -29,12 +29,20 @@ import {
 	runtimeGitlabRawFileRequestSchema,
 	runtimeGitlabRawFileResponseSchema,
 	runtimeGitlabResolveDiscussionRequestSchema,
+	runtimeReviewCheckProjectsGraphRequestSchema,
+	runtimeReviewCheckProjectsGraphResponseSchema,
 	runtimeReviewCommandsRequestSchema,
 	runtimeReviewCommandsResponseSchema,
 	runtimeReviewGraphDashboardRequestSchema,
 	runtimeReviewGraphDashboardResponseSchema,
 	runtimeReviewGraphImpactRequestSchema,
 	runtimeReviewGraphImpactResponseSchema,
+	runtimeReviewGraphRebuildActionRequestSchema,
+	runtimeReviewGraphRebuildActionResponseSchema,
+	runtimeReviewGraphRebuildStatusRequestSchema,
+	runtimeReviewGraphRebuildStatusResponseSchema,
+	runtimeReviewImportGraphRequestSchema,
+	runtimeReviewImportGraphResponseSchema,
 	runtimeReviewRulesConfigResponseSchema,
 	runtimeReviewRulesConfigSchema,
 	runtimeReviewRulesReadRequestSchema,
@@ -208,6 +216,42 @@ export const reviewStandaloneRouter = t.router({
 			.output(runtimeReviewGraphDashboardResponseSchema)
 			.mutation(async ({ ctx, input }) => {
 				return await ctx.reviewApi.openGraphDashboard(input);
+			}),
+		importGraph: t.procedure
+			.input(runtimeReviewImportGraphRequestSchema)
+			.output(runtimeReviewImportGraphResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.reviewApi.importGraph(input);
+			}),
+		getRebuildStatus: t.procedure
+			.input(runtimeReviewGraphRebuildStatusRequestSchema)
+			.output(runtimeReviewGraphRebuildStatusResponseSchema)
+			.query(async ({ ctx, input }) => {
+				return await ctx.reviewApi.getRebuildStatus(input);
+			}),
+		pauseRebuild: t.procedure
+			.input(runtimeReviewGraphRebuildActionRequestSchema)
+			.output(runtimeReviewGraphRebuildActionResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.reviewApi.pauseRebuild(input);
+			}),
+		resumeRebuild: t.procedure
+			.input(runtimeReviewGraphRebuildActionRequestSchema)
+			.output(runtimeReviewGraphRebuildActionResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.reviewApi.resumeRebuild(input);
+			}),
+		cancelRebuild: t.procedure
+			.input(runtimeReviewGraphRebuildActionRequestSchema)
+			.output(runtimeReviewGraphRebuildActionResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.reviewApi.cancelRebuild(input);
+			}),
+		checkProjectsGraph: t.procedure
+			.input(runtimeReviewCheckProjectsGraphRequestSchema)
+			.output(runtimeReviewCheckProjectsGraphResponseSchema)
+			.query(async ({ ctx, input }) => {
+				return await ctx.reviewApi.checkProjectsGraph(input);
 			}),
 	}),
 	claude: t.router({

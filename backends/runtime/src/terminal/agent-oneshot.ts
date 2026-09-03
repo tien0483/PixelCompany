@@ -87,6 +87,14 @@ export interface RunAgentOneShotInput {
 	 */
 	effort?: "low" | "medium" | "high";
 	skipPermissions?: boolean;
+	/** Called as soon as the child process is spawned, with pause/resume controls. */
+	onSpawn?: (child: ChildProcess, control: AgentOneShotControl) => void;
+}
+
+export interface AgentOneShotControl {
+	pause: () => boolean;
+	resume: () => boolean;
+	isPaused: () => boolean;
 }
 
 /** Engines this module can drive. Anything else is refused up front. */
@@ -297,8 +305,54 @@ export async function runAgentOneShot(input: RunAgentOneShotInput): Promise<{ co
 
 	input.onEvent({ type: "start", agent: input.agentId, model: input.model });
 
+	let isPaused = false;
+	const control: AgentOneShotControl = {
+		pause: () => {
+			if (isPaused) {
+				return false;
+			}
+			isPaused = true;
+			clearIdleTimer();
+			if (process.platform !== "win32" && child.pid) {
+				try {
+					process.kill(child.pid, "SIGSTOP");
+					return true;
+				} catch {
+					return false;
+				}
+			}
+			return false;
+		},
+		resume: () => {
+			if (!isPaused) {
+				return false;
+			}
+			isPaused = false;
+			resetIdleTimer();
+			if (process.platform !== "win32" && child.pid) {
+				try {
+					process.kill(child.pid, "SIGCONT");
+					return true;
+				} catch {
+					return false;
+				}
+			}
+			return false;
+		},
+		isPaused: () => isPaused,
+	};
+
+	input.onSpawn?.(child, control);
+
 	const onAbort = () => {
 		try {
+			if (isPaused && process.platform !== "win32" && child.pid) {
+				try {
+					process.kill(child.pid, "SIGCONT");
+				} catch {
+					// already gone
+				}
+			}
 			child.kill();
 		} catch {
 			// already gone
@@ -334,7 +388,7 @@ export async function runAgentOneShot(input: RunAgentOneShotInput): Promise<{ co
 		}
 	};
 	const resetIdleTimer = () => {
-		if (input.idleTimeoutMs === undefined) {
+		if (input.idleTimeoutMs === undefined || isPaused) {
 			return;
 		}
 		clearIdleTimer();
@@ -365,6 +419,9 @@ export async function runAgentOneShot(input: RunAgentOneShotInput): Promise<{ co
 
 	// agy reads one NDJSON message per line and runs a turn for each; Claude takes
 	// the prompt as raw text.
+	child.stdin?.on("error", () => {
+		// Ignore EPIPE when child exits before stdin is drained
+	});
 	child.stdin?.write(isAgy ? buildAgyStdinPayload(input.prompt) : input.prompt);
 	child.stdin?.end();
 
