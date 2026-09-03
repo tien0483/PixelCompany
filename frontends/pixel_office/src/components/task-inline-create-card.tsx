@@ -223,7 +223,6 @@ export function TaskInlineCreateCard({
 		apiSeats,
 	});
 
-	const effectiveAgentId = agentId ?? defaultAgentId ?? null;
 	const eligibleManagerAccounts = useMemo(
 		() =>
 			filterManagerAccountsForAgent(managerAccounts, effectiveAgentId, {
