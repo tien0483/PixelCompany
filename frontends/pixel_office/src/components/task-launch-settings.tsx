@@ -1,6 +1,7 @@
 import { isFlowiseMcpServerId } from "@runtime-flowise-mcp-id";
 import { FABLE_SEAT_EFFORT, FABLE_SEAT_MODEL_ID } from "@runtime-manager-seat-ranking";
-import { AlertTriangle, X } from "lucide-react";
+import * as RadixCheckbox from "@radix-ui/react-checkbox";
+import { AlertTriangle, Check, X } from "lucide-react";
 import type { ReactElement } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -106,10 +107,12 @@ function cloneLaunchSettings(settings?: RuntimeTaskLaunchSettings | null): Runti
 		...(settings.customAgentFlowIds && settings.customAgentFlowIds.length > 0
 			? { customAgentFlowIds: [...settings.customAgentFlowIds] }
 			: {}),
+		...(settings.teamworkPreview !== undefined ? { teamworkPreview: settings.teamworkPreview } : {}),
 	};
 	if (
 		next.modelId === undefined &&
 		next.effort === undefined &&
+		next.teamworkPreview === undefined &&
 		next.skillIds === undefined &&
 		next.agentIds === undefined &&
 		next.commandIds === undefined &&
@@ -537,6 +540,7 @@ export function TaskLaunchSettingsPicker({
 	const hasAnyTags =
 		Boolean(draft?.modelId) ||
 		Boolean(draft?.effort) ||
+		draft?.teamworkPreview !== undefined ||
 		attachedSkillIds.length > 0 ||
 		attachedAgentIds.length > 0 ||
 		attachedCommandIds.length > 0 ||
@@ -619,6 +623,27 @@ export function TaskLaunchSettingsPicker({
 					</NativeSelect>
 				</label>
 			</div>
+			) : null}
+			{effectiveAgentId === "gemini" ? (
+				<label
+					className="flex items-center gap-2 text-[12px] text-text-primary cursor-pointer select-none"
+					data-testid="task-launch-teamwork-preview"
+				>
+					<RadixCheckbox.Root
+						checked={draft?.teamworkPreview === true}
+						onCheckedChange={(checked) => {
+							update({ teamworkPreview: checked === true ? true : undefined });
+						}}
+						className="flex h-3.5 w-3.5 cursor-pointer items-center justify-center rounded-sm border border-border-bright bg-surface-3 data-[state=checked]:bg-accent data-[state=checked]:border-accent"
+					>
+						<RadixCheckbox.Indicator>
+							<Check size={10} className="text-white" />
+						</RadixCheckbox.Indicator>
+					</RadixCheckbox.Root>
+					<span>
+						Teamwork preview (<code className="rounded bg-surface-3 px-1 py-px font-mono text-[11px]">/teamwork-preview</code>)
+					</span>
+				</label>
 			) : null}
 			{isFableSeat ? (
 				<p className="text-[10px] text-text-tertiary" data-testid="task-launch-settings-fable-lock">

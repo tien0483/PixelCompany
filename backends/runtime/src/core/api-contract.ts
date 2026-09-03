@@ -162,6 +162,10 @@ export const runtimeTaskLaunchSettingsSchema = z.object({
 	subagentSeatProviderId: z.string().min(1).optional(),
 	/** Model the subagent seat runs; falls back to the seat's default model when absent. */
 	subagentSeatModelId: z.string().min(1).optional(),
+	/**
+	 * When true on an Antigravity/Gemini task, enables teamwork mode (/teamwork-preview).
+	 */
+	teamworkPreview: z.boolean().optional(),
 });
 export type RuntimeTaskLaunchSettings = z.infer<typeof runtimeTaskLaunchSettingsSchema>;
 export const runtimeTaskImageSchema = z.object({

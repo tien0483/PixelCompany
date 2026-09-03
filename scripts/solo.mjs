@@ -116,8 +116,8 @@ const DOC_SKILL_PORT = Number(readBrandEnv("DOCSKILL_PORT") ?? 8323);
  * DevTools daemon and 3456/3460+ are CCR routers.
  */
 const FLOWISE_PORT = Number(readBrandEnv("FLOWISE_PORT") ?? 3010);
-/** Optional DeepSeek Harness web UI when PIXTIEL_DSH_WEB=1 / PIXELOFFICE_DSH_WEB=1 (orchestrator sidecar). */
-const DSH_WEB_PORT = Number(readBrandEnv("DSH_WEB_PORT") ?? 3020);
+/** OpenMAIC learning classroom sidecar on loopback (:3020). */
+const OPENMAIC_PORT = Number(readBrandEnv("OPENMAIC_PORT") ?? 3020);
 
 const args = process.argv.slice(2);
 const restart = args.includes("--restart");
@@ -517,7 +517,7 @@ async function main() {
 	if (restart) {
 		const stackPorts = Object.values(STACK_DAEMON_PORTS).join(", ");
 		console.log(
-			`Restart: freeing stack daemons (${stackPorts}) and app ports ${RUNTIME_PORT}, ${MANAGER_PORT}, ${HTML_PORT}, ${DOC_SKILL_PORT}, ${FLOWISE_PORT}...`,
+			`Restart: freeing stack daemons (${stackPorts}) and app ports ${RUNTIME_PORT}, ${MANAGER_PORT}, ${HTML_PORT}, ${DOC_SKILL_PORT}, ${FLOWISE_PORT}, ${OPENMAIC_PORT}...`,
 		);
 		restartAgentStackDaemons({ freePortFn: freePort });
 		freePort(RUNTIME_PORT);
@@ -525,6 +525,7 @@ async function main() {
 		freePort(HTML_PORT);
 		freePort(DOC_SKILL_PORT);
 		freePort(FLOWISE_PORT);
+		freePort(OPENMAIC_PORT);
 		await new Promise((resolve) => setTimeout(resolve, 500));
 	}
 

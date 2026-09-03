@@ -1096,6 +1096,22 @@ describe("prepareAgentLaunch hook strategies", () => {
 		expect(agyYoloLaunch.args).toContain("--mode");
 		expect(agyYoloLaunch.args[agyYoloLaunch.args.indexOf("--mode") + 1]).toBe("accept-edits");
 
+		const agyTeamworkLaunch = await prepareAgentLaunch({
+			taskId: "task-agy-teamwork",
+			agentId: "gemini",
+			binary: "agy",
+			args: [],
+			autonomousModeEnabled: true,
+			cwd: "/tmp",
+			prompt: "Build a multi-agent workflow",
+			taskLaunchSettings: {
+				teamworkPreview: true,
+			},
+		});
+		expect(agyTeamworkLaunch.args).toContain("-i");
+		const inputIndex = agyTeamworkLaunch.args.indexOf("-i");
+		expect(agyTeamworkLaunch.args[inputIndex + 1]).toBe("/teamwork-preview\nBuild a multi-agent workflow");
+
 		const geminiCliAutoLaunch = await prepareAgentLaunch({
 			taskId: "task-gemini-cli-auto",
 			agentId: "gemini",
