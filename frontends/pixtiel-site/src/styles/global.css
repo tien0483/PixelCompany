@@ -297,3 +297,8 @@ html.is-embedded .docs-layout-container {
 html.is-embedded aside .docs-sidebar-sticky {
 	top: 1rem !important;
 }
+
+html.is-embedded .products-jump-bar {
+	top: 0 !important;
+}
+

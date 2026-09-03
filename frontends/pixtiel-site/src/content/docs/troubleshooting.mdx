@@ -114,6 +114,36 @@ time succeeds, and `pnpm run upgrade` brings you onto a build where the first on
 
 ---
 
+## `TimeoutError: The operation was aborted due to timeout` during `pnpm install`
+
+```
+[WARN] Tarball download average speed is below 50 KiB/s...
+[WARN] GET https://registry.npmjs.org/@anthropic-ai/... error (23). Will retry in 10 seconds.
+[23] The operation was aborted due to timeout
+[kanban] step failed with exit code 1: pnpm install
+```
+
+This happens when downloading large native binaries (e.g. `@anthropic-ai/claude-agent-sdk` ~77MB, `@next/swc` ~45MB, `@openai/codex` ~42MB) over a slow or high-latency internet connection where requests exceed pnpm's default 60-second fetch timeout.
+
+**Fix:**
+
+1. The repository now includes a root `.npmrc` configuring a 10-minute timeout (`fetch-timeout=600000`) and 5 retries.
+2. If installing globally or outside the repo, set the timeout in your global pnpm configuration:
+   ```bash
+   pnpm config set fetch-timeout 600000
+   pnpm config set fetch-retries 5
+   ```
+3. If you are in a region with severe throttling to npmjs.org, you can temporarily point pnpm to a faster mirror:
+   ```bash
+   pnpm config set registry https://registry.npmmirror.com
+   ```
+4. Re-run the installer setup:
+   ```bash
+   pnpm run setup
+   ```
+
+---
+
 ## Usage jumped after enabling the agent stack
 
 Expected, and reversible. Sessions on a warm repository run a very high prompt-cache hit rate;

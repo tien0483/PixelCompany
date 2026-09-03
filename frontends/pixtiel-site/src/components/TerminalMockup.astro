@@ -88,16 +88,83 @@ const installCommand = "curl -fsSL https://raw.githubusercontent.com/tien0483/Pi
 				</code>
 				<button
 					type="button"
-					class="p-1.5 rounded-md hover:bg-surface-2 text-text-secondary hover:text-text-primary transition-colors shrink-0"
+					id="copy-install-btn"
+					data-cmd={installCommand}
+					class="p-1.5 rounded-md hover:bg-surface-2 text-text-secondary hover:text-text-primary transition-colors shrink-0 relative group cursor-pointer"
 					title="Copy to clipboard"
 					aria-label="Copy install command"
 				>
-					<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+					<svg class="w-4 h-4 copy-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 						<rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect>
 						<path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path>
 					</svg>
+					<svg class="w-4 h-4 check-icon hidden text-[#3FB950]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+						<polyline points="20 6 9 17 4 12"></polyline>
+					</svg>
+					<span class="copied-tooltip absolute -top-8 right-0 px-2 py-0.5 rounded bg-surface-3 border border-border text-[10px] text-text-primary font-sans opacity-0 pointer-events-none transition-opacity duration-150">
+						Copied!
+					</span>
 				</button>
 			</div>
 		</div>
 	</div>
 </div>
+
+<script>
+	function setupCopyButton() {
+		const btn = document.getElementById("copy-install-btn");
+		if (!btn || btn.hasAttribute("data-copy-init")) return;
+		btn.setAttribute("data-copy-init", "true");
+
+		btn.addEventListener("click", async () => {
+			const cmd = btn.getAttribute("data-cmd") || "";
+			if (!cmd) return;
+
+			let ok = false;
+			try {
+				await navigator.clipboard.writeText(cmd);
+				ok = true;
+			} catch {
+				try {
+					const ta = document.createElement("textarea");
+					ta.value = cmd;
+					ta.style.position = "fixed";
+					ta.style.opacity = "0";
+					document.body.appendChild(ta);
+					ta.focus();
+					ta.select();
+					ok = document.execCommand("copy");
+					document.body.removeChild(ta);
+				} catch {
+					ok = false;
+				}
+			}
+
+			if (ok) {
+				const copyIcon = btn.querySelector(".copy-icon");
+				const checkIcon = btn.querySelector(".check-icon");
+				const tooltip = btn.querySelector(".copied-tooltip");
+
+				copyIcon?.classList.add("hidden");
+				checkIcon?.classList.remove("hidden");
+				tooltip?.classList.remove("opacity-0");
+				tooltip?.classList.add("opacity-100");
+
+				setTimeout(() => {
+					copyIcon?.classList.remove("hidden");
+					checkIcon?.classList.add("hidden");
+					tooltip?.classList.remove("opacity-100");
+					tooltip?.classList.add("opacity-0");
+				}, 2000);
+			}
+		});
+	}
+
+	if (document.readyState === "loading") {
+		document.addEventListener("DOMContentLoaded", setupCopyButton);
+	} else {
+		setupCopyButton();
+	}
+	document.addEventListener("astro:page-load", setupCopyButton);
+</script>
+

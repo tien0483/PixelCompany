@@ -177,7 +177,6 @@ export function TaskInlineCreateCard({
 	const autoCommitOptInId = `${idPrefix}-auto-commit-opt-in`;
 	const autoResumeOnUsageLimitId = `${idPrefix}-auto-resume-usage-limit`;
 	const autoFailoverOnUsageLimitId = `${idPrefix}-auto-failover-usage-limit`;
-	const teamworkPreviewId = `${idPrefix}-teamwork-preview`;
 	const effectiveAgentId = agentId ?? defaultAgentId ?? null;
 	const branchSelectId = `${idPrefix}-branch-select`;
 	const actionLabel = mode === "edit" ? "Save" : "Create";
@@ -351,35 +350,6 @@ export function TaskInlineCreateCard({
 					</RadixCheckbox.Root>
 					<span>Start in plan mode</span>
 				</label>
-
-				{effectiveAgentId === "gemini" && onTaskLaunchSettingsChange ? (
-					<label
-						htmlFor={teamworkPreviewId}
-						className="flex items-center gap-2 text-[12px] text-text-primary cursor-pointer select-none"
-						data-testid="task-inline-teamwork-preview"
-					>
-						<RadixCheckbox.Root
-							id={teamworkPreviewId}
-							aria-label="Teamwork preview"
-							checked={taskLaunchSettings?.teamworkPreview === true}
-							disabled={!enabled}
-							onCheckedChange={(checked) =>
-								onTaskLaunchSettingsChange({
-									...(taskLaunchSettings ?? {}),
-									teamworkPreview: checked === true ? true : undefined,
-								})
-							}
-							className="flex h-3.5 w-3.5 cursor-pointer items-center justify-center rounded-sm border border-border-bright bg-surface-3 data-[state=checked]:bg-accent data-[state=checked]:border-accent disabled:cursor-default disabled:opacity-40"
-						>
-							<RadixCheckbox.Indicator>
-								<Check size={10} className="text-white" />
-							</RadixCheckbox.Indicator>
-						</RadixCheckbox.Root>
-						<span>
-							Teamwork preview (<code className="rounded bg-surface-3 px-1 py-px font-mono text-[11px]">/teamwork-preview</code>)
-						</span>
-					</label>
-				) : null}
 
 				<div>
 					<span className="text-[11px] text-text-secondary block mb-1">Worktree base ref</span>

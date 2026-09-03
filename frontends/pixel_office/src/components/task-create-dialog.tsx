@@ -200,7 +200,6 @@ export function TaskCreateDialog({
 	const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
 	const nextFocusIndexRef = useRef<number | null>(null);
 	const startInPlanModeId = useId();
-	const teamworkPreviewId = useId();
 	const createMoreId = useId();
 	const [primaryStartAction, setPrimaryStartAction] = useRawLocalStorageValue<TaskCreateStartAction>(
 		LocalStorageKey.TaskCreatePrimaryStartAction,
@@ -591,33 +590,6 @@ export function TaskCreateDialog({
 						</RadixCheckbox.Root>
 						Start in plan mode
 					</label>
-
-					{effectiveAgentId === "gemini" && onTaskLaunchSettingsChange ? (
-						<label
-							htmlFor={teamworkPreviewId}
-							className="flex items-center gap-2 text-[12px] text-text-primary cursor-pointer select-none"
-							data-testid="task-create-teamwork-preview"
-						>
-							<RadixCheckbox.Root
-								id={teamworkPreviewId}
-								checked={taskLaunchSettings?.teamworkPreview === true}
-								onCheckedChange={(checked) => {
-									onTaskLaunchSettingsChange({
-										...(taskLaunchSettings ?? {}),
-										teamworkPreview: checked === true ? true : undefined,
-									});
-								}}
-								className="flex h-3.5 w-3.5 cursor-pointer items-center justify-center rounded-sm border border-border-bright bg-surface-3 data-[state=checked]:bg-accent data-[state=checked]:border-accent"
-							>
-								<RadixCheckbox.Indicator>
-									<Check size={10} className="text-white" />
-								</RadixCheckbox.Indicator>
-							</RadixCheckbox.Root>
-							<span>
-								Teamwork preview (<code className="rounded bg-surface-3 px-1 py-px font-mono text-[11px]">/teamwork-preview</code>)
-							</span>
-						</label>
-					) : null}
 
 					<div>
 						<span className="text-[11px] text-text-secondary block mb-1">Worktree base ref</span>

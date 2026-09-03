@@ -90,7 +90,7 @@ describe("TaskCreateDialog Teamwork preview", () => {
 			await Promise.resolve();
 		});
 
-		const teamworkCheckbox = document.querySelector('[data-testid="task-create-teamwork-preview"]');
+		const teamworkCheckbox = document.querySelector('[data-testid="task-launch-teamwork-preview"]');
 		expect(teamworkCheckbox).toBeTruthy();
 		expect(teamworkCheckbox?.textContent).toContain("Teamwork preview");
 
@@ -134,7 +134,7 @@ describe("TaskCreateDialog Teamwork preview", () => {
 			await Promise.resolve();
 		});
 
-		const teamworkCheckbox = document.querySelector('[data-testid="task-create-teamwork-preview"]');
+		const teamworkCheckbox = document.querySelector('[data-testid="task-launch-teamwork-preview"]');
 		expect(teamworkCheckbox).toBeNull();
 	});
 });

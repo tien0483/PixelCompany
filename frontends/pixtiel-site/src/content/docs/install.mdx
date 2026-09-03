@@ -16,6 +16,7 @@ PIXTiel provides a fast, zero-sudo installer that sets up the full multi-agent r
 - **Filesystem (Critical)**: Must be installed on a **native Linux filesystem** (`ext4` under `/home/username/...`). WSL mounted paths (`/mnt/c/...` or `/mnt/d/...` via 9p) deadlock during package resolution and worktree git operations.
 - **Node.js**: Version ≥ 22.12.0 (managed automatically via NVM in user space).
 - **Python**: Version ≥ 3.10 (managed automatically via `uv` in user space).
+- **Network Resilience**: Root `.npmrc` sets `fetch-timeout=600000` (10 minutes) and 5 retries to ensure large binary downloads complete reliably even on slow network connections.
 - **Permissions**: Zero root (`sudo`) required. All binaries, virtual environments, and caches live under `~/.nvm`, `~/.local`, and `~/.agent`.
 
 ---
