@@ -21,6 +21,7 @@ interface UseAppHotkeysInput {
 	handleToggleGitHistory: () => void;
 	handleCloseGitHistory: () => void;
 	handleToggleOffice?: () => void;
+	handleToggleDocs?: () => void;
 	onStartAllTasks: () => void;
 }
 
@@ -39,6 +40,7 @@ export function useAppHotkeys({
 	handleToggleGitHistory,
 	handleCloseGitHistory,
 	handleToggleOffice,
+	handleToggleDocs,
 	onStartAllTasks,
 }: UseAppHotkeysInput): void {
 	useHotkeys(
@@ -132,6 +134,19 @@ export function useAppHotkeys({
 			preventDefault: true,
 		},
 		[handleToggleOffice],
+	);
+
+	useHotkeys(
+		"mod+shift+d",
+		() => {
+			handleToggleDocs?.();
+		},
+		{
+			enableOnFormTags: true,
+			enableOnContentEditable: true,
+			preventDefault: true,
+		},
+		[handleToggleDocs],
 	);
 
 	useHotkeys(

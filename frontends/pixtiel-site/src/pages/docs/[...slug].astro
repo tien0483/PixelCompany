@@ -22,11 +22,11 @@ const nextDoc = currentIndex < allDocs.length - 1 ? allDocs[currentIndex + 1] : 
 ---
 
 <BaseLayout title={entry.data.title} description={entry.data.description}>
-	<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 md:py-12">
+	<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 md:py-12 docs-layout-container">
 		<div class="flex flex-col lg:flex-row gap-8 lg:gap-12">
 			<!-- Left Sidebar Navigation -->
 			<aside class="w-full lg:w-64 shrink-0">
-				<div class="sticky top-24 space-y-6">
+				<div class="sticky top-24 space-y-6 docs-sidebar-sticky">
 					<div>
 						<h5 class="text-xs font-mono uppercase tracking-wider text-text-secondary px-3 mb-3 font-semibold">
 							Documentation
@@ -40,7 +40,7 @@ const nextDoc = currentIndex < allDocs.length - 1 ? allDocs[currentIndex + 1] : 
 										href={`/docs/${slug}`}
 										class={`flex items-center px-3 py-2 text-sm rounded-lg transition-colors font-medium ${
 											isActive
-												? "bg-accent/15 text-accent border border-accent/30"
+												? "bg-surface-2 text-text-primary font-semibold border-l-2 border-accent border-y border-r border-border shadow-xs"
 												: "text-text-secondary hover:text-text-primary hover:bg-surface-1 border border-transparent"
 										}`}
 									>
@@ -51,7 +51,7 @@ const nextDoc = currentIndex < allDocs.length - 1 ? allDocs[currentIndex + 1] : 
 						</nav>
 					</div>
 
-					<div class="p-4 rounded-xl border border-border bg-surface-1/60 text-xs text-text-secondary space-y-2">
+					<div class="p-4 rounded-xl border border-border bg-surface-1 text-xs text-text-secondary space-y-2">
 						<div class="font-semibold text-text-primary flex items-center gap-1.5">
 							<svg class="w-4 h-4 text-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 								<circle cx="12" cy="12" r="10"></circle>
@@ -85,7 +85,7 @@ const nextDoc = currentIndex < allDocs.length - 1 ? allDocs[currentIndex + 1] : 
 				</div>
 
 				<!-- Article Body with Prose Styles -->
-				<article class="docs-content text-text-secondary leading-relaxed">
+				<article class="docs-content text-text-primary leading-relaxed">
 					<Content />
 				</article>
 

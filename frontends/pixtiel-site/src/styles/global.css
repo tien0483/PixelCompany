@@ -278,3 +278,22 @@ body {
 	padding: 0;
 	min-height: 100vh;
 }
+
+/* Embedded mode: when framed inside PixelCompany's Docs pane */
+html.is-embedded #site-nav-container,
+html.is-embedded #site-footer-container {
+	display: none !important;
+}
+
+html.is-embedded body {
+	min-height: 100% !important;
+}
+
+html.is-embedded .docs-layout-container {
+	padding-top: 1.25rem !important;
+	padding-bottom: 2rem !important;
+}
+
+html.is-embedded aside .docs-sidebar-sticky {
+	top: 1rem !important;
+}

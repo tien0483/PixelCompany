@@ -96,6 +96,9 @@ const pageTitle = title ? `${title} · PIXTiel` : "PIXTiel";
 							applyTheme("default");
 						}
 					}
+					if (params.get("embed") === "true" || window.self !== window.top) {
+						document.documentElement.classList.add("is-embedded");
+					}
 				} catch (e) {
 					applyTheme("default");
 				}
@@ -116,10 +119,14 @@ const pageTitle = title ? `${title} · PIXTiel` : "PIXTiel";
 		</script>
 	</head>
 	<body class="min-h-screen flex flex-col bg-surface-0 text-text-primary antialiased">
-		<Nav />
+		<div id="site-nav-container">
+			<Nav />
+		</div>
 		<main class="flex-1">
 			<slot />
 		</main>
-		<Footer />
+		<div id="site-footer-container">
+			<Footer />
+		</div>
 	</body>
 </html>

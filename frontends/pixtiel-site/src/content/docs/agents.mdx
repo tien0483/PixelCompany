@@ -67,8 +67,8 @@ uninstall later. Every task agent gets these on PATH:
 | **Switchboard** | The control panel and router on `127.0.0.1:8000`, with a per-tool toggle file. |
 | **CCR / DevTools** | Optional routers, off by default. |
 
-<div class="not-prose my-6 p-4 rounded-xl border border-[#30363D] bg-[#24292E]/60 text-sm">
-	<strong class="text-[#E6EDF3]">A caveat worth knowing.</strong> Sessions on a warm repository run
+<div class="not-prose my-6 p-4 rounded-xl border border-border bg-surface-1 text-sm text-text-secondary">
+	<strong class="text-text-primary">A caveat worth knowing.</strong> Sessions on a warm repository run
 	a very high prompt-cache hit rate. Anything that rewrites context can break the cache prefix,
 	which turns a cheap cache read into a full write. Enable Headroom, then watch your usage — and
 	remember <code>pnpm start -- --no-proxy-env</code> is the lever that takes agent traffic back off
