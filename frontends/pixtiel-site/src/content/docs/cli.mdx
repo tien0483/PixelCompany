@@ -70,6 +70,7 @@ remembered in `.pixtiel/install-manifest.json`, so a re-run starts from what you
 | `8400` | OmniRoute (optional feature) |
 | `3010` | Agent studio (optional feature) |
 | `3020` | Learning room |
+| `3030` | This documentation site — what the in-app **Docs** tab frames |
 | `8000` | Agent stack switchboard |
 | `5173` | Vite dev server — `pnpm dev` only |
 
@@ -89,8 +90,22 @@ PIXELOFFICE_PORT=3599 pnpm start      # still honoured
 ```
 
 Useful ones: `PIXTIEL_PORT`, `PIXTIEL_DOCSKILL_PORT`, `PIXTIEL_HTML_PORT`,
-`PIXTIEL_FLOWISE_PORT`, `PIXTIEL_OPENMAIC_PORT`, `PIXTIEL_AGENT_DATA`, `PIXTIEL_NODE`,
-`PIXTIEL_HOME` (installer target).
+`PIXTIEL_FLOWISE_PORT`, `PIXTIEL_OPENMAIC_PORT`, `PIXTIEL_WEBSITE_PORT`,
+`PIXTIEL_WEBSITE_DIST`, `PIXTIEL_AGENT_DATA`, `PIXTIEL_NODE`, `PIXTIEL_HOME`
+(installer target).
+
+### The in-app Docs tab
+
+The **Docs** button frames this very site, served from `frontends/pixtiel-site/dist` on
+`:3030`. Build it once and it works offline:
+
+```bash
+pnpm --filter pixtiel-site build
+```
+
+Until then the tab says so and prints that command; it picks the build up on its own. The
+page you are reading is the same file the published site renders — there is no second copy
+to drift.
 
 ---
 

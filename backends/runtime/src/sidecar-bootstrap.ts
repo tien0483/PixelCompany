@@ -10,6 +10,7 @@ import type { HtmlProcess } from "./html/html-process";
 import type { OmniRouteProcess } from "./omniroute/omniroute-process";
 import type { OpenmaicProcess } from "./openmaic/openmaic-process";
 import type { OrchestratorProcess } from "./orchestrator/orchestrator-process";
+import type { SiteServer } from "./site/site-server";
 import { linkStackSkillsAtStartup } from "./stack/link-stack-skills-runtime";
 import type { StackProcess } from "./stack/stack-daemon";
 
@@ -28,6 +29,8 @@ export interface SidecarBundle {
 	flowise: FlowiseProcess;
 	openmaic: OpenmaicProcess;
 	orchestrator: OrchestratorProcess;
+	/** The built product website, served in-process for the Docs tab. */
+	site: SiteServer;
 }
 
 function noopSidecar(): ClosableSidecar {
@@ -47,6 +50,7 @@ export function createNoopSidecarBundle(): SidecarBundle {
 		flowise: noop as FlowiseProcess,
 		openmaic: noop as OpenmaicProcess,
 		orchestrator: noop as OrchestratorProcess,
+		site: { port: null, close: async () => {} },
 	};
 }
 
@@ -61,6 +65,7 @@ export async function closeSidecarBundle(bundle: SidecarBundle): Promise<void> {
 	await bundle.flowise.close();
 	await bundle.openmaic.close();
 	await bundle.orchestrator.close();
+	await bundle.site.close();
 }
 
 export interface SidecarLogging {
@@ -89,6 +94,7 @@ export async function bootstrapOptionalSidecars(
 		{ startFlowiseProcess },
 		{ startOpenmaicProcess },
 		{ startOrchestratorProcess },
+		{ startSiteServer },
 	] = await Promise.all([
 		import("./omniroute/omniroute-process.js"),
 		import("./html/html-process.js"),
@@ -99,6 +105,7 @@ export async function bootstrapOptionalSidecars(
 		import("./flowise/flowise-process.js"),
 		import("./openmaic/openmaic-process.js"),
 		import("./orchestrator/orchestrator-process.js"),
+		import("./site/site-server.js"),
 	]);
 
 	await linkStackSkillsAtStartup({ quiet: true });
@@ -119,6 +126,7 @@ export async function bootstrapOptionalSidecars(
 		flowise,
 		openmaic,
 		orchestrator,
+		site,
 	] = await Promise.all([
 		startOmniRouteProcess({ warn: deps.warn, log: deps.log }),
 		startHtmlProcess({
@@ -136,6 +144,7 @@ export async function bootstrapOptionalSidecars(
 		startFlowiseProcess({ warn: deps.warn, log: deps.log }),
 		startOpenmaicProcess({ warn: deps.warn, log: deps.log }),
 		startOrchestratorProcess({ warn: deps.warn, log: deps.log }),
+		startSiteServer({ warn: deps.warn, log: deps.log }),
 	]);
 
 	return {
@@ -149,6 +158,7 @@ export async function bootstrapOptionalSidecars(
 		flowise,
 		openmaic,
 		orchestrator,
+		site,
 	};
 }
 

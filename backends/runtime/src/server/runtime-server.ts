@@ -134,6 +134,7 @@ import { createDocSkillApi } from "../trpc/doc-skill-api";
 import { createFlowiseApi } from "../trpc/flowise-api";
 import { createOpenmaicApi } from "../trpc/openmaic-api";
 import { createOrchestratorApi } from "../trpc/orchestrator-api";
+import { createSiteApi } from "../trpc/site-api";
 import { createGitlabApi } from "../trpc/gitlab-api";
 import { createHooksApi } from "../trpc/hooks-api";
 import { createHtmlApi } from "../trpc/html-api";
@@ -412,6 +413,8 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 	const orchestratorApi = createOrchestratorApi({
 		client: deps.orchestrator.client,
 	});
+	// No dependencies: "is the site built" is a file check and "is it up" is a TCP probe.
+	const siteApi = createSiteApi();
 	// No dependencies: the Learning tab's whole question is "is the submodule there, built,
 	// and listening", all of which are answered from disk and a TCP probe. Health now also
 	// reports Gemini seat-route readiness from the same manager monitor used by Flowise.
@@ -757,6 +760,7 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 			flowiseApi,
 			openmaicApi,
 			orchestratorApi,
+			siteApi,
 			gitlabApi,
 			reviewApi,
 		};

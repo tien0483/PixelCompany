@@ -1490,6 +1490,20 @@ export const RuntimeOpenmaicStatusSchema = z.object({
 });
 export type RuntimeOpenmaicStatus = z.infer<typeof RuntimeOpenmaicStatusSchema>;
 
+export const RuntimeSiteStatusSchema = z.object({
+	/** False when `frontends/pixtiel-site` has not been built, so nothing is served. */
+	built: z.boolean(),
+	/** True when the port answers — the site is built *and* the server came up. */
+	online: z.boolean(),
+	/** Root URL the browser frames; the site's own nav takes over from there. */
+	baseUrl: z.string(),
+	/** Path the Docs tab opens by default. */
+	docsPath: z.string(),
+	/** The command that produces the build, shown in the not-built state. */
+	buildCommand: z.string(),
+});
+export type RuntimeSiteStatus = z.infer<typeof RuntimeSiteStatusSchema>;
+
 export const RuntimeOpenmaicHealthSchema = z.object({
 	openmaicConfigured: z.boolean(),
 	asrReady: z.boolean(),
