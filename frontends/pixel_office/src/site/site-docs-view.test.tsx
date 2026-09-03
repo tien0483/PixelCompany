@@ -60,13 +60,13 @@ describe("SiteDocsView", () => {
 		});
 	}
 
-	it("frames the docs entry point once the site is built and listening", async () => {
+	it("frames the docs entry point with the active theme once the site is built and listening", async () => {
 		mockSiteStatus.mockResolvedValue(ONLINE);
 		await render();
 
 		const frame = container.querySelector("iframe");
 		expect(frame).not.toBeNull();
-		expect(frame?.getAttribute("src")).toBe("http://localhost:3030/docs/getting-started");
+		expect(frame?.getAttribute("src")).toBe("http://localhost:3030/docs/getting-started?theme=default");
 		// No X-Frame-Options to satisfy; the site's own CSP scopes who may frame it.
 		expect(frame?.getAttribute("sandbox")).toContain("allow-scripts");
 	});

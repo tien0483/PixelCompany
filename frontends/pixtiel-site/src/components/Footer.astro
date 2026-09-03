@@ -6,38 +6,38 @@ interface Props {
 const { class: className } = Astro.props;
 ---
 
-<footer class={`w-full border-t border-[#30363D] bg-[#1F2428] py-12 text-[#8B949E] ${className ?? ""}`}>
+<footer class={`w-full border-t border-border bg-surface-0 py-12 text-text-secondary ${className ?? ""}`}>
 	<div class="max-w-6xl mx-auto px-4 sm:px-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-8">
 		<div class="flex flex-col gap-2">
-			<div class="flex items-center gap-2.5 text-[#E6EDF3]">
+			<div class="flex items-center gap-2.5 text-text-primary">
 				<img src="/pixtiel-logo.svg" alt="PIXTiel" class="h-7 w-auto" />
 			</div>
-			<p class="text-xs text-[#6E7681] max-w-sm">
+			<p class="text-xs text-text-tertiary max-w-sm">
 				Multi-agent coordination and workspace runtime for autonomous software engineering.
 			</p>
-			<p class="text-xs text-[#6E7681]">
+			<p class="text-xs text-text-tertiary">
 				Distributed under the MIT License.
 			</p>
 		</div>
 
 		<div class="flex flex-col sm:flex-row items-start sm:items-center gap-6 sm:gap-8 text-sm">
-			<a href="/products" class="hover:text-[#E6EDF3] transition-colors">Products</a>
-			<a href="/docs/getting-started" class="hover:text-[#E6EDF3] transition-colors">Docs</a>
-			<a href="/blog" class="hover:text-[#E6EDF3] transition-colors">Blog</a>
-			<a href="/#install" class="hover:text-[#E6EDF3] transition-colors">Install</a>
-			<a href="/rss.xml" class="hover:text-[#E6EDF3] transition-colors">RSS</a>
+			<a href="/products" class="hover:text-text-primary transition-colors">Products</a>
+			<a href="/docs/getting-started" class="hover:text-text-primary transition-colors">Docs</a>
+			<a href="/blog" class="hover:text-text-primary transition-colors">Blog</a>
+			<a href="/#install" class="hover:text-text-primary transition-colors">Install</a>
+			<a href="/rss.xml" class="hover:text-text-primary transition-colors">RSS</a>
 			<a
 				href="https://github.com/tien0483/PixelCompany"
 				target="_blank"
 				rel="noopener noreferrer"
-				class="hover:text-[#E6EDF3] transition-colors"
+				class="hover:text-text-primary transition-colors"
 			>
 				GitHub
 			</a>
 		</div>
 	</div>
 
-	<div class="max-w-6xl mx-auto px-4 sm:px-6 mt-8 pt-6 border-t border-[#30363D]/60 flex flex-col sm:flex-row items-center justify-between text-xs text-[#6E7681] gap-4">
+	<div class="max-w-6xl mx-auto px-4 sm:px-6 mt-8 pt-6 border-t border-border/60 flex flex-col sm:flex-row items-center justify-between text-xs text-text-tertiary gap-4">
 		<span>&copy; 2026 Tiến Nguyễn. All rights reserved.</span>
 		<span>Built with Astro &amp; Tailwind CSS</span>
 	</div>

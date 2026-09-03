@@ -4,6 +4,7 @@ import { type ReactElement, useCallback, useEffect, useRef, useState } from "rea
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { Tooltip } from "@/components/ui/tooltip";
+import { useTheme } from "@/hooks/use-theme";
 import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
 import type { RuntimeSiteStatus } from "@/runtime/types";
 import { alignEmbedHostForBrowser } from "@/site/site-embed-url";
@@ -33,6 +34,7 @@ const POLL_INTERVAL_MS = 5_000;
  * origins, so it is embeddable here and nowhere else.
  */
 export function SiteDocsView({ workspaceId, onClose }: SiteDocsViewProps): ReactElement {
+	const { themeId } = useTheme();
 	const [status, setStatus] = useState<RuntimeSiteStatus | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const [reloadKey, setReloadKey] = useState(0);
@@ -71,8 +73,37 @@ export function SiteDocsView({ workspaceId, onClose }: SiteDocsViewProps): React
 		};
 	}, [isOnline, workspaceId]);
 
+	// Synchronize theme changes to embedded iframe dynamically
+	useEffect(() => {
+		if (!frameRef.current?.contentWindow) {
+			return;
+		}
+		frameRef.current.contentWindow.postMessage(
+			{
+				type: "theme-change",
+				theme: themeId,
+			},
+			"*",
+		);
+	}, [themeId]);
+
+	const handleFrameLoad = useCallback(() => {
+		if (frameRef.current?.contentWindow) {
+			frameRef.current.contentWindow.postMessage(
+				{
+					type: "theme-change",
+					theme: themeId,
+				},
+				"*",
+			);
+		}
+	}, [themeId]);
+
+	const delimiter = status?.docsPath.includes("?") ? "&" : "?";
 	const embedUrl =
-		status === null ? "" : `${alignEmbedHostForBrowser(status.baseUrl)}${status.docsPath}`;
+		status === null
+			? ""
+			: `${alignEmbedHostForBrowser(status.baseUrl)}${status.docsPath}${delimiter}theme=${encodeURIComponent(themeId)}`;
 
 	const reload = useCallback(() => {
 		setReloadKey((key) => key + 1);
@@ -181,6 +212,7 @@ export function SiteDocsView({ workspaceId, onClose }: SiteDocsViewProps): React
 				key={reloadKey}
 				ref={frameRef}
 				src={embedUrl}
+				onLoad={handleFrameLoad}
 				title="PIXTiel documentation"
 				className="min-h-0 w-full flex-1 border-0 bg-surface-0"
 				// The site is first-party content on loopback; it needs scripts for its own
