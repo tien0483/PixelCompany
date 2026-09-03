@@ -8,6 +8,12 @@ import {
 	detectActiveClineComposerToken,
 } from "@/components/detail-panels/cline-chat-composer-completion";
 import { type InlineCompletionItem, InlineCompletionPicker } from "@/components/inline-completion-picker";
+import { insertAtCursor } from "@/components/plan-editor/markdown-selection-commands";
+import {
+	buildTaskImageMarker,
+	resolveUniqueTaskImageLabel,
+	stripTaskImageMarker,
+} from "@/components/task-image-markers";
 import {
 	ACCEPTED_TASK_IMAGE_INPUT_ACCEPT,
 	collectImageFilesFromDataTransfer,
@@ -247,14 +253,48 @@ export function TaskPromptComposer({
 		],
 	);
 
+	/**
+	 * Attach images AND drop a `[image: label]` marker at the caret, so the prompt records where
+	 * each image belongs. Without the marker the runtime can only prepend an unordered path list,
+	 * and an agent has no way to tell which sentence a screenshot goes with.
+	 */
 	const appendImages = useCallback(
 		(newImages: TaskImage[]) => {
 			if (!onImagesChange || newImages.length === 0) {
 				return;
 			}
-			onImagesChange([...images, ...newImages]);
+
+			const takenLabels = new Set(images.map((image) => image.name ?? ""));
+			const labeledImages = newImages.map((image) => {
+				const label = resolveUniqueTaskImageLabel(image.name, takenLabels);
+				takenLabels.add(label);
+				return { image: { ...image, name: label }, label };
+			});
+			onImagesChange([...images, ...labeledImages.map((entry) => entry.image)]);
+
+			const textarea = textareaRef.current;
+			// Read the live textarea value: extracting an image is async, so the prop can be stale
+			// by the time we get here and writing it back would undo whatever was typed meanwhile.
+			const currentValue = textarea?.value ?? value;
+			const selectionStart = textarea?.selectionStart ?? currentValue.length;
+			const selectionEnd = textarea?.selectionEnd ?? selectionStart;
+			const markers = labeledImages.map((entry) => buildTaskImageMarker(entry.label)).join(" ");
+			const needsLeadingSpace = selectionStart > 0 && !/\s$/.test(currentValue.slice(0, selectionStart));
+			const next = insertAtCursor(
+				{ value: currentValue, selectionStart, selectionEnd },
+				`${needsLeadingSpace ? " " : ""}${markers}`,
+			);
+			onValueChange(next.value);
+			window.requestAnimationFrame(() => {
+				if (!textareaRef.current) {
+					return;
+				}
+				textareaRef.current.focus();
+				textareaRef.current.setSelectionRange(next.selectionStart, next.selectionEnd);
+				setCursorIndex(next.selectionStart);
+			});
 		},
-		[images, onImagesChange],
+		[images, onImagesChange, onValueChange, value],
 	);
 
 	const handlePaste = useCallback(
@@ -320,9 +360,20 @@ export function TaskPromptComposer({
 
 	const handleRemoveImage = useCallback(
 		(imageId: string) => {
+			const removedImage = images.find((image) => image.id === imageId);
 			onImagesChange?.(images.filter((image) => image.id !== imageId));
+
+			const label = removedImage?.name?.trim();
+			if (!label) {
+				return;
+			}
+			const currentValue = textareaRef.current?.value ?? value;
+			const nextValue = stripTaskImageMarker(currentValue, label);
+			if (nextValue !== currentValue) {
+				onValueChange(nextValue);
+			}
 		},
-		[images, onImagesChange],
+		[images, onImagesChange, onValueChange, value],
 	);
 
 	const handleAttachClick = useCallback(() => {
