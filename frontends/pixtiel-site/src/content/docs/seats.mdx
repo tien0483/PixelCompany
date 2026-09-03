@@ -1,7 +1,7 @@
 ---
 title: "Multi-Account Seats"
 description: "How PIXTiel eliminates provider rate limits through multi-seat accounts, usage-aware swapping, and subagent quota isolation."
-order: 3
+order: 4
 ---
 
 # Multi-Account Seat Management
@@ -16,7 +16,8 @@ A **Seat** in PIXTiel represents a distinct account identity configured with:
 
 1. **Authentication State**: An OAuth session or API key.
 2. **Git Identity**: Committer name and email tied to the specific account.
-3. **Usage Window Snapshot**: Real-time tracking of 5-hour utilization percentage and token consumption.
+3. **Usage window snapshots**: live tracking of both windows — the 5-hour rolling one and the
+   7-day one — with the time each resets.
 4. **Role Assignment**: Designating the seat for primary card execution, team donation, or subagent tasks.
 
 ---
@@ -42,10 +43,24 @@ PIXTiel tackles this problem with **Auto-Failover & Intelligent Parking**:
 [Switch to Standby Seat] ──► [Continue Execution]
 ```
 
-1. **State Preservation**: When a card hits the rate limit wall, PIXTiel halts the agent gracefully, capturing current file edits, git refs, and turn checkpoints.
-2. **Usage-Aware Backoff**: The runner periodically samples live usage snapshots with escalating backoff to avoid waking directly into another rate-limit spike.
-3. **Seamless Resume**: Once the window resets, the card resumes execution automatically using `--continue` without losing memory or context.
-4. **Standby Swapping**: If multiple seats are registered, PIXTiel automatically promotes a standby seat to take over the card immediately.
+PIXTiel tries the cheapest correct response first, in this order:
+
+1. **Same-seat recovery.** Most "login expired" pops are a stale OAuth pair, not exhaustion.
+   Re-preparing the *same* seat refreshes it and the card relaunches with `--continue`. One
+   attempt is granted per card; a second pop falls through to the next step. This comes first
+   deliberately — failing over a healthy card to another account is the wrong cure for the
+   common case.
+2. **State preservation and parking.** If the window really is closed, the agent is halted
+   gracefully with file edits, git refs and turn checkpoints intact.
+3. **Usage-aware backoff and resume.** The runner samples live usage with escalating backoff — so
+   it does not wake straight into another spike — then resumes with `--continue` once the window
+   clears.
+4. **Standby swapping.** If another registered seat has room, the card fails over to it and
+   keeps going.
+
+A restart keeps the card's permission mode: the mode is a launch flag and `--continue` carries
+nothing about it, so PIXTiel re-passes the mode the session actually recorded. A card you moved
+to plan mode does not come back in auto.
 
 ---
 
@@ -68,8 +83,15 @@ Task Card (Primary Seat: OAuth Account A)
    └── Subagent 3: AST Indexer (Subagent Seat: API Key B)
 ```
 
-- Subagents execute against a separate secondary seat or API key.
-- Your primary OAuth quota remains dedicated to the core coding agent.
+- Subagents execute against a separate secondary seat; the parent session keeps its own OAuth
+  credential and its own cap.
+- No API key is exported into the session — the CLI would prefer a key over its OAuth
+  credential and move the *parent* off the card's seat too. The routing signal is the model
+  marker the CLI already sends for subagent requests, so never override the model per spawn.
+- Every failure degrades to "subagents share the task's seat" rather than blocking the launch.
+- Two real ceilings apply, and the spawn hook's is the one that usually binds first: 2 parallel
+  spawns, a 3-second gap and a 40,000-character prompt limit, against the switchboard's 2
+  concurrent requests and roughly 180K tokens.
 
 ---
 
@@ -77,5 +99,7 @@ Task Card (Primary Seat: OAuth Account A)
 
 1. Open **Settings** (shortcut: `Ctrl+Shift+S`) or click **Manager** in the sidebar.
 2. View registered accounts, current usage percentages, and rate-limit countdown timers.
-3. Mark seats as **Active**, **Standby**, or **Donate / Shared Team Pool**.
+3. Mark seats as **Active** or **Standby**, or set a donate ceiling to share spare capacity.
+   Use the per-seat **CC** button to re-authorize a seat's Claude Code credential — a seat whose
+   OAuth pair has lapsed shows as healthy until you do, and its cards open on the login screen.
 4. When launching a task card, assign the **Primary Seat** and **Subagent Seat** directly from the launch settings modal.

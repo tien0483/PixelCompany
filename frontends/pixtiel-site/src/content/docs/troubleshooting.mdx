@@ -1,0 +1,134 @@
+---
+title: "Troubleshooting"
+description: "The failures that actually happen: busy ports, 9p mounts, a card stuck on the login screen, a blank Learning frame, and how to get work back out of a purged worktree."
+order: 7
+---
+
+# Troubleshooting
+
+Real symptoms, in the order people hit them.
+
+---
+
+## `Port 3484 is already in use`
+
+Something is already serving PIXTiel — often a previous run that did not exit cleanly.
+
+```bash
+pnpm start -- --restart
+```
+
+That frees the app and stack ports and restarts the stack daemons. An already-served sidecar port
+is *adopted*, not treated as an error, so a second launch reusing a running Manager is normal and
+harmless.
+
+---
+
+## The installer aborts on `/mnt/...`
+
+```
+Error: Repo is on /mnt/e/x — a 9p Windows mount. Clone to the native Linux filesystem
+(e.g. ~/pixtiel); node_modules on /mnt hangs forever.
+```
+
+This is a guard, not a bug. On WSL, `/mnt/<drive>` is a 9p mount: dependency installs and
+parallel git operations there stall for minutes or deadlock outright. Install under your Linux
+home (`~/pixtiel`) and the same work takes seconds. You can still *open* projects that live
+elsewhere — it is the install that must be on ext4.
+
+---
+
+## A card opens on `Login expired · Please run /login`
+
+Usually the seat's OAuth pair is stale rather than exhausted. PIXTiel grants one same-seat
+recovery attempt automatically — it re-prepares the seat, restarts the session with `--continue`
+and types `continue` for you. If that has already been spent, the card fails over to a standby
+seat instead.
+
+If it keeps coming back on one seat, its Claude Code credential is genuinely dead: open
+**Manager → Seats** and use that seat's **CC** re-authorize button. A seat whose credential has
+lapsed can still show healthy pills, which is exactly why the button exists.
+
+---
+
+## The Learning tab renders blank
+
+The classroom refuses to be framed. Its `X-Frame-Options` is baked in at *build* time, so a build
+made without the embed origins will never frame — and no error appears in the browser or the
+server log. PIXTiel detects that state and gives you an **Open in a tab** button, which works
+everywhere. To get the embed back, rebuild the sidecar with the frame-ancestors option set.
+
+---
+
+## The Agents studio says a route is failing
+
+The sidebar distinguishes "a seat exists" from "the route works". A `seat · route failing` label
+means a zero-token probe reached the provider and got an error back — the message shown is the
+provider's own. Common causes: the pinned seat has no remaining quota, or its credential needs
+re-authorizing. Nodes that read their base URL from the environment throw rather than silently
+falling back to a public endpoint, which is deliberate: a flow should fail loudly instead of
+billing an account you did not choose.
+
+---
+
+## A worktree disappeared with uncommitted work in it
+
+Worktrees are mortal — assume it happens once. Two recovery sources exist:
+
+```bash
+# every agent turn writes a checkpoint ref
+git for-each-ref refs/kanban/checkpoints/
+
+# discarded work is kept as a patch
+ls ~/.agent/kanban/trashed-task-patches/
+```
+
+Restore the patch onto the commit the card recorded as its base. The habit that makes this
+painless: commit to the card's named branch as soon as a change is meaningful — a branch survives
+a directory that does not.
+
+---
+
+## A build "succeeded" but produced nothing
+
+If you script builds yourself, beware:
+
+```bash
+pnpm build > log 2>&1; echo $?    # reports the redirect's status, not the build's
+```
+
+Three "successful" builds during development were engine failures with no artifacts. Read the
+command's own exit status instead:
+
+```bash
+pnpm build; echo "exit=$?"
+```
+
+---
+
+## A fresh clone fails on `pnpm install`
+
+Fixed in current builds — the workspace binary now has a committed target rather than pointing at
+a build artifact that does not exist yet. On an older checkout, running `pnpm install` a second
+time succeeds, and `pnpm run upgrade` brings you onto a build where the first one does.
+
+---
+
+## Usage jumped after enabling the agent stack
+
+Expected, and reversible. Sessions on a warm repository run a very high prompt-cache hit rate;
+anything that rewrites context can break the cache prefix, turning a cheap cache read into a full
+write. Watch your provider's usage view after enabling it, and take traffic back off the chain
+with:
+
+```bash
+pnpm start -- --no-proxy-env
+```
+
+---
+
+## Still stuck?
+
+Ask the codebase. With a knowledge graph built, the **Understand** tab answers "how does X work"
+and "what calls Y" from the graph instead of a dozen file reads. Otherwise open an issue on
+[GitHub](https://github.com/tien0483/PixelCompany) with the command you ran and its own output.

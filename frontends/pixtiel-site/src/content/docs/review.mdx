@@ -1,7 +1,7 @@
 ---
 title: "Merge Requests & Review"
 description: "GitLab-style whole-branch diff viewer, line comment routing back to agents, and knowledge-graph blast-radius analysis."
-order: 5
+order: 6
 ---
 
 # Merge Requests & Code Review
@@ -37,9 +37,14 @@ In PIXTiel:
 
 PIXTiel integrates directly with your remote Git forge:
 
-1. **Personal Access Token (PAT) Storage**: Connect your GitLab or GitHub account via Personal Access Tokens.
-2. **Vault Security**: All tokens are encrypted and stored locally in the secure credential store (`0600` permissions on disk) and never exposed in logs or git commits.
-3. **Remote Sync**: Push branches, create remote Merge Requests, or fetch existing PR comments without leaving the review interface.
+1. **GitLab**: connect over OAuth from the Review tab, or store a Personal Access Token in the
+   vault. One GitLab identity is shared across seats.
+2. **GitHub**: store a PAT in the vault; PIXTiel plumbs it to the session as `GH_TOKEN`, and
+   picks up an authenticated `gh` CLI when one is present.
+3. **Vault security**: tokens live in the local credential store — directories `0700`, files
+   `0600`. API responses return key *names* and a masked last-4, never values, and nothing is
+   written to your global agent settings.
+4. **Remote sync**: push the card's branch and open the merge request without leaving the board.
 
 ---
 
@@ -58,9 +63,17 @@ When you find an issue in a diff:
 
 Before approving a merge, evaluate the structural impact on the rest of your codebase:
 
-- **Understand Knowledge Graph**: PIXTiel analyzes AST call graphs, module dependencies, and exported symbols.
-- **Blast-Radius Indicator**: Identifies which downstream files, endpoints, or tests are affected by the diff.
-- **Automated Sanity Check**: Runs targeted test suites against affected modules before allowing merge to `main`.
+- **Understand knowledge graph**: when the project has a graph, PIXTiel walks it — modules,
+  exported symbols and edge direction — rather than guessing from file paths.
+- **Blast radius**: the panel lists which downstream files depend on what the diff touched.
+  Containment is not impact and edges have a direction, so a file that merely *contains* a
+  changed symbol is not reported as affected by it.
+- **No graph, no guessing**: with no graph present the panel says so instead of showing an empty
+  result that reads like "nothing is affected". Build one from the **Understand** tab — it reads
+  the whole repository, so it is never built automatically.
+
+Deciding what to re-run is still yours: PIXTiel surfaces the affected surface, it does not gate
+the merge on a test suite it chose for you.
 
 ---
 

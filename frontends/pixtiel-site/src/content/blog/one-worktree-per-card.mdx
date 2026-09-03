@@ -1,0 +1,68 @@
+---
+title: "One git worktree per card"
+description: "Parallel agents in one checkout corrupt each other's work. The fix is boring and load-bearing: give every card its own worktree, lock its base ref, and checkpoint every turn."
+date: 2026-08-28
+tags: ["architecture", "git"]
+---
+
+Run two coding agents in one checkout and you will eventually watch one of them stage the
+other's half-finished edit. Run four and it stops being a question of *if*. The failure is not
+the model's fault — they are both correct about a working tree that changed underneath them.
+
+PIXTiel's answer is the least clever option available: **one git worktree per card**.
+
+## What that buys
+
+A worktree is a full checkout that shares the object database with the main repository. Cheap to
+create, disposable, and isolated where it matters — index, HEAD and working files are its own. So:
+
+- Two agents editing the same file are editing two different files on disk.
+- One agent running `git commit` cannot pick up another's changes, because it has its own index.
+- Killing a card cleans one directory. The repository is untouched.
+- `git log` in the home repo shows every branch, because the objects were shared all along.
+
+## The base ref has to be immutable
+
+The subtle part is not creating the worktree — it is remembering what it was cut from. A card
+that "branches from main" is a lie the moment `main` advances, and it produces a merge that
+quietly drags in someone else's work.
+
+So the base ref is recorded in a branch registry when the worktree is created, and it is
+**write-once**: only deleting the worktree clears it. Three separate holes had to be closed
+before that was true:
+
+1. Re-creating a worktree re-seeded the "immutable" ref from the card, so a purge and restart
+   silently rebased the card onto whatever `main` had become.
+2. The card's ref was only *visually* locked in the editor — the save path still wrote it.
+3. Nothing rejected a floating ref, so cards were recorded with `baseRef: "HEAD"`, which by
+   definition follows HEAD.
+
+Now creation resolves `HEAD` to the checked-out branch, refuses when the home repo is detached,
+and stores the resolved commit alongside the name. Merging borrows a throwaway worktree for the
+base branch rather than requiring that the base happens to be someone's current checkout.
+
+## Worktrees are mortal, so checkpoint every turn
+
+Isolation cuts both ways: a directory that is cheap to create is also cheap to lose, and we lost
+three of them during development — twice with nobody having asked for a cleanup. Uncommitted work
+in a purged worktree is gone in a way `git reflog` cannot help with.
+
+Two mechanisms cover it. Every agent turn writes a checkpoint ref under
+`refs/kanban/checkpoints/`, and anything discarded lands as a patch in
+`~/.agent/kanban/trashed-task-patches/`. Recovery is restoring a patch onto the recorded commit,
+which is exactly why the recorded commit matters.
+
+The practical habit that goes with it: commit to a named branch as soon as a change is
+meaningful. Not because git demands ceremony, but because a named branch is the one thing that
+survives a worktree that no longer exists.
+
+## Cost
+
+Honest accounting: each worktree needs its own `node_modules`, which for a monorepo of this size
+is not free. Two things make it bearable — pnpm's content-addressable store shares packages
+across worktrees instead of copying them, and every gitignored heavyweight path (the agent
+stack's binaries, its virtualenv, one shared flags file) is symlinked into the new worktree
+rather than duplicated. A task agent sees the same relative paths as the home repo without 2 GB
+following it around.
+
+That is the whole trick. Not clever — just consistently applied.

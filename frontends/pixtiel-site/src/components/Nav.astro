@@ -4,6 +4,15 @@ interface Props {
 }
 
 const { class: className } = Astro.props;
+
+/** Top-level sections. `match` decides which link reads as the current page. */
+const links = [
+	{ href: "/products", label: "Products", match: /^\/products/ },
+	{ href: "/docs/getting-started", label: "Docs", match: /^\/docs/ },
+	{ href: "/blog", label: "Blog", match: /^\/blog/ },
+];
+
+const path = Astro.url.pathname;
 ---
 
 <nav class={`w-full border-b border-[#30363D] bg-[#1F2428]/80 backdrop-blur-md sticky top-0 z-50 ${className ?? ""}`}>
@@ -13,9 +22,18 @@ const { class: className } = Astro.props;
 		</a>
 
 		<div class="flex items-center gap-3 sm:gap-6 text-xs sm:text-sm font-medium text-[#8B949E]">
-			<a href="/#features" class="hidden sm:inline-block hover:text-[#E6EDF3] transition-colors">Product</a>
-			<a href="/#install" class="hover:text-[#E6EDF3] transition-colors">Install</a>
-			<a href="/docs/getting-started" class="hover:text-[#E6EDF3] transition-colors">Docs</a>
+			{
+				links.map((link) => (
+					<a
+						href={link.href}
+						aria-current={link.match.test(path) ? "page" : undefined}
+						class={`transition-colors ${link.match.test(path) ? "text-[#E6EDF3]" : "hover:text-[#E6EDF3]"}`}
+					>
+						{link.label}
+					</a>
+				))
+			}
+			<a href="/#install" class="hidden sm:inline-block hover:text-[#E6EDF3] transition-colors">Install</a>
 			<a
 				href="https://github.com/tien0483/PixelCompany"
 				target="_blank"
