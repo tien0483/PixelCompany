@@ -38,18 +38,58 @@ function buildTaskImageFileName(image: RuntimeTaskImage, index: number): string 
 	return `${String(index + 1).padStart(2, "0")}-${sanitizeFileNameSegment(baseName)}${extension}`;
 }
 
+function escapeRegExp(value: string): string {
+	return value.replaceAll(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * `[image: <name>]` markers are written into the prompt by the task composer at the caret where
+ * the image was pasted (`frontends/pixel_office/src/components/task-image-markers.ts`). Replacing
+ * them in place is what keeps an image next to the text it belongs to; anything left over falls
+ * back to the prepended path list. Unmatched markers are left alone — a stale token is the user's
+ * own text.
+ */
+function substituteTaskImageMarkers(
+	prompt: string,
+	imageFileEntries: Array<{ path: string; name?: string }>,
+): { prompt: string; unmatchedEntries: Array<{ path: string; name?: string }> } {
+	let nextPrompt = prompt;
+	const unmatchedEntries: Array<{ path: string; name?: string }> = [];
+
+	for (const entry of imageFileEntries) {
+		const label = entry.name?.trim();
+		if (!label) {
+			unmatchedEntries.push(entry);
+			continue;
+		}
+		const pattern = new RegExp(`\\[image:\\s*${escapeRegExp(label)}\\s*\\]`, "g");
+		if (!pattern.test(nextPrompt)) {
+			unmatchedEntries.push(entry);
+			continue;
+		}
+		nextPrompt = nextPrompt.replaceAll(new RegExp(pattern.source, "g"), entry.path);
+	}
+
+	return { prompt: nextPrompt, unmatchedEntries };
+}
+
 function buildTaskPromptWithImagePaths(
 	prompt: string,
 	imageFileEntries: Array<{ path: string; name?: string }>,
 ): string {
+	const substituted = substituteTaskImageMarkers(prompt, imageFileEntries);
+	const trimmedPrompt = substituted.prompt.trim();
+	if (substituted.unmatchedEntries.length === 0) {
+		return trimmedPrompt;
+	}
+
 	const lines = [
 		"Attached reference images:",
-		...imageFileEntries.map((entry, index) => {
+		...substituted.unmatchedEntries.map((entry, index) => {
 			const displaySuffix = entry.name?.trim() ? ` (${entry.name.trim()})` : "";
 			return `${index + 1}. ${entry.path}${displaySuffix}`;
 		}),
 	];
-	const trimmedPrompt = prompt.trim();
 	if (!trimmedPrompt) {
 		return lines.join("\n");
 	}

@@ -318,7 +318,8 @@ export function TaskInlineCreateCard({
 					Use <code className="rounded bg-surface-3 px-1 py-px font-mono text-[11px]">@file</code> to reference
 					files. Drag and drop or{" "}
 					<code className="rounded bg-surface-3 px-1 py-px font-mono text-[11px]">{pasteShortcutLabel}</code> to
-					add images.
+					add images — each one is inserted at the cursor as{" "}
+					<code className="rounded bg-surface-3 px-1 py-px font-mono text-[11px]">[image: name]</code>.
 				</p>
 			</div>
 

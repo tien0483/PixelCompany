@@ -502,7 +502,11 @@ export function TaskCreateDialog({
 								<code className="rounded bg-surface-3 px-1 py-px font-mono text-[11px]">
 									{pasteShortcutLabel}
 								</code>{" "}
-								to add images.
+								to add images — each one is inserted at the cursor as{" "}
+								<code className="rounded bg-surface-3 px-1 py-px font-mono text-[11px]">
+									[image: name]
+								</code>
+								.
 							</p>
 							{detectedItems.length >= 2 ? (
 								<button
