@@ -14,7 +14,7 @@ import { ClearTrashDialog } from "@/components/clear-trash-dialog";
 import { AgentStudioView } from "@/agents/agent-studio-view";
 import { DebugDialog } from "@/components/debug-dialog";
 import type { AgentStudioTarget } from "@/components/home-sidebar-agents";
-import { DocsView } from "@/components/docs/docs-view";
+import { SiteDocsView } from "@/site/site-docs-view";
 import { AgentTerminalPanel } from "@/components/detail-panels/agent-terminal-panel";
 import {
 	CommitComposerDialog,
@@ -1514,7 +1514,10 @@ export default function App(): ReactElement {
 								<div className="flex flex-1 flex-col min-h-0 min-w-0">
 									<div className="flex flex-1 min-h-0 min-w-0">
 										{isDocsOpen ? (
-											<DocsView workspaceId={currentProjectId} />
+											<SiteDocsView
+												workspaceId={currentProjectId}
+												onClose={handleToggleDocs}
+											/>
 										) : isLearningOpen ? (
 											<LearningView
 												workspaceId={currentProjectId}

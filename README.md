@@ -69,7 +69,7 @@ Full reference: [Commands & Scripts](https://pixtiel.dev/docs/cli).
 | `backends/doc_skill/`, `backends/html_anything/` | Docs and template sidecars |
 | `backends/flowise/`, `backends/openmaic/`, `backends/OmniRoute/` | Submodules: agent studio, learning room, LLM router |
 | `frontends/pixel_office/` | React + Vite UI |
-| `frontends/pixtiel-site/` | This product's marketing and documentation site (Astro) |
+| `frontends/pixtiel-site/` | Marketing and documentation site (Astro) — also framed by the in-app Docs tab |
 | `scripts/` | Launchers, the installer, and the shared helpers they use |
 
 ## Ports
@@ -77,8 +77,8 @@ Full reference: [Commands & Scripts](https://pixtiel.dev/docs/cli).
 Everything binds to `127.0.0.1`.
 
 `3484` app · `8321` Manager · `8322` HTML sidecar · `8323` docs sidecar · `8400` OmniRoute ·
-`3010` agent studio · `3020` learning room · `8000` agent-stack switchboard · `5173` Vite (dev
-only).
+`3010` agent studio · `3020` learning room · `3030` documentation site (what the in-app **Docs**
+tab frames) · `8000` agent-stack switchboard · `5173` Vite (dev only).
 
 ## Requirements
 

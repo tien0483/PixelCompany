@@ -257,6 +257,8 @@ import {
 	RuntimeClaudeOrgMcpPolicySchema,
 	type RuntimeOrchestratorStatus,
 	RuntimeOrchestratorStatusSchema,
+	type RuntimeSiteStatus,
+	RuntimeSiteStatusSchema,
 	type RuntimeGitlabConnection,
 	type RuntimeGitlabConnectStartRequest,
 	type RuntimeGitlabConnectStartResponse,
@@ -959,6 +961,9 @@ export interface RuntimeTrpcContext {
 	};
 	orchestratorApi: {
 		status: () => Promise<RuntimeOrchestratorStatus>;
+	};
+	siteApi: {
+		status: () => Promise<RuntimeSiteStatus>;
 	};
 	docSkillApi: {
 		status: () => Promise<RuntimeDocSkillStatus>;
@@ -2017,6 +2022,11 @@ export const runtimeAppRouter = t.router({
 	orchestrator: t.router({
 		status: t.procedure.output(RuntimeOrchestratorStatusSchema).query(async ({ ctx }) => {
 			return await ctx.orchestratorApi.status();
+		}),
+	}),
+	site: t.router({
+		status: t.procedure.output(RuntimeSiteStatusSchema).query(async ({ ctx }) => {
+			return await ctx.siteApi.status();
 		}),
 	}),
 	docSkill: t.router({
