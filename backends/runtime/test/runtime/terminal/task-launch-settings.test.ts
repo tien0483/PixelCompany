@@ -73,6 +73,15 @@ describe("cloneTaskLaunchSettings", () => {
 			workflowIds: ["deploy", "release"],
 		});
 	});
+
+	it("preserves teamworkPreview boolean setting", () => {
+		expect(cloneTaskLaunchSettings({ teamworkPreview: true })).toEqual({
+			teamworkPreview: true,
+		});
+		expect(cloneTaskLaunchSettings({ teamworkPreview: false })).toEqual({
+			teamworkPreview: false,
+		});
+	});
 });
 
 describe("allowlist helpers", () => {
