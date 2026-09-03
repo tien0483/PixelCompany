@@ -69,6 +69,7 @@ export function cloneTaskLaunchSettings(
 		...(workflowIds ? { workflowIds } : {}),
 		...(mcpServerIds ? { mcpServerIds } : {}),
 		...(customAgentFlowIds ? { customAgentFlowIds } : {}),
+		...(settings.teamworkPreview !== undefined ? { teamworkPreview: settings.teamworkPreview } : {}),
 		// A model without a provider names nothing resolvable, so it is dropped with it.
 		...(subagentSeatProviderId ? { subagentSeatProviderId } : {}),
 		...(subagentSeatProviderId && subagentSeatModelId ? { subagentSeatModelId } : {}),
@@ -76,6 +77,7 @@ export function cloneTaskLaunchSettings(
 	if (
 		next.modelId === undefined &&
 		next.effort === undefined &&
+		next.teamworkPreview === undefined &&
 		next.skillIds === undefined &&
 		next.agentIds === undefined &&
 		next.commandIds === undefined &&

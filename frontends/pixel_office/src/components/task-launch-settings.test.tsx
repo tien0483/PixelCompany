@@ -283,6 +283,13 @@ describe("TaskLaunchSettingsPicker", () => {
 		expect(container.textContent).toContain("Model");
 		expect(container.textContent).toContain("Effort");
 		expect(container.textContent).toContain("Skill");
+		const teamworkCheckbox = container.querySelector('[data-testid="task-launch-teamwork-preview"] input, [data-testid="task-launch-teamwork-preview"] button');
+		expect(teamworkCheckbox).toBeTruthy();
+
+		await act(async () => {
+			teamworkCheckbox!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+		});
+		expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ teamworkPreview: true }));
 	});
 
 	it("accumulates multiple skill adds before parent value catches up", async () => {
