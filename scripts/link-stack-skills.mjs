@@ -12,7 +12,7 @@
  *
  * Deliberately NOT ported here: the env exports (they would silently route every
  * runtime-spawned agent through the switchboard proxy and downgrade subagents).
- * `scripts/ensure-agent-stack.mjs` (called from `pnpm run solo`) handles shallow
+ * `scripts/ensure-agent-stack.mjs` (called from `pnpm start`) handles shallow
  * clones, venv sync, skill links, and on `--restart` stops stack daemons and frees
  * stack ports so the runtime spawns fresh headroom/ccr/switchboard instances.
  * Keep sourcing the activator in your own shell for session-scoped env exports.
@@ -299,7 +299,7 @@ function collectCompressionCoexistenceRules(sandboxDir, flags, repoRoot) {
  * That link is the one thing the stack owns outside its own directory, and it
  * points at a checkout inside this repo — so moving or deleting the repo breaks
  * `/understand` in *every* project on the machine. Repairing it here is what
- * keeps that from being a silent, permanent break: the next `npm run solo` fixes
+ * keeps that from being a silent, permanent break: the next `pnpm start` fixes
  * it. Only ever created or repaired, never repointed away from a link that
  * already resolves — a second checkout that got there first keeps ownership.
  */

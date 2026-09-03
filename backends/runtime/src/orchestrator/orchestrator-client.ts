@@ -58,7 +58,7 @@ function buildHints(input: {
 		hints.push("Product plugins installing in $DSH_HOME/profiles/headless — retry after solo finishes the install.");
 	}
 	if (!input.flowiseOnline) {
-		hints.push("Flowise offline — Agents tab flows unavailable until pnpm run solo starts the studio.");
+		hints.push("Flowise offline — Agents tab flows unavailable until pnpm start starts the studio.");
 	}
 	if (input.binary !== null && !input.binary.viaNpx && input.patchPath !== null) {
 		hints.push("Pick agent Custom Agent (dsh) on a task card for cross-provider delegation.");

@@ -135,7 +135,7 @@ function Start-PixelOfficeSoloWsl {
 cd '$repoEscaped' || exit 1
 if [ -f "`$HOME/.nvm/nvm.sh" ]; then . "`$HOME/.nvm/nvm.sh"; fi
 if [ -f "`$HOME/.bashrc" ]; then . "`$HOME/.bashrc" >/dev/null 2>&1 || true; fi
-exec npm run solo
+exec npm start
 "@
 	$argList = @()
 	if (-not [string]::IsNullOrWhiteSpace($WslDistro)) {
@@ -159,7 +159,7 @@ function Start-PixelOfficeSoloWindows {
 	}
 	$installDir = Get-PixelOfficeInstallDir
 	$logPath = Join-Path $installDir "solo.log"
-	$cmd = "set npm_config_yes=true&& npm run solo >> `"$logPath`" 2>&1"
+	$cmd = "set npm_config_yes=true&& npm start >> `"$logPath`" 2>&1"
 	Start-Process -FilePath "cmd.exe" -ArgumentList "/c", $cmd -WorkingDirectory $WindowsRepoPath -WindowStyle Minimized | Out-Null
 }
 

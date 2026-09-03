@@ -6,7 +6,7 @@ This document defines the screenshot inventory for the PIXTiel marketing and doc
 
 ## Capture Environment & Prerequisites
 
-- **Instance Source**: Running instance of PIXTiel via `pnpm run solo` in the root repository.
+- **Instance Source**: Running instance of PIXTiel via `pnpm start` in the root repository.
 - **Port / URL**: `http://127.0.0.1:3484`
 - **Theme**: Dark Mode (default PIXTiel palette).
 - **Display Scale**: 2× device pixel ratio (`deviceScaleFactor: 2`).
@@ -45,7 +45,7 @@ Run Google Chrome in headless mode with CDP automation:
 
 ```bash
 # 1. Ensure solo instance is running:
-pnpm run solo
+pnpm start
 
 # 2. Capture and sanitize views:
 node -e '

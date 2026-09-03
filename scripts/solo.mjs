@@ -6,13 +6,13 @@
  *   http://127.0.0.1:3484   →  board + Claude Accounts + Pixel Office
  *
  * Usage (from repo root):
- *   pnpm run solo --restart --build   # normal dev loop: rebuild UI, fresh stack + runtime
- *   npm run solo              # build the UI when missing or stale, then serve
- *   npm run solo -- --restart # free app + stack ports, restart stack daemons
- *   npm run solo -- --skip-build   # fail if missing, warn+serve if stale
- *   npm run solo -- --build        # always rebuild first
- *   npm run solo -- --no-stack-link # do not link agent-stack skills into .claude/skills
- *   npm run solo -- --no-proxy-env  # do not route agent traffic through the stack chain
+ *   pnpm start -- --restart --build   # normal dev loop: rebuild UI, fresh stack + runtime
+ *   pnpm start              # build the UI when missing or stale, then serve
+ *   pnpm start -- --restart # free app + stack ports, restart stack daemons
+ *   pnpm start -- --skip-build   # fail if missing, warn+serve if stale
+ *   pnpm start -- --build        # always rebuild first
+ *   pnpm start -- --no-stack-link # do not link agent-stack skills into .claude/skills
+ *   pnpm start -- --no-proxy-env  # do not route agent traffic through the stack chain
  */
 import { connect } from "node:net";
 import { constants as fsConstants, existsSync, readFileSync } from "node:fs";
@@ -430,7 +430,7 @@ function warnStaleUi(distStamp, reason) {
 	console.warn(
 		`  Warning: the built UI at ${webUiDist} is older than its sources (dist built ${new Date(distStamp).toLocaleString()}).`,
 	);
-	console.warn(`  Serving it as-is because ${reason}. Run \`npm run solo -- --build\` to rebuild.`);
+	console.warn(`  Serving it as-is because ${reason}. Run \`pnpm start -- --build\` to rebuild.`);
 }
 
 function buildUi() {
@@ -531,7 +531,7 @@ async function main() {
 	await wireAgentStack();
 
 	if (!restart && (await portIsListening(RUNTIME_PORT))) {
-		console.error(`Port ${RUNTIME_PORT} is already in use. Run: npm run solo -- --restart`);
+		console.error(`Port ${RUNTIME_PORT} is already in use. Run: pnpm start -- --restart`);
 		process.exit(1);
 	}
 
@@ -577,7 +577,7 @@ async function main() {
 		buildHtmlSidecar();
 	} else if (htmlFreshness.state === "stale") {
 		console.warn(
-			"  HTML sidecar build is older than its sources — templates may stay stale. Run: npm run solo -- --build",
+			"  HTML sidecar build is older than its sources — templates may stay stale. Run: pnpm start -- --build",
 		);
 	} else if (htmlFreshness.state === "missing") {
 		console.warn("  HTML sidecar .next missing — templates stay offline.");
@@ -601,13 +601,13 @@ async function main() {
 		}
 	} else if (openmaicFreshness.state === "stale") {
 		console.warn(
-			"  OpenMAIC build is older than its sources — Learning may stay stale. Run: npm run solo -- --build",
+			"  OpenMAIC build is older than its sources — Learning may stay stale. Run: pnpm start -- --build",
 		);
 	} else if (openmaicFreshness.state === "missing") {
 		console.warn("  OpenMAIC build missing — Learning sidecar may stay offline.");
 	} else if (openmaicEmbedBad) {
 		console.warn(
-			"  OpenMAIC build blocks embedding — Learning frame may be blank. Run: npm run solo -- --build",
+			"  OpenMAIC build blocks embedding — Learning frame may be blank. Run: pnpm start -- --build",
 		);
 	}
 
@@ -619,7 +619,7 @@ async function main() {
 		buildFlowiseSidecar();
 	} else if (flowiseFreshness.state === "stale") {
 		console.warn(
-			"  Flowise build is older than its sources — Agents studio may stay stale. Run: npm run solo -- --build",
+			"  Flowise build is older than its sources — Agents studio may stay stale. Run: pnpm start -- --build",
 		);
 	} else if (flowiseFreshness.state === "missing") {
 		console.warn("  Flowise build missing — Agents studio may stay offline.");
@@ -641,7 +641,7 @@ async function main() {
 	if (proxyEnv) {
 		console.log(`  Agents:   ${proxyEnv.chain}`);
 		console.log("            OAuth is preserved (no ANTHROPIC_API_KEY is exported).");
-		console.log("            Watch cache hit rate; opt out with: npm run solo -- --no-proxy-env");
+		console.log("            Watch cache hit rate; opt out with: pnpm start -- --no-proxy-env");
 	} else if (noProxyEnv) {
 		console.log("  Agents:   direct to api.anthropic.com (--no-proxy-env)");
 	}

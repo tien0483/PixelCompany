@@ -106,7 +106,7 @@ Windows/Linux are fully isolated per account.
 
 Run this repo from the Linux native filesystem (e.g. `~/work/PixelCompany`), never from
 `/mnt/<drive>/...`. Node/tsx/Vite open thousands of small files in `node_modules` on startup; each
-crosses the 9p WSL↔Windows boundary at ms latency instead of µs, so `npm run solo` / `npm start`
+crosses the 9p WSL↔Windows boundary at ms latency instead of µs, so `pnpm start` / `npm start`
 appear to hang forever (`main()` never reaches `listen()`, port stays refused even from inside WSL).
 Clone or `rsync --exclude node_modules --exclude .git` onto the ext4 filesystem instead — startup
 drops from "never finishes" to seconds.
@@ -119,7 +119,7 @@ If `npm install` on Linux fails building the UI with `Cannot find module
 
 ### Desktop icon (WSL or native Windows)
 
-Use a per-user Windows shortcut that starts `npm run solo` in the host you choose, then opens Edge/Chrome as an app window. No admin install.
+Use a per-user Windows shortcut that starts `pnpm start` in the host you choose, then opens Edge/Chrome as an app window. No admin install.
 
 ```powershell
 cd scripts\windows
@@ -149,7 +149,7 @@ Details: [`scripts/windows/README.md`](scripts/windows/README.md).
 
 Optional alternative to `--app=` chrome: install PixelOffice as a browser PWA.
 
-1. Start the stack (`npm run solo`) or use the Desktop icon above.
+1. Start the stack (`pnpm start`) or use the Desktop icon above.
 2. Open `http://127.0.0.1:3484` in **Windows** Chrome or Edge — not a browser inside WSL.
 3. Install via the browser UI: ⋮ → **Apps** → **Install PixelOffice** (Chrome) or **Apps** → **Install this site as an app** / **Open as window** (Edge).
 4. Closing the installed window does **not** stop the stack — use **PixelOffice Stop** or stop the terminal process. Reopening while the stack is down shows the waiting page until the server is up again.

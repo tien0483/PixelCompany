@@ -31,19 +31,19 @@ curl -fsSL https://raw.githubusercontent.com/tien0483/PixelCompany/main/install.
 The installer presents a checkbox interface to choose exactly which services to install:
 
 ```text
-  ██████╗ ██╗██╗  ██╗████████╗██╗███████╗██╗     
-  ██╔══██╗██║╚██╗██╔╝╚══██╔══╝██║██╔════╝██║     
-  ██████╔╝██║ ╚███╔╝    ██║   ██║█████╗  ██║     
-  ██╔═══╝ ██║ ██╔██╗    ██║   ██║██╔══╝  ██║     
-  ██║     ██║██╔╝ ██╗   ██║   ██║███████╗███████╗
-  ╚═╝     ╚═╝╚═╝  ╚═╝   ╚═╝   ╚═╝╚══════╝╚══════╝
+ █▀█ █ ▀▄▀ ▀█▀ █ █▀▀ █
+ █▀▀ █ █ █  █  █ ██▄ █▄▄
+ ─────────────────────────────
+ AUTHOR: Tiến Nguyễn | v1.0.0131
+ ─────────────────────────────
 
-  [x] Agent Stack     (Worktree supervisor, session runner, checkpoints)
-  [x] Kanban          (Web UI, boards, project switchboard)
-  [x] Plan Editor     (Interactive HTML planning, AI diff refine)
-  [ ] OmniRoute       (LLM routing and model proxy)
-  [ ] Review          (GitLab MR diff viewer and comment routing)
-  [ ] Agent Creation  (Flowise drag-and-drop studio canvas)
+ ❯ [x] Kanban board + runtime (core) (required)
+   [x] Agent Stack (Understand-Anything, rtk, headroom)
+   [x] Plan editor
+   [ ] OmniRoute
+   [ ] Review
+   [ ] Agent creation (Flowise studio)
+   ↑/↓ move · space toggle · a all · enter confirm · q quit
 ```
 
 ---
@@ -52,31 +52,41 @@ The installer presents a checkbox interface to choose exactly which services to 
 
 The installer recognizes the following modular components:
 
-| Feature Identifier | Component Name | Description | Default |
+| Feature id | Component | What it installs | Default |
 |---|---|---|---|
-| `agent_stack` | **Agent Stack** | Worktree lifecycle supervisor, turn checkpoints, agent runner | **Enabled** |
-| `kanban` | **Kanban UI** | React + Vite frontend, local runtime server (`:3484`) | **Enabled** |
-| `plan_editor` | **Plan Editor** | HTML plan scaffold, AI-assisted diff editor, sub-plan fanning | **Enabled** |
-| `review` | **Review Viewer** | GitLab-style MR diff viewer and agent comment routing | Optional |
-| `omniroute` | **OmniRoute** | Multi-provider reverse proxy, token budgeting, failover | Optional |
-| `flowise` | **Agent Studio** | Flowise visual canvas for drag-and-drop agent chains | Optional |
-| `openmaic` | **Learning Room** | OpenMAIC multi-agent classroom and knowledge indexing | Optional |
+| `kanban` | **Kanban board + runtime** | React + Vite UI and the local runtime server (`:3484`) | **On, required** |
+| `agent-stack` | **Agent Stack** | Understand-Anything, `rtk`, headroom — needs [`uv`](https://docs.astral.sh/uv/) | **On** |
+| `plan-editor` | **Plan editor** | HTML plan scaffold and the AI-assisted diff editor | **On** |
+| `omniroute` | **OmniRoute** | Multi-provider LLM proxy on `:8400` | Off |
+| `review` | **Review** | GitLab MR diff viewer and comment routing (ships in-tree) | Off |
+| `agent-creation` | **Agent studio** | Flowise canvas on `:3010` — needs Node 24 | Off |
+
+The core is always installed; the others are independent. A feature that fails warns in red
+and the rest continue — a partial install is a valid state, and the matching surface simply
+shows its empty state until you install it.
 
 ---
 
 ## Non-TTY & Automated Installs
 
-For headless environments, CI pipelines, or scriptable setups, pass the `--features` flag or preset flags:
+Without a terminal — CI, `curl … | sh` in a script, a Dockerfile — the installer skips the
+picker and installs the default selection. To choose explicitly, pass `--features`:
 
 ```bash
-# Install with specific components:
-./scripts/install/install.mjs --features=agent_stack,kanban,plan_editor
+# Named components (comma-separated ids from the table above):
+pnpm run setup -- --features kanban,agent-stack
 
-# Install all available components:
-./scripts/install/install.mjs --all
+# Same thing without the package manager:
+node scripts/install/install.mjs --features kanban,agent-stack
+```
 
-# Minimal headless install:
-./scripts/install/install.mjs --minimal
+An unknown id exits `2` and prints the valid ones. Start behaviour is controlled by two
+flags; without either, an interactive run asks and a non-interactive run just prints the
+next command:
+
+```bash
+pnpm run setup -- --start      # launch as soon as the install succeeds
+pnpm run setup -- --no-start   # never launch (what CI wants)
 ```
 
 ---
@@ -88,14 +98,11 @@ The installer writes its configuration atomically to `.pixtiel/install-manifest.
 ```json
 {
   "version": "1.0.131",
-  "installedAt": "2026-09-01T23:30:00.000Z",
-  "features": [
-    "agent_stack",
-    "kanban",
-    "plan_editor"
-  ],
-  "nodeVersion": "24.20.0",
-  "platform": "linux"
+  "installedAt": "2026-09-03T00:09:05.669Z",
+  "features": {
+    "kanban": { "ok": true, "at": "2026-09-03T00:09:05.669Z" },
+    "agent-stack": { "ok": true, "at": "2026-09-03T00:09:05.669Z" }
+  }
 }
 ```
 
@@ -108,13 +115,13 @@ If you re-run the installer, it reads the manifest, presents your previous selec
 To update your workspace to the latest release and rebuild active features:
 
 ```bash
-pnpm run update-tenant
+pnpm run upgrade
 ```
 
 To run only the core development stack:
 
 ```bash
-pnpm run solo
+pnpm start
 ```
 
 ---

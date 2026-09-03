@@ -36,7 +36,7 @@ npm install -g @deepseek-ai/dsh
 Product plugins live in the **task profile**, `$DSH_HOME/profiles/headless` (default
 `~/.agent/dsh/profiles/headless`) — dsh resolves out-of-tree plugins from the dsh installation
 first and then from the profile's own `node_modules`, never from `$DSH_HOME` itself.
-**Auto-installed on `pnpm run solo`** when missing:
+**Auto-installed on `pnpm start`** when missing:
 
 ```bash
 # Manual fallback only:
@@ -118,7 +118,7 @@ Agents sidebar panel + `tRPC: runtime.orchestrator.status`
 ### Optional web sidecar
 
 ```bash
-PIXELOFFICE_DSH_WEB=1 pnpm run solo
+PIXELOFFICE_DSH_WEB=1 pnpm start
 # listens on http://127.0.0.1:3020 when dsh is installed
 ```
 
@@ -182,7 +182,7 @@ Flowise: use **Custom Agent** or call the prediction API from a Custom Function 
 
 ## Quick start checklist
 
-- [ ] `pnpm run solo` — Flowise :3010 up
+- [ ] `pnpm start` — Flowise :3010 up
 - [ ] Deploy AgentFlow (LLM + GitLab MCP + tools)
 - [ ] `print-flowise-mcp-config.mjs` → `~/.cursor/mcp.json`
 - [ ] `npm i -g @deepseek-ai/dsh` (for Custom Agent)

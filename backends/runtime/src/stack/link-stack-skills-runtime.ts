@@ -1,6 +1,6 @@
 // Runtime hook for scripts/link-stack-skills.mjs — keeps UA, Caveman, and Ponytail
 // resolvable in the home repo and in every task worktree without requiring a
-// sourced activate-stack.sh or a prior `npm run solo`.
+// sourced activate-stack.sh or a prior `pnpm start`.
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";

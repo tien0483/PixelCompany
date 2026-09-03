@@ -5,13 +5,13 @@
  * so this script no longer spawns Python — it only frees Manager's port on --restart
  * so a stale service does not shadow the one the runtime would start.
  *
- * For a single-URL launch with no Vite, use `npm run solo`.
+ * For a single-URL launch with no Vite, use `pnpm start`.
  * Windows-safe — avoids spawn EINVAL from spawning .cmd shims without a shell.
  *
  * Usage (from repo root):
  *   node scripts/start-stack.mjs
  *   node scripts/start-stack.mjs --restart
- *   npm start
+ *   pnpm dev
  */
 import { connect } from "node:net";
 import { existsSync } from "node:fs";
@@ -134,7 +134,7 @@ async function assertPortsFree() {
 	}
 	if (busy.length > 0) {
 		console.error(`Ports already in use: ${busy.join(", ")}`);
-		console.error("Run: npm run restart");
+		console.error("Run: pnpm run restart");
 		process.exit(1);
 	}
 }
@@ -178,11 +178,11 @@ async function main() {
 	}
 
 	if (!tsxCli) {
-		console.error("tsx not found (backends/runtime or repo root). Run: npm install --install-links");
+		console.error("tsx not found (backends/runtime or repo root). Run: pnpm install");
 		process.exit(1);
 	}
 	if (!viteCli) {
-		console.error("vite not found (frontends/pixel_office or repo root). Run: npm install --install-links");
+		console.error("vite not found (frontends/pixel_office or repo root). Run: pnpm install");
 		process.exit(1);
 	}
 

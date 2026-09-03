@@ -34,13 +34,33 @@ Install PIXTiel on Ubuntu or Windows WSL2 with a single command:
 curl -fsSL https://raw.githubusercontent.com/tien0483/PixelCompany/main/install.sh | bash
 ```
 
-Once installed, start the full stack:
+The installer offers to start PIXTiel when it finishes, so the usual answer is Enter. To
+start it later, from the install directory:
 
 ```bash
-pnpm run solo
+pnpm start
 ```
 
 Open your browser to `http://127.0.0.1:3484` to access your workspace board.
+
+### Every command you need
+
+| Command | What it does |
+|---|---|
+| `pnpm run setup` | Interactive installer — pick components, then start |
+| `pnpm start` | Production run: one process, one URL on `:3484` |
+| `pnpm dev` | Development: Vite HMR on `:5173` against the runtime on `:3484` |
+| `pnpm run restart` | Same as `dev`, but frees stale ports first |
+| `pnpm run build` | Build the web UI (`frontends/pixel_office/dist`) |
+| `pnpm run upgrade` | Pull the latest release, rebuild the features you installed |
+
+`pnpm start` builds the UI when it is missing or stale, so a fresh clone needs nothing else.
+Useful flags: `pnpm start -- --restart` (free the app and stack ports first), `-- --build`
+(always rebuild), `-- --skip-build` (never build), `-- --no-proxy-env` (keep agent traffic
+off the stack chain).
+
+The old names `solo`, `install-tenant` and `update-tenant` still work as aliases; they print
+a one-line notice and forward to `start`, `setup` and `upgrade`.
 
 ---
 

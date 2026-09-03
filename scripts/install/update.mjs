@@ -191,8 +191,8 @@ const manifestData = {
 writeFileSync(tempManifest, JSON.stringify(manifestData, null, 2) + "\n", "utf8");
 renameSync(tempManifest, targetManifest);
 
-// 7. Print old -> new and pnpm run solo reminder
+// 7. Print old -> new and the start reminder
 console.log(`\nUpdated PIXTiel: ${currentFormatted} → ${newFormatted}\n`);
 console.log("Next step:");
-console.log(`  ${CYAN}pnpm run solo${RESET}\n`);
+console.log(`  ${CYAN}pnpm start${RESET}\n`);
 process.exit(0);
