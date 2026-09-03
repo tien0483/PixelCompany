@@ -24,6 +24,7 @@ describe("taskLaunchSettings schema", () => {
 				agentIds: ["code-reviewer"],
 				commandIds: ["pr"],
 				mcpServerIds: ["filesystem"],
+				teamworkPreview: true,
 			},
 		});
 		expect(card.taskLaunchSettings).toEqual({
@@ -33,6 +34,7 @@ describe("taskLaunchSettings schema", () => {
 			agentIds: ["code-reviewer"],
 			commandIds: ["pr"],
 			mcpServerIds: ["filesystem"],
+			teamworkPreview: true,
 		});
 	});
 

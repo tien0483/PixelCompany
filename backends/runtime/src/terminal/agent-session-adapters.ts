@@ -1349,9 +1349,19 @@ const geminiAdapter: AgentSessionAdapter = {
 			env.GEMINI_CLI_SYSTEM_SETTINGS_PATH = configPath;
 		}
 
-		const trimmed = input.prompt.trim();
-		if (trimmed && !isResuming) {
-			args.push("-i", trimmed);
+		let effectivePrompt = input.prompt.trim();
+		if (launchSettings?.teamworkPreview) {
+			if (effectivePrompt) {
+				if (!effectivePrompt.startsWith("/teamwork-preview")) {
+					effectivePrompt = `/teamwork-preview\n${effectivePrompt}`;
+				}
+			} else {
+				effectivePrompt = "/teamwork-preview";
+			}
+		}
+
+		if (effectivePrompt && !isResuming) {
+			args.push("-i", effectivePrompt);
 			return {
 				args,
 				env,

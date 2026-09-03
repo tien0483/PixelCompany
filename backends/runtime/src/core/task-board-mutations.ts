@@ -111,12 +111,14 @@ function cloneTaskLaunchSettings(
 		...(workflowIds && workflowIds.length > 0 ? { workflowIds } : {}),
 		...(mcpServerIds && mcpServerIds.length > 0 ? { mcpServerIds } : {}),
 		...(customAgentFlowIds && customAgentFlowIds.length > 0 ? { customAgentFlowIds } : {}),
+		...(settings.teamworkPreview !== undefined ? { teamworkPreview: settings.teamworkPreview } : {}),
 		...(subagentSeatProviderId ? { subagentSeatProviderId } : {}),
 		...(subagentSeatProviderId && subagentSeatModelId ? { subagentSeatModelId } : {}),
 	};
 	if (
 		next.modelId === undefined &&
 		next.effort === undefined &&
+		next.teamworkPreview === undefined &&
 		next.skillIds === undefined &&
 		next.agentIds === undefined &&
 		next.commandIds === undefined &&
