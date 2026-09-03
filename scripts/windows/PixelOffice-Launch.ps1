@@ -5,7 +5,7 @@
 
 .DESCRIPTION
   Reads %LOCALAPPDATA%\PixelOffice\config.json (written by Install-PixelOfficeShortcut.ps1).
-  If http://127.0.0.1:3484 is down, starts `npm run solo` in the configured runtime, waits,
+  If http://127.0.0.1:3484 is down, starts `npm start` in the configured runtime, waits,
   then opens Edge/Chrome with --app=.
 #>
 [CmdletBinding()]

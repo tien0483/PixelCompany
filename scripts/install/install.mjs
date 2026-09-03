@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import process from "node:process";
@@ -59,6 +60,8 @@ const validIds = FEATURES.map((f) => f.id);
 let selectedIds = null;
 let hasFeaturesFlag = false;
 let featuresArgValue = null;
+/** null = ask when interactive; true/false = forced by --start / --no-start. */
+let startAfterInstall = null;
 
 for (let i = 2; i < process.argv.length; i++) {
 	const arg = process.argv[i];
@@ -73,6 +76,10 @@ for (let i = 2; i < process.argv.length; i++) {
 	} else if (arg.startsWith("--features=")) {
 		hasFeaturesFlag = true;
 		featuresArgValue = arg.slice("--features=".length);
+	} else if (arg === "--start") {
+		startAfterInstall = true;
+	} else if (arg === "--no-start") {
+		startAfterInstall = false;
 	}
 }
 
@@ -163,11 +170,46 @@ for (const feat of FEATURES) {
 	}
 }
 
-console.log("\nNext step:");
-console.log(`  ${CYAN}pnpm run solo${RESET}\n`);
-
 const kanbanResult = results.get("kanban");
-if (!kanbanResult || !kanbanResult.ok) {
+const coreInstalled = Boolean(kanbanResult && kanbanResult.ok);
+
+/** One keypress-free y/n read on the controlling terminal. Defaults to yes on Enter. */
+async function confirmStart() {
+	process.stdout.write(`\n${CYAN}Start PIXTiel now?${RESET} ${DIM}[Y/n]${RESET} `);
+	process.stdin.setEncoding("utf8");
+	process.stdin.resume();
+	const answer = await new Promise((resolveAnswer) => {
+		const onData = (chunk) => {
+			process.stdin.off("data", onData);
+			process.stdin.pause();
+			resolveAnswer(String(chunk).trim().toLowerCase());
+		};
+		process.stdin.on("data", onData);
+	});
+	return answer === "" || answer === "y" || answer === "yes";
+}
+
+if (!coreInstalled) {
+	// A failed core install has nothing to start; say what to do and fail.
+	console.log("\nNext step:");
+	console.log(`  ${CYAN}pnpm run setup${RESET}   ${DIM}(re-run once the error above is fixed)${RESET}\n`);
 	process.exit(1);
 }
-process.exit(0);
+
+const wantsStart = startAfterInstall === null ? process.stdin.isTTY && (await confirmStart()) : startAfterInstall;
+
+if (!wantsStart) {
+	console.log("\nNext step:");
+	console.log(`  ${CYAN}pnpm start${RESET}\n`);
+	process.exit(0);
+}
+
+// Hand over to the server. `pm.mjs run` picks whichever client invoked us, so a
+// pnpm install keeps using pnpm.
+console.log(`\n${DIM}Starting… (Ctrl+C to stop)${RESET}\n`);
+const handoff = spawnSync(process.execPath, [join(repoRoot, "scripts", "pm.mjs"), "run", "start"], {
+	cwd: repoRoot,
+	stdio: "inherit",
+	windowsHide: true,
+});
+process.exit(handoff.status ?? 1);

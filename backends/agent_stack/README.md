@@ -60,7 +60,7 @@ activator started. A switchboard the runtime spawned is stopped by the runtime.
 
 ## Use
 
-Nothing to do for the switchboard and skills — `pnpm run solo --restart --build`
+Nothing to do for the switchboard and skills — `pnpm start -- --restart --build`
 handles shallow clones (ponytail when flagged), `uv sync` when the venv is missing,
 skill/rule links, stack daemon restart, UI rebuild, and runtime boot. Use that as
 the normal dev loop after stack changes.

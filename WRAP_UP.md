@@ -30,10 +30,10 @@ Claude-only + multi-account (2026-07-30):
 npm install --install-links
 
 npm start        # dev: runtime + Vite (HMR) on :5173, jacked headless behind it
-npm run solo     # single URL: runtime serves the built UI on :3484, jacked as its child
+pnpm start     # single URL: runtime serves the built UI on :3484, jacked as its child
 ```
 
-`npm run solo` flags pass through: `-- --restart`, `-- --build`, `-- --skip-build`, `-- --no-open`.
+`pnpm start` flags pass through: `-- --restart`, `-- --build`, `-- --skip-build`, `-- --no-open`.
 Port override: `PIXELOFFICE_PORT`.
 
 ## Test

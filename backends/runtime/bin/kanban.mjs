@@ -20,7 +20,7 @@ const cli = join(here, "..", "dist", "cli.js");
 if (!existsSync(cli)) {
 	console.error("kanban: the CLI is not built yet.");
 	console.error("Build it from the repo root:  pnpm --filter kanban build");
-	console.error("Or start everything in dev mode:  pnpm run solo");
+	console.error("Or start everything in dev mode:  pnpm start");
 	process.exit(1);
 }
 

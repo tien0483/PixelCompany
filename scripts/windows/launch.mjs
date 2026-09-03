@@ -48,7 +48,7 @@ async function waitReady(url, timeoutSec = 120) {
 
 function startSolo(windowsRepoPath) {
 	const logPath = join(installDir(), "solo.log");
-	const cmd = `set npm_config_yes=true&& npm run solo >> "${logPath}" 2>&1`;
+	const cmd = `set npm_config_yes=true&& npm start >> "${logPath}" 2>&1`;
 	spawn("cmd.exe", ["/c", cmd], {
 		cwd: windowsRepoPath,
 		detached: true,

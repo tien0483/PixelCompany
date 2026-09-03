@@ -1,5 +1,5 @@
 /**
- * Bootstraps the in-tree agent stack for `pnpm run solo`: optional shallow clones,
+ * Bootstraps the in-tree agent stack for `pnpm start`: optional shallow clones,
  * venv sync, skill/rule links, and on `--restart` a clean daemon cycle so runtime
  * spawns headroom/ccr/switchboard with current config instead of adopting stale
  * processes from an old `activate-stack.sh` session.

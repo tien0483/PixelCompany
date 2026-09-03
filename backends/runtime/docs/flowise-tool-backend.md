@@ -174,7 +174,7 @@ Research question for run_agent:
 
 ## Checklist
 
-- [ ] `pnpm run solo` — Flowise online on `http://127.0.0.1:3010`
+- [ ] `pnpm start` — Flowise online on `http://127.0.0.1:3010`
 - [ ] AgentFlow built: LLM + GitLab MCP + deploy
 - [ ] LLM credentials saved in Flowise studio
 - [ ] Outer MCP configured (Cursor `mcp.json` or Claude picker + org allowlist)
