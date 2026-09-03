@@ -1,10 +1,18 @@
 import type {
+	RuntimeReviewCheckProjectsGraphRequest,
+	RuntimeReviewCheckProjectsGraphResponse,
 	RuntimeReviewCommandsRequest,
 	RuntimeReviewCommandsResponse,
 	RuntimeReviewGraphDashboardRequest,
 	RuntimeReviewGraphDashboardResponse,
 	RuntimeReviewGraphImpactRequest,
 	RuntimeReviewGraphImpactResponse,
+	RuntimeReviewGraphRebuildActionRequest,
+	RuntimeReviewGraphRebuildActionResponse,
+	RuntimeReviewGraphRebuildStatusRequest,
+	RuntimeReviewGraphRebuildStatusResponse,
+	RuntimeReviewImportGraphRequest,
+	RuntimeReviewImportGraphResponse,
 	RuntimeReviewRulesConfig,
 	RuntimeReviewRulesConfigResponse,
 	RuntimeReviewRulesReadRequest,
@@ -18,6 +26,11 @@ import { listProjectSlashCommands } from "../review/review-commands";
 import { startReviewGraphDashboard } from "../review/review-dashboard-process";
 import { loadReviewGraphIndex, readReviewGraphFreshness } from "../review/review-graph";
 import { buildReviewGraphBrief } from "../review/review-graph-brief";
+import {
+	checkProjectsGraphAvailability,
+	copyUnderstandFolder,
+	reviewGraphRebuildService,
+} from "../review/review-graph-rebuild-service";
 import { readReviewRulesBundle, readReviewRulesConfig, writeReviewRulesConfig } from "../review/review-rules";
 import {
 	createEmptyReviewSession,
@@ -176,6 +189,80 @@ export function createReviewApi(): RuntimeTrpcContext["reviewApi"] {
 				return { ok: true, url: started.dashboard.url, port: started.dashboard.port };
 			} catch (error) {
 				return { ok: false, error: fail(error) };
+			}
+		},
+
+		importGraph: async (
+			input: RuntimeReviewImportGraphRequest,
+		): Promise<RuntimeReviewImportGraphResponse> => {
+			try {
+				return await copyUnderstandFolder(input);
+			} catch (error) {
+				return { ok: false, error: fail(error) };
+			}
+		},
+
+		getRebuildStatus: async (
+			input: RuntimeReviewGraphRebuildStatusRequest,
+		): Promise<RuntimeReviewGraphRebuildStatusResponse> => {
+			try {
+				return reviewGraphRebuildService.getJobStatus(input.projectPath);
+			} catch (error) {
+				return {
+					ok: false,
+					status: "error",
+					startedAt: null,
+					doneAt: null,
+					error: fail(error),
+					currentStep: null,
+					text: "",
+					log: [],
+					notices: [],
+				};
+			}
+		},
+
+		pauseRebuild: async (
+			input: RuntimeReviewGraphRebuildActionRequest,
+		): Promise<RuntimeReviewGraphRebuildActionResponse> => {
+			try {
+				const result = reviewGraphRebuildService.pauseJob(input.projectPath);
+				return { ok: result.ok, status: "paused", ...(result.error ? { error: result.error } : {}) };
+			} catch (error) {
+				return { ok: false, error: fail(error) };
+			}
+		},
+
+		resumeRebuild: async (
+			input: RuntimeReviewGraphRebuildActionRequest,
+		): Promise<RuntimeReviewGraphRebuildActionResponse> => {
+			try {
+				const result = reviewGraphRebuildService.resumeJob(input.projectPath);
+				return { ok: result.ok, status: "running", ...(result.error ? { error: result.error } : {}) };
+			} catch (error) {
+				return { ok: false, error: fail(error) };
+			}
+		},
+
+		cancelRebuild: async (
+			input: RuntimeReviewGraphRebuildActionRequest,
+		): Promise<RuntimeReviewGraphRebuildActionResponse> => {
+			try {
+				const result = reviewGraphRebuildService.cancelJob(input.projectPath);
+				return { ok: result.ok, status: "error", ...(result.error ? { error: result.error } : {}) };
+			} catch (error) {
+				return { ok: false, error: fail(error) };
+			}
+		},
+
+		checkProjectsGraph: async (
+			input: RuntimeReviewCheckProjectsGraphRequest,
+		): Promise<RuntimeReviewCheckProjectsGraphResponse> => {
+			try {
+				const available = await checkProjectsGraphAvailability(input.projectPaths);
+				return { available };
+			} catch {
+				return { available: {} };
 			}
 		},
 	};
