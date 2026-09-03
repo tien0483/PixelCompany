@@ -88,6 +88,7 @@ import {
 	GRAPH_REBUILD_TIMEOUT_MS,
 	resolveGraphRebuildPrompt,
 } from "../review/review-graph-rebuild";
+import { reviewGraphRebuildService } from "../review/review-graph-rebuild-service";
 import {
 	buildAuditPrompt,
 	buildChatPrompt,
@@ -1728,35 +1729,58 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 				return;
 			}
 			if (pathname === "/api/review/graph-rebuild" && (req.method ?? "GET").toUpperCase() === "POST") {
-				await handleAgentStreamRoute(req, res, {
-					buildPinInput: buildHtmlAgentPinInput,
-					schema: runtimeReviewGraphRebuildRequestSchema,
-					buildRun: async (input) => {
-						const resolved = await resolveGraphRebuildPrompt({ projectPath: input.projectPath });
-						if (!resolved.ok) {
-							// Before any agent is spawned, and deliberately so: a rebuild whose
-							// instructions could not be read would otherwise become an agent
-							// improvising a knowledge graph, and every later review prompt would
-							// quote that invention as fact.
-							return { ok: false, status: 409, error: resolved.error };
+				let rawBody = "";
+				req.on("data", (chunk: Buffer) => {
+					rawBody += chunk.toString("utf8");
+				});
+				req.on("end", () => {
+					try {
+						const parsedBody = JSON.parse(rawBody || "{}");
+						const parsed = runtimeReviewGraphRebuildRequestSchema.safeParse(parsedBody);
+						if (!parsed.success) {
+							res.writeHead(400, { "Content-Type": "application/json; charset=utf-8" });
+							res.end(JSON.stringify({ error: parsed.error.message }));
+							return;
 						}
-						return {
-							ok: true,
-							agentId: "gemini",
-							prompt: resolved.prompt,
-							cwd: input.projectPath,
-							model: input.model,
-							// agy's tool set is its own; `--allowedTools` is a Claude flag and is
-							// not passed for this engine.
-							allowedTools: [],
-							...(input.effort === undefined ? {} : { effort: input.effort }),
-							// The analysis writes the graph and shells out to the skill's scripts.
-							skipPermissions: true,
-							idleTimeoutMs: GRAPH_REBUILD_IDLE_TIMEOUT_MS,
-							timeoutMs: GRAPH_REBUILD_TIMEOUT_MS,
-							managerAccountId: input.managerAccountId,
+
+						reviewGraphRebuildService.startOrAttachJob({
+							projectPath: parsed.data.projectPath,
+							model: parsed.data.model,
+							effort: parsed.data.effort,
+							managerAccountId: parsed.data.managerAccountId,
+							buildPinInput: buildHtmlAgentPinInput,
+						});
+
+						res.writeHead(200, {
+							"Content-Type": "text/event-stream; charset=utf-8",
+							"Cache-Control": "no-cache, no-transform",
+							Connection: "keep-alive",
+							"X-Accel-Buffering": "no",
+						});
+
+						const write = (event: string, data: unknown): void => {
+							if (res.writableEnded) {
+								return;
+							}
+							res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
 						};
-					},
+
+						const unsubscribe = reviewGraphRebuildService.subscribe(parsed.data.projectPath, (event, data) => {
+							write(event, data);
+							if (event === "done" && !res.writableEnded) {
+								res.end();
+							}
+						});
+
+						req.on("close", () => {
+							unsubscribe();
+						});
+					} catch (error) {
+						if (!res.headersSent) {
+							res.writeHead(500, { "Content-Type": "application/json; charset=utf-8" });
+							res.end(JSON.stringify({ error: error instanceof Error ? error.message : String(error) }));
+						}
+					}
 				});
 				return;
 			}

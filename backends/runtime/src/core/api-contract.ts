@@ -4326,6 +4326,61 @@ export const runtimeReviewGraphDashboardResponseSchema = z.object({
 });
 export type RuntimeReviewGraphDashboardResponse = z.infer<typeof runtimeReviewGraphDashboardResponseSchema>;
 
+export const runtimeReviewImportGraphRequestSchema = z.object({
+	/** Root directory of the source project containing .ua or .understand-anything */
+	sourcePath: z.string().min(1),
+	/** Root directory of the target project to copy .ua into */
+	targetPath: z.string().min(1),
+});
+export type RuntimeReviewImportGraphRequest = z.infer<typeof runtimeReviewImportGraphRequestSchema>;
+
+export const runtimeReviewImportGraphResponseSchema = z.object({
+	ok: z.boolean(),
+	targetDataDir: z.string().optional(),
+	error: z.string().optional(),
+});
+export type RuntimeReviewImportGraphResponse = z.infer<typeof runtimeReviewImportGraphResponseSchema>;
+
+export const runtimeReviewGraphRebuildStatusRequestSchema = z.object({
+	projectPath: z.string().min(1),
+});
+export type RuntimeReviewGraphRebuildStatusRequest = z.infer<typeof runtimeReviewGraphRebuildStatusRequestSchema>;
+
+export const runtimeReviewGraphRebuildStatusResponseSchema = z.object({
+	ok: z.boolean(),
+	status: z.enum(["idle", "running", "paused", "done", "error"]),
+	startedAt: z.number().nullable(),
+	doneAt: z.number().nullable(),
+	error: z.string().nullable(),
+	currentStep: z.string().nullable(),
+	text: z.string(),
+	log: z.array(z.string()),
+	notices: z.array(z.string()),
+});
+export type RuntimeReviewGraphRebuildStatusResponse = z.infer<typeof runtimeReviewGraphRebuildStatusResponseSchema>;
+
+export const runtimeReviewGraphRebuildActionRequestSchema = z.object({
+	projectPath: z.string().min(1),
+});
+export type RuntimeReviewGraphRebuildActionRequest = z.infer<typeof runtimeReviewGraphRebuildActionRequestSchema>;
+
+export const runtimeReviewGraphRebuildActionResponseSchema = z.object({
+	ok: z.boolean(),
+	status: z.enum(["idle", "running", "paused", "done", "error"]).optional(),
+	error: z.string().optional(),
+});
+export type RuntimeReviewGraphRebuildActionResponse = z.infer<typeof runtimeReviewGraphRebuildActionResponseSchema>;
+
+export const runtimeReviewCheckProjectsGraphRequestSchema = z.object({
+	projectPaths: z.array(z.string()),
+});
+export type RuntimeReviewCheckProjectsGraphRequest = z.infer<typeof runtimeReviewCheckProjectsGraphRequestSchema>;
+
+export const runtimeReviewCheckProjectsGraphResponseSchema = z.object({
+	available: z.record(z.string(), z.boolean()),
+});
+export type RuntimeReviewCheckProjectsGraphResponse = z.infer<typeof runtimeReviewCheckProjectsGraphResponseSchema>;
+
 /**
  * The project's own `.claude/commands`, listed so the chat composer can offer them
  * as chips. Keyed by checkout path because that is what decides the answer: the
