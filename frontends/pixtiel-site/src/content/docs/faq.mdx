@@ -1,7 +1,7 @@
 ---
 title: "Frequently Asked Questions"
 description: "Answers to common questions about PIXTiel architecture, worktree isolation, seat management, security, and troubleshooting."
-order: 6
+order: 8
 ---
 
 # Frequently Asked Questions
@@ -14,7 +14,7 @@ order: 6
 
 Standard AI coding tools operate in a single conversational thread directly on your primary working directory. PIXTiel is a complete multi-agent orchestration workspace where:
 - Every card runs in an **isolated git worktree** with its own branch.
-- Up to 3–4 agents execute in parallel without cross-contamination.
+- Several agents execute in parallel without cross-contamination — the ceiling is a setting (default 3).
 - Multi-seat management prevents 5-hour rate-limit stalls through automated parking and failover.
 - Planning and code reviews are structured visual phases rather than scrollback chats.
 
@@ -24,12 +24,15 @@ All project data, task configurations, git branches, and session logs reside str
 
 ### What agent CLIs and harnesses are supported?
 
-PIXTiel supports:
-- **Claude Code** (Native CLI and Anthropic OAuth)
-- **Cursor** (Composer Agent)
-- **Cline** (API Key mode with OpenRouter / Anthropic / OpenAI)
-- **Antigravity** (Autonomous agent engine)
-- **OpenCode** (Local and self-hosted models)
+Launchable today:
+- **Claude Code** (Anthropic OAuth, per-seat)
+- **Cursor Agent** (Cursor account or `CURSOR_API_KEY`)
+- **Cline** (API-key seat, multi-provider)
+- **Antigravity CLI** (Google account, per-seat)
+- **Custom Agent (dsh)** (bring your own harness)
+
+The catalog also carries OpenAI Codex, Factory Droid, Kiro and OpenCode entries, but they are not
+launchable yet — see [Agent CLIs & Skills](/docs/agents).
 
 ---
 
@@ -37,7 +40,7 @@ PIXTiel supports:
 
 ### How does worktree isolation prevent file conflicts?
 
-When a task card is moved to **In Progress**, PIXTiel creates a dedicated git worktree (`.agent/worktrees/<task-id>/`) branched from the locked base reference. All file reads, writes, tests, and git commits by that agent occur exclusively within that isolated worktree. Other active agents work simultaneously in separate directories without lock contention.
+When a task card is moved to **In Progress**, PIXTiel creates a dedicated git worktree (`~/.agent/worktrees/<id>/<repo>`) branched from the locked base reference. All file reads, writes, tests, and git commits by that agent occur exclusively within that isolated worktree. Other active agents work simultaneously in separate directories without lock contention.
 
 ### What happens if a task worktree is accidentally deleted?
 

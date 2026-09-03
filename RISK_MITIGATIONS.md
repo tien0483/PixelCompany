@@ -1,6 +1,8 @@
-# Risk mitigations (Pixel Office / Kanban / jacked)
+# Risk mitigations — three-pane merge
 
-Actionable notes only. Plan file is untouched.
+> **Historical note, 2026-07.** Written during the merge that produced today's layout. Paths such
+> as `web-ui/` predate the flatten (the UI now lives at `frontends/pixel_office/`) and the seat
+> service is now `backends/manager/`. Kept for the policies, not the paths.
 
 ## 1. Vendored Kanban merge cost — partial
 

@@ -1,0 +1,233 @@
+---
+import BaseLayout from "../layouts/BaseLayout.astro";
+import ScreenshotFrame from "../components/ScreenshotFrame.astro";
+
+/**
+ * One entry per surface the product actually ships. Ports and feature ids match
+ * `scripts/install/features.mjs` and the runtime supervisors, so this page can be
+ * checked against the code rather than trusted.
+ */
+const surfaces = [
+	{
+		id: "board",
+		eyebrow: "Core · always installed",
+		name: "The board",
+		tagline: "Every task is a card, every card is a git worktree.",
+		body: "Cards move Backlog → Planning → In Progress → Review → Done. Moving a card into progress cuts a git worktree on its own branch and launches the agent you pinned to it, so parallel agents never touch each other's files. Live xterm output streams into the card, and turn checkpoints land in refs/kanban/checkpoints so a purged worktree is recoverable.",
+		bullets: [
+			"Per-card agent, model, reasoning effort, base branch and skill shelf",
+			"Chain cards with explicit dependencies; followers inherit the merged base",
+			"Backlog autorun with a configurable parallel-task ceiling",
+		],
+		shot: { src: "/screenshots/board-hero.png", alt: "PIXTiel board with cards in progress and review" },
+		feature: "kanban",
+		port: "3484",
+	},
+	{
+		id: "plans",
+		eyebrow: "Feature · plan-editor",
+		name: "Plan editor",
+		tagline: "Plans are documents you can diff, not chat scrollback.",
+		body: "Write the plan before the code. Plans are versioned HTML documents with templates, an AI refine pass you review as a diff, and per-agent sub-plan splitting for work that fans out. A card can start in plan mode so the agent proposes before it edits.",
+		bullets: [
+			"Template shelf and import from an existing folder of plans",
+			"Refine with an agent, then accept or reject the diff",
+			"Split one plan into per-card sub-plans for a fan-out",
+		],
+		shot: { src: "/screenshots/plan-editor.png", alt: "Plan editor with a rendered plan and template pane" },
+		feature: "plan-editor",
+		port: null,
+	},
+	{
+		id: "review",
+		eyebrow: "Feature · review",
+		name: "Review",
+		tagline: "A real branch diff, with comments that route back to the agent.",
+		body: "Review computes a whole-branch diff against the card's locked base ref — not a summary of what the agent claims it did. Leave line comments and send them back as scoped revision work. Connect GitLab over OAuth or store a PAT in the vault to push branches and open merge requests without leaving the board.",
+		bullets: [
+			"Whole-branch diff against the immutable base ref",
+			"Line comments dispatched to the agent in that worktree",
+			"Blast radius from the Understand knowledge graph when one exists",
+		],
+		shot: { src: "/screenshots/review-tab.png", alt: "Review tab showing a branch diff with inline comments" },
+		feature: "review",
+		port: null,
+	},
+	{
+		id: "agents",
+		eyebrow: "Feature · agent-creation",
+		name: "Agent studio",
+		tagline: "Author an agent on a canvas instead of in a config file.",
+		body: "A forked Flowise canvas, embedded in the board, with a curated node palette and three credential-free LLM nodes that bill against the seats you already manage. Runs on loopback only — the canvas executes code by design, so it is never exposed to the network.",
+		bullets: [
+			"Claude, Antigravity and Cursor nodes wired to your seats — no API keys pasted into the canvas",
+			"Curated palette; a fail-open allowlist keeps saved flows working",
+			"Loopback bind plus scoped embed origins are the whole boundary",
+		],
+		shot: { src: "/screenshots/agent-studio.png", alt: "Agent studio canvas embedded in PIXTiel" },
+		feature: "agent-creation",
+		port: "3010",
+	},
+	{
+		id: "learning",
+		eyebrow: "Bundled sidecar",
+		name: "Learning room",
+		tagline: "A classroom for the codebase, next to the board.",
+		body: "OpenMAIC embedded as a center-pane view, so course-style material and multi-agent explanations sit beside the work instead of in another tab. Its LLM calls use the seats PIXTiel already holds.",
+		bullets: [
+			"Embedded, not linked — same window, same session",
+			"Speech and TTS routed through your Manager API seat",
+			"Degrades to an Open-in-tab button if the build refuses framing",
+		],
+		shot: { src: "/screenshots/learning.png", alt: "Learning room embedded in PIXTiel" },
+		feature: null,
+		port: "3020",
+	},
+	{
+		id: "seats",
+		eyebrow: "Core · Manager",
+		name: "Seats & Manager",
+		tagline: "Rate limits become a scheduling problem.",
+		body: "Manager tracks every account you own — OAuth sessions and API keys — with live 5-hour and 7-day usage windows. Cards pin a primary seat, and optionally a separate seat that only their subagents bill, so orchestration overhead stops eating the quota you want for code.",
+		bullets: [
+			"Usage-aware parking and resume with --continue, or failover to a standby seat",
+			"Same-seat login recovery before any cross-seat swap",
+			"Subagent seats: subagent traffic diverted per card, parent keeps its own OAuth",
+		],
+		shot: { src: "/screenshots/board-feature.png", alt: "Seats panel with usage meters beside the board" },
+		feature: "kanban",
+		port: "8321",
+	},
+	{
+		id: "stack",
+		eyebrow: "Feature · agent-stack",
+		name: "Agent stack",
+		tagline: "Token cost is a first-class feature, not an afterthought.",
+		body: "A seven-tool stack installed inside the repo, never globally: rtk compresses bulky shell output, Caveman compresses prose, Understand-Anything answers architecture questions from a graph instead of a dozen file reads, and Headroom rewrites context on the way upstream. Every task agent gets them on PATH.",
+		bullets: [
+			"rtk — token-compressing CLI proxy for git/tsc/lint/test output",
+			"Understand-Anything — knowledge graph, dashboard and diff impact",
+			"Switchboard on :8000 with a per-toggle control panel",
+		],
+		shot: null,
+		feature: "agent-stack",
+		port: "8000",
+	},
+];
+---
+
+<BaseLayout
+	title="Products"
+	description="Every surface PIXTiel ships: the board, plan editor, review, agent studio, learning room, seats and the agent stack."
+>
+	<!-- Header -->
+	<section class="border-b border-[#30363D]">
+		<div class="max-w-6xl mx-auto px-4 sm:px-6 py-16 sm:py-20">
+			<p class="text-xs font-mono uppercase tracking-widest text-[#0084FF] mb-4">Products</p>
+			<h1 class="text-3xl sm:text-5xl font-bold tracking-tight text-[#E6EDF3] max-w-3xl">
+				One workspace, seven surfaces, no cloud.
+			</h1>
+			<p class="mt-5 text-base sm:text-lg text-[#8B949E] max-w-2xl leading-relaxed">
+				PIXTiel is one local install. The board is the core; everything else is a feature you tick on
+				during setup and can add later. Nothing phones home, and every service binds to loopback.
+			</p>
+			<div class="mt-8 flex flex-wrap gap-3">
+				<a
+					href="/#install"
+					class="px-5 py-2.5 rounded-lg bg-[#0084FF] hover:bg-[#339DFF] text-white text-sm font-semibold transition-colors"
+				>
+					Install PIXTiel
+				</a>
+				<a
+					href="/docs/getting-started"
+					class="px-5 py-2.5 rounded-lg border border-[#30363D] hover:border-[#444C56] text-[#E6EDF3] text-sm font-semibold transition-colors"
+				>
+					Read the docs
+				</a>
+			</div>
+		</div>
+	</section>
+
+	<!-- Jump bar -->
+	<section class="border-b border-[#30363D] bg-[#24292E]/40 sticky top-16 z-40 backdrop-blur-md">
+		<div class="max-w-6xl mx-auto px-4 sm:px-6 py-3 flex gap-4 overflow-x-auto text-xs font-medium text-[#8B949E]">
+			{
+				surfaces.map((s) => (
+					<a href={`#${s.id}`} class="whitespace-nowrap hover:text-[#E6EDF3] transition-colors">
+						{s.name}
+					</a>
+				))
+			}
+		</div>
+	</section>
+
+	<!-- Surfaces -->
+	<div class="max-w-6xl mx-auto px-4 sm:px-6 divide-y divide-[#30363D]">
+		{
+			surfaces.map((s, index) => (
+				<section id={s.id} class="py-16 sm:py-20 scroll-mt-32">
+					<div
+						class={`grid gap-10 lg:gap-14 items-center ${s.shot ? "lg:grid-cols-2" : "lg:grid-cols-1 max-w-3xl"}`}
+					>
+						<div class={s.shot && index % 2 === 1 ? "lg:order-2" : ""}>
+							<p class="text-xs font-mono uppercase tracking-widest text-[#0084FF] mb-3">{s.eyebrow}</p>
+							<h2 class="text-2xl sm:text-3xl font-bold tracking-tight text-[#E6EDF3]">{s.name}</h2>
+							<p class="mt-3 text-lg text-[#E6EDF3]/90">{s.tagline}</p>
+							<p class="mt-4 text-sm sm:text-base text-[#8B949E] leading-relaxed">{s.body}</p>
+							<ul class="mt-6 space-y-2.5">
+								{s.bullets.map((b) => (
+									<li class="flex gap-2.5 text-sm text-[#8B949E]">
+										<svg
+											class="w-4 h-4 mt-0.5 shrink-0 text-[#0084FF]"
+											viewBox="0 0 24 24"
+											fill="none"
+											stroke="currentColor"
+											stroke-width="2.5"
+											stroke-linecap="round"
+											stroke-linejoin="round"
+										>
+											<polyline points="20 6 9 17 4 12" />
+										</svg>
+										<span>{b}</span>
+									</li>
+								))}
+							</ul>
+							<div class="mt-6 flex flex-wrap items-center gap-2 text-[11px] font-mono">
+								{s.feature ? (
+									<span class="px-2 py-1 rounded border border-[#30363D] bg-[#24292E] text-[#8B949E]">
+										feature: {s.feature}
+									</span>
+								) : null}
+								{s.port ? (
+									<span class="px-2 py-1 rounded border border-[#30363D] bg-[#24292E] text-[#8B949E]">
+										127.0.0.1:{s.port}
+									</span>
+								) : null}
+							</div>
+						</div>
+
+						{s.shot ? (
+							<div class={index % 2 === 1 ? "lg:order-1" : ""}>
+								<ScreenshotFrame src={s.shot.src} alt={s.shot.alt} title={s.name} />
+							</div>
+						) : null}
+					</div>
+				</section>
+			))
+		}
+	</div>
+
+	<!-- Close -->
+	<section class="border-t border-[#30363D] bg-[#24292E]/40">
+		<div class="max-w-6xl mx-auto px-4 sm:px-6 py-16 text-center">
+			<h2 class="text-2xl sm:text-3xl font-bold tracking-tight text-[#E6EDF3]">Pick your surfaces at install time</h2>
+			<p class="mt-4 text-sm sm:text-base text-[#8B949E] max-w-xl mx-auto">
+				The installer shows a checkbox list and remembers what you chose. A feature that fails to
+				install warns and the rest continue — a partial install is a valid state.
+			</p>
+			<div class="mt-8 inline-block text-left">
+				<pre class="px-4 py-3 rounded-lg border border-[#30363D] bg-[#1F2428] text-xs sm:text-sm font-mono text-[#E6EDF3] overflow-x-auto"><code>curl -fsSL https://raw.githubusercontent.com/tien0483/PixelCompany/main/install.sh | bash</code></pre>
+			</div>
+		</div>
+	</section>
+</BaseLayout>

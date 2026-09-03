@@ -1,12 +1,14 @@
-# Pixel Office — Wrap-up
+# Wrap-up — three-pane merge milestone
 
-Date: 2026-07-30 (Claude-only + multi-account)
+> **Historical snapshot, 2026-07-30.** Kept for the decisions it records. The product is now
+> PIXTiel, the seat service is Manager (`backends/manager/`), and the run commands have changed —
+> see [`README.md`](README.md) and [`TECH_STACK.md`](TECH_STACK.md) for current state.
 
 ## Layout
 
-- Repo: `frontends/pixel_office` + `backends/runtime` + `backends/jacked`
+- Repo: `frontends/pixel_office` + `backends/runtime` + `backends/manager` (then `backends/jacked`)
 - Home: board center; Claude Accounts upper-right; Pixel Office lower-right
-- Start: `npm start` (dev, HMR) or `node scripts/solo.mjs` (single URL, no Vite)
+- Start: `pnpm dev` (HMR) or `pnpm start` (single URL, no Vite)
 
 See [TECH_STACK.md](./TECH_STACK.md).
 
@@ -29,12 +31,12 @@ Claude-only + multi-account (2026-07-30):
 # once, from the repo root — plain `npm install` fails on dedupe (root package.json has no version)
 npm install --install-links
 
-npm start        # dev: runtime + Vite (HMR) on :5173, jacked headless behind it
-pnpm start     # single URL: runtime serves the built UI on :3484, jacked as its child
+pnpm dev         # dev: runtime + Vite (HMR) on :5173, Manager headless behind it
+pnpm start       # single URL: runtime serves the built UI on :3484, Manager as its child
 ```
 
 `pnpm start` flags pass through: `-- --restart`, `-- --build`, `-- --skip-build`, `-- --no-open`.
-Port override: `PIXELOFFICE_PORT`.
+Port override: `PIXTIEL_PORT` (legacy `PIXELOFFICE_PORT` still read).
 
 ## Test
 
@@ -52,7 +54,7 @@ Environment-dependent specs skip (with an explanatory message) instead of failin
 - Board/right-column specs need a project registered in the runtime. Open one in the app, or set
   `PIXELOFFICE_E2E_PROJECT`, to exercise them; they are skipped rather than writing a project into
   the user's real `~/.cline/kanban` config.
-- `npm run test:e2e` only starts Vite, so its runtime-dependent specs skip unless `npm start` is
+- `pnpm run test:e2e` only starts Vite, so its runtime-dependent specs skip unless `pnpm dev` is
   running in another shell. `npm run test:e2e:solo` is self-contained.
 
 Known red, unrelated to this work: 14 runtime unit tests under

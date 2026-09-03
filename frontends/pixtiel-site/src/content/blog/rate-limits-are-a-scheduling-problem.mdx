@@ -1,0 +1,79 @@
+---
+title: "Rate limits are a scheduling problem"
+description: "The 5-hour cap is not an error to surface — it is a resource window to schedule around. How seats, subagent seats and same-seat recovery keep long tasks alive."
+date: 2026-08-20
+tags: ["seats", "architecture"]
+---
+
+A long refactor dies 80% of the way through because a rolling usage window closed. The
+conventional handling is to show the error and stop. That treats a *scheduling* fact as a
+*failure*, and it charges you twice: once for the tokens already spent, and again to rebuild the
+context after the wait.
+
+PIXTiel treats the window as what it is — a resource that refills on a known schedule — and
+schedules around it.
+
+## A seat is an identity plus a window
+
+A seat is one account: its authentication state (an OAuth session or an API key), its git
+identity, and a live snapshot of both usage windows — the 5-hour rolling one and the 7-day one.
+Manager keeps that snapshot fresh, so "how much room is left" is a number the scheduler can read,
+not a surprise the agent discovers mid-turn.
+
+Cards pin seats explicitly. That matters more than it sounds: an unpinned card inherits whatever
+seat is globally active, and "whatever is active" is exactly the seat most likely to be the one
+that just ran out.
+
+## Four responses, in order of preference
+
+When a card hits the wall, the cheapest correct response wins:
+
+1. **Same-seat recovery.** Most "login expired" pops are not exhaustion at all — they are a
+   stale OAuth pair. Re-preparing the *same* seat refreshes it, and the card relaunches with
+   `--continue`. One attempt is granted per card, tracked per pop, because a genuine failure
+   should not loop.
+2. **Park and resume.** If the window really is closed, the card is parked with its state
+   preserved and the runner samples live usage with escalating backoff — deliberately not waking
+   straight into another spike — then resumes with `--continue` when the window clears.
+3. **Failover to a standby seat.** If another seat has room, the card moves and keeps going.
+4. **Ask.** Anything past that surfaces to you, with the reason.
+
+Getting the order right was the whole lesson. The first version reached for failover
+immediately, which is the *wrong* cure for the common case: it moved a perfectly healthy card
+onto a different account because a token needed refreshing.
+
+## Subagent seats: the fix nobody expects to need
+
+Orchestration-heavy work spawns subagents — symbol lookups, test runs, graph indexing. Under one
+seat, that overhead consumes the quota you wanted for actual code. The rate limit gets blamed;
+the real problem is accounting.
+
+So a card can pin a seat that **only its subagents** bill. The parent session keeps its own
+OAuth credential and its own cap; subagent traffic is diverted to the pinned seat. There is
+exactly one per-turn signal that distinguishes a subagent from its parent, and it is the model
+string the CLI sends verbatim for subagent requests — so that marker is the routing key, and a
+per-spawn model override would silently move the work back onto the parent's cap.
+
+Two consequences worth stating plainly. A real API key is never exported to the session, because
+the CLI prefers a key over its OAuth credential and would move the *parent* off its seat too —
+the base URL alone does the job and the session's own bearer is forwarded untouched. And every
+failure degrades to "subagents share the task's seat" rather than blocking the launch: a
+misconfigured seat should cost you accounting, not the task.
+
+## Permission mode survives a restart
+
+One more thing that only shows up once restarts are automatic. Every relaunch used to put the
+card back into its default permission mode, because the mode is a launch flag and `--continue`
+carries nothing about it. A card you had deliberately moved to plan mode came back in auto.
+
+The fix reads the mode the CLI itself recorded in the session transcript and re-passes the flag
+on any resuming launch. Unglamorous, and precisely the kind of thing that decides whether
+automatic recovery is trustworthy: a restart that silently changes what the agent is allowed to
+do is worse than no restart at all.
+
+## The measurable part
+
+Nothing above reduces the tokens a task needs — it removes the *waste* around them: no
+re-explaining context after a wait, no orchestration overhead charged to the coding budget, no
+manual babysitting of which account is current. The cap still exists. It just stops being an
+outage.

@@ -1,0 +1,64 @@
+---
+title: "Introducing PIXTiel 1.0"
+description: "A local workspace where every task is a card, every card is a git worktree, and the agent that runs it is yours to pick. Here is what ships in the first release."
+date: 2026-09-03
+tags: ["release"]
+---
+
+PIXTiel is a workspace for running coding agents the way you would run a team: one board, one
+card per task, and an isolated checkout per card so several agents can work at once without
+stepping on each other. It installs on your machine, binds to loopback, and never ships your
+code anywhere.
+
+## What is in the first release
+
+**The board.** Cards move Backlog → Planning → In Progress → Review → Done. Moving a card into
+progress cuts a git worktree on its own branch and launches the agent pinned to that card. Output
+streams into the card as it happens, and every turn is checkpointed under
+`refs/kanban/checkpoints/`, so a worktree that gets purged mid-flight is recoverable rather than
+lost.
+
+**Your choice of agent, per card.** Claude Code, Cursor Agent, Cline, Antigravity CLI and a
+custom `dsh` harness are launchable today; the catalog also carries OpenAI Codex, Factory Droid,
+Kiro and OpenCode entries for later. The card — not a global setting — decides the harness, the
+model, the reasoning effort, the base branch and which skills are mounted.
+
+**Plans before code.** Plans are versioned HTML documents with templates, an agent refine pass
+you accept or reject as a diff, and sub-plan splitting for work that fans out across several
+cards. A card can start in plan mode so the agent proposes before it edits anything.
+
+**Review that is a real diff.** The Review tab computes a whole-branch diff against the card's
+locked base ref, not a summary of what the agent says it did. Line comments route back into that
+worktree as scoped revision work.
+
+**Seats instead of rate-limit stalls.** Manager tracks every account you own, with live 5-hour
+and 7-day usage windows. Cards pin a primary seat and, optionally, a separate seat that only
+their subagents bill — so orchestration overhead stops eating the quota you wanted for code.
+
+**A token stack that is part of the product.** `rtk` compresses bulky shell output, Caveman
+compresses prose, Understand-Anything answers architecture questions from a graph instead of a
+dozen file reads, and Headroom rewrites context on the way upstream. All seven tools install
+inside the repository — nothing global, nothing to uninstall later.
+
+## Install
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/tien0483/PixelCompany/main/install.sh | bash
+```
+
+The installer draws a checkbox list, remembers what you picked, and offers to start PIXTiel when
+it finishes. Everything after that is one command:
+
+```bash
+pnpm start        # one process, one URL: http://127.0.0.1:3484
+```
+
+## What it is not
+
+It is not a hosted service, and there is no account to create. It is not a chat window with a
+file tree bolted on: if a change is not a diff on a branch, PIXTiel does not consider it done.
+And it is not tied to one vendor — the harness is a per-card setting precisely so that switching
+providers is a dropdown, not a migration.
+
+The version string is `v1.0.0131`: major.minor plus a zero-padded build number, so a glance at
+the sidebar tells you exactly which build you are running.

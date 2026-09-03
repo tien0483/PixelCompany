@@ -1,29 +1,34 @@
-# Tech stack: PixelOffice unified monorepo
+# Tech stack: PIXTiel monorepo
 
-One product tree: React UI + Node runtime + Jacked Python. No nested `kanban/` or `claude-jacked-master/` donor folders.
+One product tree: React UI + Node runtime + Manager (Python). No nested `kanban/` or donor folders.
 
-| | **Runtime** | **Frontend** | **Jacked** |
+Naming note: the product is **PIXTiel** and the seat service is **Manager**. Internal identifiers
+kept their original `jacked` spelling on purpose (files, types, tRPC procedures, test ids, env
+vars) — renaming them would break persisted state for no user-visible gain. Where this document
+names an identifier, that spelling is the real one.
+
+| | **Runtime** | **Frontend** | **Manager** |
 |---|---|---|---|
-| **Role** | Board, PTY, tRPC, Jacked bridge | Three-pane shell (board + Accounts + office) | Claude usage / OAuth / swap |
-| **Language** | TypeScript (Node ≥22) | TypeScript React 18 + Vite 6 | Python ≥3.10 FastAPI |
-| **Path** | `backends/runtime/` | `frontends/pixel_office/` | `backends/jacked/` |
+| **Role** | Board, PTY, tRPC, Manager bridge | Three-pane shell (board + Accounts + office) | Claude usage / OAuth / swap |
+| **Language** | TypeScript (Node ≥22) | TypeScript React 18 + Vite 6 + Tailwind 4 | Python ≥3.10 FastAPI |
+| **Path** | `backends/runtime/` | `frontends/pixel_office/` | `backends/manager/` |
 | **API** | tRPC `/api/trpc` + WS; `/api/jacked-proxy/*` | Vite proxies `/api` → runtime | REST + WS on `:8321` |
-| **Launch** | Root `npm start` → `scripts/start-stack.mjs` | same | spawned headless by the runtime |
+| **Launch** | `pnpm dev` → `scripts/start-stack.mjs` | same | spawned headless by the runtime |
 
 ## Home layout
 
 ```text
-Left sidebar (+ Jacked config) | Center: board | Right: Claude Accounts (upper) + Pixel Office (lower)
+Left sidebar (+ Manager config) | Center: board | Right: Claude Accounts (upper) + Office (lower)
 ```
 
 ## Launch modes
 
 | Mode | Command | Processes | URL |
 |------|---------|-----------|-----|
-| Dev (HMR) | `npm start` | runtime + Vite + jacked | `:5173` |
-| Solo (single URL) | `node scripts/solo.mjs` | runtime (serves built UI) + jacked | `:3484` |
+| Dev (HMR) | `pnpm dev` | runtime + Vite + Manager | `:5173` |
+| Single URL | `pnpm start` | runtime (serves built UI) + Manager | `:3484` |
 
-The runtime owns jacked in both modes: `backends/runtime/src/jacked/jacked-process.ts` spawns
+The runtime owns Manager in both modes: `backends/runtime/src/manager/manager-process.ts` spawns
 `python -m jacked webux --no-browser` on startup and stops it on shutdown. It skips the spawn when
 `:8321` is already listening (an externally managed service or the macOS menu-bar app keeps it), and
 never fails the runtime when Python is missing — the board and office run, Accounts report offline.
@@ -41,14 +46,14 @@ uncommenting its catalog entry.
 |---------|------|
 | Runtime | `127.0.0.1:3484` |
 | Vite UI (dev only) | `127.0.0.1:5173` |
-| Jacked | `127.0.0.1:8321` |
+| Manager | `127.0.0.1:8321` |
 
-Browser → UI → same-origin runtime → Jacked (`/api/trpc`, `/api/jacked-proxy` for health). Claude accounts only in product UI. Product chrome does **not** embed or open the raw `:8321` multi-provider dashboard (left Jacked sidebar is native Installations / Settings / Logs / Analytics only; Accounts live upper-right).
+Browser → UI → same-origin runtime → Manager (`/api/trpc`, `/api/jacked-proxy` for health). Claude accounts only in product UI. Product chrome does **not** embed or open the raw `:8321` multi-provider dashboard (left Jacked sidebar is native Installations / Settings / Logs / Analytics only; Accounts live upper-right).
 
 ## Manager (office theme)
 
-The claude-jacked integration is presented as office staffing. Visible copy lives in one
-place — `frontends/pixel_office/src/jacked/manager-labels.ts`:
+The seat integration is presented as office staffing. Visible copy lives in one place —
+`frontends/pixel_office/src/jacked/manager-labels.ts`:
 
 | Surface | Reads as | Backed by |
 |---------|----------|-----------|

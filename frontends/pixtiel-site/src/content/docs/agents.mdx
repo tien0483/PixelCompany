@@ -1,82 +1,98 @@
 ---
 title: "Agent CLIs & Skills"
-description: "Supported agent harnesses, per-card execution pinning, built-in skill shelves, and token optimization with RTK and Caveman."
-order: 4
+description: "Which agent harnesses PIXTiel can launch, what a card pins before launch, and the token-compression stack every task agent gets on PATH."
+order: 5
 ---
 
-# Agent CLIs & Skills Shelves
+# Agent CLIs & Skills
 
-PIXTiel decouples your workflow from any single AI vendor. The kanban board provides a swappable harness layer that supports leading AI developer tools while standardizing worktree isolation, checkpointing, and token budgeting.
+PIXTiel is not tied to one vendor. The harness is a **per-card setting**, so switching providers
+is a dropdown rather than a migration, and the parts that should not change per vendor — worktree
+isolation, checkpointing, seat accounting, token compression — are the platform's job.
 
 ---
 
-## Supported Agent Harnesses
+## Launchable harnesses
 
-PIXTiel natively orchestrates the following developer agents:
+These are the agents a card can start today:
 
-| Agent Harness | Launch Mode | Best For | Capabilities |
+| Harness | Card label | Auth | Notes |
 |---|---|---|---|
-| **Claude Code** | Native CLI / OAuth | Complex refactoring, full repo tasks | Terminal execution, multi-file diffs, subagents |
-| **Cursor** | Composer Agent | Rapid feature prototyping | Fast completion, targeted edits |
-| **Cline** | API Key / OpenRouter | Custom models & budget control | Multi-provider fallback, step inspection |
-| **Antigravity** | Headless CLI / Hooks | Autonomous task workflows | Subagent trees, reactive hooks, artifacts |
-| **OpenCode** | Local / Open Source | Air-gapped / on-premise execution | Self-hosted LLM endpoints |
+| **Claude Code** | `Claude Code` | Anthropic OAuth (per-seat) | Default. Supports a separate subagent seat and per-card MCP allowlists. |
+| **Cursor Agent** | `Cursor Agent` | Cursor account or `CURSOR_API_KEY` | Pin a Cursor seat on the card instead of switching accounts in the IDE. |
+| **Cline** | `Cline` | API key (multi-provider) | Runs in-process through the SDK; needs an API-key seat to appear in the picker. |
+| **Antigravity CLI** | `Antigravity CLI` | Google account (per-seat) | Headless print mode with per-task hooks. |
+| **Custom Agent** | `Custom Agent (dsh)` | DeepSeek Harness on PATH | Bring your own harness; the card supplies the prompt and worktree. |
+
+The catalog also carries **OpenAI Codex**, **Factory Droid**, **Kiro** and **OpenCode** entries.
+They are not launchable yet — they appear in the model, not the launcher — so treat them as
+planned rather than shipped.
 
 ---
 
-## Per-Card Pinning & Launch Settings
+## What a card pins before launch
 
-Every card on the board can be configured independently prior to launch:
+Every card is configured independently, and none of it is a global setting:
 
-```
-┌────────────────────────────────────────────────────────┐
-│ Task Configuration: [Feature: Add OAuth JWKS Auth]    │
-├────────────────────────────────────────────────────────┤
-│ Harness:          [ Claude Code                     ▼] │
-│ Model:            [ claude-3-7-sonnet-20250219       ▼] │
-│ Reasoning Effort: [ High (32k thinking tokens)      ▼] │
-│ Primary Seat:     [ Account #1 (Anthropic Pro)      ▼] │
-│ Subagent Seat:    [ Account #2 (OpenRouter API)     ▼] │
-│ Base Branch:      [ main                            ▼] │
-│ Skills Shelf:     [✓ RTK  ✓ Caveman  ✓ Understand   ▼] │
-└────────────────────────────────────────────────────────┘
-```
+- **Harness and model** — pick the agent and the exact model id it should run.
+- **Reasoning effort** — where the harness supports it (`low` … `max`).
+- **Primary seat** — which account this card's main session bills.
+- **Subagent seat** — optional; the account this card's *subagents* bill instead. See
+  [Multi-Account Seats](/docs/seats).
+- **Base branch** — resolved and locked at worktree creation, so the diff stays honest even
+  after `main` advances.
+- **Permission mode** — start in plan mode to make the agent propose before it edits. The mode
+  survives automatic restarts.
+- **Skills, MCP servers and launch tags** — which shelves and tool servers are mounted for this
+  card only.
+- **Allowed tools** — restrict what the session may run.
 
-- **Harness & Model Selection**: Choose the exact model and reasoning level needed for the task's complexity.
-- **Allowed Tools & Command Allowlists**: Restrict dangerous shell commands or destructive filesystem operations per card.
-- **Base Branch Pinning**: The card's base branch is locked at worktree creation to guarantee clean merges even if upstream `main` advances.
+MCP secrets are not pasted into the card. Store them once in the vault and PIXTiel injects them
+into the launch environment of whichever harness the card uses.
 
 ---
 
-## Built-in Skills Shelves
+## The token stack
 
-PIXTiel includes a curated catalog of 30+ reusable skills mounted into the agent's runtime environment:
+Installed with the `agent-stack` feature, inside the repository — nothing global, nothing to
+uninstall later. Every task agent gets these on PATH:
 
-### Token & Efficiency Shelves
+| Tool | What it does |
+|---|---|
+| **rtk** | A CLI proxy that compresses bulky shell output — `rtk git status`, `rtk tsc`, `rtk lint`, `rtk test`. Only helps for shell commands; file reads go through the agent's own tools. `rtk gain` reports what it saved. |
+| **Caveman** | Compresses prose: drops filler and preamble while keeping technical substance, code blocks and exact error text intact. |
+| **Understand-Anything** | Builds a knowledge graph of the repository, then answers architecture questions ("what calls this", "where does that get set") from the graph instead of a dozen file reads. Also powers the Understand dashboard and review blast radius. |
+| **Headroom** | A proxy that rewrites context on the way upstream. Worth watching your cache-hit rate after enabling it — see the note below. |
+| **Ponytail** | A review lens that hunts over-engineering: what to delete, what the standard library already does. |
+| **Switchboard** | The control panel and router on `127.0.0.1:8000`, with a per-tool toggle file. |
+| **CCR / DevTools** | Optional routers, off by default. |
 
-- **RTK (Rust Tool Kit)**: Low-token binary replacements for `grep`, `ls`, `find`, `read`, and `test` runners. Measured **88.9% token savings** across 3,800+ shell calls.
-- **Caveman Mode**: Strips unnecessary conversational filler and preamble, cutting response token volume by **~75%** while retaining full technical precision.
-- **Headroom Proxy**: Request-level token deduplication proxy that optimizes prompt caching and strips repeated headers.
-
-### Codebase & Analysis Shelves
-
-- **Understand-Anything**: Pre-indexes the codebase into an interactive knowledge graph. Multi-file architectural queries resolve in a single graph lookup instead of 10+ expensive file reads.
-- **review-papp**: Automated domain-specific code review engine for modern frontend and backend architectures.
-- **wgpu_orchestrator**: Specialized pipeline manager for high-performance graphics and compute shaders.
+<div class="not-prose my-6 p-4 rounded-xl border border-[#30363D] bg-[#24292E]/60 text-sm">
+	<strong class="text-[#E6EDF3]">A caveat worth knowing.</strong> Sessions on a warm repository run
+	a very high prompt-cache hit rate. Anything that rewrites context can break the cache prefix,
+	which turns a cheap cache read into a full write. Enable Headroom, then watch your usage — and
+	remember <code>pnpm start -- --no-proxy-env</code> is the lever that takes agent traffic back off
+	the chain.
+</div>
 
 ---
 
-## Enabling Skills on a Project
+## Skills, agents and commands
 
-Skills can be enabled globally in your project settings or toggled on individual task cards via the **Stack Switchboard**:
+Beyond the stack, PIXTiel ships a catalog you enable per project from the Manager shelves:
+
+- **29 skills** — reusable procedures an agent invokes by name (planning, QA, recovery,
+  design passes, subagent spawning, and so on).
+- **10 agent definitions** — pre-authored `.claude/agents` personas.
+- **30 slash commands** and **2 rule files**.
+
+Toggling one on copies it into the project so the agent discovers it without prompting. Skills
+live under your repository:
 
 ```bash
-# Skills reside in your local repository under:
-.agent/skills/
-├── rtk/
-├── caveman/
-├── understand/
-└── review-papp/
+.claude/skills/     # Claude Code discovers these
+.agent/skills/      # shared shelf, symlinked per task worktree
 ```
 
-Agents discover and invoke these skills automatically during task execution without manual prompting.
+Author your own with the **Agent studio** (the `agent-creation` feature) — a canvas with
+credential-free nodes wired to the seats you already manage.

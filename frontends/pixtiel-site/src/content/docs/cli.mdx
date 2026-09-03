@@ -1,0 +1,108 @@
+---
+title: "Commands & Scripts"
+description: "Every run script PIXTiel ships, what each one actually does, the flags worth knowing, and the deprecated names that still work."
+order: 3
+---
+
+# Commands & Scripts
+
+PIXTiel follows npm conventions: `start` runs the app, `dev` runs it with hot reload, `build`
+builds it. Run everything from the install directory.
+
+---
+
+## The six you need
+
+| Command | What it does |
+|---|---|
+| `pnpm run setup` | Interactive installer — banner, checkbox picker, then it offers to start |
+| `pnpm start` | Production run: one process, one URL on `127.0.0.1:3484` |
+| `pnpm dev` | Development: Vite HMR on `:5173` against the runtime on `:3484` |
+| `pnpm run restart` | Same as `dev`, but frees stale ports first |
+| `pnpm run build` | Build the web UI into `frontends/pixel_office/dist` |
+| `pnpm run upgrade` | Pull the latest release and rebuild the features you installed |
+
+`pnpm start` builds the UI when it is missing or stale, so a fresh clone needs nothing before it.
+
+---
+
+## Flags for `pnpm start`
+
+Pass them after `--`, because the flags belong to the script and not to pnpm:
+
+```bash
+pnpm start -- --restart          # free the app and stack ports, restart stack daemons
+pnpm start -- --build            # always rebuild the UI first
+pnpm start -- --skip-build       # never build: fail if missing, warn and serve if stale
+pnpm start -- --no-stack-link    # do not link agent-stack skills into .claude/skills
+pnpm start -- --no-proxy-env     # keep agent traffic off the stack proxy chain
+```
+
+The last one matters more than it looks. With the chain enabled, agent traffic is rewritten on
+the way upstream, which can break a prompt-cache prefix and turn cheap cache reads into full
+writes. If usage jumps after you enable the stack, this is the lever.
+
+---
+
+## Flags for the installer
+
+```bash
+pnpm run setup                             # interactive: picker, then "Start PIXTiel now? [Y/n]"
+pnpm run setup -- --features kanban,review # non-interactive selection
+pnpm run setup -- --start                  # install, then always start
+pnpm run setup -- --no-start               # install, never start (what CI wants)
+```
+
+Without `--start`/`--no-start`, an interactive run asks and a non-interactive run prints the next
+command and exits `0`. An unknown feature id exits `2` and lists the valid ones. Selections are
+remembered in `.pixtiel/install-manifest.json`, so a re-run starts from what you chose last time.
+
+---
+
+## Ports
+
+| Port | Service |
+|---|---|
+| `3484` | PIXTiel app and runtime — the only URL you open |
+| `8321` | Manager (headless child of the runtime) |
+| `8322` | HTML template sidecar |
+| `8323` | Docs sidecar |
+| `8400` | OmniRoute (optional feature) |
+| `3010` | Agent studio (optional feature) |
+| `3020` | Learning room |
+| `8000` | Agent stack switchboard |
+| `5173` | Vite dev server — `pnpm dev` only |
+
+Everything binds to `127.0.0.1`. Nothing listens on a public interface unless you put a proxy in
+front of it, in which case turn on the passcode gate or Google OIDC first — see
+[Getting Started](/docs/getting-started).
+
+---
+
+## Environment variables
+
+Names are read new-first with a legacy fallback, so both work:
+
+```bash
+PIXTIEL_PORT=3599 pnpm start          # preferred
+PIXELOFFICE_PORT=3599 pnpm start      # still honoured
+```
+
+Useful ones: `PIXTIEL_PORT`, `PIXTIEL_DOCSKILL_PORT`, `PIXTIEL_HTML_PORT`,
+`PIXTIEL_FLOWISE_PORT`, `PIXTIEL_OPENMAIC_PORT`, `PIXTIEL_AGENT_DATA`, `PIXTIEL_NODE`,
+`PIXTIEL_HOME` (installer target).
+
+---
+
+## Renamed commands
+
+The old names still work. They print one deprecation line and forward:
+
+| Old | New |
+|---|---|
+| `pnpm run solo` | `pnpm start` |
+| `pnpm run install-tenant` | `pnpm run setup` |
+| `pnpm run update-tenant` | `pnpm run upgrade` |
+
+`setup` and `upgrade` are not called `install` and `update` on purpose: those are npm lifecycle
+names, and defining a script called `install` would run it on every `pnpm install`.
