@@ -1,4 +1,6 @@
 import { execFile } from "node:child_process";
+import { access } from "node:fs/promises";
+import { isAbsolute, join } from "node:path";
 import { promisify } from "node:util";
 import { createGitProcessEnv } from "../core/git-process-env";
 
@@ -119,6 +121,33 @@ export async function getGitStdout(args: string[], cwd: string, options: RunGitO
 	}
 
 	return result.stdout;
+}
+
+export async function resolveGitRepoRoot(cwd: string): Promise<string> {
+	const result = await runGit(cwd, ["rev-parse", "--show-toplevel"]);
+	if (!result.ok || !result.stdout) {
+		throw new Error("No git repository detected for this workspace.");
+	}
+	return result.stdout;
+}
+
+/**
+ * Whether a path inside the git directory exists. Resolved through
+ * `rev-parse --git-path` rather than joined onto `.git`, because a linked
+ * worktree's git dir lives under the main repo's `worktrees/<name>`.
+ */
+export async function gitPathExists(repoRoot: string, gitPath: string): Promise<boolean> {
+	const pathResult = await runGit(repoRoot, ["rev-parse", "--git-path", gitPath]);
+	if (!pathResult.ok || !pathResult.stdout) {
+		return false;
+	}
+	const resolved = isAbsolute(pathResult.stdout) ? pathResult.stdout : join(repoRoot, pathResult.stdout);
+	try {
+		await access(resolved);
+		return true;
+	} catch {
+		return false;
+	}
 }
 
 export interface GitHeadInfo {

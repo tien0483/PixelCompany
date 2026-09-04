@@ -325,6 +325,10 @@ export const runtimeCleanStashResponseSchema = z.object({
 });
 export type RuntimeCleanStashResponse = z.infer<typeof runtimeCleanStashResponseSchema>;
 
+/** A merge, rebase or cherry-pick this worktree is stopped in the middle of. */
+export const runtimeGitPendingOperationSchema = z.enum(["merge", "rebase", "cherry-pick"]);
+export type RuntimeGitPendingOperation = z.infer<typeof runtimeGitPendingOperationSchema>;
+
 export const runtimeGitSyncSummarySchema = z.object({
 	currentBranch: z.string().nullable(),
 	upstreamBranch: z.string().nullable(),
@@ -333,8 +337,30 @@ export const runtimeGitSyncSummarySchema = z.object({
 	deletions: z.number(),
 	aheadCount: z.number(),
 	behindCount: z.number(),
+	/**
+	 * Unfinished-operation state, so a badge does not need a second round trip.
+	 * `.optional()` rather than `.default()`: `z.infer` yields the output type, and a
+	 * default makes these required at every existing construction site and fixture.
+	 */
+	conflictedFiles: z.number().optional(),
+	pendingOperation: runtimeGitPendingOperationSchema.nullable().optional(),
 });
 export type RuntimeGitSyncSummary = z.infer<typeof runtimeGitSyncSummarySchema>;
+
+/**
+ * Reported when a merge/rebase/cherry-pick stopped on a conflict and was
+ * deliberately left in place for the user to resolve. `worktreePath` is the
+ * checkout holding it, which for a merge into a base ref nobody had checked out is
+ * a reusable conflict worktree rather than the home repo.
+ */
+export const runtimeGitConflictStateSchema = z.object({
+	operation: runtimeGitPendingOperationSchema,
+	worktreePath: z.string(),
+	paths: z.array(z.string()),
+	/** `--autostash` is holding uncommitted work out of the working tree. */
+	autostashHeld: z.boolean(),
+});
+export type RuntimeGitConflictState = z.infer<typeof runtimeGitConflictStateSchema>;
 
 export const runtimeGitSummaryResponseSchema = z.object({
 	ok: z.boolean(),
@@ -414,6 +440,7 @@ export const runtimeGitMergeBranchResponseSchema = z.object({
 	summary: runtimeGitSyncSummarySchema,
 	output: z.string(),
 	error: z.string().optional(),
+	conflictState: runtimeGitConflictStateSchema.nullable().optional(),
 });
 export type RuntimeGitMergeBranchResponse = z.infer<typeof runtimeGitMergeBranchResponseSchema>;
 
@@ -442,6 +469,7 @@ export const runtimeGitRebaseCurrentOntoResponseSchema = z.object({
 	summary: runtimeGitSyncSummarySchema,
 	output: z.string(),
 	error: z.string().optional(),
+	conflictState: runtimeGitConflictStateSchema.nullable().optional(),
 });
 export type RuntimeGitRebaseCurrentOntoResponse = z.infer<typeof runtimeGitRebaseCurrentOntoResponseSchema>;
 
@@ -460,6 +488,7 @@ export const runtimeGitCherryPickResponseSchema = z.object({
 	summary: runtimeGitSyncSummarySchema,
 	output: z.string(),
 	error: z.string().optional(),
+	conflictState: runtimeGitConflictStateSchema.nullable().optional(),
 });
 export type RuntimeGitCherryPickResponse = z.infer<typeof runtimeGitCherryPickResponseSchema>;
 
@@ -3268,20 +3297,29 @@ export const runtimeGitConflictFileSchema = z.object({
 	base: z.string().nullable(),
 	ours: z.string().nullable(),
 	theirs: z.string().nullable(),
+	/**
+	 * The working-tree file, i.e. git's own merge with `<<<<<<<`/`=======`/`>>>>>>>`
+	 * markers. Seeds the editable pane of the resolver.
+	 */
+	merged: z.string().nullable(),
+	/** No text was read: the file is binary, or too large to ship. */
+	binary: z.boolean(),
+	/**
+	 * Text was deliberately skipped. Distinct from a `null` side, which means
+	 * "absent on this side" — conflating the two renders a *wrong* diff (the file
+	 * as wholly added or wholly deleted) rather than a missing one.
+	 */
+	contentOmitted: z.boolean(),
 });
 export type RuntimeGitConflictFile = z.infer<typeof runtimeGitConflictFileSchema>;
 
-export const runtimeGitConflictsResponseSchema = z.object({
-	ok: z.boolean(),
-	conflicts: z.array(runtimeGitConflictFileSchema),
-	error: z.string().optional(),
-});
-export type RuntimeGitConflictsResponse = z.infer<typeof runtimeGitConflictsResponseSchema>;
-
-export const runtimeGitResolveConflictRequestSchema = z.object({
-	path: z.string(),
-	side: runtimeGitConflictSideSchema,
-	content: z.string().optional(),
+/**
+ * Which checkout a conflict request is about. Absent means the workspace's own
+ * path; `taskInfo` names a task worktree; `worktreePath` names any worktree of this
+ * repo, which is how a conflict left in a reusable base-merge worktree is reached.
+ * The runtime validates `worktreePath` against `git worktree list` before use.
+ */
+export const runtimeGitConflictScopeSchema = z.object({
 	taskInfo: z
 		.object({
 			taskId: z.string(),
@@ -3289,6 +3327,28 @@ export const runtimeGitResolveConflictRequestSchema = z.object({
 		})
 		.nullable()
 		.optional(),
+	worktreePath: z.string().optional(),
+});
+export type RuntimeGitConflictScope = z.infer<typeof runtimeGitConflictScopeSchema>;
+
+export const runtimeGitConflictsRequestSchema = runtimeGitConflictScopeSchema.nullable().optional();
+export type RuntimeGitConflictsRequest = z.infer<typeof runtimeGitConflictsRequestSchema>;
+
+export const runtimeGitConflictsResponseSchema = z.object({
+	ok: z.boolean(),
+	conflicts: z.array(runtimeGitConflictFileSchema),
+	/** Null when nothing is in progress in the scoped worktree. */
+	operation: runtimeGitPendingOperationSchema.nullable(),
+	worktreePath: z.string().nullable(),
+	autostashHeld: z.boolean(),
+	error: z.string().optional(),
+});
+export type RuntimeGitConflictsResponse = z.infer<typeof runtimeGitConflictsResponseSchema>;
+
+export const runtimeGitResolveConflictRequestSchema = runtimeGitConflictScopeSchema.extend({
+	path: z.string(),
+	side: runtimeGitConflictSideSchema,
+	content: z.string().optional(),
 });
 export type RuntimeGitResolveConflictRequest = z.infer<typeof runtimeGitResolveConflictRequestSchema>;
 
@@ -3299,6 +3359,38 @@ export const runtimeGitResolveConflictResponseSchema = z.object({
 	error: z.string().optional(),
 });
 export type RuntimeGitResolveConflictResponse = z.infer<typeof runtimeGitResolveConflictResponseSchema>;
+
+/** One worktree of the repo that is stopped mid-operation. */
+export const runtimeGitConflictWorktreeSchema = z.object({
+	worktreePath: z.string(),
+	branch: z.string().nullable(),
+	operation: runtimeGitPendingOperationSchema,
+	conflictedPaths: z.array(z.string()),
+	autostashHeld: z.boolean(),
+	/** True for a reusable base-merge worktree the runtime created, not a user checkout. */
+	isConflictWorktree: z.boolean(),
+});
+export type RuntimeGitConflictWorktree = z.infer<typeof runtimeGitConflictWorktreeSchema>;
+
+export const runtimeGitConflictStateResponseSchema = z.object({
+	ok: z.boolean(),
+	worktrees: z.array(runtimeGitConflictWorktreeSchema),
+	error: z.string().optional(),
+});
+export type RuntimeGitConflictStateResponse = z.infer<typeof runtimeGitConflictStateResponseSchema>;
+
+export const runtimeGitConflictOperationRequestSchema = runtimeGitConflictScopeSchema;
+export type RuntimeGitConflictOperationRequest = z.infer<typeof runtimeGitConflictOperationRequestSchema>;
+
+export const runtimeGitConflictOperationResponseSchema = z.object({
+	ok: z.boolean(),
+	summary: runtimeGitSyncSummarySchema,
+	output: z.string(),
+	error: z.string().optional(),
+	/** What remains unfinished after the call — null once the operation completed. */
+	conflictState: runtimeGitConflictStateSchema.nullable().optional(),
+});
+export type RuntimeGitConflictOperationResponse = z.infer<typeof runtimeGitConflictOperationResponseSchema>;
 
 export const runtimeGitWorktreeEntrySchema = z.object({
 	path: z.string(),

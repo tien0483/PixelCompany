@@ -3,6 +3,9 @@ import type { ClineTaskSessionService } from "../cline-sdk/cline-task-session-se
 import type {
 	RuntimeGitCheckoutResponse,
 	RuntimeGitCherryPickResponse,
+	RuntimeGitConflictOperationResponse,
+	RuntimeGitConflictScope,
+	RuntimeGitConflictWorktree,
 	RuntimeGitCreateBranchResponse,
 	RuntimeGitDeleteBranchResponse,
 	RuntimeGitDiscardResponse,
@@ -42,9 +45,13 @@ import {
 } from "../workspace/get-workspace-changes";
 import { createPullRequest } from "../workspace/git-gh";
 import { getBlame, getCommitDiff, getGitLog, getGitRefs } from "../workspace/git-history";
+import { probeGitConflictState } from "../workspace/git-conflict-state";
+import { isMergeWorktreePath, sweepIdleMergeWorktrees } from "../workspace/git-conflict-worktree";
 import {
+	abortConflictOperation,
 	cleanGitStash,
 	commitWorkspaceChanges,
+	continueConflictOperation,
 	discardGitChanges,
 	getGitSyncSummary,
 	getMergeConflicts,
@@ -56,11 +63,12 @@ import {
 	runGitCreateBranchAction,
 	runGitDeleteBranchAction,
 	runGitMergeBranchAction,
-	runGitMergeBranchInTemporaryWorktree,
+	runGitMergeBranchInBorrowedWorktree,
 	runGitMergeIntoCurrentAction,
 	runGitPushBranchAction,
 	runGitRebaseCurrentOntoAction,
 	runGitSyncAction,
+	skipConflictRebaseCommit,
 } from "../workspace/git-sync";
 import { hasLocalGitBranch, isFloatingGitRef } from "../workspace/git-utils";
 import { cleanMergedWorktrees } from "../workspace/git-worktree-cleanup";
@@ -314,6 +322,42 @@ async function resolveGitOpCwd(
 	});
 }
 
+/**
+ * Resolves a conflict request's scope to a directory.
+ *
+ * A raw `worktreePath` arrives from the client, so it is only honoured when it is
+ * an *exact* match for a path `git worktree list` reports for this repository —
+ * never joined, normalized or trusted. Without that check the conflict endpoints
+ * would run git in any directory a caller named.
+ */
+async function resolveConflictScopeCwd(
+	workspacePath: string,
+	scope: RuntimeGitConflictScope | null | undefined,
+): Promise<string> {
+	const requestedWorktreePath = scope?.worktreePath?.trim();
+	if (requestedWorktreePath) {
+		const inventory = await listGitWorktrees(workspacePath);
+		if (!inventory.ok) {
+			throw new Error(inventory.error ?? "Could not list git worktrees.");
+		}
+		if (!inventory.worktrees.some((entry) => entry.path === requestedWorktreePath)) {
+			throw new Error(`'${requestedWorktreePath}' is not a worktree of this repository.`);
+		}
+		return requestedWorktreePath;
+	}
+	return await resolveGitOpCwd(workspacePath, scope?.taskInfo ?? null);
+}
+
+function createEmptyGitConflictOperationErrorResponse(error: unknown): RuntimeGitConflictOperationResponse {
+	return {
+		ok: false,
+		summary: EMPTY_GIT_SYNC_SUMMARY,
+		output: "",
+		error: error instanceof Error ? error.message : String(error),
+		conflictState: null,
+	};
+}
+
 function isMissingTaskWorktreeError(error: unknown): boolean {
 	if (!(error instanceof Error)) {
 		return false;
@@ -454,7 +498,7 @@ export function createWorkspaceApi(deps: CreateWorkspaceApiDependencies): Runtim
 							branch: mergeBranch,
 							baseRef: info.baseRef,
 						})
-					: await runGitMergeBranchInTemporaryWorktree({
+					: await runGitMergeBranchInBorrowedWorktree({
 							repoPath: workspaceScope.workspacePath,
 							branch: mergeBranch,
 							baseRef: info.baseRef,
@@ -671,6 +715,11 @@ export function createWorkspaceApi(deps: CreateWorkspaceApiDependencies): Runtim
 		cleanMergedWorktrees: async (workspaceScope, input) => {
 			try {
 				const { board } = await loadWorkspaceState(workspaceScope.workspacePath);
+				if (!input?.dryRun) {
+					// Borrowed base checkouts are not task worktrees, so `cleanMergedWorktrees`
+					// never sees them. One whose operation is finished is pure garbage.
+					await sweepIdleMergeWorktrees(workspaceScope.workspacePath);
+				}
 				const response = await cleanMergedWorktrees({
 					repoPath: workspaceScope.workspacePath,
 					workspaceId: workspaceScope.workspaceId,
@@ -722,15 +771,54 @@ export function createWorkspaceApi(deps: CreateWorkspaceApiDependencies): Runtim
 		},
 		getMergeConflicts: async (workspaceScope, input) => {
 			try {
-				const cwd = await resolveGitOpCwd(workspaceScope.workspacePath, input);
+				const cwd = await resolveConflictScopeCwd(workspaceScope.workspacePath, input);
 				return await getMergeConflicts({ cwd });
 			} catch (error) {
-				return { ok: false, conflicts: [], error: error instanceof Error ? error.message : String(error) };
+				return {
+					ok: false,
+					conflicts: [],
+					operation: null,
+					worktreePath: null,
+					autostashHeld: false,
+					error: error instanceof Error ? error.message : String(error),
+				};
+			}
+		},
+		/**
+		 * Where in this repository an unfinished operation is sitting. One call rather
+		 * than one per worktree, because the conflict a user needs is as likely to be
+		 * in a task worktree or a borrowed base checkout as in the home repo — which
+		 * is exactly why the dialog used to always report "no unresolved conflicts".
+		 */
+		getConflictState: async (workspaceScope) => {
+			try {
+				const inventory = await listGitWorktrees(workspaceScope.workspacePath);
+				if (!inventory.ok) {
+					throw new Error(inventory.error ?? "Could not list git worktrees.");
+				}
+				const worktrees: RuntimeGitConflictWorktree[] = [];
+				for (const entry of inventory.worktrees) {
+					const state = await probeGitConflictState(entry.path).catch(() => null);
+					if (!state?.operation) {
+						continue;
+					}
+					worktrees.push({
+						worktreePath: entry.path,
+						branch: entry.branch,
+						operation: state.operation,
+						conflictedPaths: state.paths,
+						autostashHeld: state.autostashHeld,
+						isConflictWorktree: isMergeWorktreePath(entry.path),
+					});
+				}
+				return { ok: true, worktrees };
+			} catch (error) {
+				return { ok: false, worktrees: [], error: error instanceof Error ? error.message : String(error) };
 			}
 		},
 		resolveMergeConflict: async (workspaceScope, input) => {
 			try {
-				const cwd = await resolveGitOpCwd(workspaceScope.workspacePath, input.taskInfo ?? null);
+				const cwd = await resolveConflictScopeCwd(workspaceScope.workspacePath, input);
 				const response = await resolveMergeConflict({
 					cwd,
 					path: input.path,
@@ -746,6 +834,60 @@ export function createWorkspaceApi(deps: CreateWorkspaceApiDependencies): Runtim
 				return response;
 			} catch (error) {
 				return createEmptyGitRevertErrorResponse(error);
+			}
+		},
+		continueConflictOperation: async (workspaceScope, input) => {
+			try {
+				const cwd = await resolveConflictScopeCwd(workspaceScope.workspacePath, input);
+				const response = await continueConflictOperation({ cwd });
+				if (response.ok) {
+					// A borrowed base checkout exists only to hold the merge; once nothing is
+					// unfinished there, it is garbage that would otherwise show up in the
+					// Worktrees dialog forever.
+					if (!response.conflictState && isMergeWorktreePath(cwd)) {
+						await sweepIdleMergeWorktrees(workspaceScope.workspacePath);
+					}
+					void deps.broadcastRuntimeWorkspaceStateUpdated(
+						workspaceScope.workspaceId,
+						workspaceScope.workspacePath,
+					);
+				}
+				return response;
+			} catch (error) {
+				return createEmptyGitConflictOperationErrorResponse(error);
+			}
+		},
+		abortConflictOperation: async (workspaceScope, input) => {
+			try {
+				const cwd = await resolveConflictScopeCwd(workspaceScope.workspacePath, input);
+				const response = await abortConflictOperation({ cwd });
+				if (response.ok) {
+					if (isMergeWorktreePath(cwd)) {
+						await sweepIdleMergeWorktrees(workspaceScope.workspacePath);
+					}
+					void deps.broadcastRuntimeWorkspaceStateUpdated(
+						workspaceScope.workspaceId,
+						workspaceScope.workspacePath,
+					);
+				}
+				return response;
+			} catch (error) {
+				return createEmptyGitConflictOperationErrorResponse(error);
+			}
+		},
+		skipRebaseCommit: async (workspaceScope, input) => {
+			try {
+				const cwd = await resolveConflictScopeCwd(workspaceScope.workspacePath, input);
+				const response = await skipConflictRebaseCommit({ cwd });
+				if (response.ok) {
+					void deps.broadcastRuntimeWorkspaceStateUpdated(
+						workspaceScope.workspaceId,
+						workspaceScope.workspacePath,
+					);
+				}
+				return response;
+			} catch (error) {
+				return createEmptyGitConflictOperationErrorResponse(error);
 			}
 		},
 		createPullRequest: async (workspaceScope, input) => {
