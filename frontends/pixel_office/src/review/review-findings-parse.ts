@@ -79,18 +79,23 @@ export function parseFindingsFromStream(text: string): RuntimeReviewFinding[] {
 }
 
 /**
- * Suggestions appended to a chat answer.
+ * The body of the ```suggestions fence, or null when there is none.
  *
- * Only the ```suggestions fence counts. A chat answer is mostly prose and routinely
- * contains code samples, so scanning the whole message for the first `[` — the way
- * the audit parser can safely do — would happily turn a TypeScript array literal in
- * an explanation into a list of review comments. An answer with no such fence has no
- * suggestions, which is the common and correct case.
+ * Only that fence counts. A chat answer is mostly prose and routinely contains code
+ * samples, so scanning the whole message for the first `[` — the way the audit parser
+ * can safely do — would happily turn a TypeScript array literal in an explanation
+ * into a list of review comments. An answer with no such fence carries nothing
+ * structured, which is the common and correct case.
  */
-export function parseSuggestionsFromChat(text: string): RuntimeReviewFinding[] {
+function suggestionsFenceBody(text: string): string | null {
 	const fenced = new RegExp(`\`\`\`${SUGGESTIONS_FENCE}\\s*([\\s\\S]*?)\`\`\``).exec(text);
-	const body = fenced?.[1];
-	if (typeof body !== "string") {
+	return typeof fenced?.[1] === "string" ? fenced[1] : null;
+}
+
+/** Suggestions appended to a chat answer. */
+export function parseSuggestionsFromChat(text: string): RuntimeReviewFinding[] {
+	const body = suggestionsFenceBody(text);
+	if (body === null) {
 		return [];
 	}
 	const parsed = parseFirstArray(body);
@@ -113,9 +118,38 @@ export interface ReviewAnnotationVerdictResult {
 }
 
 /**
+ * Verdict elements out of a parsed array. Strict about shape — an unknown verdict
+ * value is dropped, not defaulted, because a wrong verdict is worse than none. A
+ * findings element has no `annotationId` and so falls out here, which is what lets
+ * both kinds share one array.
+ */
+function coerceVerdicts(parsed: unknown): ReviewAnnotationVerdictResult[] {
+	if (!Array.isArray(parsed)) {
+		return [];
+	}
+	const verdicts: ReviewAnnotationVerdictResult[] = [];
+	for (const item of parsed) {
+		if (typeof item !== "object" || item === null || Array.isArray(item)) {
+			continue;
+		}
+		const record = item as Record<string, unknown>;
+		const annotationId = typeof record.annotationId === "string" ? record.annotationId : null;
+		const verdict = record.verdict;
+		if (!annotationId || (verdict !== "confirmed" && verdict !== "not_an_issue" && verdict !== "partial")) {
+			continue;
+		}
+		verdicts.push({
+			annotationId,
+			verdict,
+			reasoning: typeof record.reasoning === "string" ? record.reasoning : "",
+		});
+	}
+	return verdicts;
+}
+
+/**
  * Verdict elements mixed into the audit's findings array. Same lenient extraction as
- * `parseFindingsFromStream`; strict about shape — an unknown verdict value is dropped,
- * not defaulted, because a wrong verdict is worse than none.
+ * `parseFindingsFromStream`, because the audit's whole answer is meant to be JSON.
  */
 export function parseVerdictsFromStream(text: string): ReviewAnnotationVerdictResult[] {
 	const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/);
@@ -127,27 +161,21 @@ export function parseVerdictsFromStream(text: string): ReviewAnnotationVerdictRe
 		if (parsed === null || !Array.isArray(parsed)) {
 			continue;
 		}
-		const verdicts: ReviewAnnotationVerdictResult[] = [];
-		for (const item of parsed) {
-			if (typeof item !== "object" || item === null || Array.isArray(item)) {
-				continue;
-			}
-			const record = item as Record<string, unknown>;
-			const annotationId = typeof record.annotationId === "string" ? record.annotationId : null;
-			const verdict = record.verdict;
-			if (
-				!annotationId ||
-				(verdict !== "confirmed" && verdict !== "not_an_issue" && verdict !== "partial")
-			) {
-				continue;
-			}
-			verdicts.push({
-				annotationId,
-				verdict,
-				reasoning: typeof record.reasoning === "string" ? record.reasoning : "",
-			});
-		}
-		return verdicts;
+		return coerceVerdicts(parsed);
 	}
 	return [];
+}
+
+/**
+ * Verdicts mixed into a chat turn's suggestions block, answering the spots the
+ * reviewer flagged before running the command. Fence-only for the same reason
+ * `parseSuggestionsFromChat` is: a chat answer is prose, and an id-shaped object in
+ * an explanation must never become review state.
+ */
+export function parseVerdictsFromChat(text: string): ReviewAnnotationVerdictResult[] {
+	const body = suggestionsFenceBody(text);
+	if (body === null) {
+		return [];
+	}
+	return coerceVerdicts(parseFirstArray(body));
 }

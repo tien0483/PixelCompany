@@ -87,6 +87,16 @@ export function ReviewAnnotationsPanel({
 												{annotation.note}
 											</div>
 										) : null}
+										{/* The badge says whether the concern held; this is the answer to it,
+										    and it is the half the reviewer opened this tab to read. */}
+										{annotation.verdict && annotation.verdict.reasoning.length > 0 ? (
+											<div
+												className="mt-0.5 line-clamp-2 text-[10px] text-text-tertiary"
+												title={annotation.verdict.reasoning}
+											>
+												{annotation.verdict.reasoning}
+											</div>
+										) : null}
 									</button>
 									<button
 										type="button"

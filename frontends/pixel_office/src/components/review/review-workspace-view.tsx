@@ -29,7 +29,11 @@ import {
 	readStoredReviewAgentModel,
 	writeStoredReviewAgentModel,
 } from "@/review/review-agent-model";
-import { parseFindingsFromStream, parseVerdictsFromStream } from "@/review/review-findings-parse";
+import {
+	parseFindingsFromStream,
+	parseVerdictsFromStream,
+	type ReviewAnnotationVerdictResult,
+} from "@/review/review-findings-parse";
 import { isTypingTarget, resolveNavKey } from "@/review/review-nav-keys";
 import { buildTagSections, type ReviewTag } from "@/review/review-tags";
 import {
@@ -292,10 +296,25 @@ export function ReviewWorkspaceView({
 		},
 		[session],
 	);
+	// A review command answers the spots the reviewer flagged before running it. The
+	// verdicts go to the annotations rather than the transcript, so the Annotations tab
+	// is where the reviewer checks whether their concerns were addressed — the toast is
+	// what tells them to look, since the panel may not be the open tab.
+	const applyChatAnnotationVerdicts = useCallback(
+		(verdicts: ReviewAnnotationVerdictResult[]) => {
+			session.applyAnnotationVerdicts(verdicts);
+			showAppToast({
+				intent: "success",
+				message: `Claude answered ${verdicts.length} annotation${verdicts.length === 1 ? "" : "s"} — see the Annotations tab.`,
+			});
+		},
+		[session],
+	);
 	const chat = useReviewChat({
 		initialMessages: initialChatMessages,
 		initialSessionId: storedChatSessionId,
 		onPersist: persistChat,
+		onAnnotationVerdicts: applyChatAnnotationVerdicts,
 	});
 
 	const progress = useMemo(
@@ -349,6 +368,8 @@ export function ReviewWorkspaceView({
 			),
 		[annotations, currentHeadSha],
 	);
+	/** Flagged spots no pass has answered yet — the count the tab label leads with. */
+	const openAnnotationCount = annotations.filter((a) => a.verdict === null).length;
 	const tagSections = useMemo(() => buildTagSections(session.rules), [session.rules]);
 	const jumpToAnnotation = useCallback(
 		(annotation: RuntimeReviewAnnotation) => {
@@ -1192,7 +1213,11 @@ export function ReviewWorkspaceView({
 							onSelect={() => setLeftTab("rules")}
 						/>
 						<LeftTabButton
-							label={`Annotations (${annotations.length})`}
+							label={
+								openAnnotationCount > 0
+									? `Annotations (${annotations.length} · ${openAnnotationCount} open)`
+									: `Annotations (${annotations.length})`
+							}
 							active={leftTab === "annotations"}
 							onSelect={() => setLeftTab("annotations")}
 						/>

@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useHtmlAgentStream } from "@/html/use-html-agent-stream";
-import { parseSuggestionsFromChat, stripSuggestionsBlock } from "@/review/review-findings-parse";
+import {
+	parseSuggestionsFromChat,
+	parseVerdictsFromChat,
+	type ReviewAnnotationVerdictResult,
+	stripSuggestionsBlock,
+} from "@/review/review-findings-parse";
 import type { RuntimeReviewChatMessage, RuntimeReviewChatRequest } from "@/runtime/types";
 
 /**
@@ -52,6 +57,13 @@ export function useReviewChat(input: {
 	initialSessionId: string | null;
 	/** Persists the transcript. Called on every append, not on a timer. */
 	onPersist: (update: { messages: RuntimeReviewChatMessage[]; sessionId: string | null }) => void;
+	/**
+	 * Verdicts the turn returned on the spots the reviewer had flagged. They belong to
+	 * the annotations, not the transcript, so they leave through here instead of being
+	 * stored on the message — which is also why they are parsed at the same moment the
+	 * suggestions are, once, rather than per render.
+	 */
+	onAnnotationVerdicts: (verdicts: ReviewAnnotationVerdictResult[]) => void;
 }): ReviewChatApi {
 	const [messages, setMessages] = useState<RuntimeReviewChatMessage[]>(input.initialMessages);
 	const [sessionId, setSessionId] = useState<string | null>(input.initialSessionId);
@@ -62,6 +74,8 @@ export function useReviewChat(input: {
 	sessionIdRef.current = sessionId;
 	const onPersistRef = useRef(input.onPersist);
 	onPersistRef.current = input.onPersist;
+	const onAnnotationVerdictsRef = useRef(input.onAnnotationVerdicts);
+	onAnnotationVerdictsRef.current = input.onAnnotationVerdicts;
 
 	const stream = useHtmlAgentStream<RuntimeReviewChatRequest>("/api/review/chat", (key, value) => {
 		// The id of the session this turn ran in. On a resumed turn the CLI reports the
@@ -114,6 +128,10 @@ export function useReviewChat(input: {
 				suggestions: parseSuggestionsFromChat(answer),
 				createdAt: new Date().toISOString(),
 			});
+			const verdicts = parseVerdictsFromChat(answer);
+			if (verdicts.length > 0) {
+				onAnnotationVerdictsRef.current(verdicts);
+			}
 		}
 		reset();
 	}, [appendMessage, reset, status, text]);
