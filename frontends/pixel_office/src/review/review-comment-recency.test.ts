@@ -7,7 +7,7 @@ const REVIEWED_AT = "2026-09-01T10:00:00.000Z";
 
 function note(overrides: Partial<RuntimeGitlabNote> = {}): RuntimeGitlabNote {
 	return {
-		id: "note-1",
+		id: 1,
 		body: "Please rename this.",
 		authorUsername: "author",
 		authorName: "Author",
@@ -41,8 +41,8 @@ describe("findNewCommentsSinceReview", () => {
 
 	it("keeps the most recent time and counts every qualifying note", () => {
 		const result = find([
-			note({ id: "a", createdAt: "2026-09-01T11:00:00.000Z" }),
-			note({ id: "b", createdAt: "2026-09-01T12:00:00.000Z" }),
+			note({ id: 1, createdAt: "2026-09-01T11:00:00.000Z" }),
+			note({ id: 2, createdAt: "2026-09-01T12:00:00.000Z" }),
 		]);
 		expect(result.byPath.get("src/a.ts")).toEqual({ count: 2, latestAt: "2026-09-01T12:00:00.000Z" });
 	});
@@ -103,7 +103,7 @@ describe("findNewCommentsSinceReview", () => {
 
 describe("countUserNotes", () => {
 	it("counts non-system notes only, matching GitLab's user_notes_count", () => {
-		expect(countUserNotes([discussion([note({ id: "a" }), note({ id: "b", system: true })])])).toBe(1);
+		expect(countUserNotes([discussion([note({ id: 1 }), note({ id: 2, system: true })])])).toBe(1);
 	});
 
 	it("is zero for a merge request nobody has commented on", () => {
