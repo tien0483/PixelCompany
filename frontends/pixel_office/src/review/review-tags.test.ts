@@ -9,7 +9,7 @@ import {
 	type ReviewTag,
 	type ReviewTagSection,
 	type ReviewTagSectionId,
-	reviewTagChipClassName,
+	reviewTagColor,
 } from "@/review/review-tags";
 import type { RuntimeReviewRule } from "@/runtime/types";
 
@@ -48,6 +48,38 @@ describe("BUILTIN_REVIEW_TAGS", () => {
 		for (const tag of BUILTIN_REVIEW_TAGS) {
 			expect(tag.kind).toBe("builtin");
 		}
+	});
+});
+
+describe("reviewTagColor", () => {
+	it("gives every built-in tag its own color", () => {
+		const chips = new Set(BUILTIN_REVIEW_TAGS.map((tag) => reviewTagColor(tag).chip));
+		expect(chips.size).toBe(BUILTIN_REVIEW_TAGS.length);
+	});
+
+	it("returns a chip, a rule and a token reference for every tag", () => {
+		const color = reviewTagColor({ kind: "rule-category", label: "CustomCategory" });
+		expect(color.chip).toMatch(/^border-status-/);
+		expect(color.rule).toMatch(/^border-status-/);
+		expect(color.cssVar).toMatch(/^var\(--color-status-/);
+	});
+
+	it("colors a rule category the same way on every call", () => {
+		const first = reviewTagColor({ kind: "rule-category", label: "CustomCategory" });
+		const second = reviewTagColor({ kind: "rule-category", label: "CustomCategory" });
+		expect(second).toEqual(first);
+	});
+
+	it("colors a rule category by label, so it matches a built-in of the same name", () => {
+		// buildTagSections dedups case-insensitively, so the color has to agree with it.
+		const builtin = reviewTagColor({ kind: "builtin", label: "Security" });
+		expect(reviewTagColor({ kind: "rule-category", label: "security" })).toEqual(builtin);
+	});
+
+	it("colors a catalog label by its own name, ignoring the kind", () => {
+		const smell = reviewTagColor({ kind: "smell", label: "Feature Envy" });
+		expect(smell.chip).toMatch(/^border-status-/);
+		expect(reviewTagColor({ kind: "rule-category", label: "feature envy" })).toEqual(smell);
 	});
 });
 
@@ -145,14 +177,5 @@ describe("countTags", () => {
 		expect(countTags(section(sections, "tags"))).toBe(BUILTIN_REVIEW_TAGS.length);
 		expect(countTags(section(sections, "smells"))).toBe(23);
 		expect(countTags(section(sections, "refactorings"))).toBe(66);
-	});
-});
-
-describe("reviewTagChipClassName", () => {
-	it("colours the catalog kinds and leaves the rest to the call site", () => {
-		expect(reviewTagChipClassName("smell")).toBe("border-status-orange/40");
-		expect(reviewTagChipClassName("refactoring")).toBe("border-status-blue/40");
-		expect(reviewTagChipClassName("builtin")).toBeNull();
-		expect(reviewTagChipClassName("rule-category")).toBeNull();
 	});
 });

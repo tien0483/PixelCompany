@@ -12,7 +12,7 @@ import {
 	type ReviewTag,
 	type ReviewTagSection,
 	type ReviewTagSectionId,
-	reviewTagChipClassName,
+	reviewTagColor,
 } from "@/review/review-tags";
 import { LocalStorageKey } from "@/storage/local-storage-store";
 
@@ -128,9 +128,11 @@ export function ReviewTagStrip({ sections, onTagDragStart, onTagDragEnd }: Revie
 													key={`${tag.kind}-${tag.label}`}
 													type="button"
 													draggable
+													// The browser builds the drag image out of this element, so the chip's
+													// own color is what the reviewer sees following the cursor.
 													className={cn(
-														"cursor-grab rounded border bg-surface-2 px-2 py-0.5 text-[10px] text-text-secondary hover:text-text-primary",
-														reviewTagChipClassName(tag.kind) ?? "border-border",
+														"cursor-grab rounded border px-2 py-0.5 text-[10px] hover:brightness-125",
+														reviewTagColor(tag).chip,
 													)}
 													onDragStart={(event) => {
 														event.dataTransfer.effectAllowed = "copy";

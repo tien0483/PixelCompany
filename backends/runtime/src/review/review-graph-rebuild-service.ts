@@ -14,6 +14,7 @@
 import { cp, mkdir, stat } from "node:fs/promises";
 import { basename, join } from "node:path";
 
+import type { AgyProgressLine } from "../terminal/agy-brain-transcript";
 import type { AgentOneShotControl, AgentOneShotEvent, RunAgentOneShotInput } from "../terminal/agent-oneshot";
 import { runAgentOneShot } from "../terminal/agent-oneshot";
 import {
@@ -24,27 +25,40 @@ import {
 import {
 	GRAPH_REBUILD_IDLE_TIMEOUT_MS,
 	GRAPH_REBUILD_TIMEOUT_MS,
+	prepareGraphRebuildLogFile,
 	resolveGraphRebuildPrompt,
 } from "./review-graph-rebuild";
 
 export type RebuildStatus = "idle" | "running" | "paused" | "done" | "error";
 
-export interface RebuildJobEvent {
-	event: string;
-	data: unknown;
-}
+/**
+ * How many progress lines a job keeps for replay.
+ *
+ * Bounded because closing the browser mid-run is a supported path — the job
+ * survives, and a reconnecting client replays from here — and a three-hour
+ * analysis emits far more lines than anyone scrolls back through.
+ */
+export const REBUILD_PROGRESS_LINE_LIMIT = 500;
 
 export interface RebuildJob {
 	projectPath: string;
 	status: RebuildStatus;
 	startedAt: number;
+	pausedAt: number | null;
 	doneAt: number | null;
 	error: string | null;
 	currentStep: string | null;
 	text: string;
 	log: string[];
 	notices: string[];
-	events: RebuildJobEvent[];
+	progress: AgyProgressLine[];
+	/**
+	 * The Antigravity account `agy` authenticated as, once it says so in its log.
+	 * Not necessarily the pinned seat — see `manager-account-pin.ts`, which
+	 * returns no environment for `gemini` because those credentials are
+	 * machine-wide.
+	 */
+	accountEmail: string | null;
 	subscribers: Set<(event: string, data: unknown) => void>;
 	abortController: AbortController;
 	control: AgentOneShotControl | null;
@@ -57,6 +71,19 @@ export interface StartRebuildInput {
 	effort?: "low" | "medium" | "high";
 	managerAccountId?: number;
 	buildPinInput?: (managerAccountId?: number) => RunAgentOneShotInput["pinInput"];
+	/**
+	 * Abandons an existing running or paused job for this project and starts a new
+	 * one. The escape hatch for a job that cannot finish and cannot be resumed —
+	 * without it, a wedged job owns its project until the 3-hour hard timeout and
+	 * every click silently attaches to it.
+	 */
+	force?: boolean;
+}
+
+export interface StartOrAttachResult {
+	job: RebuildJob;
+	/** False when this call started the job, true when it joined one already running. */
+	attached: boolean;
 }
 
 class ReviewGraphRebuildService {
@@ -66,10 +93,21 @@ class ReviewGraphRebuildService {
 	 * Returns an existing running or paused job for this project, or creates and
 	 * starts a new background job.
 	 */
-	startOrAttachJob(input: StartRebuildInput): RebuildJob {
+	startOrAttachJob(input: StartRebuildInput): StartOrAttachResult {
 		const existing = this.jobs.get(input.projectPath);
 		if (existing && (existing.status === "running" || existing.status === "paused")) {
-			return existing;
+			if (input.force) {
+				this.cancelJob(input.projectPath);
+				this.jobs.delete(input.projectPath);
+			} else if (this.isJobChildGone(existing)) {
+				// The child is gone but the job still claims the project. Nothing can
+				// resume it, and leaving it in the map means every later request
+				// attaches to a build that will never emit another event.
+				this.failJob(existing, "The rebuild process is no longer running.");
+				this.jobs.delete(input.projectPath);
+			} else {
+				return { job: existing, attached: true };
+			}
 		}
 
 		const abortController = new AbortController();
@@ -77,13 +115,15 @@ class ReviewGraphRebuildService {
 			projectPath: input.projectPath,
 			status: "running",
 			startedAt: Date.now(),
+			pausedAt: null,
 			doneAt: null,
 			error: null,
 			currentStep: null,
 			text: "",
 			log: [],
 			notices: [],
-			events: [],
+			progress: [],
+			accountEmail: null,
 			subscribers: new Set(),
 			abortController,
 			control: null,
@@ -94,11 +134,44 @@ class ReviewGraphRebuildService {
 		// Execute in background
 		void this.executeJob(job, input);
 
-		return job;
+		return { job, attached: false };
+	}
+
+	/**
+	 * True when the job has a pid that no longer exists. Signal 0 checks for the
+	 * process without touching it; `EPERM` means it is alive but not ours, which
+	 * still counts as alive.
+	 */
+	private isJobChildGone(job: RebuildJob): boolean {
+		if (job.childPid === null) {
+			return false;
+		}
+		try {
+			process.kill(job.childPid, 0);
+			return false;
+		} catch (error) {
+			return (error as NodeJS.ErrnoException).code === "ESRCH";
+		}
+	}
+
+	private failJob(job: RebuildJob, message: string): void {
+		job.abortController.abort();
+		job.status = "error";
+		job.error = message;
+		job.doneAt = Date.now();
+		this.broadcast(job, "error", { type: "error", message });
+		this.broadcast(job, "done", { type: "done", code: 1 });
+		this.broadcast(job, "status", { type: "status", status: "error" });
+	}
+
+	private recordProgress(job: RebuildJob, progress: AgyProgressLine): void {
+		job.progress.push(progress);
+		if (job.progress.length > REBUILD_PROGRESS_LINE_LIMIT) {
+			job.progress.splice(0, job.progress.length - REBUILD_PROGRESS_LINE_LIMIT);
+		}
 	}
 
 	private broadcast(job: RebuildJob, event: string, data: unknown): void {
-		job.events.push({ event, data });
 		for (const subscriber of job.subscribers) {
 			try {
 				subscriber(event, data);
@@ -121,6 +194,11 @@ class ReviewGraphRebuildService {
 			return;
 		}
 
+		// Opting into observability: this is what lets the run report the commands
+		// it is running and the errors agy would otherwise only write to its own
+		// log. A failure to prepare it is not a reason to refuse the build.
+		const logFilePath = await prepareGraphRebuildLogFile(input.projectPath);
+
 		try {
 			await runAgentOneShot({
 				agentId: "gemini",
@@ -129,6 +207,7 @@ class ReviewGraphRebuildService {
 				model: input.model,
 				allowedTools: [],
 				...(input.effort === undefined ? {} : { effort: input.effort }),
+				...(logFilePath === null ? {} : { logFilePath }),
 				skipPermissions: true,
 				idleTimeoutMs: GRAPH_REBUILD_IDLE_TIMEOUT_MS,
 				timeoutMs: GRAPH_REBUILD_TIMEOUT_MS,
@@ -158,6 +237,10 @@ class ReviewGraphRebuildService {
 							if (!job.notices.includes(event.value)) {
 								job.notices.push(event.value);
 							}
+						} else if (event.key === "progress_line" && event.value && typeof event.value === "object") {
+							this.recordProgress(job, event.value as AgyProgressLine);
+						} else if (event.key === "agent_account" && typeof event.value === "string") {
+							job.accountEmail = event.value;
 						}
 						this.broadcast(job, "meta", event);
 					} else if (event.type === "error") {
@@ -213,6 +296,14 @@ class ReviewGraphRebuildService {
 				value: { stepType: job.currentStep, state: job.status === "paused" ? "PAUSED" : "RUNNING" },
 			});
 		}
+		if (job.accountEmail) {
+			listener("meta", { type: "meta", key: "agent_account", value: job.accountEmail });
+		}
+		// Before the text, because these are what happened *during* the run and the
+		// accumulated text is the agent's closing summary.
+		for (const progress of job.progress) {
+			listener("meta", { type: "meta", key: "progress_line", value: progress });
+		}
 		if (job.text.length > 0) {
 			listener("delta", { type: "delta", text: job.text });
 		}
@@ -250,6 +341,7 @@ class ReviewGraphRebuildService {
 			}
 		}
 		job.status = "paused";
+		job.pausedAt = Date.now();
 		this.broadcast(job, "status", { type: "status", status: "paused" });
 		this.broadcast(job, "meta", { type: "meta", key: "rebuild_status", value: "paused" });
 		if (job.currentStep) {
@@ -270,6 +362,13 @@ class ReviewGraphRebuildService {
 		if (job.status !== "paused") {
 			return { ok: false, error: `Job is not paused (currently ${job.status}).` };
 		}
+		if (this.isJobChildGone(job)) {
+			// SIGCONT to a pid that no longer exists cannot be recovered from, and
+			// reporting "failed to resume" invites the user to try again forever.
+			this.failJob(job, "The rebuild process is no longer running. Start a new build.");
+			this.jobs.delete(projectPath);
+			return { ok: false, error: "The rebuild process is no longer running. Start a new build." };
+		}
 		if (job.control) {
 			const resumed = job.control.resume();
 			if (!resumed) {
@@ -277,6 +376,7 @@ class ReviewGraphRebuildService {
 			}
 		}
 		job.status = "running";
+		job.pausedAt = null;
 		this.broadcast(job, "status", { type: "status", status: "running" });
 		this.broadcast(job, "meta", { type: "meta", key: "rebuild_status", value: "running" });
 		if (job.currentStep) {
@@ -311,12 +411,15 @@ class ReviewGraphRebuildService {
 		ok: boolean;
 		status: RebuildStatus;
 		startedAt: number | null;
+		pausedAt: number | null;
 		doneAt: number | null;
 		error: string | null;
 		currentStep: string | null;
 		text: string;
 		log: string[];
 		notices: string[];
+		progress: AgyProgressLine[];
+		accountEmail: string | null;
 	} {
 		const job = this.jobs.get(projectPath);
 		if (!job) {
@@ -324,24 +427,35 @@ class ReviewGraphRebuildService {
 				ok: true,
 				status: "idle",
 				startedAt: null,
+				pausedAt: null,
 				doneAt: null,
 				error: null,
 				currentStep: null,
 				text: "",
 				log: [],
 				notices: [],
+				progress: [],
+				accountEmail: null,
 			};
+		}
+		// Reported before the status is read, so a card whose process died while the
+		// tab was closed does not come back as a live build nobody can stop.
+		if ((job.status === "running" || job.status === "paused") && this.isJobChildGone(job)) {
+			this.failJob(job, "The rebuild process is no longer running.");
 		}
 		return {
 			ok: true,
 			status: job.status,
 			startedAt: job.startedAt,
+			pausedAt: job.pausedAt,
 			doneAt: job.doneAt,
 			error: job.error,
 			currentStep: job.currentStep,
 			text: job.text,
 			log: [...job.log],
 			notices: [...job.notices],
+			progress: [...job.progress],
+			accountEmail: job.accountEmail,
 		};
 	}
 

@@ -1,9 +1,9 @@
-import { open, stat } from "node:fs/promises";
-import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 
 import type { RuntimeHookEvent, RuntimeTaskHookActivity } from "../../core/api-contract";
+import { resolveAgyBrainTranscriptPath } from "../../terminal/agy-brain-transcript";
 import { AGY_CUSTOMIZATION_DIR_NAME } from "../../terminal/agy-hooks-config";
+import { readFileTail } from "../../terminal/file-line-follower";
 
 const GEMINI_TRANSCRIPT_TAIL_SCAN_BYTES = 2 * 1024 * 1024;
 
@@ -102,28 +102,6 @@ export function resolveGeminiFinalMessageFromTranscriptText(transcriptText: stri
 	return null;
 }
 
-async function readFileTail(filePath: string, maxBytes: number): Promise<string | null> {
-	try {
-		const fileStat = await stat(filePath);
-		if (!fileStat.isFile() || fileStat.size <= 0 || maxBytes <= 0) {
-			return null;
-		}
-		const byteLength = Math.min(fileStat.size, maxBytes);
-		const start = Math.max(0, fileStat.size - byteLength);
-		let handle: Awaited<ReturnType<typeof open>> | null = null;
-		try {
-			handle = await open(filePath, "r");
-			const buffer = Buffer.alloc(byteLength);
-			const readResult = await handle.read(buffer, 0, byteLength, start);
-			return buffer.subarray(0, readResult.bytesRead).toString("utf8");
-		} finally {
-			await handle?.close();
-		}
-	} catch {
-		return null;
-	}
-}
-
 async function resolveGeminiReviewFinalMessageFromPayload(
 	payload: Record<string, unknown> | null,
 	cwd?: string,
@@ -142,7 +120,7 @@ async function resolveGeminiReviewFinalMessageFromPayload(
 	// Check conversationId location
 	const conversationId = payload ? (readStringField(payload, "conversationId") ?? readStringField(payload, "conversation_id")) : null;
 	if (conversationId) {
-		const convTranscriptPath = join(homedir(), ".gemini", "antigravity-cli", "brain", conversationId, ".system_generated", "logs", "transcript.jsonl");
+		const convTranscriptPath = resolveAgyBrainTranscriptPath(conversationId);
 		const transcriptTail = await readFileTail(convTranscriptPath, GEMINI_TRANSCRIPT_TAIL_SCAN_BYTES);
 		if (transcriptTail) {
 			const resolved = resolveGeminiFinalMessageFromTranscriptText(transcriptTail);

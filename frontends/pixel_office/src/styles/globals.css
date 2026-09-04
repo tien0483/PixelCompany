@@ -914,6 +914,20 @@ body.kb-dependency-link-mode {
 }
 
 /*
+ * The row a tag is hovering over mid-drag. --kb-drop-color is set inline from the dragged
+ * tag's own status color, so the row answers "which tag is about to land here" rather than
+ * repeating the selection blue. Same two-class trick as the selection rules above: the
+ * added/removed/context variants come later in the cascade.
+ */
+.kb-diff-row-drop-target,
+.kb-diff-row-drop-target.kb-diff-row-added,
+.kb-diff-row-drop-target.kb-diff-row-removed,
+.kb-diff-row-drop-target.kb-diff-row-context {
+	box-shadow: inset 2px 0 0 var(--kb-drop-color, var(--color-accent));
+	background: color-mix(in srgb, var(--kb-drop-color, var(--color-accent)) 22%, transparent);
+}
+
+/*
  * The row a jump from the draft-comment list just landed on. Scrolling alone puts the
  * line in the middle of a screenful of near-identical rows, so it fades out over a
  * couple of seconds rather than persisting: it answers "which line", then gets out of

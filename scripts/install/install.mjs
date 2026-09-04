@@ -8,7 +8,7 @@ import { ensureNode22 } from "../lib/ensure-node22.mjs";
 import { assertSupportedPlatform, isWsl } from "./platform.mjs";
 import { readProductVersion, renderBanner } from "./banner.mjs";
 import { checkboxSelect } from "./tui.mjs";
-import { FEATURES, installFeature, writeStackFlags } from "./features.mjs";
+import { FEATURES, installFeature, probeFeature, writeStackFlags } from "./features.mjs";
 
 const GREEN = "\x1b[32m";
 const YELLOW = "\x1b[33m";
@@ -52,6 +52,7 @@ const items = FEATURES.map((feat) => {
 		label: feat.label,
 		checked: feat.id === "kanban" ? true : checked,
 		locked: feat.id === "kanban" || Boolean(feat.locked),
+		depth: feat.parent ? 1 : 0,
 	};
 });
 
@@ -133,7 +134,13 @@ if (selectedIds.has("agent-stack")) {
 
 // 8. Write .pixtiel/install-manifest.json
 const now = new Date().toISOString();
-const manifestFeatures = {};
+// Start from what was already recorded: a partial run (`--features review-standalone`)
+// must not erase the record of everything it did not touch, which is what `upgrade`
+// reinstalls from.
+const manifestFeatures =
+	priorManifest && priorManifest.features && typeof priorManifest.features === "object"
+		? { ...priorManifest.features }
+		: {};
 for (const [id, res] of results.entries()) {
 	manifestFeatures[id] = {
 		ok: Boolean(res?.ok),
@@ -170,8 +177,12 @@ for (const feat of FEATURES) {
 	}
 }
 
+// A run that never selected core (`--features review-standalone`) has not failed just
+// because core is absent from `results` — ask the probe whether it is already built.
 const kanbanResult = results.get("kanban");
-const coreInstalled = Boolean(kanbanResult && kanbanResult.ok);
+const coreInstalled = kanbanResult
+	? Boolean(kanbanResult.ok)
+	: probeFeature(FEATURES.find((f) => f.id === "kanban"), repoRoot) === "fresh";
 
 /** One keypress-free y/n read on the controlling terminal. Defaults to yes on Enter. */
 async function confirmStart() {

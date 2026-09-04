@@ -20,6 +20,7 @@ export function ReviewImpactPanel({
 	projectPath,
 	isRebuilding,
 	canRebuild,
+	rebuildProgressLine,
 	onRefresh,
 	onRebuildGraph,
 	onOpenDashboard,
@@ -32,6 +33,12 @@ export function ReviewImpactPanel({
 	isRebuilding: boolean;
 	/** False when no Antigravity seat is available to spend on a rebuild. */
 	canRebuild: boolean;
+	/**
+	 * The most recent thing the build reported doing. A whole-repository analysis
+	 * is minutes of identical tool steps on the wire, so "Rebuilding graph…" alone
+	 * is indistinguishable from a build that has stalled.
+	 */
+	rebuildProgressLine: string | null;
 	onRefresh: () => void;
 	onRebuildGraph: () => void;
 	onOpenDashboard: () => void;
@@ -80,6 +87,7 @@ export function ReviewImpactPanel({
 				>
 					{isRebuilding ? "Building graph…" : "Build knowledge graph"}
 				</Button>
+				<RebuildProgressCaption isRebuilding={isRebuilding} line={rebuildProgressLine} />
 				{!canRebuild ? (
 					<p className="text-[11px] text-text-tertiary">
 						No Antigravity seat is configured, so a build cannot be started from here.
@@ -141,6 +149,7 @@ export function ReviewImpactPanel({
 					>
 						{isRebuilding ? "Rebuilding graph…" : "Rebuild graph (Antigravity seat)"}
 					</Button>
+					<RebuildProgressCaption isRebuilding={isRebuilding} line={rebuildProgressLine} />
 				</div>
 			) : null}
 
@@ -206,6 +215,28 @@ export function ReviewImpactPanel({
 				) : null}
 			</div>
 		</div>
+	);
+}
+
+/**
+ * The build's last reported action, next to the button that started it. Read out
+ * of the Antigravity CLI's transcript by the runtime — its stream reports tool
+ * steps as a bare step type with no detail at all.
+ */
+function RebuildProgressCaption({
+	isRebuilding,
+	line,
+}: {
+	isRebuilding: boolean;
+	line: string | null;
+}): ReactElement | null {
+	if (!isRebuilding || line === null) {
+		return null;
+	}
+	return (
+		<p className="truncate font-mono text-[10px] text-text-tertiary" title={line}>
+			{line}
+		</p>
 	);
 }
 

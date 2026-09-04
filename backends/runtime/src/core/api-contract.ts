@@ -4323,8 +4323,28 @@ export const runtimeReviewGraphRebuildRequestSchema = z.object({
 	 * blocks the run — while the credential itself is machine-wide in `~/.gemini`.
 	 */
 	managerAccountId: z.number().int().positive().optional(),
+	/**
+	 * Abandons a running or paused job for this project and starts a new one.
+	 * Without it, a request for a project that already has a job attaches to it —
+	 * which is right for a healthy build and a dead end for a wedged one.
+	 */
+	force: z.boolean().optional(),
 });
 export type RuntimeReviewGraphRebuildRequest = z.infer<typeof runtimeReviewGraphRebuildRequestSchema>;
+
+/**
+ * One line of a run's live progress.
+ *
+ * `agy` reports tool steps on the wire as a bare `step_type` with no detail, so
+ * these are read out of its brain transcript instead: `command` is a tool call,
+ * `output` its result, `phase` the agent's own prose, `notice` something from
+ * agy's log that is informational rather than a failure.
+ */
+export const runtimeAgentProgressLineSchema = z.object({
+	kind: z.enum(["command", "output", "phase", "notice", "error"]),
+	line: z.string(),
+});
+export type RuntimeAgentProgressLine = z.infer<typeof runtimeAgentProgressLineSchema>;
 
 export const runtimeReviewGraphDashboardRequestSchema = z.object({
 	projectPath: z.string().min(1),
@@ -4367,12 +4387,20 @@ export const runtimeReviewGraphRebuildStatusResponseSchema = z.object({
 	ok: z.boolean(),
 	status: z.enum(["idle", "running", "paused", "done", "error"]),
 	startedAt: z.number().nullable(),
+	pausedAt: z.number().nullable(),
 	doneAt: z.number().nullable(),
 	error: z.string().nullable(),
 	currentStep: z.string().nullable(),
 	text: z.string(),
 	log: z.array(z.string()),
 	notices: z.array(z.string()),
+	/** Replayed on reconnect, so a build watched from a reopened tab is not blank. */
+	progress: z.array(runtimeAgentProgressLineSchema),
+	/**
+	 * The Antigravity account the run authenticated as. Not necessarily the pinned
+	 * seat: those credentials are machine-wide, so the pin only refuses runs.
+	 */
+	accountEmail: z.string().nullable(),
 });
 export type RuntimeReviewGraphRebuildStatusResponse = z.infer<typeof runtimeReviewGraphRebuildStatusResponseSchema>;
 
