@@ -133,12 +133,35 @@ describe("classifyAgyLogLine", () => {
 
 	it("keeps a genuine error from a source that is not chatty", () => {
 		const line =
-			"ERROR: logging before google.Init: E0904 09:32:43.423221       1 launchsteps.go:84] Failed to resolve GeminiDir: path is not absolute";
+			"ERROR: logging before google.Init: E0904 09:32:43.423221       1 conversation.go:84] Model request failed: backend returned 500";
 		const classified = classifyAgyLogLine(line);
 
 		expect(classified?.kind).toBe("error");
 		// Prefix and goroutine id stripped: the message is what a reader needs.
-		expect(classified?.line).toBe("Failed to resolve GeminiDir: path is not absolute");
+		expect(classified?.line).toBe("Model request failed: backend returned 500");
+	});
+
+	it("drops the startup failures agy reports on runs that then succeed", () => {
+		// All three were observed on a clean, successful run, all at `E` severity.
+		// Surfacing them would paint the log red on every single build.
+		for (const message of [
+			'E0904 10:35:30.000000 1 launchsteps.go:84] Failed to resolve GeminiDir ".gemini": path is not absolute, falling back to default',
+			"E0904 10:35:31.000000 1 browser.go:12] failed to install playwright: could not install driver: got non 200 status code: 404",
+			"E0904 10:35:32.000000 1 indexer.go:99] skipping empty or temp file:",
+			'E0904 10:38:44.000000 1 trajectory.go:31] error recording trajectory segment analytics: Post "https://daily-cloudcode-pa.googleapis.com/v1internal:recordTrajectoryAnalytics": context canceled',
+		]) {
+			expect(classifyAgyLogLine(`ERROR: logging before google.Init: ${message}`)).toBe(null);
+		}
+	});
+
+	it("does not read a successful authentication as a quota warning", () => {
+		// `quotaProject=` is logged on every healthy run; a bare "quota" substring
+		// turned that into a warning.
+		expect(
+			classifyAgyLogLine(
+				"ERROR: logging before google.Init: I0904 09:32:43.759538       1 server_oauth.go:192] applyAuthResult: email=x@y.z, authMethod=consumer, quotaProject=",
+			),
+		).toBe(null);
 	});
 
 	it("treats print-mode milestones as progress, not failure", () => {
@@ -157,6 +180,14 @@ describe("classifyAgyLogLine", () => {
 
 		expect(classified?.kind).toBe("notice");
 		expect(classified?.line).toContain("RESOURCE_EXHAUSTED");
+	});
+
+	it("surfaces the scope failure that breaks the Gemini seat route", () => {
+		const classified = classifyAgyLogLine(
+			"ERROR: logging before google.Init: E0904 09:32:43.000000       1 backend.go:12] ACCESS_TOKEN_SCOPE_INSUFFICIENT",
+		);
+
+		expect(classified?.kind).toBe("error");
 	});
 
 	it("drops the request-per-model-call spam", () => {

@@ -54,11 +54,38 @@ const AGY_LOG_NOISE_SOURCES = [
 	"composite_token_storage.go",
 ];
 
-/** Worth surfacing whatever severity glog gave it. */
+/**
+ * Startup chatter that agy reports as a failure on runs that then succeed.
+ *
+ * Measured on a clean run: it fails to fetch a Playwright driver (404), reports
+ * a relative `.gemini` it then falls back from, and skips temp files while
+ * indexing. None of it has anything to do with the job, and all of it is `E`
+ * severity — so without this list every single build paints the log red.
+ */
+const AGY_LOG_BENIGN = [
+	/failed to install playwright/i,
+	/failed to resolve geminidir/i,
+	/skipping empty or temp file/i,
+	/skipping component during resolution/i,
+	/admin controls not applicable/i,
+	/recording trajectory segment analytics/i,
+	// An in-flight request abandoned at shutdown. Every run ends with a few, and a
+	// build the user cancelled already reports that in its own words.
+	/context canceled/i,
+];
+
+/**
+ * Worth surfacing whatever severity glog gave it.
+ *
+ * The quota patterns name the actual refusals rather than matching "quota"
+ * anywhere: agy logs `quotaProject=` on every successful authentication, and a
+ * bare substring turned that into a quota warning on healthy runs.
+ */
 const AGY_LOG_NOTABLE = [
 	/print mode:/i,
-	/quota/i,
 	/resource_exhausted/i,
+	/quota (?:exceeded|exhausted|limit)/i,
+	/out of quota/i,
 	/access_token_scope_insufficient/i,
 	/permission_denied/i,
 	/unauthenticated/i,
@@ -108,6 +135,10 @@ export function classifyAgyLogLine(rawLine: string): AgyLogLine | null {
 	const source = header?.[2] ?? "";
 	const message = header?.[3]?.trim() ?? stripped;
 	if (message.length === 0) {
+		return null;
+	}
+
+	if (AGY_LOG_BENIGN.some((pattern) => pattern.test(message))) {
 		return null;
 	}
 

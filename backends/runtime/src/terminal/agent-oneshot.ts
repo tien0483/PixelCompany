@@ -558,9 +558,11 @@ export async function runAgentOneShot(input: RunAgentOneShotInput): Promise<{ co
 	// before exit have not been read yet. Give them one more interval before
 	// tearing down, or every run loses its own closing lines.
 	if (observeAgy) {
+		// Deliberately *not* unref'd, unlike the poll intervals: this timer is
+		// awaited, so unreffing it lets the loop drain and leaves this promise
+		// unsettled in any process that has nothing else pending.
 		await new Promise<void>((resolveDrain) => {
-			const drainTimer = setTimeout(resolveDrain, AGY_OBSERVER_DRAIN_MS);
-			drainTimer.unref?.();
+			setTimeout(resolveDrain, AGY_OBSERVER_DRAIN_MS);
 		});
 	}
 	stopFollowers();
