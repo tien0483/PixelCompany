@@ -7,6 +7,7 @@ import {
 	ReviewDiffPane,
 } from "@/components/review/review-diff-pane";
 import { DEEP_SCROLL_IDLE_RESET_MS } from "@/review/review-deep-scroll";
+import type { ReviewTag } from "@/review/review-tags";
 import type { ReviewLineFocus, ReviewNavDirection } from "@/review/review-target";
 import type { FullFileFetchResult } from "@/review/use-full-file-content";
 import { LocalStorageKey } from "@/storage/local-storage-store";
@@ -85,8 +86,26 @@ const COLLAPSING_FILE: RuntimeGitlabDiffFile = {
 	deletions: 0,
 };
 
+const TAGS: ReviewTag[] = [
+	{ kind: "builtin", label: "Security" },
+	{ kind: "rule-category", label: "Naming" },
+];
+
 function mouseEvent(type: string): MouseEvent {
 	return new MouseEvent(type, { bubbles: true, cancelable: true });
+}
+
+/**
+ * jsdom has no `DataTransfer`, so a real `DragEvent` arrives with `dataTransfer: null`
+ * and the strip's handler would throw on it. The stub is the whole surface the handler
+ * touches.
+ */
+function dragStartEvent(): Event {
+	const event = new Event("dragstart", { bubbles: true, cancelable: true });
+	Object.defineProperty(event, "dataTransfer", {
+		value: { effectAllowed: "none", setData: () => {} },
+	});
+	return event;
 }
 
 describe("ReviewDiffPane", () => {
@@ -131,8 +150,23 @@ describe("ReviewDiffPane", () => {
 			navTargets?: { previous: boolean; next: boolean };
 			onFetchFullFile?: () => Promise<FullFileFetchResult>;
 			lineFocus?: ReviewLineFocus | null;
+			onTagDragStart?: (tag: ReviewTag) => void;
+			/** Omitted entirely by default, which is how the standalone pane renders. */
+			withTags?: boolean;
 		} = {},
 	): Promise<void> {
+		const tagAnnotations = overrides.withTags
+			? {
+					annotations: [],
+					tags: TAGS,
+					draggedTag: null,
+					currentHeadSha: null,
+					onDragStart: overrides.onTagDragStart ?? (() => {}),
+					onDragEnd: () => {},
+					onAdd: () => {},
+					onRemove: () => {},
+				}
+			: undefined;
 		await act(async () => {
 			root.render(
 				<ReviewDiffPane
@@ -154,6 +188,7 @@ describe("ReviewDiffPane", () => {
 					{...(overrides.onNavigate ? { onNavigate: overrides.onNavigate } : {})}
 					{...(overrides.navTargets ? { navTargets: overrides.navTargets } : {})}
 					{...(overrides.onFetchFullFile ? { onFetchFullFile: overrides.onFetchFullFile } : {})}
+					{...(tagAnnotations ? { tagAnnotations } : {})}
 				/>,
 			);
 		});
@@ -270,6 +305,62 @@ describe("ReviewDiffPane", () => {
 			window.dispatchEvent(mouseEvent("mouseup"));
 		});
 	}
+
+	function tagChip(label: string): HTMLButtonElement {
+		const chip = Array.from(container.querySelectorAll("button")).find(
+			(candidate) => candidate.draggable && candidate.textContent === label,
+		);
+		if (!chip) {
+			throw new Error(`No draggable chip for ${label}.`);
+		}
+		return chip;
+	}
+
+	function tagStripToggle(): HTMLButtonElement {
+		const toggle = container.querySelector("button[aria-expanded]");
+		if (!(toggle instanceof HTMLButtonElement)) {
+			throw new Error("No tag strip toggle.");
+		}
+		return toggle;
+	}
+
+	it("renders no tag strip when the pane is given no annotation wiring", async () => {
+		await renderPane();
+
+		expect(container.querySelector("button[aria-expanded]")).toBeNull();
+		expect(Array.from(container.querySelectorAll("button")).some((button) => button.draggable)).toBe(false);
+	});
+
+	it("renders every tag as a draggable chip above the diff", async () => {
+		await renderPane({ withTags: true });
+
+		expect(tagChip("Security")).toBeTruthy();
+		expect(tagChip("Naming")).toBeTruthy();
+		expect(tagStripToggle().textContent).toContain("(2)");
+	});
+
+	it("reports the tag a chip drag started on", async () => {
+		const started: ReviewTag[] = [];
+		await renderPane({ withTags: true, onTagDragStart: (tag) => started.push(tag) });
+
+		await act(async () => {
+			tagChip("Security").dispatchEvent(dragStartEvent());
+		});
+
+		expect(started).toEqual([{ kind: "builtin", label: "Security" }]);
+	});
+
+	it("collapses the tag strip and remembers it", async () => {
+		await renderPane({ withTags: true });
+
+		await act(async () => {
+			tagStripToggle().dispatchEvent(mouseEvent("click"));
+		});
+
+		expect(Array.from(container.querySelectorAll("button")).some((button) => button.draggable)).toBe(false);
+		expect(tagStripToggle().getAttribute("aria-expanded")).toBe("false");
+		expect(window.localStorage.getItem(LocalStorageKey.ReviewTagStripExpanded)).toBe("false");
+	});
 
 	it("opens the composer for the run a drag covers", async () => {
 		await renderPane();

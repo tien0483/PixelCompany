@@ -29,6 +29,7 @@ import {
 	runtimeGitlabRawFileRequestSchema,
 	runtimeGitlabRawFileResponseSchema,
 	runtimeGitlabResolveDiscussionRequestSchema,
+	runtimeGitlabUpdateMergeRequestRequestSchema,
 	runtimeReviewCheckProjectsGraphRequestSchema,
 	runtimeReviewCheckProjectsGraphResponseSchema,
 	runtimeReviewCommandsRequestSchema,
@@ -112,6 +113,12 @@ export const reviewStandaloneRouter = t.router({
 			.output(runtimeGitlabMergeRequestDetailResponseSchema)
 			.query(async ({ ctx, input }) => {
 				return await ctx.gitlabApi.getMergeRequest(input);
+			}),
+		updateMergeRequest: t.procedure
+			.input(runtimeGitlabUpdateMergeRequestRequestSchema)
+			.output(runtimeGitlabMergeRequestDetailResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.gitlabApi.updateMergeRequest(input);
 			}),
 		getDiffs: t.procedure
 			.input(runtimeGitlabMergeRequestRefSchema)

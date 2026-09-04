@@ -3920,6 +3920,15 @@ export const runtimeGitlabCreateNoteRequestSchema = z.object({
 });
 export type RuntimeGitlabCreateNoteRequest = z.infer<typeof runtimeGitlabCreateNoteRequestSchema>;
 
+/**
+ * Rewrites the merge request's own body. Empty is legal — clearing a description
+ * is a real edit — so no `.min(1)` here, unlike the note schemas above.
+ */
+export const runtimeGitlabUpdateMergeRequestRequestSchema = runtimeGitlabMergeRequestRefSchema.extend({
+	description: z.string(),
+});
+export type RuntimeGitlabUpdateMergeRequestRequest = z.infer<typeof runtimeGitlabUpdateMergeRequestRequestSchema>;
+
 export const runtimeGitlabResolveDiscussionRequestSchema = z.object({
 	projectId: z.number().int().positive(),
 	iid: z.number().int().positive(),

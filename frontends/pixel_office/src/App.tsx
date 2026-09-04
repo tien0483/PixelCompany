@@ -802,6 +802,20 @@ export default function App(): ReactElement {
 		onWillOpenOffice,
 	});
 	closeOfficeRef.current = closeOffice;
+	/**
+	 * Brand logo = "go home". Every full-pane surface closes, the right column
+	 * collapses and the sidebar returns to Projects; the selected project is
+	 * untouched. Kept as one callback so a new full-pane view has exactly one
+	 * place to register itself.
+	 */
+	const handleReturnToBoard = useCallback(() => {
+		resetHomeCenterView();
+		setReviewTarget(null);
+		setEditingPlan(null);
+		setAgentStudioTarget(null);
+		closeOffice();
+		setHomeSidebarSection("projects");
+	}, [closeOffice, resetHomeCenterView]);
 	const handleToggleGitHistory = useCallback(() => {
 		toggleView("git");
 	}, [toggleView]);
@@ -1314,6 +1328,7 @@ export default function App(): ReactElement {
 						reviewProjectKey={reviewProjectKey}
 						onOpenMergeRequest={setReviewTarget}
 						onOpenAgentStudio={setAgentStudioTarget}
+						onReturnToBoard={handleReturnToBoard}
 					/>
 				) : null}
 				<div className="flex flex-col flex-1 min-w-0 overflow-hidden">

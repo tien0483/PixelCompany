@@ -400,6 +400,16 @@ export interface GitlabClient {
 		projectId: number;
 		iid: number;
 	}) => Promise<GitlabResult<RuntimeGitlabMergeRequestDetail>>;
+	/**
+	 * Rewrites the merge request's description. Returns the updated detail — GitLab's
+	 * `PUT` answers with the whole merge request, so the caller never has to re-read
+	 * it to find out what was actually stored.
+	 */
+	updateMergeRequest: (input: {
+		projectId: number;
+		iid: number;
+		description: string;
+	}) => Promise<GitlabResult<RuntimeGitlabMergeRequestDetail>>;
 	getMergeRequestDiffs: (input: {
 		projectId: number;
 		iid: number;
@@ -692,6 +702,40 @@ export function createGitlabClient(deps?: CreateGitlabClientDependencies): Gitla
 		return enriched;
 	};
 
+	/**
+	 * Shared by the read and the write: both are handed a full merge request payload
+	 * and owe the caller the same detail shape, and the two drifting apart would mean
+	 * a save renders differently from a reload of the same merge request.
+	 */
+	const toMergeRequestDetail = async (raw: unknown): Promise<GitlabResult<RuntimeGitlabMergeRequestDetail>> => {
+		const summary = parseMergeRequestSummary(raw);
+		if (!summary || !isRecord(raw)) {
+			return { ok: false, failure: { kind: "malformed", body: JSON.stringify(raw).slice(0, 500) } };
+		}
+		const credential = await resolveCredential();
+		const approval = parseApprovalState(raw, credential?.username ?? null);
+		return {
+			ok: true,
+			value: {
+				...summary,
+				...approval,
+				diffRefs: parseDiffRefs(raw.diff_refs),
+				// The detail view has a real approve/unapprove button, so it commits to a
+				// boolean: "cannot tell" reads as not approved by you there.
+				approvedByMe: approval.approvedByMe === true,
+			} satisfies RuntimeGitlabMergeRequestDetail,
+		};
+	};
+
+	/** Drops every cached approval row for one merge request. */
+	const forgetApprovals = (projectId: number, iid: number): void => {
+		for (const key of approvalCache.keys()) {
+			if (key.startsWith(`${projectId}:${iid}:`)) {
+				approvalCache.delete(key);
+			}
+		}
+	};
+
 	const mutate = async (method: string, path: string, body?: unknown): Promise<GitlabResult<true>> => {
 		const outcome = await request(method, path, body);
 		if (!outcome.ok) {
@@ -775,24 +819,18 @@ export function createGitlabClient(deps?: CreateGitlabClientDependencies): Gitla
 			if (!result.ok) {
 				return result;
 			}
-			const summary = parseMergeRequestSummary(result.value);
-			if (!summary || !isRecord(result.value)) {
-				return { ok: false, failure: { kind: "malformed", body: JSON.stringify(result.value).slice(0, 500) } };
+			return await toMergeRequestDetail(result.value);
+		},
+
+		updateMergeRequest: async ({ projectId, iid, description }) => {
+			const result = await requestJson("PUT", `/projects/${projectId}/merge_requests/${iid}`, { description });
+			if (!result.ok) {
+				return result;
 			}
-			const raw = result.value;
-			const credential = await resolveCredential();
-			const approval = parseApprovalState(raw, credential?.username ?? null);
-			return {
-				ok: true,
-				value: {
-					...summary,
-					...approval,
-					diffRefs: parseDiffRefs(raw.diff_refs),
-					// The detail view has a real approve/unapprove button, so it commits to a
-					// boolean: "cannot tell" reads as not approved by you there.
-					approvedByMe: approval.approvedByMe === true,
-				} satisfies RuntimeGitlabMergeRequestDetail,
-			};
+			// The edit bumps `updated_at`, so the cache would re-key itself anyway — but a
+			// list refreshed in the same breath must not read its badge off the old row.
+			forgetApprovals(projectId, iid);
+			return await toMergeRequestDetail(result.value);
 		},
 
 		getMergeRequestDiffs: async ({ projectId, iid }) => {
@@ -904,11 +942,7 @@ export function createGitlabClient(deps?: CreateGitlabClientDependencies): Gitla
 			// on `updated_at`, but the user's own approval is the one case where a list
 			// is refreshed immediately afterwards and a stale badge would be read as the
 			// approve button having done nothing.
-			for (const key of approvalCache.keys()) {
-				if (key.startsWith(`${projectId}:${iid}:`)) {
-					approvalCache.delete(key);
-				}
-			}
+			forgetApprovals(projectId, iid);
 			return await mutate(
 				"POST",
 				`/projects/${projectId}/merge_requests/${iid}/${approved ? "approve" : "unapprove"}`,

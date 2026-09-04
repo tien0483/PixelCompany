@@ -3,14 +3,15 @@ import { type ReactElement, useCallback, useEffect, useMemo, useRef, useState } 
 
 import { showAppToast } from "@/components/app-toaster";
 import { ClaudeUsageChip } from "@/components/claude-usage-chip";
+import { ReviewAnnotationsPanel } from "@/components/review/review-annotations-panel";
 import { isMergeRequestScopedPrompt, isReviewCommandPrompt } from "@/components/review/review-chat-composer";
 import { ReviewClaudePanel } from "@/components/review/review-claude-panel";
+import { ReviewDescriptionPanel } from "@/components/review/review-description-panel";
 import { ReviewDiffPane, type ReviewCommentDraftInput } from "@/components/review/review-diff-pane";
 import { ReviewFilesPanel } from "@/components/review/review-files-panel";
 import { ReviewImpactPanel } from "@/components/review/review-impact-panel";
 import { ReviewRulesPanel } from "@/components/review/review-rules-panel";
 import { ReviewRunDot, type ReviewRunState } from "@/components/review/review-run-dot";
-import { ReviewTagPalette } from "@/components/review/review-tag-palette";
 import { SeatPicker } from "@/manager/seat-picker";
 import {
 	ReviewSubmitDialog,
@@ -53,6 +54,7 @@ import { useReviewProjectCommands } from "@/review/use-review-project-commands";
 import { useReviewRulesConfig } from "@/review/use-review-rules-config";
 import { useReviewSeat } from "@/review/use-review-seat";
 import { useReviewSession } from "@/review/use-review-session";
+import { useBooleanLocalStorageValue } from "@/utils/react-use";
 import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
 import type {
 	RuntimeManagerAccount,
@@ -65,7 +67,10 @@ import type {
 	RuntimeReviewSuggestCommentRequest,
 } from "@/runtime/types";
 
-type LeftTab = "files" | "impact" | "threads" | "rules" | "tags";
+type LeftTab = "files" | "impact" | "threads" | "rules" | "annotations";
+
+/** Follows `pixtiel.review.seat.<host>` — same scope, same convention. */
+const REVIEW_DESCRIPTION_OPEN_KEY_PREFIX = "pixtiel.review.description.";
 
 /**
  * What the dot on "Run Claude review" means. Spelled out rather than left to colour:
@@ -98,6 +103,13 @@ export function ReviewWorkspaceView({
 	const session = useReviewSession(target, workspaceId);
 	const rulesConfig = useReviewRulesConfig(target.projectKey, workspaceId);
 	const { seatChoice, setSeatChoice } = useReviewSeat(target.host);
+	// Per host, like the seat: whether a reviewer wants the body in view is a habit,
+	// not a property of one merge request. Absent a stored choice it follows the MR —
+	// open when there is something to read, collapsed when there is not.
+	const [isDescriptionOpen, setIsDescriptionOpen] = useBooleanLocalStorageValue(
+		`${REVIEW_DESCRIPTION_OPEN_KEY_PREFIX}${target.host}`,
+		(session.mergeRequest?.description ?? "").trim().length > 0,
+	);
 	const [leftTab, setLeftTab] = useState<LeftTab>("files");
 	const [diffMode, setDiffMode] = useState<ReviewDiffMode>("split");
 	const [pendingCitations, setPendingCitations] = useState<string[]>([]);
@@ -353,12 +365,15 @@ export function ReviewWorkspaceView({
 	const tagAnnotationsGroup = useMemo(
 		() => ({
 			annotations,
+			tags: tagPalette,
 			draggedTag,
 			currentHeadSha,
+			onDragStart: setDraggedTag,
+			onDragEnd: () => setDraggedTag(null),
 			onAdd: session.addAnnotation,
 			onRemove: session.removeAnnotation,
 		}),
-		[annotations, currentHeadSha, draggedTag, session.addAnnotation, session.removeAnnotation],
+		[annotations, currentHeadSha, draggedTag, session.addAnnotation, session.removeAnnotation, tagPalette],
 	);
 
 	// Audit findings land in the session only once, when the stream finishes. Parsing
@@ -1117,6 +1132,15 @@ export function ReviewWorkspaceView({
 				</div>
 			</header>
 
+			{mergeRequest ? (
+				<ReviewDescriptionPanel
+					description={mergeRequest.description}
+					isOpen={isDescriptionOpen}
+					onToggle={() => setIsDescriptionOpen((open) => !open)}
+					onSave={session.saveDescription}
+				/>
+			) : null}
+
 			{session.diffsTruncated ? (
 				<div className="shrink-0 border-b border-border bg-surface-1 px-3 py-1.5 text-[11px] text-status-orange">
 					This merge request is larger than the diff page cap, so some files are not listed.
@@ -1168,9 +1192,9 @@ export function ReviewWorkspaceView({
 							onSelect={() => setLeftTab("rules")}
 						/>
 						<LeftTabButton
-							label={`Tags (${annotations.length})`}
-							active={leftTab === "tags"}
-							onSelect={() => setLeftTab("tags")}
+							label={`Annotations (${annotations.length})`}
+							active={leftTab === "annotations"}
+							onSelect={() => setLeftTab("annotations")}
 						/>
 					</div>
 
@@ -1208,13 +1232,10 @@ export function ReviewWorkspaceView({
 								}
 							}}
 						/>
-					) : leftTab === "tags" ? (
-						<ReviewTagPalette
-							tags={tagPalette}
+					) : leftTab === "annotations" ? (
+						<ReviewAnnotationsPanel
 							annotations={annotations}
 							staleAnnotationIds={staleAnnotationIds}
-							onTagDragStart={setDraggedTag}
-							onTagDragEnd={() => setDraggedTag(null)}
 							onJumpToAnnotation={jumpToAnnotation}
 							onRemoveAnnotation={session.removeAnnotation}
 						/>

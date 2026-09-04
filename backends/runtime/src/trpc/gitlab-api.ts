@@ -20,6 +20,7 @@ import type {
 	RuntimeGitlabRawFileRequest,
 	RuntimeGitlabRawFileResponse,
 	RuntimeGitlabResolveDiscussionRequest,
+	RuntimeGitlabUpdateMergeRequestRequest,
 } from "../core/api-contract";
 import { describeGitlabFailure, type GitlabClient } from "../gitlab/gitlab-client";
 import { clearGitlabCredential, type GitlabCredential } from "../gitlab/gitlab-credentials";
@@ -153,6 +154,15 @@ export function createGitlabApi(deps: CreateGitlabApiDependencies): RuntimeTrpcC
 			input: RuntimeGitlabMergeRequestRef,
 		): Promise<RuntimeGitlabMergeRequestDetailResponse> => {
 			const result = await client.getMergeRequest(input);
+			return result.ok
+				? { ok: true, mergeRequest: result.value }
+				: { ok: false, mergeRequest: null, error: describeGitlabFailure(result.failure) };
+		},
+
+		updateMergeRequest: async (
+			input: RuntimeGitlabUpdateMergeRequestRequest,
+		): Promise<RuntimeGitlabMergeRequestDetailResponse> => {
+			const result = await client.updateMergeRequest(input);
 			return result.ok
 				? { ok: true, mergeRequest: result.value }
 				: { ok: false, mergeRequest: null, error: describeGitlabFailure(result.failure) };
