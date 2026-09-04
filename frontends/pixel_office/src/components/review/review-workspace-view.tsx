@@ -6,6 +6,7 @@ import { ClaudeUsageChip } from "@/components/claude-usage-chip";
 import { ReviewAnnotationsPanel } from "@/components/review/review-annotations-panel";
 import { isMergeRequestScopedPrompt, isReviewCommandPrompt } from "@/components/review/review-chat-composer";
 import { ReviewClaudePanel } from "@/components/review/review-claude-panel";
+import { ReviewDescriptionPanel } from "@/components/review/review-description-panel";
 import { ReviewDiffPane, type ReviewCommentDraftInput } from "@/components/review/review-diff-pane";
 import { ReviewFilesPanel } from "@/components/review/review-files-panel";
 import { ReviewImpactPanel } from "@/components/review/review-impact-panel";
@@ -53,6 +54,7 @@ import { useReviewProjectCommands } from "@/review/use-review-project-commands";
 import { useReviewRulesConfig } from "@/review/use-review-rules-config";
 import { useReviewSeat } from "@/review/use-review-seat";
 import { useReviewSession } from "@/review/use-review-session";
+import { useBooleanLocalStorageValue } from "@/utils/react-use";
 import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
 import type {
 	RuntimeManagerAccount,
@@ -66,6 +68,9 @@ import type {
 } from "@/runtime/types";
 
 type LeftTab = "files" | "impact" | "threads" | "rules" | "annotations";
+
+/** Follows `pixtiel.review.seat.<host>` — same scope, same convention. */
+const REVIEW_DESCRIPTION_OPEN_KEY_PREFIX = "pixtiel.review.description.";
 
 /**
  * What the dot on "Run Claude review" means. Spelled out rather than left to colour:
@@ -98,6 +103,13 @@ export function ReviewWorkspaceView({
 	const session = useReviewSession(target, workspaceId);
 	const rulesConfig = useReviewRulesConfig(target.projectKey, workspaceId);
 	const { seatChoice, setSeatChoice } = useReviewSeat(target.host);
+	// Per host, like the seat: whether a reviewer wants the body in view is a habit,
+	// not a property of one merge request. Absent a stored choice it follows the MR —
+	// open when there is something to read, collapsed when there is not.
+	const [isDescriptionOpen, setIsDescriptionOpen] = useBooleanLocalStorageValue(
+		`${REVIEW_DESCRIPTION_OPEN_KEY_PREFIX}${target.host}`,
+		(session.mergeRequest?.description ?? "").trim().length > 0,
+	);
 	const [leftTab, setLeftTab] = useState<LeftTab>("files");
 	const [diffMode, setDiffMode] = useState<ReviewDiffMode>("split");
 	const [pendingCitations, setPendingCitations] = useState<string[]>([]);
@@ -1099,6 +1111,15 @@ export function ReviewWorkspaceView({
 					</Button>
 				</div>
 			</header>
+
+			{mergeRequest ? (
+				<ReviewDescriptionPanel
+					description={mergeRequest.description}
+					isOpen={isDescriptionOpen}
+					onToggle={() => setIsDescriptionOpen((open) => !open)}
+					onSave={session.saveDescription}
+				/>
+			) : null}
 
 			{session.diffsTruncated ? (
 				<div className="shrink-0 border-b border-border bg-surface-1 px-3 py-1.5 text-[11px] text-status-orange">
