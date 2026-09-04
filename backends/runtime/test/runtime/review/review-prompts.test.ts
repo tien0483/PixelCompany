@@ -173,3 +173,51 @@ describe("buildChatPrompt — annotations section", () => {
 		expect(prompt).not.toContain("Reviewer-flagged spots");
 	});
 });
+
+describe("buildChatPrompt — suggestions contract", () => {
+	const base = {
+		prompt: "/code-review",
+		title: "Fix crash",
+		sourceBranch: "fix/crash",
+		targetBranch: "main",
+		changedPaths: ["a.ts"],
+		isFirstTurn: true,
+	};
+
+	it("omits the contract entirely when suggestions were not asked for", () => {
+		const prompt = buildChatPrompt({ ...base, annotations: [ann()] });
+		expect(prompt).not.toContain("```suggestions");
+		expect(prompt).not.toContain("annotationId");
+	});
+
+	it("asks only for findings when there are no annotations", () => {
+		const prompt = buildChatPrompt({ ...base, expectSuggestions: true });
+		expect(prompt).toContain("```suggestions");
+		expect(prompt).not.toContain("annotationId");
+		expect(prompt).toContain("Omit the block entirely");
+	});
+
+	it("asks for a verdict per flagged spot when annotations are in the prompt", () => {
+		const prompt = buildChatPrompt({ ...base, expectSuggestions: true, annotations: [ann()] });
+		expect(prompt).toContain("annotationId");
+		expect(prompt).toContain("one verdict element per reviewer-flagged spot");
+		// The block stops being optional: a pass that finds no bugs still owes the
+		// reviewer an answer on every spot they flagged.
+		expect(prompt).not.toContain("Omit the block entirely");
+		expect(prompt).toContain("Emit the block even when you found nothing");
+	});
+
+	it("does not ask for verdicts when the flagged spots were not sent this turn", () => {
+		// A pass-through command on a resumed turn carries no context block, so there is
+		// no list of ids to echo — asking for one is how an id gets invented.
+		const prompt = buildChatPrompt({
+			...base,
+			prompt: "/simplify",
+			isFirstTurn: false,
+			expectSuggestions: true,
+			annotations: [ann()],
+		});
+		expect(prompt).not.toContain("Reviewer-flagged spots");
+		expect(prompt).not.toContain("annotationId");
+	});
+});

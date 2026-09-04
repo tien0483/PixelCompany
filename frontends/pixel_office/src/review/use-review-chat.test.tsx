@@ -2,6 +2,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { ReviewAnnotationVerdictResult } from "@/review/review-findings-parse";
 import type { RuntimeReviewChatMessage } from "@/runtime/types";
 import { type ReviewChatApi, useReviewChat } from "./use-review-chat";
 
@@ -54,6 +55,7 @@ describe("useReviewChat", () => {
 	let root: Root;
 	let previousActEnvironment: boolean | undefined;
 	let persisted: Array<{ messages: RuntimeReviewChatMessage[]; sessionId: string | null }>;
+	let reportedVerdicts: ReviewAnnotationVerdictResult[][];
 
 	beforeEach(() => {
 		streamMocks.run.mockReset();
@@ -63,6 +65,7 @@ describe("useReviewChat", () => {
 		streamMocks.state = { status: "idle", text: "", error: null, log: [], notices: [] };
 		streamMocks.onMeta = null;
 		persisted = [];
+		reportedVerdicts = [];
 		container = document.createElement("div");
 		document.body.appendChild(container);
 		root = createRoot(container);
@@ -97,6 +100,9 @@ describe("useReviewChat", () => {
 				initialSessionId: sessionId,
 				onPersist: (update) => {
 					persisted.push(update);
+				},
+				onAnnotationVerdicts: (verdicts) => {
+					reportedVerdicts.push(verdicts);
 				},
 			});
 			return null;
@@ -192,6 +198,43 @@ describe("useReviewChat", () => {
 		expect(assistant?.text).toBe("Looks wrong.");
 		expect(assistant?.suggestions).toHaveLength(1);
 		expect(assistant?.suggestions[0]?.newLine).toBe(4);
+	});
+
+	it("reports annotation verdicts out of the same block, without leaking them into the transcript", async () => {
+		const { getState, rerender } = await renderChat();
+
+		streamMocks.state = {
+			...streamMocks.state,
+			status: "done",
+			text: [
+				"Your hunch holds.",
+				"",
+				"```suggestions",
+				"[",
+				'  {"newPath":"a.py","newLine":4,"message":"guard it"},',
+				'  {"annotationId":"ann-1","verdict":"confirmed","reasoning":"the index can go negative"}',
+				"]",
+				"```",
+			].join("\n"),
+		};
+		await rerender();
+
+		// The verdicts belong to the annotations, not the message: the transcript keeps
+		// the prose and the triage rows only.
+		expect(reportedVerdicts).toEqual([
+			[{ annotationId: "ann-1", verdict: "confirmed", reasoning: "the index can go negative" }],
+		]);
+		expect(getState().messages[0]?.text).toBe("Your hunch holds.");
+		expect(getState().messages[0]?.suggestions).toHaveLength(1);
+	});
+
+	it("does not report verdicts for an answer that has none", async () => {
+		const { rerender } = await renderChat();
+
+		streamMocks.state = { ...streamMocks.state, status: "done", text: "Nothing wrong in these lines." };
+		await rerender();
+
+		expect(reportedVerdicts).toEqual([]);
 	});
 
 	it("does not record an empty answer as a turn", async () => {

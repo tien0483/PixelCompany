@@ -365,26 +365,71 @@ export const REVIEW_SUGGESTIONS_FENCE = "suggestions";
  * Appended when the reviewer runs one of the review slash commands. Those *are* a
  * request for findings, and findings the panel can position are worth far more
  * than prose: they become draft comments in one click.
+ *
+ * When the prompt also carries reviewer annotations, the same array additionally
+ * carries one verdict per flagged spot — the shape `buildAuditPrompt` has always
+ * used. Mixing them is safe because the two parsers key off the element's own
+ * shape: a finding needs `newPath` and `message`, a verdict needs `annotationId`,
+ * and neither coercion accepts the other's elements. Without that, a reviewer who
+ * marks a spot and runs `/code-review` gets their answer in prose, where nothing
+ * can attach it back to the annotation.
  */
-export const REVIEW_SUGGESTIONS_OUTPUT_CONTRACT = `---
-
-After your answer, if — and only if — you identified specific problems the reviewer could raise as comments, append one fenced block:
-
-\`\`\`${REVIEW_SUGGESTIONS_FENCE}
-[
-  {
+export function buildSuggestionsOutputContract(options: { hasAnnotations: boolean }): string {
+	const findingExample = `  {
     "newPath": "src/services/payment_service.py",
     "newLine": 46,
     "severity": "HIGH",
     "message": "One or two sentences: what is wrong here and what to do instead."
-  }
+  }`;
+	const verdictExample = `  {
+    "annotationId": "annotation-m1x2y3-ab12cd",
+    "verdict": "confirmed",
+    "reasoning": "One or two sentences answering what the reviewer was worried about."
+  }`;
+	const elements = options.hasAnnotations ? `${findingExample},\n${verdictExample}` : findingExample;
+
+	// The emit condition flips with annotations present: a pass that finds no bugs
+	// still owes every flagged spot a verdict, so "omit when you have nothing" would
+	// leave the reviewer's concerns unanswered on exactly the runs that reassure them.
+	const intro = options.hasAnnotations
+		? `After your answer, append one fenced block. It is required this turn, because the reviewer flagged spots that are waiting on your verdict:`
+		: `After your answer, if — and only if — you identified specific problems the reviewer could raise as comments, append one fenced block:`;
+
+	const rules = [
+		"- `newLine` must be a line that exists on the RIGHT side of the diff (added or unchanged). A suggestion on a line that no longer exists cannot be posted as a comment.",
+		"- `severity` is one of CRITICAL, HIGH, MEDIUM, LOW.",
+	];
+	if (options.hasAnnotations) {
+		rules.push(
+			'- Include exactly one verdict element per reviewer-flagged spot listed in the context above, echoing its `annotationId` exactly as it appears in brackets. `verdict` is one of "confirmed", "not_an_issue", "partial". Judge only the spots listed: never invent an id, and never verdict a spot whose diff you were not shown.',
+			"- A verdict never replaces a finding. When you confirm a flagged spot, emit the finding for it as well.",
+			"- `reasoning` is what the reviewer reads as the answer to their concern, so address the note they wrote rather than restating the tag.",
+			"- Emit the block even when you found nothing: the verdicts alone are a complete answer.",
+		);
+	} else {
+		rules.push(
+			"- Omit the block entirely when you have nothing positionable. An empty array and a padded list are both worse than no block.",
+		);
+	}
+	rules.push(
+		"- The block is for the reviewer to triage. It does not replace your answer, and nothing in it is published without them accepting it.",
+	);
+
+	return `---
+
+${intro}
+
+\`\`\`${REVIEW_SUGGESTIONS_FENCE}
+[
+${elements}
 ]
 \`\`\`
 
-- \`newLine\` must be a line that exists on the RIGHT side of the diff (added or unchanged). A suggestion on a line that no longer exists cannot be posted as a comment.
-- \`severity\` is one of CRITICAL, HIGH, MEDIUM, LOW.
-- Omit the block entirely when you have nothing positionable. An empty array and a padded list are both worse than no block.
-- The block is for the reviewer to triage. It does not replace your answer, and nothing in it is published without them accepting it.`;
+${rules.join("\n")}`;
+}
+
+/** The contract as it reads with no reviewer annotations in the prompt. */
+export const REVIEW_SUGGESTIONS_OUTPUT_CONTRACT = buildSuggestionsOutputContract({ hasAnnotations: false });
 
 /** The lines the reviewer has selected in the diff pane, plus what is on screen. */
 export interface ReviewScreenContext {
@@ -469,6 +514,12 @@ export function buildChatPrompt(input: {
 	});
 	const parts: string[] = [expansion?.text ?? input.prompt];
 
+	// Whether the flagged spots reached *this* prompt, which is not the same as the
+	// reviewer having any: a pass-through command on a resumed turn sends no context
+	// block at all, and asking it to verdict a list it was never given is how an id
+	// gets invented.
+	let annotationsInPrompt = false;
+
 	// An expanded command re-sends the context even mid-conversation. Its whole
 	// instruction is "answer from what is below", and on a resumed turn the diff and
 	// the brief in the session belong to whichever file was on screen when the
@@ -479,6 +530,7 @@ export function buildChatPrompt(input: {
 		// a full review quietly turns into a review of one hunk.
 		const isMergeRequestScope = expansion?.scope === "merge-request" && (input.allDiffs?.length ?? 0) > 0;
 		const allDiffs = isMergeRequestScope ? formatDiffsForPrompt(input.allDiffs ?? []) : null;
+		annotationsInPrompt = (input.annotations?.length ?? 0) > 0;
 
 		const context = [
 			`Merge request under review: ${input.title} (${input.sourceBranch} → ${input.targetBranch})`,
@@ -527,7 +579,7 @@ ${screenBlock}`);
 	}
 
 	if (input.expectSuggestions) {
-		parts.push(REVIEW_SUGGESTIONS_OUTPUT_CONTRACT);
+		parts.push(buildSuggestionsOutputContract({ hasAnnotations: annotationsInPrompt }));
 	}
 
 	return parts.join("\n\n");
