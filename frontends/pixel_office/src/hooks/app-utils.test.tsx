@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { buildDetailTaskUrl, parseDetailTaskIdFromSearch } from "@/hooks/app-utils";
+import {
+	buildDetailTaskUrl,
+	buildOfficeUrl,
+	parseDetailTaskIdFromSearch,
+	parseOfficeOpenFromSearch,
+} from "@/hooks/app-utils";
 
 describe("parseDetailTaskIdFromSearch", () => {
 	it("returns the selected task id when present", () => {
@@ -35,5 +40,45 @@ describe("buildDetailTaskUrl", () => {
 				taskId: null,
 			}),
 		).toBe("/project-1?view=board");
+	});
+});
+
+describe("parseOfficeOpenFromSearch", () => {
+	it("reads both spellings of each state", () => {
+		expect(parseOfficeOpenFromSearch("?office=1")).toBe(true);
+		expect(parseOfficeOpenFromSearch("?office=true")).toBe(true);
+		expect(parseOfficeOpenFromSearch("?office=0")).toBe(false);
+		expect(parseOfficeOpenFromSearch("?office=false")).toBe(false);
+	});
+
+	it("returns null when the URL says nothing, so the stored preference decides", () => {
+		expect(parseOfficeOpenFromSearch("")).toBeNull();
+		expect(parseOfficeOpenFromSearch("?office=")).toBeNull();
+		expect(parseOfficeOpenFromSearch("?office=maybe")).toBeNull();
+		expect(parseOfficeOpenFromSearch("?task=task-123")).toBeNull();
+	});
+});
+
+describe("buildOfficeUrl", () => {
+	it("sets the flag without disturbing the task param or hash", () => {
+		expect(
+			buildOfficeUrl({
+				pathname: "/project-1/plans",
+				search: "?task=task-123",
+				hash: "#panel",
+				isOpen: true,
+			}),
+		).toBe("/project-1/plans?task=task-123&office=1#panel");
+	});
+
+	it("overwrites an existing flag rather than appending a second one", () => {
+		expect(
+			buildOfficeUrl({
+				pathname: "/project-1",
+				search: "?office=1",
+				hash: "",
+				isOpen: false,
+			}),
+		).toBe("/project-1?office=0");
 	});
 });

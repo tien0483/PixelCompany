@@ -88,6 +88,14 @@ import { useTaskEditor } from "@/hooks/use-task-editor";
 import { useTaskSessions } from "@/hooks/use-task-sessions";
 import { useTaskStartActions } from "@/hooks/use-task-start-actions";
 import { useHomeCenterView } from "@/hooks/use-home-center-view";
+import {
+	AGENT_STUDIO_NEW_FLOW_ID,
+	HOME_ROUTE_BOARD,
+	homeRouteSidebarSection,
+	sectionHomeRoute,
+} from "@/hooks/home-route";
+import { type NavigateHomeRouteOptions, useHomeRoute } from "@/hooks/use-home-route";
+import { useAgentStudioTarget } from "@/agents/use-agent-studio-target";
 import { useTerminalPanels } from "@/hooks/use-terminal-panels";
 import { useWorkspaceSync } from "@/hooks/use-workspace-sync";
 import { LearningView } from "@/learning/learning-view";
@@ -153,13 +161,16 @@ export default function App(): ReactElement {
 	const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 	const [settingsInitialSection, setSettingsInitialSection] =
 		useState<RuntimeSettingsSection | null>(null);
-	const [homeSidebarSection, setHomeSidebarSection] =
-		useState<HomeSidebarSection>("projects");
 	const [managerSettingsFocusToken, setManagerSettingsFocusToken] = useState(0);
 	const [isClearTrashDialogOpen, setIsClearTrashDialogOpen] = useState(false);
-	const [editingPlan, setEditingPlan] = useState<RuntimeSavedPlan | null>(null);
-	const [reviewTarget, setReviewTarget] = useState<ReviewTarget | null>(null);
-	const [agentStudioTarget, setAgentStudioTarget] =
+	/**
+	 * Caches, not state: *whether* a plan editor or an agent studio is open is the route's
+	 * business now, and these only hold the object the sidebar already had so the warm path
+	 * renders without a round trip. A cold deep link finds them empty and resolves the id
+	 * against `savedPlans` / the studio's own queries instead.
+	 */
+	const [openedPlan, setOpenedPlan] = useState<RuntimeSavedPlan | null>(null);
+	const [agentStudioSeed, setAgentStudioSeed] =
 		useState<AgentStudioTarget | null>(null);
 	const [isCommitDialogOpen, setIsCommitDialogOpen] = useState(false);
 	const [isPullRequestDialogOpen, setIsPullRequestDialogOpen] = useState(false);
@@ -175,12 +186,17 @@ export default function App(): ReactElement {
 	 * callback as an argument. The reset is only ever invoked from an event, never during
 	 * the render that assigns it.
 	 */
-	const centerViewResetRef = useRef<() => void>(() => {});
+	const centerViewResetRef = useRef<(options?: NavigateHomeRouteOptions) => void>(
+		() => {},
+	);
 	const lastStreamErrorRef = useRef<string | null>(null);
 	const handleProjectSwitchStart = useCallback(() => {
 		setCanPersistWorkspaceState(false);
-		centerViewResetRef.current();
-		setEditingPlan(null);
+		// `replace`: nobody navigated to this board — the project switch did — so Back must not
+		// have to step through it on the way out of the previous project's view.
+		centerViewResetRef.current({ replace: true });
+		setOpenedPlan(null);
+		setAgentStudioSeed(null);
 		setPendingTaskStartAfterEditId(null);
 		taskEditorResetRef.current();
 	}, []);
@@ -224,6 +240,11 @@ export default function App(): ReactElement {
 	const closeHomeOfficeColumn = useCallback(() => {
 		closeOfficeRef.current();
 	}, []);
+	const { route: homeRoute, navigate: navigateHome } = useHomeRoute({
+		projectId: navigationCurrentProjectId,
+		hasNoProjects,
+	});
+	const homeSidebarSection = homeRouteSidebarSection(homeRoute);
 	const {
 		isDocsOpen,
 		isGitHistoryOpen,
@@ -233,7 +254,8 @@ export default function App(): ReactElement {
 		resetToBoard: resetHomeCenterView,
 		closeGitHistory,
 	} = useHomeCenterView({
-		hasNoProjects,
+		route: homeRoute,
+		navigate: navigateHome,
 		closeOffice: closeHomeOfficeColumn,
 	});
 	centerViewResetRef.current = resetHomeCenterView;
@@ -371,10 +393,12 @@ export default function App(): ReactElement {
 			isInitialRuntimeLoad,
 			isProjectSwitching,
 			isWorkspaceMetadataPending,
-			onDetailClosed: () => {
-				closeGitHistory();
-				setEditingPlan(null);
-			},
+			// No `onDetailClosed`. It used to close the git history and the plan editor, because
+			// the home layout behind the card detail was invisible state nobody could see coming
+			// back; it is a URL now, so closing a card reveals whatever the address bar says.
+			// It also *had* to stop navigating: `useDetailTaskNavigation` fires that callback on
+			// every `popstate`, including the ones the route pushed, so a Back that moved the
+			// route would have been answered by a push back to where the route used to be.
 		});
 
 	useEffect(() => {
@@ -535,16 +559,55 @@ export default function App(): ReactElement {
 		queueTaskStartAfterEdit,
 		fetchTaskWorkspaceInfo,
 	});
-	const { plans: savedPlans, refresh: refreshSavedPlans } =
-		useSavedPlans(currentProjectId);
+	const {
+		plans: savedPlans,
+		hasLoaded: hasLoadedSavedPlans,
+		refresh: refreshSavedPlans,
+	} = useSavedPlans(currentProjectId);
+
+	const handleOpenPlan = useCallback(
+		(plan: RuntimeSavedPlan) => {
+			setOpenedPlan(plan);
+			navigateHome({ kind: "plans", planId: plan.id });
+		},
+		[navigateHome],
+	);
 
 	const handleSavePlan = useCallback(
 		(plan: RuntimeSavedPlan) => {
-			setEditingPlan(plan);
+			// A plan saved from a session is not in `savedPlans` until the refresh lands, so the
+			// cache is what keeps the editor on screen across the navigation.
+			handleOpenPlan(plan);
 			void refreshSavedPlans();
 		},
-		[refreshSavedPlans],
+		[handleOpenPlan, refreshSavedPlans],
 	);
+
+	/**
+	 * The three full-pane surfaces are all *inside* a project — a plan id resolves against that
+	 * project's plans, a review against its rules key, a flow against its studio. Until the
+	 * runtime reports a project there is nothing to resolve against, so a deep link waits in
+	 * the loading branch below instead of rendering a view pointed at no workspace.
+	 */
+	const projectScopedRoute = currentProjectId === null ? HOME_ROUTE_BOARD : homeRoute;
+	const routedPlanId =
+		projectScopedRoute.kind === "plans" ? projectScopedRoute.planId : null;
+	const editingPlan = useMemo(() => {
+		if (routedPlanId === null) {
+			return null;
+		}
+		return (
+			savedPlans.find((plan) => plan.id === routedPlanId) ??
+			(openedPlan?.id === routedPlanId ? openedPlan : null)
+		);
+	}, [openedPlan, routedPlanId, savedPlans]);
+	/**
+	 * A cold deep link arrives before `plans.list` answers. Holding the pane rather than
+	 * falling through to the board is what stops `/…/plans/<id>` from flashing the board and
+	 * then swapping — and, when the id is bogus, the fall-through is the whole error message.
+	 */
+	const isResolvingRoutedPlan =
+		routedPlanId !== null && editingPlan === null && !hasLoadedSavedPlans;
 
 	useEffect(() => {
 		if (!isInlineTaskCreateOpen && !editingTaskId) {
@@ -788,14 +851,15 @@ export default function App(): ReactElement {
 		setIsSettingsOpen(true);
 	}, []);
 	const onWillOpenOffice = useCallback(() => {
-		resetHomeCenterView();
-		setEditingPlan(null);
+		// The office needs the board in the center, so every routed full-pane surface — center
+		// view, plan editor, review, studio — goes away with one navigation.
+		navigateHome(HOME_ROUTE_BOARD);
 		// Office lives in the home layout, which stays visibility:hidden while a
 		// task detail is open — leave detail first or the toggle looks like a no-op.
 		if (selectedCard) {
 			handleBack();
 		}
-	}, [handleBack, resetHomeCenterView, selectedCard]);
+	}, [handleBack, navigateHome, selectedCard]);
 	const { isOfficeOpen, handleToggleOffice, closeOffice } = useOfficeViewState({
 		currentProjectId,
 		hasNoProjects,
@@ -809,13 +873,41 @@ export default function App(): ReactElement {
 	 * place to register itself.
 	 */
 	const handleReturnToBoard = useCallback(() => {
-		resetHomeCenterView();
-		setReviewTarget(null);
-		setEditingPlan(null);
-		setAgentStudioTarget(null);
+		// One navigation now covers what used to be four resets: the board route *is* "no
+		// full-pane surface, sidebar on Projects".
+		navigateHome(HOME_ROUTE_BOARD);
 		closeOffice();
-		setHomeSidebarSection("projects");
-	}, [closeOffice, resetHomeCenterView]);
+	}, [closeOffice, navigateHome]);
+	/**
+	 * Picking a sidebar tab is a navigation, so it closes whatever full-pane surface was open.
+	 * That is a change from the old independent-state behaviour, and it is the point: the
+	 * surface is now one Back press away instead of being reachable only through its own ✕.
+	 */
+	const handleSelectHomeSidebarSection = useCallback(
+		(section: HomeSidebarSection) => {
+			navigateHome(sectionHomeRoute(section));
+		},
+		[navigateHome],
+	);
+	const handleOpenMergeRequest = useCallback(
+		(target: ReviewTarget) => {
+			navigateHome({
+				kind: "review",
+				target: { host: target.host, projectId: target.projectId, iid: target.iid },
+			});
+		},
+		[navigateHome],
+	);
+	const handleOpenAgentStudio = useCallback(
+		(target: AgentStudioTarget) => {
+			setAgentStudioSeed(target);
+			navigateHome({
+				kind: "agents",
+				flowId: target.flow?.id ?? AGENT_STUDIO_NEW_FLOW_ID,
+			});
+		},
+		[navigateHome],
+	);
 	const handleToggleGitHistory = useCallback(() => {
 		toggleView("git");
 	}, [toggleView]);
@@ -1005,6 +1097,32 @@ export default function App(): ReactElement {
 	 * namespaces, so either would hand one project another's rules.
 	 */
 	const reviewProjectKey = navigationProjectPath ?? workspacePath ?? "default";
+	/**
+	 * The review target rebuilds from the URL with no lookup at all: the path carries the whole
+	 * identity (`host`/`projectId`/`iid`), the rules key is this project's, and `title` is only
+	 * the tab label shown before the merge request loads — `!<iid>` is already what the sidebar
+	 * itself falls back to for a stored session.
+	 */
+	const routedReviewTarget =
+		projectScopedRoute.kind === "review" ? projectScopedRoute.target : null;
+	const reviewTarget = useMemo<ReviewTarget | null>(() => {
+		if (routedReviewTarget === null) {
+			return null;
+		}
+		return {
+			host: routedReviewTarget.host,
+			projectId: routedReviewTarget.projectId,
+			iid: routedReviewTarget.iid,
+			title: `!${routedReviewTarget.iid}`,
+			projectKey: reviewProjectKey,
+		};
+	}, [reviewProjectKey, routedReviewTarget]);
+	const { target: agentStudioTarget, isResolving: isResolvingAgentStudio } =
+		useAgentStudioTarget({
+			workspaceId: currentProjectId,
+			flowId: projectScopedRoute.kind === "agents" ? projectScopedRoute.flowId : null,
+			seed: agentStudioSeed,
+		});
 	const navbarWorkspaceHint = hasNoProjects ? undefined : activeWorkspaceHint;
 	const navbarRuntimeHint = hasNoProjects ? undefined : runtimeHint;
 	const shouldHideProjectDependentTopBarActions =
@@ -1302,7 +1420,7 @@ export default function App(): ReactElement {
 						currentProjectId={navigationCurrentProjectId}
 						removingProjectId={removingProjectId}
 						activeSection={homeSidebarSection}
-						onActiveSectionChange={setHomeSidebarSection}
+						onActiveSectionChange={handleSelectHomeSidebarSection}
 						managerOnline={manager !== null && manager.stale !== true}
 						managerState={manager}
 						selectedAgentId={
@@ -1324,10 +1442,10 @@ export default function App(): ReactElement {
 						isCollapsed={sidebarLayout.isCollapsed}
 						setSidebarCollapsed={sidebarLayout.setSidebarCollapsed}
 						managerSettingsFocusToken={managerSettingsFocusToken}
-						onOpenPlan={setEditingPlan}
+						onOpenPlan={handleOpenPlan}
 						reviewProjectKey={reviewProjectKey}
-						onOpenMergeRequest={setReviewTarget}
-						onOpenAgentStudio={setAgentStudioTarget}
+						onOpenMergeRequest={handleOpenMergeRequest}
+						onOpenAgentStudio={handleOpenAgentStudio}
 						onReturnToBoard={handleReturnToBoard}
 					/>
 				) : null}
@@ -1474,7 +1592,7 @@ export default function App(): ReactElement {
 									managerAccounts={managedManagerAccounts}
 									managerActiveAccountId={manager?.activeAccountId ?? null}
 									localRepoPath={navigationProjectPath ?? workspacePath ?? undefined}
-									onClose={() => setReviewTarget(null)}
+									onClose={() => navigateHome(sectionHomeRoute("review"))}
 								/>
 							) : editingPlan ? (
 								<PlanEditorView
@@ -1488,13 +1606,21 @@ export default function App(): ReactElement {
 									workspaceId={currentProjectId}
 									managerAccounts={managedManagerAccounts}
 									managerActiveAccountId={manager?.activeAccountId ?? null}
-									onClose={() => setEditingPlan(null)}
+									onClose={() => navigateHome(sectionHomeRoute("plans"))}
 								/>
 							) : agentStudioTarget ? (
 								<AgentStudioView
 									target={agentStudioTarget}
-									onClose={() => setAgentStudioTarget(null)}
+									onClose={() => navigateHome(sectionHomeRoute("agents"))}
 								/>
+							) : isResolvingRoutedPlan || isResolvingAgentStudio ? (
+								// A deep link names a plan or a flow the shell has not fetched yet. Holding
+								// the pane here is what stops `/…/plans/<id>` from flashing the board on
+								// every cold load; when the id turns out to be unknown, both flags go false
+								// and the fall-through renders the section the id belonged to.
+								<div className="flex flex-1 min-h-0 items-center justify-center bg-surface-0">
+									<Spinner size={30} />
+								</div>
 							) : shouldShowProjectLoadingState ? (
 								<div className="flex flex-1 min-h-0 flex-col items-center justify-center gap-4 bg-surface-0">
 									<Spinner size={30} />
