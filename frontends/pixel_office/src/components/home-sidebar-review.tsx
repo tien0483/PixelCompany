@@ -1,4 +1,4 @@
-import { Check, GitPullRequest, RefreshCw } from "lucide-react";
+import { Check, CheckCheck, GitPullRequest, RefreshCw } from "lucide-react";
 import { type ReactElement, useCallback, useEffect, useMemo, useState } from "react";
 
 import { showAppToast } from "@/components/app-toaster";
@@ -9,13 +9,21 @@ import { Spinner } from "@/components/ui/spinner";
 import {
 	buildReviewInboxQuery,
 	describeApprovalState,
+	describeReviewedState,
 	describeReviewers,
+	indexReviewedMarks,
+	type ReviewedMarks,
+	reviewMarkKey,
 	splitByReviewerRequested,
 } from "@/review/review-inbox";
 import type { ReviewTarget } from "@/review/review-target";
 import { useGitlabConnect } from "@/review/use-gitlab-connect";
 import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
-import type { RuntimeGitlabMergeRequestSummary, RuntimeReviewSession } from "@/runtime/types";
+import type {
+	RuntimeGitlabMergeRequestSummary,
+	RuntimeReviewAllMark,
+	RuntimeReviewSession,
+} from "@/runtime/types";
 
 /** Enough to see at a glance without turning the sidebar into a second full list. */
 const SIDEBAR_LIST_LIMIT = 20;
@@ -73,6 +81,7 @@ export function HomeSidebarReviewPanel({
 	const [reviewRequests, setReviewRequests] = useState<RuntimeGitlabMergeRequestSummary[]>([]);
 	const [myMergeRequests, setMyMergeRequests] = useState<RuntimeGitlabMergeRequestSummary[]>([]);
 	const [draftSessions, setDraftSessions] = useState<RuntimeReviewSession[]>([]);
+	const [reviewedMarks, setReviewedMarks] = useState<ReviewedMarks>(() => new Map());
 	const [tab, setTab] = useState<SidebarReviewTab>("requested");
 	const [isLoading, setIsLoading] = useState(true);
 
@@ -86,22 +95,28 @@ export function HomeSidebarReviewPanel({
 				setReviewRequests([]);
 				setMyMergeRequests([]);
 				setDraftSessions([]);
+				setReviewedMarks(new Map());
 				return;
 			}
 			const client = getRuntimeTrpcClient(workspaceId);
 			const requestedQuery = buildReviewInboxQuery({ tab: "requested", userId, limit: SIDEBAR_LIST_LIMIT });
 			const mineQuery = buildReviewInboxQuery({ tab: "mine", userId, limit: SIDEBAR_LIST_LIMIT });
-			const [requested, mine, sessions] = await Promise.all([
+			const [requested, mine, sessions, marks] = await Promise.all([
 				// Null only when the connection has not reported a user id, which cannot
 				// happen behind `isConnected` — but the inbox stays empty rather than
 				// silently widening to everyone's merge requests if it ever does.
 				requestedQuery ? client.gitlab.listMergeRequests.query(requestedQuery) : null,
 				mineQuery ? client.gitlab.listMergeRequests.query(mineQuery) : null,
 				client.review.listSessionsWithDrafts.query({ host }),
+				// Local review progress, caught on its own: a missing reviewed check is a
+				// cosmetic loss, and the shared catch below would blank all three lists and
+				// raise a toast for it.
+				client.review.listSessionMarks.query({ host }).catch(() => null),
 			]);
 			setReviewRequests(requested?.ok ? requested.mergeRequests : []);
 			setMyMergeRequests(mine?.ok ? mine.mergeRequests : []);
 			setDraftSessions(sessions);
+			setReviewedMarks(marks?.ok ? indexReviewedMarks(marks.marks) : new Map());
 			const failure = [requested, mine].find((response) => response && !response.ok);
 			if (failure?.error) {
 				showAppToast({ intent: "danger", message: failure.error });
@@ -208,13 +223,14 @@ export function HomeSidebarReviewPanel({
 							reviewRequests.length > 0 ? (
 								reviewRequests.map((mergeRequest) => (
 									<SidebarMergeRequestRow
-										key={`${mergeRequest.projectId}-${mergeRequest.iid}`}
+										key={reviewMarkKey(mergeRequest.projectId, mergeRequest.iid)}
 										mergeRequest={mergeRequest}
 										subtitle={
 											mergeRequest.authorUsername
 												? `!${mergeRequest.iid} · @${mergeRequest.authorUsername}`
 												: `!${mergeRequest.iid}`
 										}
+										reviewedMark={reviewedMarks.get(reviewMarkKey(mergeRequest.projectId, mergeRequest.iid)) ?? null}
 										onOpen={openSummary}
 									/>
 								))
@@ -228,6 +244,7 @@ export function HomeSidebarReviewPanel({
 								<SidebarMergeRequestGroup
 									label={`Reviewer requested (${split.awaitingReview.length})`}
 									mergeRequests={split.awaitingReview}
+									reviewedMarks={reviewedMarks}
 									onOpen={openSummary}
 								/>
 								{/* Labelled by what these usually are: merge requests opened to read
@@ -235,6 +252,7 @@ export function HomeSidebarReviewPanel({
 								<SidebarMergeRequestGroup
 									label={`No reviewer · diff or pipeline (${split.noReviewer.length})`}
 									mergeRequests={split.noReviewer}
+									reviewedMarks={reviewedMarks}
 									onOpen={openSummary}
 								/>
 								{myMergeRequests.length === 0 ? (
@@ -313,10 +331,12 @@ function SidebarSubTab({
 function SidebarMergeRequestGroup({
 	label,
 	mergeRequests,
+	reviewedMarks,
 	onOpen,
 }: {
 	label: string;
 	mergeRequests: RuntimeGitlabMergeRequestSummary[];
+	reviewedMarks: ReviewedMarks;
 	onOpen: (mergeRequest: RuntimeGitlabMergeRequestSummary) => void;
 }): ReactElement | null {
 	if (mergeRequests.length === 0) {
@@ -327,11 +347,12 @@ function SidebarMergeRequestGroup({
 			<SidebarSectionLabel label={label} />
 			{mergeRequests.map((mergeRequest) => (
 				<SidebarMergeRequestRow
-					key={`${mergeRequest.projectId}-${mergeRequest.iid}`}
+					key={reviewMarkKey(mergeRequest.projectId, mergeRequest.iid)}
 					mergeRequest={mergeRequest}
 					subtitle={`!${mergeRequest.iid} · ${mergeRequest.sourceBranch} → ${mergeRequest.targetBranch}${
 						describeReviewers(mergeRequest) ? ` · ${describeReviewers(mergeRequest)}` : ""
 					}`}
+					reviewedMark={reviewedMarks.get(reviewMarkKey(mergeRequest.projectId, mergeRequest.iid)) ?? null}
 					onOpen={onOpen}
 				/>
 			))}
@@ -342,13 +363,16 @@ function SidebarMergeRequestGroup({
 function SidebarMergeRequestRow({
 	mergeRequest,
 	subtitle,
+	reviewedMark,
 	onOpen,
 }: {
 	mergeRequest: RuntimeGitlabMergeRequestSummary;
 	subtitle: string;
+	reviewedMark: RuntimeReviewAllMark | null;
 	onOpen: (mergeRequest: RuntimeGitlabMergeRequestSummary) => void;
 }): ReactElement {
 	const approval = describeApprovalState(mergeRequest);
+	const reviewed = describeReviewedState(mergeRequest, reviewedMark);
 	return (
 		<button
 			type="button"
@@ -360,6 +384,23 @@ function SidebarMergeRequestRow({
 				<span className="block truncate text-sm">{mergeRequest.title}</span>
 				<span className="block truncate text-[10px] text-text-tertiary">{subtitle}</span>
 			</span>
+			{/* Two different facts, so two different glyphs: the double check is *my* local
+			    mark ("I finished reading this one"), the single one below is GitLab's
+			    approval. A row can legitimately carry both. */}
+			{reviewed ? (
+				<span
+					data-testid="sidebar-review-reviewed-check"
+					aria-label={reviewed.label}
+					title={
+						reviewed.tone === "stale"
+							? "You marked this merge request reviewed, but comments have been added since."
+							: `You marked this merge request reviewed on ${new Date(reviewedMark?.at ?? "").toLocaleString()}.`
+					}
+					className={cn("mt-0.5 shrink-0", reviewed.tone === "reviewed" ? "text-status-green" : "text-status-orange")}
+				>
+					<CheckCheck size={12} />
+				</span>
+			) : null}
 			{/* Approved rows stay in the list rather than moving to a subtab this narrow
 			    can't fit — the marker is what stops a signed-off review from reading as
 			    still-waiting work. */}

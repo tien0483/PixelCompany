@@ -11,8 +11,11 @@ import {
 	describeReviewers,
 	describeReviewedState,
 	filterMergeRequestsForTab,
+	indexReviewedMarks,
 	REVIEW_INBOX_TABS,
+	type ReviewedMarks,
 	type ReviewInboxTab,
+	reviewMarkKey,
 	splitByReviewerRequested,
 } from "@/review/review-inbox";
 import type { ReviewTarget } from "@/review/review-target";
@@ -23,13 +26,6 @@ import type {
 	RuntimeGitlabProject,
 	RuntimeReviewAllMark,
 } from "@/runtime/types";
-
-/** Review sessions are stored per merge request, so both ids are needed to match a row. */
-type ReviewedMarks = Map<string, RuntimeReviewAllMark>;
-
-function markKey(projectId: number, iid: number): string {
-	return `${projectId}-${iid}`;
-}
 
 type ScopeFilter = "created_by_me" | "assigned_to_me" | "all";
 type StateFilter = "opened" | "merged" | "all";
@@ -87,13 +83,7 @@ export function ReviewMergeRequestListScreen({
 			if (!response.ok) {
 				return;
 			}
-			setReviewedMarks(
-				new Map(
-					response.marks
-						.filter((mark) => mark.reviewedAllMark !== null)
-						.map((mark) => [markKey(mark.projectId, mark.iid), mark.reviewedAllMark as RuntimeReviewAllMark]),
-				),
-			);
+			setReviewedMarks(indexReviewedMarks(response.marks));
 		} catch {
 			// A missing badge is a cosmetic loss; surfacing it as a list error is not.
 		}
@@ -323,9 +313,9 @@ export function ReviewMergeRequestListScreen({
 				) : (
 					visible.map((mergeRequest) => (
 						<MergeRequestRow
-							key={markKey(mergeRequest.projectId, mergeRequest.iid)}
+							key={reviewMarkKey(mergeRequest.projectId, mergeRequest.iid)}
 							mergeRequest={mergeRequest}
-							reviewedMark={reviewedMarks.get(markKey(mergeRequest.projectId, mergeRequest.iid)) ?? null}
+							reviewedMark={reviewedMarks.get(reviewMarkKey(mergeRequest.projectId, mergeRequest.iid)) ?? null}
 							onOpen={openTarget}
 						/>
 					))
@@ -369,9 +359,9 @@ function MergeRequestGroup({
 			<div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-text-tertiary">{label}</div>
 			{mergeRequests.map((mergeRequest) => (
 				<MergeRequestRow
-					key={markKey(mergeRequest.projectId, mergeRequest.iid)}
+					key={reviewMarkKey(mergeRequest.projectId, mergeRequest.iid)}
 					mergeRequest={mergeRequest}
-					reviewedMark={reviewedMarks.get(markKey(mergeRequest.projectId, mergeRequest.iid)) ?? null}
+					reviewedMark={reviewedMarks.get(reviewMarkKey(mergeRequest.projectId, mergeRequest.iid)) ?? null}
 					onOpen={onOpen}
 				/>
 			))}
