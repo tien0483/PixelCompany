@@ -17,7 +17,7 @@ import { type AgentOneShotEvent, type RunAgentOneShotInput, runAgentOneShot } fr
 export const REVIEW_AGENT_IDLE_TIMEOUT_MS = 120_000;
 export const REVIEW_AGENT_HARD_TIMEOUT_MS = 10 * 60_000;
 
-const DEFAULT_MAX_BODY_BYTES = 4 * 1024 * 1024;
+export const DEFAULT_MAX_BODY_BYTES = 4 * 1024 * 1024;
 
 export interface AgentStreamRunPlan {
 	prompt: string;
@@ -74,7 +74,13 @@ export interface HandleAgentStreamRouteOptions<TInput> {
 	buildPinInput?: (managerAccountId?: number) => RunAgentOneShotInput["pinInput"];
 }
 
-function readRequestBody(req: IncomingMessage, maxBytes: number): Promise<string> {
+/**
+ * Exported because the graph-rebuild route is hand-rolled — it holds its SSE
+ * connection open against a background job rather than a child process, so it
+ * cannot use `handleAgentStreamRoute` — but it must not therefore go without a
+ * body cap.
+ */
+export function readRequestBody(req: IncomingMessage, maxBytes: number): Promise<string> {
 	return new Promise((resolve, reject) => {
 		let body = "";
 		let size = 0;

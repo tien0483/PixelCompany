@@ -83,11 +83,6 @@ import {
 } from "../review/review-agent-args";
 import { reviewCommandNeedsGraphImpact, reviewCommandNeedsRules } from "../review/review-command-expansion";
 import { buildReviewGraphPromptSection } from "../review/review-graph-brief";
-import {
-	GRAPH_REBUILD_IDLE_TIMEOUT_MS,
-	GRAPH_REBUILD_TIMEOUT_MS,
-	resolveGraphRebuildPrompt,
-} from "../review/review-graph-rebuild";
 import { reviewGraphRebuildService } from "../review/review-graph-rebuild-service";
 import {
 	buildAuditPrompt,
@@ -97,7 +92,7 @@ import {
 	REVIEW_CHAT_SYSTEM_PROMPT,
 } from "../review/review-prompts";
 import { persistExtractedRules, readReviewRulesBundle } from "../review/review-rules";
-import { handleAgentStreamRoute } from "../review/review-stream-route";
+import { DEFAULT_MAX_BODY_BYTES, handleAgentStreamRoute, readRequestBody } from "../review/review-stream-route";
 import {
 	checkRateLimit,
 	clearRateLimit,
@@ -1729,59 +1724,89 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 				return;
 			}
 			if (pathname === "/api/review/graph-rebuild" && (req.method ?? "GET").toUpperCase() === "POST") {
-				let rawBody = "";
-				req.on("data", (chunk: Buffer) => {
-					rawBody += chunk.toString("utf8");
-				});
-				req.on("end", () => {
-					try {
-						const parsedBody = JSON.parse(rawBody || "{}");
-						const parsed = runtimeReviewGraphRebuildRequestSchema.safeParse(parsedBody);
-						if (!parsed.success) {
-							res.writeHead(400, { "Content-Type": "application/json; charset=utf-8" });
-							res.end(JSON.stringify({ error: parsed.error.message }));
+				// Hand-rolled rather than `handleAgentStreamRoute`, because the stream
+				// belongs to a background job and not to this request: the job outlives
+				// the connection, and closing the browser must not cancel a build.
+				let rawBody: string;
+				try {
+					rawBody = await readRequestBody(req, DEFAULT_MAX_BODY_BYTES);
+				} catch {
+					res.writeHead(413, { "Content-Type": "application/json; charset=utf-8" });
+					res.end(JSON.stringify({ error: "Request body too large" }));
+					return;
+				}
+
+				let parsedBody: unknown;
+				try {
+					parsedBody = JSON.parse(rawBody || "{}");
+				} catch {
+					res.writeHead(400, { "Content-Type": "application/json; charset=utf-8" });
+					res.end(JSON.stringify({ error: "invalid JSON body" }));
+					return;
+				}
+
+				const parsed = runtimeReviewGraphRebuildRequestSchema.safeParse(parsedBody);
+				if (!parsed.success) {
+					res.writeHead(400, { "Content-Type": "application/json; charset=utf-8" });
+					res.end(JSON.stringify({ error: parsed.error.message }));
+					return;
+				}
+
+				try {
+					const started = reviewGraphRebuildService.startOrAttachJob({
+						projectPath: parsed.data.projectPath,
+						model: parsed.data.model,
+						effort: parsed.data.effort,
+						managerAccountId: parsed.data.managerAccountId,
+						...(parsed.data.force === undefined ? {} : { force: parsed.data.force }),
+						buildPinInput: buildHtmlAgentPinInput,
+					});
+
+					res.writeHead(200, {
+						"Content-Type": "text/event-stream; charset=utf-8",
+						"Cache-Control": "no-cache, no-transform",
+						Connection: "keep-alive",
+						"X-Accel-Buffering": "no",
+					});
+
+					const write = (event: string, data: unknown): void => {
+						if (res.writableEnded) {
 							return;
 						}
+						res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+					};
 
-						reviewGraphRebuildService.startOrAttachJob({
-							projectPath: parsed.data.projectPath,
-							model: parsed.data.model,
-							effort: parsed.data.effort,
-							managerAccountId: parsed.data.managerAccountId,
-							buildPinInput: buildHtmlAgentPinInput,
-						});
+					// Sent before the replay so the client knows whether it owns this
+					// build or joined one already in flight — the difference between
+					// "starting…" and a job that has been paused since before the tab
+					// was opened, which used to be indistinguishable.
+					write("meta", {
+						type: "meta",
+						key: "rebuild_attached",
+						value: {
+							attached: started.attached,
+							status: started.job.status,
+							startedAt: started.job.startedAt,
+							pausedAt: started.job.pausedAt,
+						},
+					});
 
-						res.writeHead(200, {
-							"Content-Type": "text/event-stream; charset=utf-8",
-							"Cache-Control": "no-cache, no-transform",
-							Connection: "keep-alive",
-							"X-Accel-Buffering": "no",
-						});
-
-						const write = (event: string, data: unknown): void => {
-							if (res.writableEnded) {
-								return;
-							}
-							res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
-						};
-
-						const unsubscribe = reviewGraphRebuildService.subscribe(parsed.data.projectPath, (event, data) => {
-							write(event, data);
-							if (event === "done" && !res.writableEnded) {
-								res.end();
-							}
-						});
-
-						req.on("close", () => {
-							unsubscribe();
-						});
-					} catch (error) {
-						if (!res.headersSent) {
-							res.writeHead(500, { "Content-Type": "application/json; charset=utf-8" });
-							res.end(JSON.stringify({ error: error instanceof Error ? error.message : String(error) }));
+					const unsubscribe = reviewGraphRebuildService.subscribe(parsed.data.projectPath, (event, data) => {
+						write(event, data);
+						if (event === "done" && !res.writableEnded) {
+							res.end();
 						}
+					});
+
+					req.on("close", () => {
+						unsubscribe();
+					});
+				} catch (error) {
+					if (!res.headersSent) {
+						res.writeHead(500, { "Content-Type": "application/json; charset=utf-8" });
+						res.end(JSON.stringify({ error: error instanceof Error ? error.message : String(error) }));
 					}
-				});
+				}
 				return;
 			}
 			if (pathname === "/api/review/suggest-comment" && (req.method ?? "GET").toUpperCase() === "POST") {
