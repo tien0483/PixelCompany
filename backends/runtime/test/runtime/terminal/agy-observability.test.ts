@@ -3,10 +3,7 @@ import { homedir } from "node:os";
 import { describe, expect, it } from "vitest";
 
 import { buildAgyArgv } from "../../../src/terminal/agent-oneshot";
-import {
-	describeAgyTranscriptLine,
-	resolveAgyBrainTranscriptPath,
-} from "../../../src/terminal/agy-brain-transcript";
+import { describeAgyTranscriptLine, resolveAgyBrainTranscriptPath } from "../../../src/terminal/agy-brain-transcript";
 import { classifyAgyLogLine, readAgyAuthenticatedAccount } from "../../../src/terminal/agy-log-file";
 
 /**
@@ -67,7 +64,7 @@ describe("describeAgyTranscriptLine", () => {
 		// rather than the command.
 		expect(lines[0]?.line).toContain('git -C "$PROJECT_ROOT" diff');
 		expect(lines[0]?.line.startsWith("run_command: ")).toBe(true);
-		expect(lines[0]?.line).not.toContain("\\\"");
+		expect(lines[0]?.line).not.toContain('\\"');
 	});
 
 	it("drops the timing header from a tool result and keeps the exit line", () => {

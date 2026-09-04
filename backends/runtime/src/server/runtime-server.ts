@@ -92,7 +92,7 @@ import {
 	REVIEW_CHAT_SYSTEM_PROMPT,
 } from "../review/review-prompts";
 import { persistExtractedRules, readReviewRulesBundle } from "../review/review-rules";
-import { DEFAULT_MAX_BODY_BYTES, handleAgentStreamRoute, readRequestBody } from "../review/review-stream-route";
+import { handleAgentStreamRoute } from "../review/review-stream-route";
 import {
 	checkRateLimit,
 	clearRateLimit,
@@ -1729,7 +1729,9 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 				// the connection, and closing the browser must not cancel a build.
 				let rawBody: string;
 				try {
-					rawBody = await readRequestBody(req, DEFAULT_MAX_BODY_BYTES);
+					// Same cap as this file's other review routes. The body is a path and
+					// two optional ids; before this it had no cap at all.
+					rawBody = await readRequestBody(req, 1024 * 1024);
 				} catch {
 					res.writeHead(413, { "Content-Type": "application/json; charset=utf-8" });
 					res.end(JSON.stringify({ error: "Request body too large" }));
