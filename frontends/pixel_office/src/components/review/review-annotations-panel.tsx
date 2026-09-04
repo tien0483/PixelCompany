@@ -1,5 +1,6 @@
 import type { ReactElement } from "react";
 import { cn } from "@/components/ui/cn";
+import { reviewTagColor } from "@/review/review-tags";
 import type { RuntimeReviewAnnotation } from "@/runtime/types";
 
 export interface ReviewAnnotationsPanelProps {
@@ -50,7 +51,7 @@ export function ReviewAnnotationsPanel({
 										onClick={() => onJumpToAnnotation(annotation)}
 									>
 										<div className="flex items-center gap-1">
-											<span className="rounded border border-border-bright bg-surface-2 px-1 text-[9px] text-text-secondary">
+											<span className={cn("rounded border px-1 text-[9px]", reviewTagColor(annotation.tag).chip)}>
 												{annotation.tag.label}
 											</span>
 											{annotation.verdict ? (

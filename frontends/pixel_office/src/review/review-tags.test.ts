@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { BUILTIN_REVIEW_TAGS, buildTagPalette } from "@/review/review-tags";
+import { BUILTIN_REVIEW_TAGS, buildTagPalette, reviewTagColor } from "@/review/review-tags";
 import type { RuntimeReviewRule } from "@/runtime/types";
 
 function rule(category: string): RuntimeReviewRule {
@@ -26,6 +26,32 @@ describe("BUILTIN_REVIEW_TAGS", () => {
 		for (const tag of BUILTIN_REVIEW_TAGS) {
 			expect(tag.kind).toBe("builtin");
 		}
+	});
+});
+
+describe("reviewTagColor", () => {
+	it("gives every built-in tag its own color", () => {
+		const chips = new Set(BUILTIN_REVIEW_TAGS.map((tag) => reviewTagColor(tag).chip));
+		expect(chips.size).toBe(BUILTIN_REVIEW_TAGS.length);
+	});
+
+	it("returns a chip, a rule and a token reference for every tag", () => {
+		const color = reviewTagColor({ kind: "rule-category", label: "CustomCategory" });
+		expect(color.chip).toMatch(/^border-status-/);
+		expect(color.rule).toMatch(/^border-status-/);
+		expect(color.cssVar).toMatch(/^var\(--color-status-/);
+	});
+
+	it("colors a rule category the same way on every call", () => {
+		const first = reviewTagColor({ kind: "rule-category", label: "CustomCategory" });
+		const second = reviewTagColor({ kind: "rule-category", label: "CustomCategory" });
+		expect(second).toEqual(first);
+	});
+
+	it("colors a rule category by label, so it matches a built-in of the same name", () => {
+		// buildTagPalette dedups case-insensitively, so the color has to agree with it.
+		const builtin = reviewTagColor({ kind: "builtin", label: "Security" });
+		expect(reviewTagColor({ kind: "rule-category", label: "security" })).toEqual(builtin);
 	});
 });
 

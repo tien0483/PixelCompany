@@ -1,8 +1,9 @@
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { type ReactElement, useState } from "react";
 
+import { cn } from "@/components/ui/cn";
 import { loadBooleanResizePreference, persistBooleanResizePreference } from "@/resize/resize-preferences";
-import type { ReviewTag } from "@/review/review-tags";
+import { type ReviewTag, reviewTagColor } from "@/review/review-tags";
 import { LocalStorageKey } from "@/storage/local-storage-store";
 
 const TAG_STRIP_EXPANDED_PREFERENCE = {
@@ -49,7 +50,12 @@ export function ReviewTagStrip({ tags, onTagDragStart, onTagDragEnd }: ReviewTag
 							key={`${tag.kind}-${tag.label}`}
 							type="button"
 							draggable
-							className="cursor-grab rounded border border-border bg-surface-2 px-2 py-0.5 text-[10px] text-text-secondary hover:text-text-primary"
+							// The browser builds the drag image out of this element, so the chip's
+							// own color is what the reviewer sees following the cursor.
+							className={cn(
+								"cursor-grab rounded border px-2 py-0.5 text-[10px] hover:brightness-125",
+								reviewTagColor(tag).chip,
+							)}
 							onDragStart={(event) => {
 								event.dataTransfer.effectAllowed = "copy";
 								event.dataTransfer.setData("text/plain", tag.label);
