@@ -3440,6 +3440,31 @@ export const runtimeClaudeCacheStatusResponseSchema = z.object({
 	/** Playwright browser binaries under `~/.cache/ms-playwright`. */
 	playwrightCacheItemCount: z.number().optional(),
 	playwrightCacheSizeBytes: z.number().optional(),
+	/**
+	 * Regenerable build caches across every registered project and task worktree:
+	 * `.next/cache`, a Next dist dir's turbopack `dev`, `.turbo`, `.vite`, `coverage`,
+	 * `__pycache__`, `.pytest_cache`. Nothing ever serves these.
+	 */
+	buildCacheItemCount: z.number().optional(),
+	buildCacheSizeBytes: z.number().optional(),
+	/**
+	 * Build *outputs* (`dist`, `build`, `out`, `.next`, `.build`). Regenerable too, but
+	 * a project needs a rebuild before it runs again — and outputs the runtime is
+	 * currently serving are excluded from this total entirely.
+	 */
+	buildOutputItemCount: z.number().optional(),
+	buildOutputSizeBytes: z.number().optional(),
+	/** Largest first, so the dialog can name the handful of directories that matter. */
+	buildArtifacts: z
+		.array(
+			z.object({
+				path: z.string(),
+				sizeBytes: z.number(),
+				tier: z.enum(["build-cache", "build-output"]),
+				projectLabel: z.string(),
+			}),
+		)
+		.optional(),
 	nvmVersions: z
 		.array(
 			z.object({
@@ -3486,6 +3511,10 @@ export const runtimeClaudeCacheCleanRequestSchema = z.object({
 	includeNvmCache: z.boolean().optional(),
 	includePnpmStore: z.boolean().optional(),
 	includePlaywrightCache: z.boolean().optional(),
+	/** Build caches across registered projects and task worktrees. Never served. */
+	includeBuildCaches: z.boolean().optional(),
+	/** Build outputs. Anything the runtime serves is refused even when this is set. */
+	includeBuildOutputs: z.boolean().optional(),
 	nvmVersions: z.array(z.string()).optional(),
 	disposeMode: runtimeCleanupDisposeModeSchema.optional(),
 });
@@ -3514,6 +3543,8 @@ export const runtimeClaudeCacheCleanedItemSchema = z.object({
 		"pnpm-store",
 		"playwright-cache",
 		"nvm-version",
+		"build-cache",
+		"build-output",
 		"recycle-bin",
 	]),
 });

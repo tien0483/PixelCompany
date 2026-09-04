@@ -41,6 +41,11 @@ export function useCleanupTools(workspaceId: string | null): UseCleanupToolsResu
 				total += status.tmpSizeBytes ?? 0;
 				total += status.npmCacheSizeBytes ?? 0;
 				total += status.nvmCacheSizeBytes ?? 0;
+				total += status.pnpmStoreSizeBytes ?? 0;
+				total += status.playwrightCacheSizeBytes ?? 0;
+				// Build *caches* only, matching what "Select maximum" checks: an output
+				// costs a rebuild, so the badge must not advertise it as free space.
+				total += status.buildCacheSizeBytes ?? 0;
 				total += (status.nvmVersions ?? [])
 					.filter((entry) => !entry.inUse)
 					.reduce((sum, entry) => sum + entry.sizeBytes, 0);

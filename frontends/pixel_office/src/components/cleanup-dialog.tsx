@@ -44,7 +44,31 @@ const SAFE_AGE_OPTIONS = [
 ] as const;
 const DEFAULT_SAFE_AGE_DAYS = 1;
 const PREVIEW_ITEM_LIMIT = 20;
+const BUILD_ARTIFACT_PREVIEW_LIMIT = 4;
 const ALL_WORKTREE_CATEGORIES = ["missing", "merged", "unused", "orphaned", "unregistered", "stale-branch"] as const;
+
+/** The largest few directories behind a build row, so a huge total is never anonymous. */
+function CleanupBuildArtifactList({
+	artifacts,
+}: {
+	artifacts: { path: string; sizeBytes: number; projectLabel: string }[];
+}): ReactElement | null {
+	if (artifacts.length === 0) {
+		return null;
+	}
+	return (
+		<ul className="ml-6 -mt-1 space-y-0.5 text-[11px] text-text-tertiary">
+			{artifacts.map((artifact) => (
+				<li key={artifact.path} className="flex items-baseline gap-2">
+					<span className="shrink-0 text-text-secondary">{formatBytes(artifact.sizeBytes)}</span>
+					<code className="truncate text-[10px]" title={artifact.path}>
+						{artifact.projectLabel}: {artifact.path}
+					</code>
+				</li>
+			))}
+		</ul>
+	);
+}
 
 export function CleanupDialog({
 	open,
@@ -68,6 +92,10 @@ export function CleanupDialog({
 	const [nvmCacheChecked, setNvmCacheChecked] = useState(false);
 	const [pnpmStoreChecked, setPnpmStoreChecked] = useState(false);
 	const [playwrightCacheChecked, setPlaywrightCacheChecked] = useState(false);
+	const [buildCachesChecked, setBuildCachesChecked] = useState(false);
+	// Deliberately never on by default, and left out of "Select maximum": clearing an
+	// output costs a rebuild, while clearing a build cache costs nothing.
+	const [buildOutputsChecked, setBuildOutputsChecked] = useState(false);
 	const [nvmVersionsChecked, setNvmVersionsChecked] = useState(false);
 	const [selectedNvmVersions, setSelectedNvmVersions] = useState<ReadonlySet<string>>(() => new Set());
 	const [disposeMode, setDisposeMode] = useState<RuntimeCleanupDisposeMode>("recycle-bin");
@@ -102,6 +130,16 @@ export function CleanupDialog({
 		pnpmStoreSizeBytes?: number;
 		playwrightCacheItemCount?: number;
 		playwrightCacheSizeBytes?: number;
+		buildCacheItemCount?: number;
+		buildCacheSizeBytes?: number;
+		buildOutputItemCount?: number;
+		buildOutputSizeBytes?: number;
+		buildArtifacts?: {
+			path: string;
+			sizeBytes: number;
+			tier: "build-cache" | "build-output";
+			projectLabel: string;
+		}[];
 		nvmVersions?: {
 			version: string;
 			path: string;
@@ -273,6 +311,22 @@ export function CleanupDialog({
 	const handlePlaywrightCacheCheckedChange = useCallback(
 		(checked: boolean | "indeterminate") => {
 			setPlaywrightCacheChecked(checked === true);
+			invalidatePreview();
+		},
+		[invalidatePreview],
+	);
+
+	const handleBuildCachesCheckedChange = useCallback(
+		(checked: boolean | "indeterminate") => {
+			setBuildCachesChecked(checked === true);
+			invalidatePreview();
+		},
+		[invalidatePreview],
+	);
+
+	const handleBuildOutputsCheckedChange = useCallback(
+		(checked: boolean | "indeterminate") => {
+			setBuildOutputsChecked(checked === true);
 			invalidatePreview();
 		},
 		[invalidatePreview],
@@ -453,6 +507,8 @@ export function CleanupDialog({
 		nvmCacheChecked ||
 		pnpmStoreChecked ||
 		playwrightCacheChecked ||
+		buildCachesChecked ||
+		buildOutputsChecked ||
 		(nvmVersionsChecked && selectedNvmVersions.size > 0);
 	const canPreview = claudeCacheChecked || worktreesChecked || orphanNodeModulesChecked;
 
@@ -472,6 +528,8 @@ export function CleanupDialog({
 			includeNvmCache: nvmCacheChecked,
 			includePnpmStore: pnpmStoreChecked,
 			includePlaywrightCache: playwrightCacheChecked,
+			includeBuildCaches: buildCachesChecked,
+			includeBuildOutputs: buildOutputsChecked,
 			nvmVersions:
 				nvmVersionsChecked && selectedNvmVersions.size > 0
 					? [...selectedNvmVersions]
@@ -494,6 +552,8 @@ export function CleanupDialog({
 			nvmCacheChecked,
 			pnpmStoreChecked,
 			playwrightCacheChecked,
+			buildCachesChecked,
+			buildOutputsChecked,
 			nvmVersionsChecked,
 			selectedNvmVersions,
 			disposeMode,
@@ -536,7 +596,25 @@ export function CleanupDialog({
 		(nvmCacheChecked ? (claudeStatus?.nvmCacheSizeBytes ?? 0) : 0) +
 		(pnpmStoreChecked ? (claudeStatus?.pnpmStoreSizeBytes ?? 0) : 0) +
 		(playwrightCacheChecked ? (claudeStatus?.playwrightCacheSizeBytes ?? 0) : 0) +
+		(buildCachesChecked ? (claudeStatus?.buildCacheSizeBytes ?? 0) : 0) +
+		(buildOutputsChecked ? (claudeStatus?.buildOutputSizeBytes ?? 0) : 0) +
 		selectedNvmVersionBytes;
+	// One 11 GB directory deserves to be named rather than folded into a total, so each
+	// build row shows its biggest few entries. `buildArtifacts` arrives largest-first.
+	const topBuildCaches = useMemo(
+		() =>
+			(claudeStatus?.buildArtifacts ?? [])
+				.filter((artifact) => artifact.tier === "build-cache")
+				.slice(0, BUILD_ARTIFACT_PREVIEW_LIMIT),
+		[claudeStatus?.buildArtifacts],
+	);
+	const topBuildOutputs = useMemo(
+		() =>
+			(claudeStatus?.buildArtifacts ?? [])
+				.filter((artifact) => artifact.tier === "build-output")
+				.slice(0, BUILD_ARTIFACT_PREVIEW_LIMIT),
+		[claudeStatus?.buildArtifacts],
+	);
 	const totalReclaimableWorktreeBytes = useMemo(
 		() =>
 			reclaimable.reduce(
@@ -560,6 +638,7 @@ export function CleanupDialog({
 		setNvmCacheChecked(true);
 		setPnpmStoreChecked(true);
 		setPlaywrightCacheChecked(true);
+		setBuildCachesChecked(true);
 		setNvmVersionsChecked(true);
 		setSelectedNvmVersions(
 			new Set(
@@ -636,6 +715,8 @@ export function CleanupDialog({
 				setNvmCacheChecked(false);
 				setPnpmStoreChecked(false);
 				setPlaywrightCacheChecked(false);
+				setBuildCachesChecked(false);
+				setBuildOutputsChecked(false);
 				setNvmVersionsChecked(false);
 				setSelectedNvmVersions(new Set());
 				setDisposeMode("recycle-bin");
@@ -734,6 +815,10 @@ export function CleanupDialog({
 					<p className="text-[11px] text-text-tertiary">
 						Recycle bin:{" "}
 						<code className="text-[10px]">{claudeStatus?.recycleBinPath ?? "~/.agent/recycle-bin"}</code>
+					</p>
+					<p className="text-[11px] text-text-tertiary">
+						The recycle bin only moves things aside — no space comes back until it is emptied below. Build
+						caches can run to tens of gigabytes, so pick Delete permanently when the point is free disk.
 					</p>
 				</fieldset>
 				<label className="flex flex-wrap items-center gap-2 text-[13px] text-text-primary cursor-pointer select-none">
@@ -1026,6 +1111,56 @@ export function CleanupDialog({
 				<p className="ml-6 -mt-2 text-[11px] text-text-tertiary">
 					Browser binaries are reinstalled automatically when tests run.
 				</p>
+				<label className="flex items-center gap-2 text-[13px] text-text-primary cursor-pointer select-none">
+					<RadixCheckbox.Root
+						data-testid="cleanup-build-caches-checkbox"
+						checked={buildCachesChecked}
+						onCheckedChange={handleBuildCachesCheckedChange}
+						className="flex h-3.5 w-3.5 items-center justify-center rounded-sm border border-border-bright bg-surface-3 data-[state=checked]:bg-accent data-[state=checked]:border-accent"
+					>
+						<RadixCheckbox.Indicator>
+							<Check size={10} className="text-white" />
+						</RadixCheckbox.Indicator>
+					</RadixCheckbox.Root>
+					Build caches in projects
+					{claudeStatus?.buildCacheItemCount !== undefined ? (
+						<span className="text-text-secondary">
+							({claudeStatus.buildCacheItemCount} dirs, {formatBytes(claudeStatus.buildCacheSizeBytes ?? 0)})
+						</span>
+					) : null}
+				</label>
+				<p className="ml-6 -mt-2 text-[11px] text-text-tertiary">
+					<code className="text-[10px]">.next/cache</code>, turbopack <code className="text-[10px]">dev</code>,{" "}
+					<code className="text-[10px]">.turbo</code>, <code className="text-[10px]">.vite</code>,{" "}
+					<code className="text-[10px]">coverage</code>, <code className="text-[10px]">__pycache__</code> across
+					every project and task worktree. Nothing serves these; the next build regenerates them.
+				</p>
+				<CleanupBuildArtifactList artifacts={topBuildCaches} />
+				<label className="flex items-center gap-2 text-[13px] text-text-primary cursor-pointer select-none">
+					<RadixCheckbox.Root
+						data-testid="cleanup-build-outputs-checkbox"
+						checked={buildOutputsChecked}
+						onCheckedChange={handleBuildOutputsCheckedChange}
+						className="flex h-3.5 w-3.5 items-center justify-center rounded-sm border border-border-bright bg-surface-3 data-[state=checked]:bg-accent data-[state=checked]:border-accent"
+					>
+						<RadixCheckbox.Indicator>
+							<Check size={10} className="text-white" />
+						</RadixCheckbox.Indicator>
+					</RadixCheckbox.Root>
+					Build outputs in projects
+					{claudeStatus?.buildOutputItemCount !== undefined ? (
+						<span className="text-text-secondary">
+							({claudeStatus.buildOutputItemCount} dirs, {formatBytes(claudeStatus.buildOutputSizeBytes ?? 0)})
+						</span>
+					) : null}
+				</label>
+				<p className="ml-6 -mt-2 text-[11px] text-text-tertiary">
+					<code className="text-[10px]">dist</code>, <code className="text-[10px]">build</code>,{" "}
+					<code className="text-[10px]">.next</code>, <code className="text-[10px]">target</code>. Each project
+					needs a rebuild before it runs again. Outputs this app is currently serving, and anything tracked by
+					git, are kept — the preview lists them with the command that rebuilds each one.
+				</p>
+				<CleanupBuildArtifactList artifacts={topBuildOutputs} />
 				{(claudeStatus?.nvmVersions?.length ?? 0) > 0 ? (
 					<>
 						<label className="flex items-center gap-2 text-[13px] text-text-primary cursor-pointer select-none">
