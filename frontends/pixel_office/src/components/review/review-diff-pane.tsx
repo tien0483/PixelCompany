@@ -21,6 +21,7 @@ import {
 } from "react";
 
 import { ReviewCommentComposer } from "@/components/review/review-comment-composer";
+import { ReviewTagChip } from "@/components/review/review-tag-chip";
 import { ReviewTagStrip } from "@/components/review/review-tag-strip";
 import {
 	buildDisplayItems,
@@ -52,6 +53,7 @@ import {
 } from "@/review/review-deep-scroll";
 import { buildFullFileRows } from "@/review/review-full-file-rows";
 import { type ReviewTag, type ReviewTagSection, reviewTagColor } from "@/review/review-tags";
+import { useDragAutoscroll } from "@/review/use-drag-autoscroll";
 import {
 	buildLineAnnotations,
 	type ReviewDiffMode,
@@ -138,6 +140,61 @@ interface RowRange {
 	keys: Set<string>;
 	start: UnifiedDiffRow;
 	end: UnifiedDiffRow;
+}
+
+/**
+ * A chip being dragged across the diff: the first row it entered, and the row under the
+ * pointer now. Unlike `DragState` this carries no side — a tag run may span both.
+ */
+interface TagDragState {
+	anchorKey: string;
+	headKey: string;
+}
+
+/**
+ * The first row a chip enters becomes the anchor; every row after it only moves the head.
+ * Returning the same object when nothing moved keeps a `dragover` — which fires several
+ * times a second on the row already under the pointer — from re-rendering the pane.
+ */
+function extendTagDrag(current: TagDragState | null, rowKey: string): TagDragState {
+	if (!current) {
+		return { anchorKey: rowKey, headKey: rowKey };
+	}
+	return current.headKey === rowKey ? current : { ...current, headKey: rowKey };
+}
+
+/**
+ * The old/new pair an annotation records for a run of rows.
+ *
+ * A tag run may cross sides, so neither end alone answers which numbers it covers: the
+ * pair is filled from the first and last row that *has* each number. A run of only
+ * deletions still comes out old-side-only, which is the shape `formatAnnotationsForPrompt`
+ * already handles.
+ */
+function resolveRangeAnchor(range: UnifiedDiffRow[]): {
+	oldLine: number | null;
+	newLine: number | null;
+	lineRange?: RuntimeGitlabNoteLineRange;
+} {
+	const lines = range.map(resolveRowLines);
+	const firstOf = (pick: (entry: (typeof lines)[number]) => number | null): number | null =>
+		lines.map(pick).find((value) => value !== null) ?? null;
+	const lastOf = (pick: (entry: (typeof lines)[number]) => number | null): number | null =>
+		[...lines].reverse().map(pick).find((value) => value !== null) ?? null;
+
+	const oldLine = lastOf((entry) => entry.oldLine);
+	const newLine = lastOf((entry) => entry.newLine);
+	if (range.length < 2) {
+		return { oldLine, newLine };
+	}
+	return {
+		oldLine,
+		newLine,
+		lineRange: {
+			startOldLine: firstOf((entry) => entry.oldLine),
+			startNewLine: firstOf((entry) => entry.newLine),
+		},
+	};
 }
 
 /** The old/new line pair a row anchors a note to. A removed row is old-side only. */
@@ -314,14 +371,17 @@ export function ReviewDiffPane({
 		anchor: { oldLine: number | null; newLine: number | null; lineRange?: RuntimeGitlabNoteLineRange };
 	} | null>(null);
 	const [pendingNote, setPendingNote] = useState("");
-	/** Row currently hovered by a tag drag, for the drop highlight. */
-	const [dropTargetKey, setDropTargetKey] = useState<string | null>(null);
+	/** The run a chip is being dragged across, for the drop highlight and the drop itself. */
+	const [tagDrag, setTagDrag] = useState<TagDragState | null>(null);
 	const [forceRenderLargeDiff, setForceRenderLargeDiff] = useState(false);
 	const [showFullFile, setShowFullFile] = useState(false);
 	/** The row a jump just landed on, tinted for a moment so the eye can find it. */
 	const [focusedRowKey, setFocusedRowKey] = useState<string | null>(null);
 	const { expandedBlocks, expandTop, expandBottom, expandAll } = useIncrementalExpand();
 	const scrollRef = useRef<HTMLDivElement | null>(null);
+	// A native drag suppresses wheel scrolling, so without this a chip can only reach the
+	// rows that were already on screen when it was picked up.
+	const autoscroll = useDragAutoscroll(scrollRef, (tagAnnotations?.draggedTag ?? null) !== null);
 
 	const path = file?.newPath ?? "";
 	const prismLanguage = useMemo(() => resolvePrismLanguage(path), [path]);
@@ -425,6 +485,62 @@ export function ReviewDiffPane({
 		},
 		[rowIndexByKey, rows],
 	);
+
+	/**
+	 * The run a chip drag covers: every row between the two keys, in patch order.
+	 *
+	 * Deliberately *not* clamped by `isCommentableOnSplitSide` the way `resolveRange` is.
+	 * That clamp exists because a GitLab range note's two endpoints would otherwise name
+	 * lines in different revisions — but a tag annotation is never published; it is local
+	 * state read only by the audit prompt. Clamping it was inherited, and it is what made
+	 * the deletions and the additions of one hunk impossible to mark together.
+	 *
+	 * With no clamp there is nothing to walk outwards *from*, so this walks straight
+	 * between the indices, stopping at the first row that carries no line number.
+	 */
+	const resolveTagRange = useCallback(
+		(anchorKey: string, headKey: string): UnifiedDiffRow[] => {
+			const anchorIndex = rowIndexByKey.get(anchorKey);
+			const headIndex = rowIndexByKey.get(headKey) ?? anchorIndex;
+			if (anchorIndex === undefined || headIndex === undefined) {
+				return [];
+			}
+			const anchorRow = rows[anchorIndex];
+			if (!anchorRow || anchorRow.lineNumber == null) {
+				return [];
+			}
+			const walked: UnifiedDiffRow[] = [anchorRow];
+			const step = headIndex >= anchorIndex ? 1 : -1;
+			for (let index = anchorIndex + step; index !== headIndex + step; index += step) {
+				const row = rows[index];
+				if (!row || row.lineNumber == null) {
+					break;
+				}
+				walked.push(row);
+			}
+			// Always patch order, so the caller does not have to care which way it was dragged.
+			return step === 1 ? walked : walked.reverse();
+		},
+		[rowIndexByKey, rows],
+	);
+
+	// A drag released outside the diff — or cancelled with Escape — never reaches a row,
+	// so the run it drew has to be cleared when the strip reports the chip let go.
+	const isTagDragging = (tagAnnotations?.draggedTag ?? null) !== null;
+	useEffect(() => {
+		if (!isTagDragging) {
+			setTagDrag(null);
+		}
+	}, [isTagDragging]);
+
+	/** Every row the live chip drag covers, for the multi-row drop highlight. */
+	const tagDragRowKeys = useMemo(() => {
+		if (!tagDrag) {
+			return null;
+		}
+		const range = resolveTagRange(tagDrag.anchorKey, tagDrag.headKey);
+		return range.length > 0 ? new Set(range.map((row) => row.key)) : null;
+	}, [resolveTagRange, tagDrag]);
 
 	/** Rows painted as selected: the live drag, or the run the open composer covers. */
 	const selectedRowKeys = useMemo(() => {
@@ -657,7 +773,7 @@ export function ReviewDiffPane({
 		closeComposerRef.current();
 		setPendingAnnotation(null);
 		setPendingNote("");
-		setDropTargetKey(null);
+		setTagDrag(null);
 		if (scrollRef.current) {
 			scrollRef.current.scrollTop = 0;
 		}
@@ -795,6 +911,10 @@ export function ReviewDiffPane({
 			// Only the commentable column: in split mode an unchanged row renders twice, and
 			// tinting both would point at two lines for a note that hangs off one.
 			const isFocused = commentable && focusedRowKey === row.key;
+			// Not gated on `commentable`, unlike the two above: a tag run spans both sides, so
+			// a deletion inside it has to light up in the left column where it is the only
+			// place it renders.
+			const isTagDropTarget = tagDragRowKeys?.has(row.key) === true;
 
 			return (
 				<div className="flex min-w-0 flex-col">
@@ -808,14 +928,14 @@ export function ReviewDiffPane({
 							variantClass,
 							hasAnnotation && "kb-diff-row-commented",
 							isSelected && "kb-diff-row-selected",
-							dropTargetKey === row.key && "kb-diff-row-drop-target",
+							isTagDropTarget && "kb-diff-row-drop-target",
 							isFocused && "kb-diff-row-focused",
 							!commentable && "kb-diff-row-noncommentable",
 						)}
-						// The highlight takes the dragged tag's own color, so the row confirms what is
+						// The highlight takes the dragged tag's own color, so the run confirms what is
 						// about to land on it instead of showing one generic selection blue.
 						style={
-							dropTargetKey === row.key && draggedTag
+							isTagDropTarget && draggedTag
 								? ({ "--kb-drop-color": reviewTagColor(draggedTag).cssVar } as CSSProperties)
 								: undefined
 						}
@@ -825,70 +945,85 @@ export function ReviewDiffPane({
 						// resolves to a one-row range, which is the old click-to-comment.
 						onMouseDown={commentable ? () => startDrag(side, row.key) : undefined}
 						onMouseEnter={commentable ? () => extendDrag(side, row.key) : undefined}
-						onDragOver={
-							draggedTag && commentable
-								? (event) => {
-										// preventDefault is what makes the row a valid drop target at all.
-										event.preventDefault();
-										event.dataTransfer.dropEffect = "copy";
-										setDropTargetKey(row.key);
-									}
-								: undefined
-						}
-						onDragLeave={
-							draggedTag && commentable
-								? () => setDropTargetKey((k) => (k === row.key ? null : k))
-								: undefined
-						}
-						onDrop={
-							draggedTag && commentable
-								? (event) => {
-										event.preventDefault();
-										setDropTargetKey(null);
-										const lines = resolveRowLines(row);
-										// Drop inside the active selection (same file, same side, line within range)
-										// tags the whole range; anywhere else tags the single row.
-										const rowLine = row.lineNumber;
-										const sel = selection;
-										const inSelection =
-											sel != null &&
-											file != null &&
-											sel.path === file.newPath &&
-											sel.side === rowSide(row.variant) &&
-											rowLine != null &&
-											rowLine >= sel.startLine &&
-											rowLine <= sel.endLine;
-										if (inSelection && sel.startLine !== sel.endLine) {
-											const startRow = rows.find(
-												(candidate) =>
-													rowSide(candidate.variant) === sel.side && candidate.lineNumber === sel.startLine,
-											);
-											const endRow = rows.find(
-												(candidate) =>
-													rowSide(candidate.variant) === sel.side && candidate.lineNumber === sel.endLine,
-											);
-											if (startRow && endRow) {
-												const startLines = resolveRowLines(startRow);
-												const endLines = resolveRowLines(endRow);
-												setPendingAnnotation({
-													rowKey: endRow.key,
-													side,
-													tag: draggedTag,
-													anchor: {
-														oldLine: endLines.oldLine,
-														newLine: endLines.newLine,
-														lineRange: { startOldLine: startLines.oldLine, startNewLine: startLines.newLine },
-													},
-												});
-												setPendingNote("");
-												return;
-											}
+							// Not gated on `commentable`: gating it is what confined a chip to one
+							// column, and so made a hunk's deletions and additions unmarkable together.
+							onDragEnter={
+								draggedTag && row.lineNumber != null
+									? () => setTagDrag((current) => extendTagDrag(current, row.key))
+									: undefined
+							}
+							onDragOver={
+								draggedTag && row.lineNumber != null
+									? (event) => {
+											// preventDefault is what makes the row a valid drop target at all.
+											event.preventDefault();
+											event.dataTransfer.dropEffect = "copy";
+											// dragenter can be missed when the pointer crosses a boundary between
+											// frames, so the head is re-asserted here rather than only on entry.
+											setTagDrag((current) => extendTagDrag(current, row.key));
 										}
-										setPendingAnnotation({ rowKey: row.key, side, tag: draggedTag, anchor: lines });
-										setPendingNote("");
-									}
-								: undefined
-						}
+									: undefined
+							}
+							onDrop={
+								draggedTag && row.lineNumber != null
+									? (event) => {
+											event.preventDefault();
+											const range = resolveTagRange(tagDrag?.anchorKey ?? row.key, row.key);
+											setTagDrag(null);
+											autoscroll.stop();
+											// A chip dropped without crossing a row still honours the older gesture:
+											// make a selection with the mouse, then drop into it to tag the whole run.
+											// A chip that carried its own range wins, since that run is what was drawn.
+											const rowLine = row.lineNumber;
+											const sel = selection;
+											const inSelection =
+												range.length < 2 &&
+												sel != null &&
+												file != null &&
+												sel.path === file.newPath &&
+												sel.side === rowSide(row.variant) &&
+												rowLine != null &&
+												rowLine >= sel.startLine &&
+												rowLine <= sel.endLine;
+											if (inSelection && sel.startLine !== sel.endLine) {
+												const startRow = rows.find(
+													(candidate) =>
+														rowSide(candidate.variant) === sel.side && candidate.lineNumber === sel.startLine,
+												);
+												const endRow = rows.find(
+													(candidate) =>
+														rowSide(candidate.variant) === sel.side && candidate.lineNumber === sel.endLine,
+												);
+												if (startRow && endRow) {
+													const startLines = resolveRowLines(startRow);
+													const endLines = resolveRowLines(endRow);
+													setPendingAnnotation({
+														rowKey: endRow.key,
+														side,
+														tag: draggedTag,
+														anchor: {
+															oldLine: endLines.oldLine,
+															newLine: endLines.newLine,
+															lineRange: { startOldLine: startLines.oldLine, startNewLine: startLines.newLine },
+														},
+													});
+													setPendingNote("");
+													return;
+												}
+											}
+											// The note composer hangs off the run's last row, matching where a range
+											// comment renders — and off the dropped row when the drag never moved.
+											const endRow = range[range.length - 1] ?? row;
+											setPendingAnnotation({
+												rowKey: endRow.key,
+												side: endRow.variant === "removed" ? "left" : "right",
+												tag: draggedTag,
+												anchor: range.length > 0 ? resolveRangeAnchor(range) : resolveRowLines(row),
+											});
+											setPendingNote("");
+										}
+									: undefined
+							}
 					>
 						<span
 							className="kb-diff-line-number"
@@ -987,9 +1122,7 @@ export function ReviewDiffPane({
 						>
 							<div className="min-w-0 space-y-0.5">
 								<div className="flex flex-wrap items-center gap-1">
-									<span className={cn("rounded border px-1 text-[9px]", reviewTagColor(annotation.tag).chip)}>
-										{annotation.tag.label}
-									</span>
+									<ReviewTagChip tag={annotation.tag} />
 									{annotation.verdict ? (
 										<span
 											title={annotation.verdict.reasoning}
@@ -1042,11 +1175,7 @@ export function ReviewDiffPane({
 								reviewTagColor(pendingAnnotation.tag).rule,
 							)}
 						>
-							<span
-								className={cn("shrink-0 rounded border px-1 text-[9px]", reviewTagColor(pendingAnnotation.tag).chip)}
-							>
-								{pendingAnnotation.tag.label}
-							</span>
+							<ReviewTagChip tag={pendingAnnotation.tag} className="shrink-0" />
 							<input
 								// biome-ignore lint/a11y/noAutofocus: the popover exists to take the note.
 								autoFocus
@@ -1097,7 +1226,7 @@ export function ReviewDiffPane({
 			closeComposer,
 			composer,
 			composerText,
-			dropTargetKey,
+			autoscroll,
 			extendDrag,
 			file,
 			focusedRowKey,
@@ -1115,6 +1244,9 @@ export function ReviewDiffPane({
 			selection,
 			startDrag,
 			tagAnnotations,
+			tagDrag,
+			tagDragRowKeys,
+			resolveTagRange,
 		],
 	);
 
@@ -1260,6 +1392,16 @@ export function ReviewDiffPane({
 			<div
 				ref={scrollRef}
 				data-testid="review-diff-scroll"
+				onDragOver={autoscroll.onDragOver}
+				// The rows own the range; this only ends it when the chip leaves the diff
+				// entirely, since row-to-row movement leaves one row to enter the next.
+				onDragLeave={(event) => {
+					if (event.currentTarget.contains(event.relatedTarget as Node | null)) {
+						return;
+					}
+					setTagDrag(null);
+					autoscroll.stop();
+				}}
 				className={cn(
 					// `overscroll-contain`: a wheel past either edge stays here rather than
 					// chaining into the board behind the workspace.

@@ -156,6 +156,8 @@ const REFACTORING_CATALOG: Array<{ title: string; labels: string[] }> = [
 export interface ReviewTagColor {
 	/** Chip surface: border + background + text. */
 	chip: string;
+	/** Text alone, for a heading that must not carry the chip's border and fill. */
+	text: string;
 	/** Left rule on a placed annotation or the pending-note composer. */
 	rule: string;
 	/** Token reference for the drop-target row, which tints via a custom property. */
@@ -170,51 +172,61 @@ export interface ReviewTagColor {
 const TAG_COLOR_RAMP: ReviewTagColor[] = [
 	{
 		chip: "border-status-blue/40 bg-status-blue/15 text-status-blue",
+		text: "text-status-blue",
 		rule: "border-status-blue",
 		cssVar: "var(--color-status-blue)",
 	},
 	{
 		chip: "border-status-cyan/40 bg-status-cyan/15 text-status-cyan",
+		text: "text-status-cyan",
 		rule: "border-status-cyan",
 		cssVar: "var(--color-status-cyan)",
 	},
 	{
 		chip: "border-status-red/40 bg-status-red/15 text-status-red",
+		text: "text-status-red",
 		rule: "border-status-red",
 		cssVar: "var(--color-status-red)",
 	},
 	{
 		chip: "border-status-gold/40 bg-status-gold/15 text-status-gold",
+		text: "text-status-gold",
 		rule: "border-status-gold",
 		cssVar: "var(--color-status-gold)",
 	},
 	{
 		chip: "border-status-rose/40 bg-status-rose/15 text-status-rose",
+		text: "text-status-rose",
 		rule: "border-status-rose",
 		cssVar: "var(--color-status-rose)",
 	},
 	{
 		chip: "border-status-orange/40 bg-status-orange/15 text-status-orange",
+		text: "text-status-orange",
 		rule: "border-status-orange",
 		cssVar: "var(--color-status-orange)",
 	},
 	{
 		chip: "border-status-violet/40 bg-status-violet/15 text-status-violet",
+		text: "text-status-violet",
 		rule: "border-status-violet",
 		cssVar: "var(--color-status-violet)",
 	},
 	{
 		chip: "border-status-green/40 bg-status-green/15 text-status-green",
+		text: "text-status-green",
 		rule: "border-status-green",
 		cssVar: "var(--color-status-green)",
 	},
 	{
 		chip: "border-status-lime/40 bg-status-lime/15 text-status-lime",
+		text: "text-status-lime",
 		rule: "border-status-lime",
 		cssVar: "var(--color-status-lime)",
 	},
 	{
 		chip: "border-status-purple/40 bg-status-purple/15 text-status-purple",
+		text: "text-status-purple",
 		rule: "border-status-purple",
 		cssVar: "var(--color-status-purple)",
 	},
