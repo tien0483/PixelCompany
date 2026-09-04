@@ -1,4 +1,4 @@
-import { ArrowLeft, ExternalLink, Network, Send, Sparkles, X } from "lucide-react";
+import { ArrowLeft, ExternalLink, MessageSquare, Network, Send, Sparkles, X } from "lucide-react";
 import { type ReactElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { showAppToast } from "@/components/app-toaster";
@@ -1168,6 +1168,33 @@ export function ReviewWorkspaceView({
 				</div>
 			) : null}
 
+			{/*
+			 * A tick says "settled", and a comment from somebody else arriving afterwards
+			 * is exactly what unsettles it. Suggested rather than applied: the tick is the
+			 * reviewer's judgement, so clearing it is their call.
+			 */}
+			{session.newComments.byPath.size > 0 ? (
+				<div
+					data-testid="review-new-comments-banner"
+					className="flex shrink-0 items-center justify-between gap-3 border-b border-border bg-surface-1 px-3 py-1.5 text-[11px] text-status-orange"
+				>
+					<span>
+						{session.newComments.byPath.size === 1
+							? "1 file you marked reviewed has new comments."
+							: `${session.newComments.byPath.size} files you marked reviewed have new comments.`}{" "}
+						Unmark them to review those files again.
+					</span>
+					<Button
+						variant="default"
+						size="sm"
+						icon={<MessageSquare size={12} />}
+						onClick={() => session.unmarkReviewedPaths([...session.newComments.byPath.keys()])}
+					>
+						Unmark all
+					</Button>
+				</div>
+			) : null}
+
 			{agentError ? (
 				<div className="flex shrink-0 items-start justify-between gap-3 border-b border-border bg-surface-1 px-3 py-1.5 text-[11px] text-status-red">
 					<span>{agentError}</span>
@@ -1242,6 +1269,7 @@ export function ReviewWorkspaceView({
 							activePath={session.activePath}
 							reviewedPaths={reviewedPaths}
 							draftCountByPath={draftCountByPath}
+							newCommentsByPath={session.newComments.byPath}
 							onSelectPath={session.setActivePath}
 							onToggleReviewed={session.toggleFileReviewed}
 						/>
@@ -1296,6 +1324,9 @@ export function ReviewWorkspaceView({
 						file={session.activeFile}
 						mode={diffMode}
 						isReviewed={session.activePath !== null && reviewedPaths.includes(session.activePath)}
+						hasNewCommentsSinceReview={
+							session.activePath !== null && session.newComments.byPath.has(session.activePath)
+						}
 						draftComments={activeDraftComments}
 						discussions={session.discussions}
 						tagAnnotations={tagAnnotationsGroup}

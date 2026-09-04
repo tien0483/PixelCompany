@@ -2,6 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { showAppToast } from "@/components/app-toaster";
 import type { ReviewRunState } from "@/components/review/review-run-dot";
+import {
+	countUserNotes,
+	EMPTY_REVIEW_NEW_COMMENTS,
+	findNewCommentsSinceReview,
+	type ReviewNewComments,
+} from "@/review/review-comment-recency";
 import type { ReviewTarget } from "@/review/review-target";
 import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
 import type {
@@ -34,6 +40,33 @@ export interface ReviewSessionState {
 	rules: RuntimeReviewRule[];
 	rulesGeneratedAt: string | null;
 	session: RuntimeReviewSession | null;
+	/** Who we are on this GitLab, so the reviewer's own notes can be told apart. */
+	gitlabUsername: string | null;
+}
+
+/**
+ * Recomputes the "every changed file is reviewed" mark from a session and what the
+ * merge request currently looks like.
+ *
+ * The mark has to be stamped here rather than derived on read, because the merge
+ * request *list* is where it is consumed and that surface never loads a diff — it
+ * cannot know how many files there were, let alone whether they were all ticked.
+ */
+function withReviewedAllMark(session: RuntimeReviewSession, state: ReviewSessionState): RuntimeReviewSession {
+	const reviewed = new Set(session.reviewedPaths);
+	const isComplete = state.files.length > 0 && state.files.every((file) => reviewed.has(file.newPath));
+	if (!isComplete) {
+		return { ...session, reviewedAllMark: null };
+	}
+	return {
+		...session,
+		reviewedAllMark: {
+			at: new Date().toISOString(),
+			headSha: state.versions[0]?.headSha ?? state.diffRefs?.headSha ?? null,
+			fileCount: state.files.length,
+			notesCount: countUserNotes(state.discussions),
+		},
+	};
 }
 
 export interface ReviewSessionApi extends ReviewSessionState {
@@ -51,6 +84,13 @@ export interface ReviewSessionApi extends ReviewSessionState {
 	 */
 	saveDescription: (description: string) => Promise<boolean>;
 	toggleFileReviewed: (path: string) => void;
+	/**
+	 * Comments that arrived on already-reviewed files after they were reviewed, and
+	 * are not the reviewer's own — the case for looking at those files again.
+	 */
+	newComments: ReviewNewComments;
+	/** Drops the reviewed tick on several files at once, for "unmark all". */
+	unmarkReviewedPaths: (paths: string[]) => void;
 	addDraftComment: (
 		draft: Omit<RuntimeReviewDraftComment, "id" | "createdAt" | "author">,
 	) => void;
@@ -107,6 +147,7 @@ export function useReviewSession(target: ReviewTarget, workspaceId: string | nul
 		rules: [],
 		rulesGeneratedAt: null,
 		session: null,
+		gitlabUsername: null,
 	});
 	const [activePath, setActivePathState] = useState<string | null>(null);
 
@@ -147,14 +188,18 @@ export function useReviewSession(target: ReviewTarget, workspaceId: string | nul
 		[flushSession],
 	);
 
-	/** Applies a change to the session and schedules the write in one step. */
+	/**
+	 * Applies a change to the session and schedules the write in one step. The
+	 * mutator also sees the surrounding state, because the reviewed-all mark is a
+	 * function of the diff and the discussions, not of the session alone.
+	 */
 	const updateSession = useCallback(
-		(mutate: (session: RuntimeReviewSession) => RuntimeReviewSession) => {
+		(mutate: (session: RuntimeReviewSession, state: ReviewSessionState) => RuntimeReviewSession) => {
 			setState((prev) => {
 				if (!prev.session) {
 					return prev;
 				}
-				const next = mutate(prev.session);
+				const next = mutate(prev.session, prev);
 				queueSessionSave(next);
 				return { ...prev, session: next };
 			});
@@ -182,13 +227,14 @@ export function useReviewSession(target: ReviewTarget, workspaceId: string | nul
 			const ref = { projectId: target.projectId, iid: target.iid };
 			// Issued together: the panels are independent, and serializing five reads
 			// would make opening a review feel like five separate loads.
-			const [detail, diffs, discussions, versions, session, rules] = await Promise.all([
+			const [detail, diffs, discussions, versions, session, rules, connection] = await Promise.all([
 				client.gitlab.getMergeRequest.query(ref),
 				client.gitlab.getDiffs.query(ref),
 				client.gitlab.listDiscussions.query(ref),
 				client.gitlab.getVersions.query(ref),
 				client.review.getSession.query({ host: target.host, ...ref }),
 				client.review.getRules.query({ projectKey: target.projectKey }),
+				client.gitlab.status.query(),
 			]);
 
 			// Only the diff is load-bearing: without it there is nothing to review, and a
@@ -215,6 +261,7 @@ export function useReviewSession(target: ReviewTarget, workspaceId: string | nul
 				rules: rules.bundle?.rules ?? [],
 				rulesGeneratedAt: rules.bundle?.generatedAt ?? null,
 				session: session.session,
+				gitlabUsername: connection.username,
 			});
 			setActivePathState((current) => {
 				if (current && diffs.files.some((file) => file.newPath === current)) {
@@ -297,18 +344,57 @@ export function useReviewSession(target: ReviewTarget, workspaceId: string | nul
 
 	const toggleFileReviewed = useCallback(
 		(path: string) => {
-			updateSession((session) => {
+			updateSession((session, current) => {
 				const reviewed = new Set(session.reviewedPaths);
+				const reviewedAt = { ...session.reviewedAt };
 				if (reviewed.has(path)) {
 					reviewed.delete(path);
+					delete reviewedAt[path];
 				} else {
 					reviewed.add(path);
+					reviewedAt[path] = new Date().toISOString();
 				}
-				return { ...session, reviewedPaths: [...reviewed] };
+				return withReviewedAllMark({ ...session, reviewedPaths: [...reviewed], reviewedAt }, current);
 			});
 		},
 		[updateSession],
 	);
+
+	const unmarkReviewedPaths = useCallback(
+		(paths: string[]) => {
+			if (paths.length === 0) {
+				return;
+			}
+			updateSession((session, current) => {
+				const dropped = new Set(paths);
+				const reviewedAt = { ...session.reviewedAt };
+				for (const path of dropped) {
+					delete reviewedAt[path];
+				}
+				return withReviewedAllMark(
+					{
+						...session,
+						reviewedPaths: session.reviewedPaths.filter((path) => !dropped.has(path)),
+						reviewedAt,
+					},
+					current,
+				);
+			});
+		},
+		[updateSession],
+	);
+
+	const newComments = useMemo(() => {
+		if (!state.session) {
+			return EMPTY_REVIEW_NEW_COMMENTS;
+		}
+		return findNewCommentsSinceReview({
+			discussions: state.discussions,
+			reviewedPaths: state.session.reviewedPaths,
+			reviewedAt: state.session.reviewedAt,
+			myUsername: state.gitlabUsername,
+		});
+	}, [state.discussions, state.gitlabUsername, state.session]);
 
 	const addDraftComment = useCallback(
 		(draft: Omit<RuntimeReviewDraftComment, "id" | "createdAt" | "author">) => {
@@ -523,6 +609,8 @@ export function useReviewSession(target: ReviewTarget, workspaceId: string | nul
 		refreshDiscussions,
 		saveDescription,
 		toggleFileReviewed,
+		newComments,
+		unmarkReviewedPaths,
 		addDraftComment,
 		removeDraftComment,
 		clearDraftComments,

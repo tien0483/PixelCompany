@@ -9,7 +9,11 @@
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
-import { type RuntimeReviewSession, runtimeReviewSessionSchema } from "../core/api-contract";
+import {
+	type RuntimeReviewSession,
+	type RuntimeReviewSessionMark,
+	runtimeReviewSessionSchema,
+} from "../core/api-contract";
 import { getRuntimeHomePath } from "./workspace-state";
 
 export const REVIEW_SESSIONS_DIR_NAME = "reviews";
@@ -65,6 +69,8 @@ export function createEmptyReviewSession(host: string, projectId: number, iid: n
 		iid,
 		lastReviewedHeadSha: null,
 		reviewedPaths: [],
+		reviewedAt: {},
+		reviewedAllMark: null,
 		draftComments: [],
 		findings: [],
 		dismissedFindingIds: [],
@@ -76,12 +82,8 @@ export function createEmptyReviewSession(host: string, projectId: number, iid: n
 	};
 }
 
-/**
- * Sessions that still hold unpublished drafts, newest first. The Review sidebar
- * uses this to surface "you left 2 comments on !142" without hitting GitLab —
- * unfinished local work should be visible before the network is even reachable.
- */
-export async function listReviewSessionsWithDrafts(host: string): Promise<RuntimeReviewSession[]> {
+/** Every parseable session stored for a host, newest first. */
+async function readSessionsForHost(host: string): Promise<RuntimeReviewSession[]> {
 	const dir = join(getReviewSessionsDir(), toHostDirName(host));
 	let names: string[];
 	try {
@@ -98,7 +100,7 @@ export async function listReviewSessionsWithDrafts(host: string): Promise<Runtim
 			const parsed = runtimeReviewSessionSchema.safeParse(
 				JSON.parse(await readFile(join(dir, name), "utf-8")) as unknown,
 			);
-			if (parsed.success && parsed.data.draftComments.length > 0) {
+			if (parsed.success) {
 				sessions.push(parsed.data);
 			}
 		} catch {
@@ -106,4 +108,28 @@ export async function listReviewSessionsWithDrafts(host: string): Promise<Runtim
 		}
 	}
 	return sessions.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+}
+
+/**
+ * Sessions that still hold unpublished drafts, newest first. The Review sidebar
+ * uses this to surface "you left 2 comments on !142" without hitting GitLab —
+ * unfinished local work should be visible before the network is even reachable.
+ */
+export async function listReviewSessionsWithDrafts(host: string): Promise<RuntimeReviewSession[]> {
+	return (await readSessionsForHost(host)).filter((session) => session.draftComments.length > 0);
+}
+
+/**
+ * The reviewed-progress projection for every session on a host.
+ *
+ * The merge-request list draws rows from GitLab summaries, which know nothing about
+ * local review progress, so it needs this in one call rather than one per row.
+ */
+export async function listReviewSessionMarks(host: string): Promise<RuntimeReviewSessionMark[]> {
+	return (await readSessionsForHost(host)).map((session) => ({
+		projectId: session.projectId,
+		iid: session.iid,
+		reviewedCount: session.reviewedPaths.length,
+		reviewedAllMark: session.reviewedAllMark,
+	}));
 }

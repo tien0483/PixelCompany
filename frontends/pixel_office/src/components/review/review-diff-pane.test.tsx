@@ -222,6 +222,7 @@ describe("ReviewDiffPane", () => {
 					file={overrides.file ?? FILE}
 					mode="unified"
 					isReviewed={false}
+					hasNewCommentsSinceReview={false}
 					draftComments={[]}
 					discussions={[]}
 					pendingCitations={[]}

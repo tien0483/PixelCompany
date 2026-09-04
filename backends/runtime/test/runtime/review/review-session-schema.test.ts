@@ -49,6 +49,24 @@ describe("runtimeReviewSessionSchema chat fields", () => {
 		expect(parsed.chatMessages).toEqual([]);
 	});
 
+	it("defaults the reviewed-tracking fields rather than requiring them", () => {
+		const parsed = runtimeReviewSessionSchema.parse(legacyDocument);
+
+		expect(parsed.reviewedAt).toEqual({});
+		expect(parsed.reviewedAllMark).toBeNull();
+	});
+
+	it("round-trips a reviewed-all mark", () => {
+		const parsed = runtimeReviewSessionSchema.parse({
+			...legacyDocument,
+			reviewedAt: { "a.py": "2026-09-01T10:00:00.000Z" },
+			reviewedAllMark: { at: "2026-09-01T10:00:00.000Z", headSha: "abc123", fileCount: 1, notesCount: 4 },
+		});
+
+		expect(parsed.reviewedAt["a.py"]).toBe("2026-09-01T10:00:00.000Z");
+		expect(parsed.reviewedAllMark?.notesCount).toBe(4);
+	});
+
 	it("round-trips a stored transcript", () => {
 		const parsed = runtimeReviewSessionSchema.parse({
 			...legacyDocument,

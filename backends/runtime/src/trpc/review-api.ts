@@ -18,6 +18,8 @@ import type {
 	RuntimeReviewRulesReadRequest,
 	RuntimeReviewRulesReadResponse,
 	RuntimeReviewSession,
+	RuntimeReviewSessionMarksRequest,
+	RuntimeReviewSessionMarksResponse,
 	RuntimeReviewSessionReadRequest,
 	RuntimeReviewSessionResponse,
 	RuntimeReviewSessionWriteRequest,
@@ -34,6 +36,7 @@ import {
 import { readReviewRulesBundle, readReviewRulesConfig, writeReviewRulesConfig } from "../review/review-rules";
 import {
 	createEmptyReviewSession,
+	listReviewSessionMarks,
 	listReviewSessionsWithDrafts,
 	readReviewSession,
 	writeReviewSession,
@@ -70,6 +73,19 @@ export function createReviewApi(): RuntimeTrpcContext["reviewApi"] {
 				// The sidebar's unfinished-work list is a convenience; a read failure
 				// there must not block opening a review.
 				return [];
+			}
+		},
+
+		listSessionMarks: async (
+			input: RuntimeReviewSessionMarksRequest,
+		): Promise<RuntimeReviewSessionMarksResponse> => {
+			try {
+				return { ok: true, marks: await listReviewSessionMarks(input.host) };
+			} catch (error) {
+				// Report the failure rather than swallowing it: an empty list is
+				// indistinguishable from "nothing reviewed yet", which would quietly
+				// erase every badge in the merge-request list.
+				return { ok: false, marks: [], error: fail(error) };
 			}
 		},
 

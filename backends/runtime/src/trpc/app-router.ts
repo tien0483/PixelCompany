@@ -341,6 +341,8 @@ import {
 	type RuntimeReviewRulesReadRequest,
 	type RuntimeReviewRulesReadResponse,
 	type RuntimeReviewSession,
+	type RuntimeReviewSessionMarksRequest,
+	type RuntimeReviewSessionMarksResponse,
 	type RuntimeReviewSessionReadRequest,
 	type RuntimeReviewSessionResponse,
 	type RuntimeReviewSessionWriteRequest,
@@ -530,6 +532,8 @@ import {
 	runtimeReviewRulesConfigSchema,
 	runtimeReviewRulesReadRequestSchema,
 	runtimeReviewRulesReadResponseSchema,
+	runtimeReviewSessionMarksRequestSchema,
+	runtimeReviewSessionMarksResponseSchema,
 	runtimeReviewSessionReadRequestSchema,
 	runtimeReviewSessionResponseSchema,
 	runtimeReviewSessionSchema,
@@ -1018,6 +1022,7 @@ export interface RuntimeTrpcContext {
 		getSession: (input: RuntimeReviewSessionReadRequest) => Promise<RuntimeReviewSessionResponse>;
 		saveSession: (input: RuntimeReviewSessionWriteRequest) => Promise<RuntimeReviewSessionResponse>;
 		listSessionsWithDrafts: (input: { host: string }) => Promise<RuntimeReviewSession[]>;
+		listSessionMarks: (input: RuntimeReviewSessionMarksRequest) => Promise<RuntimeReviewSessionMarksResponse>;
 		getRules: (input: RuntimeReviewRulesReadRequest) => Promise<RuntimeReviewRulesReadResponse>;
 		getRulesConfig: (input: RuntimeReviewRulesReadRequest) => Promise<RuntimeReviewRulesConfigResponse>;
 		setRulesConfig: (input: RuntimeReviewRulesConfig) => Promise<RuntimeReviewRulesConfigResponse>;
@@ -2192,6 +2197,12 @@ export const runtimeAppRouter = t.router({
 			.output(runtimeReviewSessionSchema.array())
 			.query(async ({ ctx, input }) => {
 				return await ctx.reviewApi.listSessionsWithDrafts(input);
+			}),
+		listSessionMarks: t.procedure
+			.input(runtimeReviewSessionMarksRequestSchema)
+			.output(runtimeReviewSessionMarksResponseSchema)
+			.query(async ({ ctx, input }) => {
+				return await ctx.reviewApi.listSessionMarks(input);
 			}),
 		getRules: t.procedure
 			.input(runtimeReviewRulesReadRequestSchema)

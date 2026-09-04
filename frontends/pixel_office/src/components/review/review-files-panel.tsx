@@ -1,7 +1,8 @@
-import { Search } from "lucide-react";
+import { MessageSquare, Search } from "lucide-react";
 import { type ReactElement, useMemo, useState } from "react";
 
 import { cn } from "@/components/ui/cn";
+import type { ReviewNewCommentsOnPath } from "@/review/review-comment-recency";
 import { resolveFileStatus } from "@/review/review-target";
 import type { RuntimeGitlabDiffFile } from "@/runtime/types";
 
@@ -24,6 +25,7 @@ export function ReviewFilesPanel({
 	activePath,
 	reviewedPaths,
 	draftCountByPath,
+	newCommentsByPath,
 	onSelectPath,
 	onToggleReviewed,
 }: {
@@ -31,6 +33,8 @@ export function ReviewFilesPanel({
 	activePath: string | null;
 	reviewedPaths: string[];
 	draftCountByPath: Map<string, number>;
+	/** Reviewed files somebody else has commented on since — candidates to unmark. */
+	newCommentsByPath: Map<string, ReviewNewCommentsOnPath>;
 	onSelectPath: (path: string) => void;
 	onToggleReviewed: (path: string) => void;
 }): ReactElement {
@@ -73,6 +77,7 @@ export function ReviewFilesPanel({
 					const isActive = file.newPath === activePath;
 					const isReviewed = reviewed.has(file.newPath);
 					const draftCount = draftCountByPath.get(file.newPath) ?? 0;
+					const newComments = newCommentsByPath.get(file.newPath) ?? null;
 					return (
 						<div
 							key={file.newPath}
@@ -104,15 +109,27 @@ export function ReviewFilesPanel({
 							>
 								{STATUS_LABEL[status]}
 							</span>
+							{/* A file with new comments keeps its tick but loses the strike-through:
+							    it is no longer settled, and reading as settled is the bug. */}
 							<span
 								className={cn(
 									"min-w-0 flex-1 truncate font-mono text-[11px]",
-									isReviewed && "text-text-tertiary line-through",
+									isReviewed && newComments === null && "text-text-tertiary line-through",
 								)}
 								title={file.renamedFile ? `${file.oldPath} → ${file.newPath}` : file.newPath}
 							>
 								{file.newPath}
 							</span>
+							{newComments !== null ? (
+								<span
+									data-testid="review-file-new-comments-badge"
+									className="flex shrink-0 items-center gap-0.5 rounded-full bg-status-orange/20 px-1.5 text-[10px] font-medium text-status-orange"
+									title={`${newComments.count} new comment${newComments.count === 1 ? "" : "s"} since you marked this reviewed — untick to review it again`}
+								>
+									<MessageSquare size={10} />
+									{newComments.count}
+								</span>
+							) : null}
 							{draftCount > 0 ? (
 								<span
 									className="shrink-0 rounded-full bg-accent/20 px-1.5 text-[10px] font-medium text-accent"
