@@ -15,16 +15,7 @@ function findButtonByText(
 	) ?? null) as HTMLButtonElement | null;
 }
 
-function setInputValue(input: HTMLInputElement, value: string): void {
-	const descriptor = Object.getOwnPropertyDescriptor(
-		window.HTMLInputElement.prototype,
-		"value",
-	);
-	descriptor?.set?.call(input, value);
-	input.dispatchEvent(new Event("input", { bubbles: true }));
-}
-
-describe("TopBar script shortcut onboarding", () => {
+describe("TopBar action cluster", () => {
 	let container: HTMLDivElement;
 	let root: Root;
 	let previousActEnvironment: boolean | undefined;
@@ -57,72 +48,69 @@ describe("TopBar script shortcut onboarding", () => {
 		}
 	});
 
-	it("opens first-shortcut dialog from Run and saves when command is provided", async () => {
-		const onCreateFirstShortcut = vi.fn(async () => ({ ok: true }));
-		const onRunShortcut = vi.fn();
-
+	it("groups the labelled view toggles ahead of the icon-only tools", async () => {
 		await act(async () => {
 			root.render(
-				<TopBar
-					openTargetOptions={[]}
-					selectedOpenTargetId="vscode"
-					onSelectOpenTarget={() => {}}
-					openPlatformOverride="auto"
-					onSelectOpenPlatform={() => {}}
-					detectedOpenPlatform={null}
-					onOpenWorkspace={() => {}}
-					canOpenWorkspace={false}
-					isOpeningWorkspace={false}
-					shortcuts={[]}
-					onRunShortcut={onRunShortcut}
-					onCreateFirstShortcut={onCreateFirstShortcut}
-				/>,
+				<TooltipProvider>
+					<TopBar
+						openTargetOptions={[]}
+						selectedOpenTargetId="vscode"
+						onSelectOpenTarget={() => {}}
+						openPlatformOverride="auto"
+						onSelectOpenPlatform={() => {}}
+						detectedOpenPlatform={null}
+						onOpenWorkspace={() => {}}
+						canOpenWorkspace={false}
+						isOpeningWorkspace={false}
+						onToggleOffice={() => {}}
+						onToggleDocs={() => {}}
+						onToggleLearning={() => {}}
+						onToggleUnderstand={() => {}}
+						onOpenStack={() => {}}
+						onOpenCleanup={() => {}}
+						onToggleTerminal={() => {}}
+					/>
+				</TooltipProvider>,
 			);
 		});
 
-		const runButton = findButtonByText(container, "Run");
-		expect(runButton).toBeInstanceOf(HTMLButtonElement);
+		const labels = Array.from(container.querySelectorAll("button"))
+			.map((button) => button.getAttribute("aria-label"))
+			.filter((label): label is string => label !== null);
 
+		expect(labels).toEqual([
+			"Show watch and office column",
+			"Show docs",
+			"Show learning",
+			"Show understand",
+			"Agent stack",
+			"Cleanup",
+			"Open terminal",
+			"Settings",
+		]);
+	});
+
+	it("does not render a Run button", async () => {
 		await act(async () => {
-			runButton?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
-			runButton?.click();
+			root.render(
+				<TooltipProvider>
+					<TopBar
+						openTargetOptions={[]}
+						selectedOpenTargetId="vscode"
+						onSelectOpenTarget={() => {}}
+						openPlatformOverride="auto"
+						onSelectOpenPlatform={() => {}}
+						detectedOpenPlatform={null}
+						onOpenWorkspace={() => {}}
+						canOpenWorkspace={false}
+						isOpeningWorkspace={false}
+						onToggleTerminal={() => {}}
+					/>
+				</TooltipProvider>,
+			);
 		});
 
-		expect(document.body.textContent).toContain(
-			"Set up your first script shortcut",
-		);
-
-		const commandInput = Array.from(
-			document.body.querySelectorAll("input"),
-		).find((input) => input.placeholder === "npm run dev") as
-			| HTMLInputElement
-			| undefined;
-		expect(commandInput).toBeDefined();
-		expect(commandInput?.value).toBe("");
-
-		const saveButton = findButtonByText(document.body, "Save");
-		expect(saveButton).toBeInstanceOf(HTMLButtonElement);
-		expect(saveButton?.disabled).toBe(true);
-
-		await act(async () => {
-			if (!commandInput) {
-				return;
-			}
-			setInputValue(commandInput, "pnpm dev");
-		});
-		expect(saveButton?.disabled).toBe(false);
-
-		await act(async () => {
-			saveButton?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
-			saveButton?.click();
-		});
-
-		expect(onCreateFirstShortcut).toHaveBeenCalledWith({
-			label: "Run",
-			command: "pnpm dev",
-			icon: "play",
-		});
-		expect(onRunShortcut).not.toHaveBeenCalled();
+		expect(findButtonByText(container, "Run")).toBeNull();
 	});
 
 	it("opens settings when the runtime hint is clicked", async () => {
@@ -178,7 +166,6 @@ describe("TopBar script shortcut onboarding", () => {
 						onOpenWorkspace={() => {}}
 						canOpenWorkspace={false}
 						isOpeningWorkspace={false}
-						shortcuts={[]}
 						onOpenCleanup={onOpenCleanup}
 					/>
 				</TooltipProvider>,
