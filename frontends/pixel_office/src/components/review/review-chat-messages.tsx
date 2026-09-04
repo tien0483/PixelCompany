@@ -1,6 +1,7 @@
 import { MessageSquarePlus } from "lucide-react";
 import { type ReactElement, useCallback, useEffect, useRef, useState } from "react";
 
+import { ClineMarkdownContent } from "@/components/detail-panels/cline-markdown-content";
 import { ReviewFindingRow } from "@/components/review/review-finding-row";
 import { cn } from "@/components/ui/cn";
 import type { RuntimeReviewChatMessage, RuntimeReviewFinding } from "@/runtime/types";
@@ -98,7 +99,13 @@ export function ReviewChatMessages({
 										: "bg-surface-2 text-text-primary selection:bg-accent/40",
 								)}
 							>
-								<pre className="whitespace-pre-wrap break-words font-sans">{message.text}</pre>
+								{/* The answer is written in markdown; only the reviewer's own turn is
+								    literal text. */}
+								{isUser ? (
+									<pre className="whitespace-pre-wrap break-words font-sans">{message.text}</pre>
+								) : (
+									<ClineMarkdownContent content={message.text.replace(/^\n+/, "")} dense />
+								)}
 							</div>
 
 							{!isUser ? (
@@ -137,7 +144,7 @@ export function ReviewChatMessages({
 				{streamingText.length > 0 ? (
 					<div className="flex flex-col items-start gap-1">
 						<div className="max-w-[92%] rounded bg-surface-2 px-2 py-1.5 leading-snug text-text-primary">
-							<pre className="whitespace-pre-wrap break-words font-sans">{streamingText}</pre>
+							<ClineMarkdownContent content={streamingText.replace(/^\n+/, "")} dense />
 						</div>
 					</div>
 				) : null}

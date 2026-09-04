@@ -146,12 +146,27 @@ export const markdownComponents: Components = {
 	},
 };
 
-export function ClineMarkdownContent({ content }: { content: string }): ReactElement {
+/**
+ * `dense` shrinks the block elements to the surrounding `text-xs` scale, for panels
+ * (the review chat) whose own text is a size smaller than `markdownComponents`
+ * assumes. Descendant variants outrank the elements' own `text-sm`, so no
+ * `!important` is involved.
+ */
+export function ClineMarkdownContent({
+	content,
+	dense = false,
+}: { content: string; dense?: boolean }): ReactElement {
 	if (!content.trim()) {
 		return <span className="text-text-secondary" />;
 	}
 	return (
-		<div className="kb-markdown min-w-0">
+		<div
+			className={cn(
+				"kb-markdown min-w-0",
+				dense &&
+					"[&_blockquote]:text-xs [&_code]:text-[10px] [&_li]:text-xs [&_ol]:text-xs [&_p]:text-xs [&_ul]:text-xs",
+			)}
+		>
 			<ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
 				{content}
 			</ReactMarkdown>
