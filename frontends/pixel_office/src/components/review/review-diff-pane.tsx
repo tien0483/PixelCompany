@@ -51,7 +51,7 @@ import {
 	normalizeWheelDeltaPx,
 } from "@/review/review-deep-scroll";
 import { buildFullFileRows } from "@/review/review-full-file-rows";
-import { type ReviewTag, reviewTagColor } from "@/review/review-tags";
+import { type ReviewTag, type ReviewTagSection, reviewTagColor } from "@/review/review-tags";
 import {
 	buildLineAnnotations,
 	type ReviewDiffMode,
@@ -286,7 +286,7 @@ export function ReviewDiffPane({
 	tagAnnotations?: {
 		annotations: RuntimeReviewAnnotation[];
 		/** Every tag that can be dragged, rendered as the strip under the file toolbar. */
-		tags: ReviewTag[];
+		sections: ReviewTagSection[];
 		draggedTag: ReviewTag | null;
 		currentHeadSha: string | null;
 		onDragStart: (tag: ReviewTag) => void;
@@ -1237,7 +1237,7 @@ export function ReviewDiffPane({
 
 			{tagAnnotations ? (
 				<ReviewTagStrip
-					tags={tagAnnotations.tags}
+					sections={tagAnnotations.sections}
 					onTagDragStart={tagAnnotations.onDragStart}
 					onTagDragEnd={tagAnnotations.onDragEnd}
 				/>

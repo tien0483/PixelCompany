@@ -12,6 +12,10 @@ export enum LocalStorageKey {
 	ReviewCommentEditorMode = "kanban.review-comment-editor-mode",
 	/** Whether the review diff pane's draggable tag strip is expanded. Defaults to open. */
 	ReviewTagStripExpanded = "kanban.review-tag-strip-expanded",
+	/** Whether the tag strip's code-smell section is expanded. Defaults to closed — 23 chips. */
+	ReviewSmellSectionExpanded = "kanban.review-smell-section-expanded",
+	/** Whether the tag strip's refactoring-technique section is expanded. Defaults to closed — 66 chips. */
+	ReviewRefactoringSectionExpanded = "kanban.review-refactoring-section-expanded",
 	TaskCreatePrimaryStartAction = "kanban.task-create-primary-start-action",
 	BottomTerminalPaneHeight = "kanban.bottom-terminal-pane-height",
 	DetailAgentPanelRatio = "kanban.detail-agent-panel-ratio",

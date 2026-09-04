@@ -7,7 +7,7 @@ import {
 	ReviewDiffPane,
 } from "@/components/review/review-diff-pane";
 import { DEEP_SCROLL_IDLE_RESET_MS } from "@/review/review-deep-scroll";
-import type { ReviewTag } from "@/review/review-tags";
+import type { ReviewTag, ReviewTagSection } from "@/review/review-tags";
 import type { ReviewLineFocus, ReviewNavDirection } from "@/review/review-target";
 import type { FullFileFetchResult } from "@/review/use-full-file-content";
 import { LocalStorageKey } from "@/storage/local-storage-store";
@@ -86,10 +86,38 @@ const COLLAPSING_FILE: RuntimeGitlabDiffFile = {
 	deletions: 0,
 };
 
-const TAGS: ReviewTag[] = [
-	{ kind: "builtin", label: "Security" },
-	{ kind: "rule-category", label: "Naming" },
+const SECTIONS: ReviewTagSection[] = [
+	{
+		id: "tags",
+		title: "Tags",
+		groups: [
+			{
+				title: "",
+				tags: [
+					{ kind: "builtin", label: "Security" },
+					{ kind: "rule-category", label: "Naming" },
+				],
+			},
+		],
+	},
+	{
+		id: "smells",
+		title: "Smells",
+		groups: [{ title: "Couplers", tags: [{ kind: "smell", label: "Feature Envy" }] }],
+	},
+	{
+		id: "refactorings",
+		title: "Refactorings",
+		groups: [{ title: "Composing Methods", tags: [{ kind: "refactoring", label: "Extract Method" }] }],
+	},
 ];
+
+/** React listens on the prototype setter, so a plain `input.value = …` is invisible to it. */
+function setInputValue(input: HTMLInputElement, value: string): void {
+	const descriptor = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value");
+	descriptor?.set?.call(input, value);
+	input.dispatchEvent(new Event("input", { bubbles: true }));
+}
 
 function mouseEvent(type: string): MouseEvent {
 	return new MouseEvent(type, { bubbles: true, cancelable: true });
@@ -158,7 +186,7 @@ describe("ReviewDiffPane", () => {
 		const tagAnnotations = overrides.withTags
 			? {
 					annotations: [],
-					tags: TAGS,
+					sections: SECTIONS,
 					draggedTag: null,
 					currentHeadSha: null,
 					onDragStart: overrides.onTagDragStart ?? (() => {}),
@@ -316,10 +344,12 @@ describe("ReviewDiffPane", () => {
 		return chip;
 	}
 
-	function tagStripToggle(): HTMLButtonElement {
-		const toggle = container.querySelector("button[aria-expanded]");
+	function tagStripToggle(title: string): HTMLButtonElement {
+		const toggle = Array.from(container.querySelectorAll("button[aria-expanded]")).find((candidate) =>
+			candidate.textContent?.includes(title),
+		);
 		if (!(toggle instanceof HTMLButtonElement)) {
-			throw new Error("No tag strip toggle.");
+			throw new Error(`No tag strip toggle for ${title}.`);
 		}
 		return toggle;
 	}
@@ -336,7 +366,16 @@ describe("ReviewDiffPane", () => {
 
 		expect(tagChip("Security")).toBeTruthy();
 		expect(tagChip("Naming")).toBeTruthy();
-		expect(tagStripToggle().textContent).toContain("(2)");
+		expect(tagStripToggle("Tags").textContent).toContain("(2)");
+	});
+
+	it("keeps the catalog sections closed until they are asked for", async () => {
+		await renderPane({ withTags: true });
+
+		// ~90 chips must not be the first thing between the toolbar and the diff.
+		expect(tagStripToggle("Smells").getAttribute("aria-expanded")).toBe("false");
+		expect(tagStripToggle("Refactorings").getAttribute("aria-expanded")).toBe("false");
+		expect(() => tagChip("Feature Envy")).toThrow();
 	});
 
 	it("gives each chip its own color so a dragged tag is recognisable", async () => {
@@ -357,15 +396,51 @@ describe("ReviewDiffPane", () => {
 		expect(started).toEqual([{ kind: "builtin", label: "Security" }]);
 	});
 
+	it("drags a code smell once its section is open, and remembers the section", async () => {
+		const started: ReviewTag[] = [];
+		await renderPane({ withTags: true, onTagDragStart: (tag) => started.push(tag) });
+
+		await act(async () => {
+			tagStripToggle("Smells").dispatchEvent(mouseEvent("click"));
+		});
+		expect(window.localStorage.getItem(LocalStorageKey.ReviewSmellSectionExpanded)).toBe("true");
+		expect(container.textContent).toContain("Couplers");
+
+		await act(async () => {
+			tagChip("Feature Envy").dispatchEvent(dragStartEvent());
+		});
+
+		expect(started).toEqual([{ kind: "smell", label: "Feature Envy" }]);
+	});
+
+	it("filters the open catalog sections", async () => {
+		await renderPane({ withTags: true });
+
+		await act(async () => {
+			tagStripToggle("Smells").dispatchEvent(mouseEvent("click"));
+		});
+
+		const filter = container.querySelector('input[aria-label="Filter tags"]');
+		if (!(filter instanceof HTMLInputElement)) {
+			throw new Error("No tag filter input.");
+		}
+		await act(async () => {
+			setInputValue(filter, "envy");
+		});
+
+		expect(tagChip("Feature Envy")).toBeTruthy();
+		expect(() => tagChip("Security")).toThrow();
+	});
+
 	it("collapses the tag strip and remembers it", async () => {
 		await renderPane({ withTags: true });
 
 		await act(async () => {
-			tagStripToggle().dispatchEvent(mouseEvent("click"));
+			tagStripToggle("Tags").dispatchEvent(mouseEvent("click"));
 		});
 
 		expect(Array.from(container.querySelectorAll("button")).some((button) => button.draggable)).toBe(false);
-		expect(tagStripToggle().getAttribute("aria-expanded")).toBe("false");
+		expect(tagStripToggle("Tags").getAttribute("aria-expanded")).toBe("false");
 		expect(window.localStorage.getItem(LocalStorageKey.ReviewTagStripExpanded)).toBe("false");
 	});
 
