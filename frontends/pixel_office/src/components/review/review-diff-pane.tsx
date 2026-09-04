@@ -217,6 +217,7 @@ export function ReviewDiffPane({
 	file,
 	mode,
 	isReviewed,
+	hasNewCommentsSinceReview,
 	draftComments,
 	discussions,
 	pendingCitations,
@@ -240,6 +241,8 @@ export function ReviewDiffPane({
 	file: RuntimeGitlabDiffFile | null;
 	mode: ReviewDiffMode;
 	isReviewed: boolean;
+	/** Somebody else commented on this file after it was ticked — worth another look. */
+	hasNewCommentsSinceReview: boolean;
 	draftComments: RuntimeReviewDraftComment[];
 	discussions: RuntimeGitlabDiscussion[];
 	/** Rule ids the Rules panel has cited into the open composer. */
@@ -1228,6 +1231,12 @@ export function ReviewDiffPane({
 						variant={isReviewed ? "primary" : "default"}
 						size="sm"
 						icon={isReviewed ? <SquareCheck size={12} /> : <Square size={12} />}
+						className={hasNewCommentsSinceReview ? "ring-1 ring-status-orange" : undefined}
+						title={
+							hasNewCommentsSinceReview
+								? "New comments since you reviewed this file — click to unmark it"
+								: undefined
+						}
 						onClick={onToggleReviewed}
 					>
 						{isReviewed ? "Reviewed" : "Mark reviewed"}

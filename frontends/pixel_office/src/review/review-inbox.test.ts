@@ -4,10 +4,11 @@ import {
 	buildReviewInboxQuery,
 	describeApprovalState,
 	describeReviewers,
+	describeReviewedState,
 	filterMergeRequestsForTab,
 	splitByReviewerRequested,
 } from "@/review/review-inbox";
-import type { RuntimeGitlabMergeRequestSummary } from "@/runtime/types";
+import type { RuntimeGitlabMergeRequestSummary, RuntimeReviewAllMark } from "@/runtime/types";
 
 function mergeRequest(
 	iid: number,
@@ -42,6 +43,45 @@ function mergeRequest(
 		...approval,
 	};
 }
+
+function withNotes(
+	summary: RuntimeGitlabMergeRequestSummary,
+	userNotesCount: number,
+): RuntimeGitlabMergeRequestSummary {
+	return { ...summary, userNotesCount };
+}
+
+describe("describeReviewedState", () => {
+	const mark = (notesCount: number | null): RuntimeReviewAllMark => ({
+		at: "2026-09-01T10:00:00.000Z",
+		headSha: "abc",
+		fileCount: 3,
+		notesCount,
+	});
+
+	it("says nothing about a merge request whose files were never all reviewed", () => {
+		expect(describeReviewedState(withNotes(mergeRequest(1, []), 4), null)).toBeNull();
+	});
+
+	it("reports a finished review while the note count has not moved", () => {
+		expect(describeReviewedState(withNotes(mergeRequest(1, []), 4), mark(4))).toEqual({
+			label: "✓ Reviewed",
+			tone: "reviewed",
+		});
+	});
+
+	it("downgrades to stale once a note has been added since", () => {
+		expect(describeReviewedState(withNotes(mergeRequest(1, []), 5), mark(4))).toEqual({
+			label: "✓ new comments",
+			tone: "stale",
+		});
+	});
+
+	it("stays green when either note count is unknown, rather than guessing stale", () => {
+		expect(describeReviewedState(withNotes(mergeRequest(1, []), 9), mark(null))?.tone).toBe("reviewed");
+		expect(describeReviewedState(mergeRequest(1, []), mark(0))?.tone).toBe("reviewed");
+	});
+});
 
 describe("buildReviewInboxQuery", () => {
 	it("filters the review-request inbox by reviewer id and leaves the scope to the client", () => {

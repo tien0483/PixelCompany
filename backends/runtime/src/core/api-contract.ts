@@ -4169,6 +4169,24 @@ export const runtimeReviewCompletedPassSchema = z.object({
 });
 export type RuntimeReviewCompletedPass = z.infer<typeof runtimeReviewCompletedPassSchema>;
 
+/**
+ * The moment every changed file in a merge request was ticked reviewed.
+ *
+ * This is what lets the merge-request *list* say "you already did this one" without
+ * opening the review: the list only ever sees a `RuntimeGitlabMergeRequestSummary`, so
+ * the completion has to be recorded where it happened. `notesCount` is the non-system
+ * note count at that moment, which is comparable to the summary's `userNotesCount` —
+ * that comparison is the whole "…but comments arrived since" signal.
+ */
+export const runtimeReviewAllMarkSchema = z.object({
+	at: z.string(),
+	headSha: z.string().nullable(),
+	fileCount: z.number(),
+	/** Null when discussions had not loaded yet, i.e. "cannot tell". */
+	notesCount: z.number().nullable(),
+});
+export type RuntimeReviewAllMark = z.infer<typeof runtimeReviewAllMarkSchema>;
+
 export const runtimeReviewSessionSchema = z.object({
 	host: z.string(),
 	projectId: z.number(),
@@ -4176,6 +4194,19 @@ export const runtimeReviewSessionSchema = z.object({
 	/** Head SHA at the end of the last review pass — drives the delta banner. */
 	lastReviewedHeadSha: z.string().nullable(),
 	reviewedPaths: z.array(z.string()),
+	/**
+	 * Path → when it was ticked reviewed. A bare membership test in `reviewedPaths`
+	 * cannot answer "did this comment arrive after I reviewed the file", which is the
+	 * only question that makes an unmark suggestion trustworthy.
+	 *
+	 * `.default({})` for the same reason `chatMessages` has one — see comment below.
+	 */
+	reviewedAt: z.record(z.string(), z.string()).default({}),
+	/**
+	 * Stamped when the tick that completed every changed file landed, cleared by any
+	 * untick. `.default(null)` for the same reason `chatMessages` has one.
+	 */
+	reviewedAllMark: runtimeReviewAllMarkSchema.nullable().default(null),
 	draftComments: z.array(runtimeReviewDraftCommentSchema),
 	findings: z.array(runtimeReviewFindingSchema),
 	dismissedFindingIds: z.array(z.string()),
@@ -4232,6 +4263,34 @@ export const runtimeReviewSessionWriteRequestSchema = z.object({
 	session: runtimeReviewSessionSchema,
 });
 export type RuntimeReviewSessionWriteRequest = z.infer<typeof runtimeReviewSessionWriteRequestSchema>;
+
+/**
+ * One row per stored session, small enough to send a whole host's worth at once.
+ *
+ * The merge-request list needs to know "have I finished this one" for every row it
+ * draws, and the sessions hold the answer — but a session document also holds the
+ * chat transcript and every draft comment, which is far too much to ship for fifty
+ * list rows. Hence a projection rather than the documents themselves.
+ */
+export const runtimeReviewSessionMarkSchema = z.object({
+	projectId: z.number(),
+	iid: z.number(),
+	reviewedCount: z.number(),
+	reviewedAllMark: runtimeReviewAllMarkSchema.nullable(),
+});
+export type RuntimeReviewSessionMark = z.infer<typeof runtimeReviewSessionMarkSchema>;
+
+export const runtimeReviewSessionMarksRequestSchema = z.object({
+	host: z.string().min(1),
+});
+export type RuntimeReviewSessionMarksRequest = z.infer<typeof runtimeReviewSessionMarksRequestSchema>;
+
+export const runtimeReviewSessionMarksResponseSchema = z.object({
+	ok: z.boolean(),
+	marks: z.array(runtimeReviewSessionMarkSchema),
+	error: z.string().optional(),
+});
+export type RuntimeReviewSessionMarksResponse = z.infer<typeof runtimeReviewSessionMarksResponseSchema>;
 
 /*
  * Knowledge-graph impact

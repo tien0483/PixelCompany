@@ -1,4 +1,8 @@
-import type { RuntimeGitlabMergeRequestListRequest, RuntimeGitlabMergeRequestSummary } from "@/runtime/types";
+import type {
+	RuntimeGitlabMergeRequestListRequest,
+	RuntimeGitlabMergeRequestSummary,
+	RuntimeReviewAllMark,
+} from "@/runtime/types";
 
 /**
  * Which pile of merge requests a Review surface is showing.
@@ -139,6 +143,38 @@ export function describeApprovalState(mergeRequest: RuntimeGitlabMergeRequestSum
 		return { label: `${mergeRequest.approvalsLeft ?? mergeRequest.approvalsRequired} to approve`, tone: "pending" };
 	}
 	return null;
+}
+
+/**
+ * Whether the reviewer already finished this merge request, for a list row.
+ *
+ * The mark is only stamped once every changed file was ticked, so its presence is
+ * the "you already did this one" signal the list previously could not give — and
+ * comparing the note count it captured against the summary's current one is what
+ * downgrades that to "…but someone has commented since".
+ *
+ * Deliberately not keyed on `updatedAt`: a label, milestone or assignee edit bumps
+ * it, so that would paint healthy rows stale. New *commits* are caught inside the
+ * review by the delta banner, which is the only place the head SHA is known — a
+ * list summary carries none.
+ */
+export function describeReviewedState(
+	mergeRequest: RuntimeGitlabMergeRequestSummary,
+	mark: RuntimeReviewAllMark | null,
+): { label: string; tone: "reviewed" | "stale" } | null {
+	if (mark === null) {
+		return null;
+	}
+	// A null count on either side means "cannot tell", and a badge that guesses stale
+	// is worse than one that stays quiet.
+	if (
+		mark.notesCount !== null &&
+		mergeRequest.userNotesCount !== null &&
+		mergeRequest.userNotesCount > mark.notesCount
+	) {
+		return { label: "✓ new comments", tone: "stale" };
+	}
+	return { label: "✓ Reviewed", tone: "reviewed" };
 }
 
 export interface MergeRequestReviewSplit {

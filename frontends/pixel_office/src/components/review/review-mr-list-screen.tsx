@@ -9,6 +9,7 @@ import {
 	buildReviewInboxQuery,
 	describeApprovalState,
 	describeReviewers,
+	describeReviewedState,
 	filterMergeRequestsForTab,
 	REVIEW_INBOX_TABS,
 	type ReviewInboxTab,
@@ -17,7 +18,18 @@ import {
 import type { ReviewTarget } from "@/review/review-target";
 import { useGitlabConnect } from "@/review/use-gitlab-connect";
 import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
-import type { RuntimeGitlabMergeRequestSummary, RuntimeGitlabProject } from "@/runtime/types";
+import type {
+	RuntimeGitlabMergeRequestSummary,
+	RuntimeGitlabProject,
+	RuntimeReviewAllMark,
+} from "@/runtime/types";
+
+/** Review sessions are stored per merge request, so both ids are needed to match a row. */
+type ReviewedMarks = Map<string, RuntimeReviewAllMark>;
+
+function markKey(projectId: number, iid: number): string {
+	return `${projectId}-${iid}`;
+}
 
 type ScopeFilter = "created_by_me" | "assigned_to_me" | "all";
 type StateFilter = "opened" | "merged" | "all";
@@ -56,8 +68,40 @@ export function ReviewMergeRequestListScreen({
 	const [stateFilter, setStateFilter] = useState<StateFilter>("opened");
 	const [search, setSearch] = useState("");
 	const [isLoading, setIsLoading] = useState(false);
+	const [reviewedMarks, setReviewedMarks] = useState<ReviewedMarks>(() => new Map());
 
 	const userId = connection?.userId ?? null;
+	const host = connection?.host ?? null;
+
+	// Local review progress for every session on this instance, in one call. Fetched
+	// separately from the merge requests because it is local state, not GitLab's: a
+	// GitLab outage must not blank the badges, and a read failure here must not stop
+	// the list from rendering.
+	const loadReviewedMarks = useCallback(async () => {
+		if (host === null || host.length === 0) {
+			return;
+		}
+		try {
+			const client = getRuntimeTrpcClient(workspaceId);
+			const response = await client.review.listSessionMarks.query({ host });
+			if (!response.ok) {
+				return;
+			}
+			setReviewedMarks(
+				new Map(
+					response.marks
+						.filter((mark) => mark.reviewedAllMark !== null)
+						.map((mark) => [markKey(mark.projectId, mark.iid), mark.reviewedAllMark as RuntimeReviewAllMark]),
+				),
+			);
+		} catch {
+			// A missing badge is a cosmetic loss; surfacing it as a list error is not.
+		}
+	}, [host, workspaceId]);
+
+	useEffect(() => {
+		void loadReviewedMarks();
+	}, [loadReviewedMarks]);
 
 	const loadProjects = useCallback(async () => {
 		if (!isConnected) {
@@ -242,7 +286,10 @@ export function ReviewMergeRequestListScreen({
 					size="sm"
 					icon={isLoading ? <Spinner size={12} /> : <RefreshCw size={12} />}
 					disabled={isLoading}
-					onClick={() => void loadMergeRequests()}
+					onClick={() => {
+						void loadMergeRequests();
+						void loadReviewedMarks();
+					}}
 				>
 					Refresh
 				</Button>
@@ -260,6 +307,7 @@ export function ReviewMergeRequestListScreen({
 						<MergeRequestGroup
 							label={`Reviewer requested (${split.awaitingReview.length})`}
 							mergeRequests={split.awaitingReview}
+							reviewedMarks={reviewedMarks}
 							onOpen={openTarget}
 						/>
 						{/* Named for what they usually are rather than "no reviewer": these are
@@ -268,14 +316,16 @@ export function ReviewMergeRequestListScreen({
 						<MergeRequestGroup
 							label={`No reviewer yet · diff or pipeline only (${split.noReviewer.length})`}
 							mergeRequests={split.noReviewer}
+							reviewedMarks={reviewedMarks}
 							onOpen={openTarget}
 						/>
 					</>
 				) : (
 					visible.map((mergeRequest) => (
 						<MergeRequestRow
-							key={`${mergeRequest.projectId}-${mergeRequest.iid}`}
+							key={markKey(mergeRequest.projectId, mergeRequest.iid)}
 							mergeRequest={mergeRequest}
+							reviewedMark={reviewedMarks.get(markKey(mergeRequest.projectId, mergeRequest.iid)) ?? null}
 							onOpen={openTarget}
 						/>
 					))
@@ -303,10 +353,12 @@ function emptyMessageForTab(tab: ReviewInboxTab): string {
 function MergeRequestGroup({
 	label,
 	mergeRequests,
+	reviewedMarks,
 	onOpen,
 }: {
 	label: string;
 	mergeRequests: RuntimeGitlabMergeRequestSummary[];
+	reviewedMarks: ReviewedMarks;
 	onOpen: (mergeRequest: RuntimeGitlabMergeRequestSummary) => void;
 }): ReactElement | null {
 	if (mergeRequests.length === 0) {
@@ -317,8 +369,9 @@ function MergeRequestGroup({
 			<div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-text-tertiary">{label}</div>
 			{mergeRequests.map((mergeRequest) => (
 				<MergeRequestRow
-					key={`${mergeRequest.projectId}-${mergeRequest.iid}`}
+					key={markKey(mergeRequest.projectId, mergeRequest.iid)}
 					mergeRequest={mergeRequest}
+					reviewedMark={reviewedMarks.get(markKey(mergeRequest.projectId, mergeRequest.iid)) ?? null}
 					onOpen={onOpen}
 				/>
 			))}
@@ -328,13 +381,16 @@ function MergeRequestGroup({
 
 function MergeRequestRow({
 	mergeRequest,
+	reviewedMark,
 	onOpen,
 }: {
 	mergeRequest: RuntimeGitlabMergeRequestSummary;
+	reviewedMark: RuntimeReviewAllMark | null;
 	onOpen: (mergeRequest: RuntimeGitlabMergeRequestSummary) => void;
 }): ReactElement {
 	const reviewers = describeReviewers(mergeRequest);
 	const approval = describeApprovalState(mergeRequest);
+	const reviewed = describeReviewedState(mergeRequest, reviewedMark);
 	return (
 		<div
 			role="button"
@@ -362,6 +418,24 @@ function MergeRequestRow({
 					{reviewers ? ` · review: ${reviewers}` : ""}
 				</div>
 			</div>
+			{reviewed ? (
+				<span
+					data-testid="review-mr-reviewed-badge"
+					title={
+						reviewed.tone === "stale"
+							? "You reviewed every file, but comments have been added since."
+							: `You marked every file reviewed on ${new Date(reviewedMark?.at ?? "").toLocaleString()}.`
+					}
+					className={cn(
+						"shrink-0 rounded px-1.5 py-0.5 text-[10px]",
+						reviewed.tone === "reviewed"
+							? "bg-status-green/20 text-status-green"
+							: "bg-status-orange/20 text-status-orange",
+					)}
+				>
+					{reviewed.label}
+				</span>
+			) : null}
 			{approval ? (
 				<span
 					data-testid="review-mr-approval-badge"
