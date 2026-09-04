@@ -138,11 +138,30 @@ export function ReviewWorkspaceView({
 	const audit = useHtmlAgentStream<RuntimeReviewAuditRequest>("/api/review/audit");
 	const rulesExtract = useHtmlAgentStream<RuntimeReviewRulesExtractRequest>("/api/review/rules-extract");
 	/**
+	 * The last thing the running rebuild reported doing. The only progress signal
+	 * there is: on the wire a whole-repository analysis is minutes of identical
+	 * `run_command` steps carrying no detail, so the runtime reads the actual
+	 * commands out of the CLI's transcript and forwards them as `progress_line`.
+	 */
+	const [graphRebuildProgressLine, setGraphRebuildProgressLine] = useState<string | null>(null);
+	const handleGraphRebuildMeta = useCallback((key: string, value: unknown) => {
+		if (key !== "progress_line" || !value || typeof value !== "object") {
+			return;
+		}
+		const line = (value as { line?: unknown }).line;
+		if (typeof line === "string" && line.length > 0) {
+			setGraphRebuildProgressLine(line);
+		}
+	}, []);
+	/**
 	 * The knowledge-graph rebuild. Streamed like the other one-shots, but it is the
 	 * only one that does not spend the reviewer's Claude seat: a whole-repository
 	 * analysis runs on the Antigravity quota pool instead.
 	 */
-	const graphRebuild = useHtmlAgentStream<RuntimeReviewGraphRebuildRequest>("/api/review/graph-rebuild");
+	const graphRebuild = useHtmlAgentStream<RuntimeReviewGraphRebuildRequest>(
+		"/api/review/graph-rebuild",
+		handleGraphRebuildMeta,
+	);
 
 	const claudeAccounts = useMemo(
 		() => managerAccounts.filter((account) => account.provider === "claude"),
@@ -218,6 +237,7 @@ export function ReviewWorkspaceView({
 			return;
 		}
 		setAgentError(null);
+		setGraphRebuildProgressLine(null);
 		showAppToast({
 			intent: "success",
 			message: "Rebuilding the knowledge graph on the Antigravity seat. This analyzes the whole repository.",
@@ -1185,6 +1205,7 @@ export function ReviewWorkspaceView({
 							projectPath={localRepoPath || undefined}
 							isRebuilding={graphRebuild.status === "running"}
 							canRebuild={antigravityAccounts.length > 0}
+							rebuildProgressLine={graphRebuildProgressLine}
 							onRefresh={graph.refresh}
 							onRebuildGraph={rebuildGraph}
 							onOpenDashboard={openGraphDashboard}

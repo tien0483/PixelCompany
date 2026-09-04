@@ -212,12 +212,15 @@ export function createReviewApi(): RuntimeTrpcContext["reviewApi"] {
 					ok: false,
 					status: "error",
 					startedAt: null,
+					pausedAt: null,
 					doneAt: null,
 					error: fail(error),
 					currentStep: null,
 					text: "",
 					log: [],
 					notices: [],
+					progress: [],
+					accountEmail: null,
 				};
 			}
 		},

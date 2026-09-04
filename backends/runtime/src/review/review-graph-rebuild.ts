@@ -24,9 +24,11 @@
  * arrive as two literal words, which with `--dangerously-skip-permissions` is a
  * much worse failure than a long prompt.
  */
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
+import { homedir } from "node:os";
 import { join } from "node:path";
 
+import { KANBAN_RUNTIME_HOME_DIR_NAME } from "../workspace/task-worktree-path";
 import { findUnderstandPluginRoot } from "./review-dashboard-process";
 
 /**
@@ -45,6 +47,43 @@ export const GRAPH_REBUILD_IDLE_TIMEOUT_MS = 15 * 60_000;
 
 /** Where the skill text lives inside the plugin. */
 const UNDERSTAND_SKILL_RELATIVE_PATH = join("skills", "understand", "SKILL.md");
+
+/**
+ * Where `agy` is told to write its own log for a rebuild.
+ *
+ * Under the runtime's home rather than the project, because the prompt promises
+ * the job writes nothing but the data directory, and because agy's default
+ * location (`~/.gemini/antigravity-cli/log/`) is on the list
+ * `agent-home-cleanup.ts` purges wholesale — a cleanup pass mid-rebuild would
+ * delete the log while it is being followed.
+ *
+ * One file per project, overwritten each run: the interesting window is the run
+ * you are watching, and a 3-hour analysis writes tens of thousands of lines.
+ */
+export function resolveGraphRebuildLogFilePath(projectPath: string): string {
+	const slug =
+		projectPath
+			.replace(/[/\\:]+/g, "-")
+			.replace(/[^a-zA-Z0-9._-]/g, "")
+			.replace(/^-+/, "")
+			.slice(0, 120) || "project";
+	return join(homedir(), KANBAN_RUNTIME_HOME_DIR_NAME, "logs", "graph-rebuild", `${slug}.log`);
+}
+
+/**
+ * Creates the log file's directory. Returns the path, or null when the directory
+ * cannot be created — observability is not worth failing a build over, and every
+ * consumer treats a missing path as "run without following".
+ */
+export async function prepareGraphRebuildLogFile(projectPath: string): Promise<string | null> {
+	const logFilePath = resolveGraphRebuildLogFilePath(projectPath);
+	try {
+		await mkdir(join(logFilePath, ".."), { recursive: true });
+		return logFilePath;
+	} catch {
+		return null;
+	}
+}
 
 export type ResolveGraphRebuildPromptResult =
 	| { ok: true; prompt: string; skillDir: string }

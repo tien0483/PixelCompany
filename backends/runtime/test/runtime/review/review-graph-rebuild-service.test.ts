@@ -99,9 +99,10 @@ describe("review-graph-rebuild-service", () => {
 		});
 
 		it("allows pause, resume, and cancel on active jobs", () => {
-			const job = reviewGraphRebuildService.startOrAttachJob({
+			const { job, attached } = reviewGraphRebuildService.startOrAttachJob({
 				projectPath: projectA,
 			});
+			expect(attached).toBe(false);
 			expect(job.status).toBe("running");
 
 			// Mock control
