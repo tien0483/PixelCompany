@@ -6,6 +6,7 @@ export const TASK_START_IN_PLAN_MODE_STORAGE_KEY = LocalStorageKey.TaskStartInPl
 export const TASK_AUTO_REVIEW_ENABLED_STORAGE_KEY = LocalStorageKey.TaskAutoReviewEnabled;
 export const TASK_AUTO_REVIEW_MODE_STORAGE_KEY = LocalStorageKey.TaskAutoReviewMode;
 const DETAIL_TASK_QUERY_PARAM = "task";
+const OFFICE_OPEN_QUERY_PARAM = "office";
 
 export function normalizeStoredTaskAutoReviewMode(value: string): TaskAutoReviewMode | null {
 	if (value === "commit" || value === "pr") {
@@ -68,10 +69,6 @@ export function parseProjectIdFromPathname(pathname: string): string | null {
 	}
 }
 
-export function buildProjectPathname(projectId: string): string {
-	return `/${encodeURIComponent(projectId)}`;
-}
-
 export function parseDetailTaskIdFromSearch(search: string): string | null {
 	const params = new URLSearchParams(search);
 	const taskId = params.get(DETAIL_TASK_QUERY_PARAM)?.trim();
@@ -90,6 +87,36 @@ export function buildDetailTaskUrl(input: {
 	} else {
 		params.delete(DETAIL_TASK_QUERY_PARAM);
 	}
+	const nextSearch = params.toString();
+	return `${input.pathname}${nextSearch ? `?${nextSearch}` : ""}${input.hash}`;
+}
+
+/**
+ * The office right column's state as carried in the URL, or `null` when the URL says nothing
+ * about it and the stored per-project preference should decide.
+ *
+ * A column is not a destination, so this is a shareable flag rather than a route segment —
+ * see `useOfficeViewState`, which writes it with `replaceState` for the same reason.
+ */
+export function parseOfficeOpenFromSearch(search: string): boolean | null {
+	const raw = new URLSearchParams(search).get(OFFICE_OPEN_QUERY_PARAM)?.trim();
+	if (raw === "1" || raw === "true") {
+		return true;
+	}
+	if (raw === "0" || raw === "false") {
+		return false;
+	}
+	return null;
+}
+
+export function buildOfficeUrl(input: {
+	pathname: string;
+	search: string;
+	hash: string;
+	isOpen: boolean;
+}): string {
+	const params = new URLSearchParams(input.search);
+	params.set(OFFICE_OPEN_QUERY_PARAM, input.isOpen ? "1" : "0");
 	const nextSearch = params.toString();
 	return `${input.pathname}${nextSearch ? `?${nextSearch}` : ""}${input.hash}`;
 }

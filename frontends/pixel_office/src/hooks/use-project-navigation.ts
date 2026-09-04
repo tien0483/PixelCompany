@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { notifyError } from "@/components/app-toaster";
-import { buildProjectPathname, parseProjectIdFromPathname } from "@/hooks/app-utils";
+import { parseProjectIdFromPathname } from "@/hooks/app-utils";
+import { replaceProjectSegment } from "@/hooks/home-route";
 import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
 import { useRuntimeStateStream } from "@/runtime/use-runtime-state-stream";
 import { useWindowEvent } from "@/utils/react-use";
@@ -153,7 +154,9 @@ export function useProjectNavigation({ onProjectSwitchStart }: UseProjectNavigat
 			return;
 		}
 		const nextUrl = new URL(window.location.href);
-		const nextPathname = buildProjectPathname(currentProjectId);
+		// Only segment 0 belongs to this hook. Rebuilding the whole pathname from the project id
+		// used to delete whatever route the shell had open (`/proj/plans/<id>` → `/proj`).
+		const nextPathname = replaceProjectSegment(nextUrl.pathname, currentProjectId);
 		if (nextUrl.pathname === nextPathname) {
 			return;
 		}
