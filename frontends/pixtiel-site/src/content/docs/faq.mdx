@@ -74,6 +74,15 @@ The PIXTiel installer operates strictly in user space:
 - Stores configurations in `~/.agent` and `.pixtiel/`.
 - **Zero sudo or root permissions** are required, and no system-level libraries are modified.
 
+### Can I give someone just the plan editor, or just Review?
+
+Yes. Two installer rows — `plan-editor-standalone` and `review-standalone`, both off by default —
+build self-contained folders you can zip and hand over: the same editor, or the same merge-request
+review, with no board, Office, accounts UI or agent stack. Each needs only Node 20+ and a locally
+logged-in `claude` CLI (Review also needs a GitLab account), and neither bundles a credential.
+They default to `127.0.0.1:4173` and `127.0.0.1:4183`, so they can run beside a full install —
+see [Standalone packages](/docs/install#standalone-packages).
+
 ### Why is a native Linux filesystem (ext4) required?
 
 Running developer tools and git worktrees over WSL 9p mounts (`/mnt/c/...` or `/mnt/d/...`) introduces significant file-system latency and file-locking deadlocks during dependency installation and parallel git branch operations. Native Linux filesystems (`/home/username/...` on ext4) guarantee standard POSIX semantics and full I/O throughput.
