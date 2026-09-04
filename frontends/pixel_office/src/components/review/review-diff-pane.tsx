@@ -10,7 +10,15 @@ import {
 	Square,
 	SquareCheck,
 } from "lucide-react";
-import { type ReactElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+	type CSSProperties,
+	type ReactElement,
+	useCallback,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 
 import { ReviewCommentComposer } from "@/components/review/review-comment-composer";
 import { ReviewTagStrip } from "@/components/review/review-tag-strip";
@@ -43,7 +51,7 @@ import {
 	normalizeWheelDeltaPx,
 } from "@/review/review-deep-scroll";
 import { buildFullFileRows } from "@/review/review-full-file-rows";
-import type { ReviewTag } from "@/review/review-tags";
+import { type ReviewTag, reviewTagColor } from "@/review/review-tags";
 import {
 	buildLineAnnotations,
 	type ReviewDiffMode,
@@ -800,10 +808,17 @@ export function ReviewDiffPane({
 							variantClass,
 							hasAnnotation && "kb-diff-row-commented",
 							isSelected && "kb-diff-row-selected",
-							dropTargetKey === row.key && "kb-diff-row-selected",
+							dropTargetKey === row.key && "kb-diff-row-drop-target",
 							isFocused && "kb-diff-row-focused",
 							!commentable && "kb-diff-row-noncommentable",
 						)}
+						// The highlight takes the dragged tag's own color, so the row confirms what is
+						// about to land on it instead of showing one generic selection blue.
+						style={
+							dropTargetKey === row.key && draggedTag
+								? ({ "--kb-drop-color": reviewTagColor(draggedTag).cssVar } as CSSProperties)
+								: undefined
+						}
 						data-row-key={row.key}
 						data-diff-side={side}
 						// Press-drag-release is one gesture: a press and release on the same row
@@ -965,11 +980,14 @@ export function ReviewDiffPane({
 					{rowTags.map((annotation) => (
 						<div
 							key={annotation.id}
-							className="flex items-start justify-between gap-2 border-l-2 border-status-purple bg-surface-1 px-2.5 py-1 text-[11px]"
+							className={cn(
+								"flex items-start justify-between gap-2 border-l-2 bg-surface-1 px-2.5 py-1 text-[11px]",
+								reviewTagColor(annotation.tag).rule,
+							)}
 						>
 							<div className="min-w-0 space-y-0.5">
 								<div className="flex flex-wrap items-center gap-1">
-									<span className="rounded border border-border-bright bg-surface-2 px-1 text-[9px] text-text-secondary">
+									<span className={cn("rounded border px-1 text-[9px]", reviewTagColor(annotation.tag).chip)}>
 										{annotation.tag.label}
 									</span>
 									{annotation.verdict ? (
@@ -1018,8 +1036,15 @@ export function ReviewDiffPane({
 					))}
 
 					{pendingAnnotation?.rowKey === row.key && pendingAnnotation.side === side && tagAnnotations && file ? (
-						<div className="flex items-center gap-1.5 border-l-2 border-status-purple bg-surface-2 px-2.5 py-1.5">
-							<span className="shrink-0 rounded border border-border-bright bg-surface-1 px-1 text-[9px] text-text-secondary">
+						<div
+							className={cn(
+								"flex items-center gap-1.5 border-l-2 bg-surface-2 px-2.5 py-1.5",
+								reviewTagColor(pendingAnnotation.tag).rule,
+							)}
+						>
+							<span
+								className={cn("shrink-0 rounded border px-1 text-[9px]", reviewTagColor(pendingAnnotation.tag).chip)}
+							>
 								{pendingAnnotation.tag.label}
 							</span>
 							<input

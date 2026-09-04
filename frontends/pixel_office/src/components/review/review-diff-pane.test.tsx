@@ -339,6 +339,13 @@ describe("ReviewDiffPane", () => {
 		expect(tagStripToggle().textContent).toContain("(2)");
 	});
 
+	it("gives each chip its own color so a dragged tag is recognisable", async () => {
+		await renderPane({ withTags: true });
+
+		expect(tagChip("Security").className).toContain("status-red");
+		expect(tagChip("Naming").className).not.toBe(tagChip("Security").className);
+	});
+
 	it("reports the tag a chip drag started on", async () => {
 		const started: ReviewTag[] = [];
 		await renderPane({ withTags: true, onTagDragStart: (tag) => started.push(tag) });
