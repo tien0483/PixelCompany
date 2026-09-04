@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { buildLineAnnotations, selectNextUnreviewedPath, selectPreviousUnreviewedPath } from "@/review/review-target";
+import {
+	buildLineAnnotations,
+	selectNextUnreviewedPath,
+	selectPreviousUnreviewedPath,
+	shouldSuggestReviewedAllMark,
+} from "@/review/review-target";
 import type { RuntimeGitlabDiffFile, RuntimeReviewAnnotation } from "@/runtime/types";
 
 function file(newPath: string): RuntimeGitlabDiffFile {
@@ -119,6 +124,38 @@ describe("selectPreviousUnreviewedPath", () => {
 
 	it("returns null for an empty changeset", () => {
 		expect(selectPreviousUnreviewedPath({ files: [], reviewedPaths: [], activePath: null })).toBeNull();
+	});
+});
+
+describe("shouldSuggestReviewedAllMark", () => {
+	it("offers the mark once every file is ticked", () => {
+		expect(
+			shouldSuggestReviewedAllMark({ reviewed: 3, total: 3, hasMark: false, newCommentPathCount: 0 }),
+		).toBe(true);
+	});
+
+	it("stays quiet while files are still unticked", () => {
+		expect(
+			shouldSuggestReviewedAllMark({ reviewed: 2, total: 3, hasMark: false, newCommentPathCount: 0 }),
+		).toBe(false);
+	});
+
+	it("stays quiet once the merge request is marked", () => {
+		expect(
+			shouldSuggestReviewedAllMark({ reviewed: 3, total: 3, hasMark: true, newCommentPathCount: 0 }),
+		).toBe(false);
+	});
+
+	it("stays quiet while a reviewed file has new comments", () => {
+		expect(
+			shouldSuggestReviewedAllMark({ reviewed: 3, total: 3, hasMark: false, newCommentPathCount: 1 }),
+		).toBe(false);
+	});
+
+	it("never offers the mark on a merge request that changes no files", () => {
+		expect(
+			shouldSuggestReviewedAllMark({ reviewed: 0, total: 0, hasMark: false, newCommentPathCount: 0 }),
+		).toBe(false);
 	});
 });
 
