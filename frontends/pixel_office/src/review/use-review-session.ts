@@ -16,6 +16,7 @@ import type {
 	RuntimeGitlabDiscussion,
 	RuntimeGitlabMergeRequestDetail,
 	RuntimeGitlabMergeRequestVersion,
+	RuntimeReviewAllMark,
 	RuntimeReviewAnnotation,
 	RuntimeReviewChatMessage,
 	RuntimeReviewCompletedPass,
@@ -45,27 +46,36 @@ export interface ReviewSessionState {
 }
 
 /**
- * Recomputes the "every changed file is reviewed" mark from a session and what the
- * merge request currently looks like.
- *
- * The mark has to be stamped here rather than derived on read, because the merge
- * request *list* is where it is consumed and that surface never loads a diff — it
- * cannot know how many files there were, let alone whether they were all ticked.
+ * Drops the "every changed file is reviewed" mark once the file set is no longer
+ * fully ticked. Never stamps one: completing the last file is an invitation to mark
+ * the merge request reviewed, not the act of marking it — see
+ * `markMergeRequestReviewed`.
  */
-function withReviewedAllMark(session: RuntimeReviewSession, state: ReviewSessionState): RuntimeReviewSession {
+function clearReviewedAllMarkIfIncomplete(
+	session: RuntimeReviewSession,
+	state: ReviewSessionState,
+): RuntimeReviewSession {
 	const reviewed = new Set(session.reviewedPaths);
 	const isComplete = state.files.length > 0 && state.files.every((file) => reviewed.has(file.newPath));
-	if (!isComplete) {
-		return { ...session, reviewedAllMark: null };
+	if (isComplete) {
+		return session;
 	}
+	return { ...session, reviewedAllMark: null };
+}
+
+/**
+ * The mark as the merge-request *list* needs it.
+ *
+ * It has to be stamped here rather than derived on read, because the list is where
+ * it is consumed and that surface never loads a diff — it cannot know how many
+ * files there were, let alone whether they were all ticked.
+ */
+function buildReviewedAllMark(state: ReviewSessionState): RuntimeReviewAllMark {
 	return {
-		...session,
-		reviewedAllMark: {
-			at: new Date().toISOString(),
-			headSha: state.versions[0]?.headSha ?? state.diffRefs?.headSha ?? null,
-			fileCount: state.files.length,
-			notesCount: countUserNotes(state.discussions),
-		},
+		at: new Date().toISOString(),
+		headSha: state.versions[0]?.headSha ?? state.diffRefs?.headSha ?? null,
+		fileCount: state.files.length,
+		notesCount: countUserNotes(state.discussions),
 	};
 }
 
@@ -91,6 +101,11 @@ export interface ReviewSessionApi extends ReviewSessionState {
 	newComments: ReviewNewComments;
 	/** Drops the reviewed tick on several files at once, for "unmark all". */
 	unmarkReviewedPaths: (paths: string[]) => void;
+	/**
+	 * Stamps the merge-request-level "every file reviewed" mark that the list badge
+	 * reads. The reviewer's own act — ticking the last file only offers it.
+	 */
+	markMergeRequestReviewed: () => void;
 	addDraftComment: (
 		draft: Omit<RuntimeReviewDraftComment, "id" | "createdAt" | "author">,
 	) => void;
@@ -354,7 +369,10 @@ export function useReviewSession(target: ReviewTarget, workspaceId: string | nul
 					reviewed.add(path);
 					reviewedAt[path] = new Date().toISOString();
 				}
-				return withReviewedAllMark({ ...session, reviewedPaths: [...reviewed], reviewedAt }, current);
+				return clearReviewedAllMarkIfIncomplete(
+					{ ...session, reviewedPaths: [...reviewed], reviewedAt },
+					current,
+				);
 			});
 		},
 		[updateSession],
@@ -371,7 +389,7 @@ export function useReviewSession(target: ReviewTarget, workspaceId: string | nul
 				for (const path of dropped) {
 					delete reviewedAt[path];
 				}
-				return withReviewedAllMark(
+				return clearReviewedAllMarkIfIncomplete(
 					{
 						...session,
 						reviewedPaths: session.reviewedPaths.filter((path) => !dropped.has(path)),
@@ -383,6 +401,10 @@ export function useReviewSession(target: ReviewTarget, workspaceId: string | nul
 		},
 		[updateSession],
 	);
+
+	const markMergeRequestReviewed = useCallback(() => {
+		updateSession((session, current) => ({ ...session, reviewedAllMark: buildReviewedAllMark(current) }));
+	}, [updateSession]);
 
 	const newComments = useMemo(() => {
 		if (!state.session) {
@@ -611,6 +633,7 @@ export function useReviewSession(target: ReviewTarget, workspaceId: string | nul
 		toggleFileReviewed,
 		newComments,
 		unmarkReviewedPaths,
+		markMergeRequestReviewed,
 		addDraftComment,
 		removeDraftComment,
 		clearDraftComments,

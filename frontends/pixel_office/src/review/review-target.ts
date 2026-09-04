@@ -181,6 +181,29 @@ export function countReviewProgress(input: {
 	};
 }
 
+/**
+ * Whether to offer "mark this merge request reviewed".
+ *
+ * Only worth offering once every changed file is ticked and no mark has been
+ * stamped yet — the mark is the reviewer's own act, so re-offering something they
+ * already did reads as if the click had not landed.
+ *
+ * A file carrying comments that arrived after its tick suppresses the offer: the
+ * new-comments banner is telling the reviewer to unmark those files, and "you are
+ * done here" in the same breath contradicts it.
+ */
+export function shouldSuggestReviewedAllMark(input: {
+	reviewed: number;
+	total: number;
+	hasMark: boolean;
+	newCommentPathCount: number;
+}): boolean {
+	if (input.total === 0 || input.hasMark || input.newCommentPathCount > 0) {
+		return false;
+	}
+	return input.reviewed >= input.total;
+}
+
 /** Which way the reviewer is moving through the file list. */
 export type ReviewNavDirection = "next" | "previous";
 

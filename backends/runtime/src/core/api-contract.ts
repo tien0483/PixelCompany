@@ -4203,8 +4203,9 @@ export const runtimeReviewSessionSchema = z.object({
 	 */
 	reviewedAt: z.record(z.string(), z.string()).default({}),
 	/**
-	 * Stamped when the tick that completed every changed file landed, cleared by any
-	 * untick. `.default(null)` for the same reason `chatMessages` has one.
+	 * Stamped when the reviewer marks the merge request reviewed — offered once every
+	 * changed file is ticked, never automatic — and cleared by any untick.
+	 * `.default(null)` for the same reason `chatMessages` has one.
 	 */
 	reviewedAllMark: runtimeReviewAllMarkSchema.nullable().default(null),
 	draftComments: z.array(runtimeReviewDraftCommentSchema),

@@ -1,4 +1,4 @@
-import { ArrowLeft, ExternalLink, MessageSquare, Network, Send, Sparkles, X } from "lucide-react";
+import { ArrowLeft, CheckCheck, ExternalLink, MessageSquare, Network, Send, Sparkles, X } from "lucide-react";
 import { type ReactElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { showAppToast } from "@/components/app-toaster";
@@ -48,6 +48,7 @@ import {
 	selectAdjacentUnreviewedPath,
 	selectPendingFindings,
 	selectTriagedFindingIds,
+	shouldSuggestReviewedAllMark,
 	sumDiffStats,
 } from "@/review/review-target";
 import { readStoredPolishComments, writeStoredPolishComments } from "@/review/review-comment-polish";
@@ -322,6 +323,13 @@ export function ReviewWorkspaceView({
 		[reviewedPaths, session.files],
 	);
 	const stats = useMemo(() => sumDiffStats(session.files), [session.files]);
+	const reviewedAllMark = session.session?.reviewedAllMark ?? null;
+	const suggestMarkReviewed = shouldSuggestReviewedAllMark({
+		reviewed: progress.reviewed,
+		total: progress.total,
+		hasMark: reviewedAllMark !== null,
+		newCommentPathCount: session.newComments.byPath.size,
+	});
 
 	const pendingFindings = useMemo(
 		() =>
@@ -1071,6 +1079,17 @@ export function ReviewWorkspaceView({
 					<span className="text-text-tertiary">
 						{progress.reviewed}/{progress.total} reviewed
 					</span>
+					{/* The only in-review sign that the merge-request-level mark exists; without
+					    it the reviewer has to go back to the list to see whether it landed. */}
+					{reviewedAllMark ? (
+						<span
+							data-testid="review-mr-reviewed-chip"
+							title={`You marked this merge request reviewed on ${new Date(reviewedAllMark.at).toLocaleString()}.`}
+							className="shrink-0 rounded bg-status-green/20 px-1.5 py-0.5 text-[10px] text-status-green"
+						>
+							MR reviewed
+						</span>
+					) : null}
 					{/*
 					 * Says what the agents can see. A review whose prompts silently lost their
 					 * blast radius — no graph, or one built before half the branch existed —
@@ -1191,6 +1210,35 @@ export function ReviewWorkspaceView({
 						onClick={() => session.unmarkReviewedPaths([...session.newComments.byPath.keys()])}
 					>
 						Unmark all
+					</Button>
+				</div>
+			) : null}
+
+			{/*
+			 * Every file ticked is the moment to record that this merge request is done —
+			 * the list badge reads that mark, and nothing else on this screen would tell a
+			 * reviewer coming back tomorrow. Offered rather than stamped: the same reason
+			 * the banner above suggests instead of unmarking.
+			 */}
+			{suggestMarkReviewed ? (
+				<div
+					data-testid="review-mark-reviewed-banner"
+					className="flex shrink-0 items-center justify-between gap-3 border-b border-border bg-surface-1 px-3 py-1.5 text-[11px] text-status-green"
+				>
+					<span>
+						All {progress.total} file{progress.total === 1 ? "" : "s"} reviewed. Mark this merge request reviewed so
+						the list shows it.
+					</span>
+					<Button
+						variant="default"
+						size="sm"
+						icon={<CheckCheck size={12} />}
+						onClick={() => {
+							session.markMergeRequestReviewed();
+							showAppToast({ intent: "success", message: `!${target.iid} marked reviewed.` });
+						}}
+					>
+						Mark MR reviewed
 					</Button>
 				</div>
 			) : null}
