@@ -29,6 +29,7 @@ export const FEATURES = [
 		id: "agent-stack",
 		label: "Agent Stack (Understand-Anything, rtk, headroom)",
 		default: true,
+		parent: "kanban",
 		probe: "backends/agent_stack/.venv/bin/headroom",
 		steps: [
 			{ run: "uv sync", cwd: "backends/agent_stack", needs: ["uv"] },
@@ -39,6 +40,7 @@ export const FEATURES = [
 		id: "plan-editor",
 		label: "Plan editor",
 		default: true,
+		parent: "kanban",
 		probe: "backends/html_anything/next/.next/BUILD_ID",
 		steps: [
 			{
@@ -51,6 +53,7 @@ export const FEATURES = [
 		id: "omniroute",
 		label: "OmniRoute",
 		default: false,
+		parent: "kanban",
 		probe: "backends/OmniRoute/bin/omniroute.mjs",
 		steps: [
 			{ run: "git submodule update --init backends/OmniRoute", cwd: "." },
@@ -61,6 +64,7 @@ export const FEATURES = [
 		id: "review",
 		label: "Review",
 		default: false,
+		parent: "kanban",
 		probe: null, // in-tree; ships with the runtime
 		steps: [],
 		note: "Review ships with the core runtime; nothing extra to install.",
@@ -69,6 +73,7 @@ export const FEATURES = [
 		id: "agent-creation",
 		label: "Agent creation (Flowise studio)",
 		default: false,
+		parent: "kanban",
 		probe: "backends/flowise/packages/server/dist/index.js",
 		needsNode: 24,
 		noWorktree: true,
@@ -77,6 +82,26 @@ export const FEATURES = [
 			{ run: "npx pnpm@10.26.0 install", cwd: "backends/flowise" },
 			{ run: "npx pnpm@10.26.0 build", cwd: "backends/flowise" },
 		],
+	},
+	// The two standalone packages come last: both builders shell to binaries under the
+	// workspace node_modules that the core feature's `pnpm install` step provides.
+	{
+		id: "plan-editor-standalone",
+		label: "Plan editor standalone",
+		default: false,
+		probe: "plan-editor-standalone/start.sh",
+		steps: [
+			// --slim ships ~50 MB instead of ~490 MB; the package's own build.sh installs
+			// the sidecar's prod deps once on the target machine.
+			{ run: "node scripts/build-plan-editor-standalone.mjs --slim", cwd: ".", needs: ["pnpm"] },
+		],
+	},
+	{
+		id: "review-standalone",
+		label: "Review Standalone",
+		default: false,
+		probe: "review-standalone/start.sh",
+		steps: [{ run: "node scripts/build-review-standalone.mjs", cwd: "." }],
 	},
 ];
 
@@ -240,21 +265,25 @@ if (isMain) {
 	if (process.argv.includes("--list")) {
 		const repoRoot = process.cwd();
 		console.log("\nPIXTIEL Feature Manifest:\n");
+		// Wide enough for the longest id plus a space; recomputed so adding a feature
+		// with a longer id cannot silently break the columns.
+		const idWidth = Math.max(4, ...FEATURES.map((f) => f.id.length)) + 2;
 		console.log(
-			"ID".padEnd(18) +
+			"ID".padEnd(idWidth) +
 			"DEFAULT".padEnd(10) +
 			"STATE".padEnd(12) +
 			"LABEL"
 		);
-		console.log("─".repeat(70));
+		console.log("─".repeat(idWidth + 52));
 		for (const feat of FEATURES) {
 			const state = probeFeature(feat, repoRoot);
 			const def = feat.default ? (feat.locked ? "yes (req)" : "yes") : "no";
+			const label = feat.parent ? `  ${feat.label}` : feat.label;
 			console.log(
-				feat.id.padEnd(18) +
+				feat.id.padEnd(idWidth) +
 				def.padEnd(10) +
 				state.padEnd(12) +
-				feat.label
+				label
 			);
 		}
 		console.log("");

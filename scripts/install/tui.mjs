@@ -1,6 +1,6 @@
 import readline from "node:readline";
 
-/** items: [{id, label, checked, locked}] ; returns Set<id> or null on abort. */
+/** items: [{id, label, checked, locked, depth}] ; returns Set<id> or null on abort. */
 export async function checkboxSelect(items, { out = process.stdout, in: input = process.stdin } = {}) {
 	if (!input.isTTY) throw new Error("checkboxSelect requires a TTY; use --features id,id instead.");
 	const state = items.map((it) => ({ ...it }));
@@ -12,7 +12,10 @@ export async function checkboxSelect(items, { out = process.stdout, in: input = 
 			const box = it.checked ? "[x]" : "[ ]";
 			const ptr = i === cursor ? "❯" : " ";
 			const lock = it.locked ? " (required)" : "";
-			return `\x1b[2K ${ptr} ${box} ${it.label}${lock}`;
+			// Nesting is presentational only: the pointer keeps its own column so the
+			// cursor never jumps sideways, and only the box onward is indented.
+			const indent = "  ".repeat(it.depth || 0);
+			return `\x1b[2K ${ptr} ${indent}${box} ${it.label}${lock}`;
 		});
 		lines.push("\x1b[2K   ↑/↓ move · space toggle · a all · enter confirm · q quit");
 		out.write(lines.join("\n") + "\n");
@@ -46,10 +49,10 @@ export async function checkboxSelect(items, { out = process.stdout, in: input = 
 
 if (process.argv.includes("--demo")) {
 	const sampleItems = [
-		{ id: "core", label: "Core runtime", checked: true, locked: true },
-		{ id: "desktop", label: "Desktop application", checked: true, locked: false },
-		{ id: "vault", label: "Vault & Credentials", checked: false, locked: false },
-		{ id: "docs", label: "Documentation site", checked: false, locked: false },
+		{ id: "core", label: "Core runtime", checked: true, locked: true, depth: 0 },
+		{ id: "desktop", label: "Desktop application", checked: true, locked: false, depth: 1 },
+		{ id: "vault", label: "Vault & Credentials", checked: false, locked: false, depth: 1 },
+		{ id: "docs", label: "Documentation site", checked: false, locked: false, depth: 0 },
 	];
 	try {
 		const selected = await checkboxSelect(sampleItems);
