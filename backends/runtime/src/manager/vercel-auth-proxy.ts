@@ -212,25 +212,41 @@ export async function createUsageAuthSession(
 /**
  * Some Vercel envs still mint formUrl against localhost. Rewrite to the public base
  * while preserving the sessionId query so emailed links are usable.
+ *
+ * The returned URL is also pinned to the configured base origin. This value comes
+ * back from the remote broker and then goes straight into an email the *user*
+ * sends under their own name (`manager-oauth-invite-email.ts`), so a compromised
+ * or misconfigured broker could otherwise put any link in front of a colleague
+ * who has been told to expect an authorization form. Anything off-origin is
+ * rebuilt from the base we dialled plus the session id we already hold, which is
+ * exactly what the localhost branch below has always done.
  */
 export function normalizeFormUrl(
 	formUrl: string,
 	baseUrl: string,
 	sessionId: string,
 ): string {
+	const rebuildFromBase = (suppliedSessionId?: string | null): string => {
+		const publicUrl = new URL(baseUrl);
+		publicUrl.searchParams.set("sessionId", suppliedSessionId ?? sessionId);
+		return publicUrl.toString();
+	};
+	let parsed: URL;
+	let base: URL;
 	try {
-		const parsed = new URL(formUrl);
-		const host = parsed.hostname.toLowerCase();
-		if (host === "localhost" || host === "127.0.0.1") {
-			const publicUrl = new URL(baseUrl);
-			publicUrl.searchParams.set(
-				"sessionId",
-				parsed.searchParams.get("sessionId") ?? sessionId,
-			);
-			return publicUrl.toString();
-		}
+		parsed = new URL(formUrl);
+		base = new URL(baseUrl);
 	} catch {
-		// Fall through and return the original string.
+		// An unparseable base is a configuration error we cannot repair here; an
+		// unparseable formUrl is not something to put in an email either.
+		return formUrl;
+	}
+	const host = parsed.hostname.toLowerCase();
+	if (host === "localhost" || host === "127.0.0.1") {
+		return rebuildFromBase(parsed.searchParams.get("sessionId"));
+	}
+	if (parsed.origin !== base.origin) {
+		return rebuildFromBase(parsed.searchParams.get("sessionId"));
 	}
 	return formUrl;
 }

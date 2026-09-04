@@ -33,8 +33,12 @@ interface FakeResponse {
 	body: string;
 }
 
-function fakeRequest(body: unknown): IncomingMessage {
+function fakeRequest(body: unknown, headers: Record<string, string> = {}): IncomingMessage {
 	const stream = Readable.from([Buffer.from(JSON.stringify(body), "utf-8")]);
+	// A real POST from the client carries this; the route refuses anything else,
+	// because a CORS-simple content type makes the route reachable by a
+	// preflight-free cross-site POST.
+	Object.assign(stream, { headers: { "content-type": "application/json", ...headers } });
 	return stream as unknown as IncomingMessage;
 }
 
@@ -156,6 +160,46 @@ describe("handleAgentStreamRoute onComplete", () => {
 
 		expect(response.status).toBe(409);
 		expect(response.body).toContain("No rules have been extracted yet.");
+	});
+});
+
+describe("handleAgentStreamRoute content type", () => {
+	// Every caller of this helper spawns an agent turn on the user's seat. The
+	// body was parsed as JSON whatever the content type claimed, which made the
+	// route CORS-simple: reachable by a cross-site POST with no preflight.
+	it("refuses the CORS-simple content types with 415 and spawns nothing", async () => {
+		for (const contentType of [
+			"text/plain",
+			"application/x-www-form-urlencoded",
+			"multipart/form-data; boundary=x",
+		]) {
+			runInputs = [];
+			const response = fakeResponse();
+			await handleAgentStreamRoute(fakeRequest({ keep: true }, { "content-type": contentType }), response.res, {
+				schema: PASSTHROUGH_SCHEMA,
+				buildRun: async () => ({ ok: true, prompt: "hello", allowedTools: ["Read"] }),
+			});
+
+			expect(response.status).toBe(415);
+			expect(runInputs).toHaveLength(0);
+		}
+	});
+
+	it("accepts application/json with parameters", async () => {
+		scriptedEvents = [{ type: "done", code: 0 }];
+		runInputs = [];
+		const response = fakeResponse();
+		await handleAgentStreamRoute(
+			fakeRequest({ keep: true }, { "content-type": "application/json; charset=utf-8" }),
+			response.res,
+			{
+				schema: PASSTHROUGH_SCHEMA,
+				buildRun: async () => ({ ok: true, prompt: "hello", allowedTools: ["Read"] }),
+			},
+		);
+
+		expect(response.status).not.toBe(415);
+		expect(runInputs).toHaveLength(1);
 	});
 });
 

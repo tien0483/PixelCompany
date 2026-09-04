@@ -1,8 +1,11 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
   isAllowedHost,
+  isAllowedOrigin,
+  isRequestCrossSiteWrite,
   isRequestHostAllowed,
   parseAllowedHosts,
+  requireJsonContentType,
   stripPort,
 } from "./host-validation";
 
@@ -142,5 +145,127 @@ describe("isRequestHostAllowed (env-driven wrapper)", () => {
   it("envVar=0 stays strict (only '1' opts out)", () => {
     process.env.HTML_ANYTHING_ALLOW_ANY_HOST = "0";
     expect(isRequestHostAllowed(make("attacker.example"))).toBe(false);
+  });
+});
+
+describe("isAllowedOrigin", () => {
+  it("accepts loopback origins on any port and scheme", () => {
+    expect(isAllowedOrigin("http://127.0.0.1:3317")).toBe(true);
+    expect(isAllowedOrigin("http://localhost:3000")).toBe(true);
+    expect(isAllowedOrigin("https://localhost")).toBe(true);
+    expect(isAllowedOrigin("http://[::1]:3317")).toBe(true);
+  });
+  it("rejects foreign origins", () => {
+    expect(isAllowedOrigin("https://attacker.example")).toBe(false);
+    expect(isAllowedOrigin("http://attacker.example:3317")).toBe(false);
+    // The classic prefix trick — must not match on substring.
+    expect(isAllowedOrigin("http://127.0.0.1.attacker.example")).toBe(false);
+    expect(isAllowedOrigin("http://localhost.attacker.example")).toBe(false);
+  });
+  // The whole point of F2's sibling finding: an opaque origin is a sandboxed
+  // iframe, which is the thing being contained, not a caller to trust.
+  it("rejects the literal opaque origin 'null'", () => {
+    expect(isAllowedOrigin("null")).toBe(false);
+    expect(isAllowedOrigin("NULL")).toBe(false);
+    expect(isAllowedOrigin(" null ")).toBe(false);
+  });
+  it("rejects empty / missing / unparseable origins", () => {
+    expect(isAllowedOrigin(null)).toBe(false);
+    expect(isAllowedOrigin(undefined)).toBe(false);
+    expect(isAllowedOrigin("")).toBe(false);
+    expect(isAllowedOrigin("not a url")).toBe(false);
+    expect(isAllowedOrigin("file://")).toBe(false);
+  });
+  it("ignores userinfo when reading the host", () => {
+    expect(isAllowedOrigin("http://user:pw@127.0.0.1:3317")).toBe(true);
+    expect(isAllowedOrigin("http://127.0.0.1@attacker.example")).toBe(false);
+  });
+  it("honours the operator allowlist and the wildcard opt-out", () => {
+    const extras = parseAllowedHosts("html.anything.lan");
+    expect(isAllowedOrigin("http://html.anything.lan:3000", { extraAllowed: extras })).toBe(true);
+    expect(isAllowedOrigin("https://attacker.example", { extraAllowed: extras })).toBe(false);
+    expect(isAllowedOrigin("https://attacker.example", { allowAny: true })).toBe(true);
+  });
+});
+
+describe("isRequestCrossSiteWrite", () => {
+  const make = (method: string, origin: string | null) => ({
+    method,
+    headers: {
+      get(name: string) {
+        return name.toLowerCase() === "origin" ? origin : null;
+      },
+    },
+  });
+
+  afterEach(() => {
+    delete process.env.HTML_ANYTHING_ALLOWED_HOSTS;
+    delete process.env.HTML_ANYTHING_ALLOW_ANY_HOST;
+  });
+
+  it("blocks a state-changing request from a foreign origin", () => {
+    expect(isRequestCrossSiteWrite(make("POST", "https://attacker.example"))).toBe(true);
+    expect(isRequestCrossSiteWrite(make("post", "https://attacker.example"))).toBe(true);
+    for (const method of ["PUT", "PATCH", "DELETE"]) {
+      expect(isRequestCrossSiteWrite(make(method, "https://attacker.example"))).toBe(true);
+    }
+  });
+  it("blocks a state-changing request from an opaque (sandboxed-iframe) origin", () => {
+    expect(isRequestCrossSiteWrite(make("POST", "null"))).toBe(true);
+  });
+  it("allows the same-origin editor UI", () => {
+    expect(isRequestCrossSiteWrite(make("POST", "http://127.0.0.1:3317"))).toBe(false);
+    expect(isRequestCrossSiteWrite(make("POST", "http://localhost:3000"))).toBe(false);
+  });
+  // The runtime proxies every sidecar call server-side (`/api/html-proxy/*`), so
+  // the legitimate path carries no Origin at all. Blocking that would take the
+  // whole HTML tab down.
+  it("allows a request with no Origin header (server-side / curl)", () => {
+    expect(isRequestCrossSiteWrite(make("POST", null))).toBe(false);
+  });
+  it("leaves safe methods alone whatever the origin", () => {
+    expect(isRequestCrossSiteWrite(make("GET", "https://attacker.example"))).toBe(false);
+    expect(isRequestCrossSiteWrite(make("HEAD", "null"))).toBe(false);
+    expect(isRequestCrossSiteWrite(make("OPTIONS", "https://attacker.example"))).toBe(false);
+  });
+  it("honours the env knobs", () => {
+    process.env.HTML_ANYTHING_ALLOWED_HOSTS = "html.anything.lan";
+    expect(isRequestCrossSiteWrite(make("POST", "http://html.anything.lan:3000"))).toBe(false);
+    delete process.env.HTML_ANYTHING_ALLOWED_HOSTS;
+    process.env.HTML_ANYTHING_ALLOW_ANY_HOST = "1";
+    expect(isRequestCrossSiteWrite(make("POST", "https://attacker.example"))).toBe(false);
+  });
+});
+
+describe("requireJsonContentType", () => {
+  const make = (contentType: string | null) => ({
+    headers: {
+      get(name: string) {
+        return name.toLowerCase() === "content-type" ? contentType : null;
+      },
+    },
+  });
+
+  it("passes application/json, with or without parameters", () => {
+    expect(requireJsonContentType(make("application/json"))).toBeNull();
+    expect(requireJsonContentType(make("application/json; charset=utf-8"))).toBeNull();
+    expect(requireJsonContentType(make("APPLICATION/JSON"))).toBeNull();
+    expect(requireJsonContentType(make(" application/json "))).toBeNull();
+  });
+  // The three CORS-simple types are exactly what makes a preflight-free
+  // cross-site POST possible, so each has to be refused.
+  it("refuses the CORS-simple content types with 415", () => {
+    for (const contentType of [
+      "text/plain",
+      "application/x-www-form-urlencoded",
+      "multipart/form-data; boundary=x",
+    ]) {
+      const response = requireJsonContentType(make(contentType));
+      expect(response?.status).toBe(415);
+    }
+  });
+  it("refuses a missing content type", () => {
+    expect(requireJsonContentType(make(null))?.status).toBe(415);
+    expect(requireJsonContentType(make(""))?.status).toBe(415);
   });
 });

@@ -1,8 +1,9 @@
 import { chmod, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import type { ZodType } from "zod";
 
 import { getRuntimeHomePath } from "../state/workspace-state";
+import { isPathWithinRoot } from "../workspace/path-sandbox";
 
 export const VAULT_DIR_NAME = "vault";
 
@@ -20,9 +21,39 @@ export function getVaultDir(): string {
 	return join(getRuntimeHomePath(), VAULT_DIR_NAME);
 }
 
+/**
+ * Path separators and NUL — the only characters that can make a service id
+ * address something other than one file directly inside the vault directory.
+ *
+ * Service ids arrive straight off the wire: `vault.setMcpSecret` takes
+ * `serverId: z.string().min(1)` and `vault.delete` takes `service:
+ * z.string().min(1)`, neither of which constrains a path. `join` normalizes
+ * `..`, so `"../../../../.claude/settings.json"` left this directory entirely
+ * and the writer and deleter below followed it. Only the *temp* filename was
+ * ever sanitized; the target was not.
+ *
+ * Deliberately not a charset allowlist. An MCP service id is an `.mcp.json`
+ * server *name*, which legitimately contains `@`, spaces and dots, and quietly
+ * rejecting those would strand a secret that works today (`readVaultFile`
+ * swallows every error and answers `null`). A name containing a separator, by
+ * contrast, could never have been stored in the first place — `writeFile` would
+ * have hit ENOENT on the implied subdirectory — so refusing it regresses
+ * nothing.
+ */
+const PATH_UNSAFE_PATTERN = /[/\\\0]/;
+
 export function getVaultFilePath(service: string): string {
+	if (PATH_UNSAFE_PATTERN.test(service)) {
+		throw new Error(`Invalid vault service id "${service}": must not contain a path separator.`);
+	}
 	const filename = service.endsWith(".json") ? service : `${service}.json`;
-	return join(getVaultDir(), filename);
+	const vaultDir = getVaultDir();
+	// The check that actually holds if the pattern above is ever loosened, and
+	// the one that catches a bare "." / ".." the pattern cannot see.
+	if (!isPathWithinRoot(vaultDir, resolve(vaultDir, filename))) {
+		throw new Error(`Invalid vault service id "${service}": resolves outside the vault directory.`);
+	}
+	return join(vaultDir, filename);
 }
 
 export async function ensureVaultDir(): Promise<string> {
@@ -75,10 +106,12 @@ export async function writeVaultFile<T>(
 	const jsonText = `${JSON.stringify(value, null, 2)}\n`;
 	const buf = codec.encode(jsonText);
 
-	await writeFile(tempPath, buf);
-	// Written after the fact rather than via the `mode` option: an existing file
-	// keeps its old mode when rewritten, so `mode` alone would not tighten a file
-	// created before this line existed.
+	// `mode` on create AND an explicit chmod, because neither alone is enough:
+	// `mode` is masked by the process umask and does not tighten a file that
+	// already exists, while chmod alone leaves the secret readable at the default
+	// 0644 for the window between create and chmod — a race a co-tenant local
+	// user can win. The temp name is unpredictable, but not secret.
+	await writeFile(tempPath, buf, { mode: 0o600 });
 	await chmod(tempPath, 0o600);
 	await rename(tempPath, targetPath);
 	await chmod(targetPath, 0o600).catch(() => {});

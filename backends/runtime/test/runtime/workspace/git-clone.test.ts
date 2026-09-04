@@ -30,7 +30,12 @@ vi.mock("node:fs/promises", () => ({
 	stat: fsMocks.stat,
 }));
 
-import { cloneGitRepository, deriveRepoNameFromUrl, validateCloneDestination } from "../../../src/workspace/git-clone";
+import {
+	cloneGitRepository,
+	deriveRepoNameFromUrl,
+	isAllowedCloneUrl,
+	validateCloneDestination,
+} from "../../../src/workspace/git-clone";
 
 describe("deriveRepoNameFromUrl", () => {
 	it("extracts repo name from HTTPS URL", () => {
@@ -235,6 +240,30 @@ describe("cloneGitRepository", () => {
 
 		expect(result.ok).toBe(false);
 		expect(result.error).toContain("Could not derive repository name");
+	});
+
+	// `git clone -- <url>` blocks option injection but not the URL itself, and
+	// git's `ext::` transport runs a shell command by design.
+	it("refuses a remote-helper transport before running git", async () => {
+		for (const url of ["ext::sh -c 'id>/tmp/pwn'", "ext::git-upload-pack", "file::/srv/repo"]) {
+			const result = await cloneGitRepository(url, testCwd);
+
+			expect(result.ok).toBe(false);
+			expect(result.error).toContain("Unsupported repository URL");
+		}
+	});
+
+	it("still accepts the transports people actually use", async () => {
+		for (const url of [
+			"https://github.com/u/r.git",
+			"ssh://git@host/u/r.git",
+			"git://host/r.git",
+			"file:///srv/r",
+			"git@github.com:u/r.git",
+			"/srv/repo",
+		]) {
+			expect(isAllowedCloneUrl(url)).toBe(true);
+		}
 	});
 
 	it("returns error when git clone command fails", async () => {

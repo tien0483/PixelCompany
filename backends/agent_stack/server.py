@@ -26,6 +26,7 @@ import socket
 import tempfile
 import time
 from contextlib import asynccontextmanager
+from urllib.parse import urlsplit
 
 import httpx
 from fastapi import FastAPI, Request
@@ -185,6 +186,149 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "OPTIONS"],
     allow_headers=["*"],
 )
+
+# --- network exposure guards -------------------------------------------------
+# CORS is not access control. `CORSMiddleware` adds response headers and answers
+# preflights; it does not *refuse* a request that never preflighted. Two shapes
+# walked straight through it, from any web page the user happened to visit:
+#
+#   POST /ui/save        `application/x-www-form-urlencoded` is CORS-simple, so
+#                        a cross-site form post rewrote every stack flag.
+#   POST /v1/messages    `Content-Type: text/plain` is CORS-simple too, and
+#                        `read_subagent_route` json-parses the body regardless of
+#                        content type — so the page reached a proxy that injects
+#                        `STACK_UPSTREAM_ANTHROPIC_API_KEY`, or a per-seat router
+#                        holding that seat's key. The response is opaque to the
+#                        attacker, but the tokens are already spent.
+#
+# Nothing here validated `Host` either, so DNS rebinding additionally made those
+# requests same-origin and their responses readable.
+#
+# Both holes need both rules, because they defend different attacks: the Host
+# allowlist stops rebinding (which an Origin check cannot see, since a rebound
+# page *is* same-origin), and foreign-Origin rejection stops ordinary CSRF (which
+# the Host check cannot see, since the attacker dials the allowed host himself).
+# This is the same pairing as `backends/manager/manager/api/security.py`.
+_LOOPBACK_HOSTNAMES = {"127.0.0.1", "localhost", "::1", "[::1]"}
+_UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+
+
+def extra_allowed_hosts() -> set[str]:
+    """Operator escape hatch for a switchboard bound off loopback.
+
+    `stack-process.ts` only ever passes 127.0.0.1, but a hand-started uvicorn can
+    bind elsewhere, and locking that out with no knob would be its own outage.
+    """
+    raw = os.environ.get("STACK_ALLOWED_HOSTS", "")
+    return {part.strip().lower() for part in raw.split(",") if part.strip()}
+
+
+def split_hostname(netloc: str) -> str:
+    """Hostname from a `Host` header or URL netloc, port stripped.
+
+    Keeps IPv6 brackets, so `[::1]:8000` -> `[::1]` and matches the set above.
+    """
+    value = netloc.strip().lower()
+    if not value:
+        return ""
+    if value.startswith("["):
+        end = value.find("]")
+        # Unterminated bracket is malformed; fail closed.
+        return value[: end + 1] if end != -1 else ""
+    host, sep, port = value.rpartition(":")
+    if not sep:
+        return value
+    # Bare IPv6 (several colons, no brackets) carries no port component.
+    if ":" in host:
+        return value
+    return host if port.isdigit() else value
+
+
+def host_header_allowed(host_header: str) -> bool:
+    if not host_header:
+        return False
+    hostname = split_hostname(host_header).rstrip(".")
+    if not hostname:
+        return False
+    return hostname in _LOOPBACK_HOSTNAMES or hostname in extra_allowed_hosts()
+
+
+def origin_allowed(origin: str) -> bool:
+    """True when a browser `Origin` may issue a state-changing request.
+
+    The literal ``"null"`` is refused: that is an *opaque* origin (a sandboxed
+    iframe, a `data:` document), which no first-party caller ever sends.
+    """
+    value = origin.strip()
+    if not value or value.lower() == "null":
+        return False
+    netloc = urlsplit(value).netloc
+    if not netloc:
+        return False
+    # Strip any userinfo before reading the host.
+    return host_header_allowed(netloc.rpartition("@")[2])
+
+
+class LocalOnlyMiddleware:
+    """Pure-ASGI Host validation + cross-site write rejection.
+
+    Pure ASGI rather than ``BaseHTTPMiddleware`` so it also covers a request that
+    never reaches a route, and so it runs before any body is read.
+    """
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] not in ("http", "websocket"):
+            await self.app(scope, receive, send)
+            return
+
+        host_header = ""
+        host_count = 0
+        origin_header = ""
+        for name, value in scope.get("headers", []):
+            if name == b"host":
+                host_count += 1
+                host_header = value.decode("latin-1")
+            elif name == b"origin":
+                origin_header = value.decode("latin-1")
+
+        # Two Host headers desync whoever reads the first from whoever reads the
+        # last. Legitimate clients never send both.
+        if host_count > 1 or not host_header_allowed(host_header):
+            await self._reject(
+                send,
+                421,
+                "Untrusted Host header (possible DNS rebinding); "
+                "set STACK_ALLOWED_HOSTS to allow.",
+            )
+            return
+
+        method = scope.get("method", "").upper()
+        if method in _UNSAFE_METHODS and origin_header and not origin_allowed(origin_header):
+            await self._reject(send, 403, "Cross-site request blocked.")
+            return
+
+        await self.app(scope, receive, send)
+
+    @staticmethod
+    async def _reject(send, status: int, message: str) -> None:
+        body = json.dumps({"error": message}).encode()
+        await send(
+            {
+                "type": "http.response.start",
+                "status": status,
+                "headers": [
+                    (b"content-type", b"application/json"),
+                    (b"content-length", str(len(body)).encode()),
+                ],
+            }
+        )
+        await send({"type": "http.response.body", "body": body})
+
+
+app.add_middleware(LocalOnlyMiddleware)
 
 
 def get_flags() -> dict:

@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { invokeAgent } from "@/lib/agents/invoke";
+import { requireJsonContentType } from "@/lib/security/host-validation";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -12,7 +13,16 @@ type Body = {
    *  continue the user's voice instead of writing in isolation. */
   context?: string;
   model?: string;
-  /** Optional absolute path to the agent binary; see /api/convert. */
+  /**
+   * Optional absolute path (or PATH name) of the agent binary — the editor's
+   * Settings → Custom path value, which lives in the browser store.
+   *
+   * It selects which executable is spawned, so it is only as trustworthy as the
+   * caller. That is acceptable *because* `middleware.ts` now refuses
+   * state-changing calls carrying a foreign or opaque `Origin`: what remains is
+   * the same-origin editor UI and local non-browser callers, who can already run
+   * anything. Do not relax that gate without moving this value server-side.
+   */
   binOverride?: string;
 };
 
@@ -37,6 +47,13 @@ ${args.instruction}
 }
 
 export async function POST(req: NextRequest) {
+  // This route spawns the user's agent CLI with permission prompts disabled, so
+  // it must not be reachable by a preflight-free cross-site POST. `middleware.ts`
+  // rejects a foreign `Origin`; this rejects the CORS-simple content types that
+  // make such a POST possible in the first place.
+  const contentTypeError = requireJsonContentType(req);
+  if (contentTypeError) return contentTypeError;
+
   let body: Body;
   try {
     body = (await req.json()) as Body;

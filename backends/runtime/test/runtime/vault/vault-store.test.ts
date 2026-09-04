@@ -69,6 +69,36 @@ describe("vault-store", () => {
 		expect(result).toBeNull();
 	});
 
+	// Service ids arrive off the wire as unconstrained strings, and `join`
+	// normalizes `..`, so these used to write and delete outside the vault.
+	it("refuses a service id that escapes the vault directory", () => {
+		for (const service of [
+			"../../../../.claude/settings.json",
+			"mcp:../../../../.claude/settings.json",
+			"..\\..\\evil.json",
+			"sub/dir",
+			"mcp:a/b",
+		]) {
+			expect(() => getVaultFilePath(service)).toThrow();
+		}
+	});
+
+	it("does not write or delete outside the vault directory", async () => {
+		const escape = "../../../../pixtiel-vault-escape.json";
+		await expect(writeVaultFile(escape, { pwned: true })).rejects.toThrow();
+		await expect(deleteVaultFile(escape)).resolves.toBe(false);
+	});
+
+	// Ids that are merely unusual must keep working: an MCP service id is an
+	// `.mcp.json` server *name*, which legitimately carries `@`, dots and spaces.
+	it("still accepts unusual but separator-free service ids", async () => {
+		for (const service of ["mcp:@scope-name", "mcp:my server", "mcp:a.b.c", "plain_id-1"]) {
+			expect(() => getVaultFilePath(service)).not.toThrow();
+			await writeVaultFile(service, { ok: service });
+			expect(await readVaultFile(service)).toEqual({ ok: service });
+		}
+	});
+
 	it("returns null for corrupted/unparseable JSON files", async () => {
 		const filePath = getVaultFilePath("corrupted-service");
 		// Ensure dir exists

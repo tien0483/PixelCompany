@@ -1,3 +1,4 @@
+import { requireJsonContentType } from "@/lib/security/host-validation";
 import { importTemplateZip, TemplateImportError, ZIP_MAX_BYTES } from "@/lib/templates/import-zip";
 import { invalidateSkillsCache } from "@/lib/templates/loader";
 
@@ -19,6 +20,11 @@ export const dynamic = "force-dynamic";
 const MAX_BASE64_LENGTH = Math.ceil((ZIP_MAX_BYTES * 4) / 3) + 1024;
 
 export async function POST(request: Request): Promise<Response> {
+  // Writes a skill folder to disk and shells out to `tar`, so it gets the same
+  // preflight-free guard as the agent-spawning routes.
+  const contentTypeError = requireJsonContentType(request);
+  if (contentTypeError) return contentTypeError;
+
   let payload: unknown;
   try {
     payload = await request.json();

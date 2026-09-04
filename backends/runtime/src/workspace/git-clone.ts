@@ -38,6 +38,42 @@ export function deriveRepoNameFromUrl(gitUrl: string): string | null {
 	return name || null;
 }
 
+/** Transports a clone URL may name. Everything else is refused. */
+const ALLOWED_CLONE_SCHEMES = new Set(["https", "http", "ssh", "git", "file"]);
+/** `git@host:user/repo.git` — scp-style, no scheme at all. */
+const SCP_STYLE_URL = /^[^@\s:/]+@[^@\s:/]+:[^\s]+$/;
+
+/**
+ * True when a clone URL names a transport we are willing to hand to git.
+ *
+ * `git clone -- <url>` blocks *option* injection but says nothing about the URL,
+ * and git's `ext::` transport runs a shell command by design
+ * (`git clone 'ext::sh -c …'`), as does a `--upload-pack` smuggled through some
+ * remote helpers. A clone URL is exactly the sort of value that arrives pasted
+ * from a chat or supplied by an agent, so the scheme is worth pinning even
+ * though the caller here is already trusted.
+ *
+ * A bare local path (`/srv/repo`, `./repo`) is accepted: it has no scheme, is
+ * indistinguishable from `file:`, and cannot carry a helper name.
+ */
+export function isAllowedCloneUrl(gitUrl: string): boolean {
+	const trimmed = gitUrl.trim();
+	if (!trimmed) {
+		return false;
+	}
+	const schemeMatch = /^([A-Za-z][A-Za-z0-9+.-]*)::?/.exec(trimmed);
+	if (schemeMatch) {
+		// `ext::`, `transport::address` and friends use a double colon; a normal URL
+		// uses `scheme://`. Either way the name before the colon must be allow-listed.
+		return ALLOWED_CLONE_SCHEMES.has(schemeMatch[1]!.toLowerCase()) && !trimmed.startsWith(`${schemeMatch[1]}::`);
+	}
+	if (SCP_STYLE_URL.test(trimmed)) {
+		return true;
+	}
+	// No scheme and no `user@host:` — a local path.
+	return !trimmed.includes("::");
+}
+
 /**
  * Validate that a resolved destination path is within the server CWD sandbox.
  * Returns the resolved absolute path if valid, or throws an error.
@@ -68,6 +104,17 @@ export async function cloneGitRepository(
 	destinationPath?: string,
 	allowedRootPath: string = serverCwd,
 ): Promise<GitCloneResult> {
+	// Only judges the transport. A blank URL falls through to the name-derivation
+	// check below, which already has a more specific message for it.
+	if (gitUrl.trim() && !isAllowedCloneUrl(gitUrl)) {
+		return {
+			ok: false,
+			clonedPath: "",
+			error:
+				"Unsupported repository URL. Use an https, ssh, git or file URL, " +
+				"a git@host:path address, or a local path.",
+		};
+	}
 	const repoName = deriveRepoNameFromUrl(gitUrl);
 	if (!repoName && !destinationPath) {
 		return {

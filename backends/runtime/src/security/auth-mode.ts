@@ -93,7 +93,10 @@ export async function writeAuthFile<T>(filename: string, value: T, runtimeHome?:
 	);
 
 	const jsonText = `${JSON.stringify(value, null, 2)}\n`;
-	await writeFile(tempPath, Buffer.from(jsonText, "utf-8"));
+	// `mode` on create as well as the chmod: chmod alone leaves the file at the
+	// umask default (typically 0644) for the window between create and chmod, and
+	// `mode` alone neither survives the umask nor tightens an existing file.
+	await writeFile(tempPath, Buffer.from(jsonText, "utf-8"), { mode: 0o600 });
 	await chmod(tempPath, 0o600);
 	await rename(tempPath, targetPath);
 	await chmod(targetPath, 0o600).catch(() => {});

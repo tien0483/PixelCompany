@@ -24,10 +24,23 @@ export function evaluateCors(input: CorsGateInput): CorsDecision {
 	const origin = input.originHeader || null;
 	const isPreflight = input.method === "OPTIONS";
 
-	// No Origin header, or the literal string "null" (sent by browsers in sandboxed
-	// contexts / certain privacy modes) — both are safe to allow on a loopback server.
-	if (origin === null || origin === "null") {
+	// No Origin header at all: a same-origin GET, a navigation, or a non-browser
+	// client. Safe to allow on a loopback server.
+	//
+	// The literal string "null" is a different thing and is NOT safe: it is an
+	// *opaque* origin, which is what a `sandbox="allow-scripts"` iframe sends. We
+	// render agent-generated HTML in exactly such a frame
+	// (`plan-html-preview-frame.tsx`), and the sandbox is the only thing containing
+	// it — so allowing "null" handed that content the whole API: a terminal
+	// WebSocket (no CORS, no preflight) writing into the live agent's PTY, and
+	// preflight-free `multipart/form-data` POSTs to any input-less tRPC mutation,
+	// `runtime.resetAllState` included. No first-party caller ever sends "null":
+	// same-origin POSTs carry a real Origin and same-origin GETs carry none.
+	if (origin === null) {
 		return { kind: "allow", origin: null };
+	}
+	if (origin === "null") {
+		return { kind: "reject", origin };
 	}
 
 	const isDevServer =
