@@ -4,13 +4,15 @@ import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { getMergeWorktreePath, releaseBaseWorktree } from "../../src/workspace/git-conflict-worktree";
 import { getBlame } from "../../src/workspace/git-history";
 import {
+	abortConflictOperation,
 	commitWorkspaceChanges,
 	getMergeConflicts,
 	resolveMergeConflict,
 	runGitCreateBranchAction,
-	runGitMergeBranchInTemporaryWorktree,
+	runGitMergeBranchInBorrowedWorktree,
 	runGitSyncAction,
 } from "../../src/workspace/git-sync";
 import { createGitTestEnv } from "../utilities/git-env";
@@ -137,7 +139,7 @@ describe("git feature backends integration", () => {
 		git(repo, ["checkout", homeBranch]);
 		const releaseHeadBefore = git(repo, ["rev-parse", "release"]);
 
-		const response = await runGitMergeBranchInTemporaryWorktree({
+		const response = await runGitMergeBranchInBorrowedWorktree({
 			repoPath: repo,
 			branch: "kanban/task-1",
 			baseRef: "release",
@@ -149,13 +151,19 @@ describe("git feature backends integration", () => {
 		expect(git(repo, ["rev-parse", "release"])).not.toBe(releaseHeadBefore);
 		expect(git(repo, ["log", "-1", "--format=%s", "release"])).toBe("Merge branch 'kanban/task-1' into release");
 		expect(git(repo, ["log", "-1", "--format=%P", "release"]).split(" ")).toHaveLength(2);
-		// ...while HEAD stayed where the user left it and no worktree leaked.
+		// ...while HEAD stayed where the user left it and the borrowed checkout is gone,
+		// because a clean merge has nothing left to resolve.
 		expect(git(repo, ["rev-parse", "--abbrev-ref", "HEAD"])).toBe(homeBranch);
 		expect(response.summary.currentBranch).toBe(homeBranch);
-		expect(git(repo, ["worktree", "list", "--porcelain"])).not.toContain("kanban-merge-base-");
+		expect(git(repo, ["worktree", "list", "--porcelain"])).not.toContain(getMergeWorktreePath(repo, "release"));
 	});
 
-	it("reports a conflicting merge into a base branch that is checked out nowhere", async () => {
+	/**
+	 * The borrowed checkout used to be an `mkdtemp` that a `finally` deleted, so a
+	 * conflicting merge-to-base had its conflict destroyed before the response was
+	 * sent — which is why "Resolve merge conflicts" could never find anything.
+	 */
+	it("keeps a conflicting merge into an unchecked-out base resolvable in a borrowed worktree", async () => {
 		const homeBranch = git(repo, ["rev-parse", "--abbrev-ref", "HEAD"]);
 		git(repo, ["checkout", "-b", "release"]);
 		writeFileSync(join(repo, "foo.txt"), "line1\nRELEASE\nline3\n");
@@ -165,18 +173,51 @@ describe("git feature backends integration", () => {
 		git(repo, ["commit", "-am", "task change"]);
 		git(repo, ["checkout", homeBranch]);
 		const releaseHeadBefore = git(repo, ["rev-parse", "release"]);
+		const worktreePath = getMergeWorktreePath(repo, "release");
 
-		const response = await runGitMergeBranchInTemporaryWorktree({
-			repoPath: repo,
-			branch: "kanban/task-2",
-			baseRef: "release",
-		});
+		try {
+			const response = await runGitMergeBranchInBorrowedWorktree({
+				repoPath: repo,
+				branch: "kanban/task-2",
+				baseRef: "release",
+			});
 
-		expect(response.ok).toBe(false);
-		expect(response.error).toBeTruthy();
-		// The aborted merge left the base branch untouched, and the throwaway worktree is gone.
-		expect(git(repo, ["rev-parse", "release"])).toBe(releaseHeadBefore);
-		expect(git(repo, ["worktree", "list", "--porcelain"])).not.toContain("kanban-merge-base-");
+			expect(response.ok).toBe(false);
+			expect(response.conflictState).toMatchObject({
+				operation: "merge",
+				worktreePath,
+				paths: ["foo.txt"],
+			});
+			// The conflict is still there to be resolved, not aborted out from under us.
+			expect(git(repo, ["worktree", "list", "--porcelain"])).toContain(worktreePath);
+			expect(git(worktreePath, ["rev-parse", "-q", "--verify", "MERGE_HEAD"])).toBeTruthy();
+			expect(git(repo, ["rev-parse", "release"])).toBe(releaseHeadBefore);
+
+			const conflicts = await getMergeConflicts({ cwd: worktreePath });
+			expect(conflicts.operation).toBe("merge");
+			expect(conflicts.conflicts).toHaveLength(1);
+			expect(conflicts.conflicts[0]?.ours).toContain("RELEASE");
+			expect(conflicts.conflicts[0]?.theirs).toContain("TASK");
+			// The marker-bearing working copy is what seeds the resolver's editable pane.
+			expect(conflicts.conflicts[0]?.merged).toContain("<<<<<<<");
+
+			// A second attempt must reuse the stopped merge rather than start another.
+			const retry = await runGitMergeBranchInBorrowedWorktree({
+				repoPath: repo,
+				branch: "kanban/task-2",
+				baseRef: "release",
+			});
+			expect(retry.ok).toBe(false);
+			expect(retry.error).toContain("still unresolved");
+			expect(retry.conflictState?.worktreePath).toBe(worktreePath);
+
+			const aborted = await abortConflictOperation({ cwd: worktreePath });
+			expect(aborted.ok).toBe(true);
+			expect(aborted.conflictState).toBeNull();
+			expect(git(repo, ["rev-parse", "release"])).toBe(releaseHeadBefore);
+		} finally {
+			await releaseBaseWorktree(repo, worktreePath);
+		}
 	});
 
 	it("detects and resolves a merge conflict by picking ours (Phase 7)", async () => {

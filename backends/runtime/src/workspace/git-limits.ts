@@ -48,6 +48,15 @@ export const COMMIT_DIFF_MAX_TOTAL_PATCH_BYTES = 4 * 1024 * 1024;
 /** `git show --patch` for a whole commit needs more room than the 10 MB default. */
 export const COMMIT_DIFF_GIT_MAX_BUFFER_BYTES = 48 * 1024 * 1024;
 
+/**
+ * Per-side cap for a conflicted file. The resolver ships four copies of it (base,
+ * ours, theirs, and the marker-bearing working-tree merge), so the effective cost
+ * is four times this. Matched to `WORKSPACE_CHANGES_MAX_FILE_BYTES` below, which is
+ * the comparable read; past it the file arrives with `contentOmitted` and the UI
+ * offers only a whole-file pick.
+ */
+export const CONFLICT_FILE_MAX_BYTES = 512 * 1024;
+
 export const WORKSPACE_CHANGES_MAX_FILES = 500;
 export const WORKSPACE_CHANGES_MAX_FILE_BYTES = 512 * 1024;
 export const WORKSPACE_CHANGES_CONCURRENCY = 8;

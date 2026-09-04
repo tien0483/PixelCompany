@@ -20,11 +20,9 @@ import {
 	CommitComposerDialog,
 	PullRequestDialog,
 } from "@/components/git-composer-dialogs";
+import { ConflictsDialog } from "@/components/conflicts/conflicts-dialog";
 import { GitHistoryView } from "@/components/git-history-view";
-import {
-	ConflictsDialog,
-	WorktreesDialog,
-} from "@/components/git-inspector-dialogs";
+import { WorktreesDialog } from "@/components/git-inspector-dialogs";
 import { HomeTriplePane } from "@/components/home-triple-pane";
 import { KanbanBoard } from "@/components/kanban-board";
 import { PlanEditorView } from "@/components/plan-editor/plan-editor-view";
@@ -175,6 +173,12 @@ export default function App(): ReactElement {
 	const [isPullRequestDialogOpen, setIsPullRequestDialogOpen] = useState(false);
 	const [isWorktreesDialogOpen, setIsWorktreesDialogOpen] = useState(false);
 	const [isConflictsDialogOpen, setIsConflictsDialogOpen] = useState(false);
+	// Set when a failed merge/rebase/cherry-pick names the worktree holding its
+	// conflict, so the dialog opens on that one. Null means "show whatever is
+	// stopped" — the dialog enumerates every worktree of the repo either way.
+	const [conflictWorktreePath, setConflictWorktreePath] = useState<
+		string | null
+	>(null);
 	const homeGitSummary = useHomeGitSummaryValue();
 	const [pendingTaskStartAfterEditId, setPendingTaskStartAfterEditId] =
 		useState<string | null>(null);
@@ -673,6 +677,10 @@ export default function App(): ReactElement {
 		taskSessions: sessions,
 		isGitHistoryOpen,
 		refreshWorkspaceState,
+		onOpenConflicts: (worktreePath) => {
+			setConflictWorktreePath(worktreePath);
+			setIsConflictsDialogOpen(true);
+		},
 	});
 	const agentCommand = runtimeProjectConfig?.effectiveCommand ?? null;
 	const {
@@ -1482,9 +1490,13 @@ export default function App(): ReactElement {
 						onGitWorktrees={
 							selectedCard ? undefined : () => setIsWorktreesDialogOpen(true)
 						}
-						onGitConflicts={
-							selectedCard ? undefined : () => setIsConflictsDialogOpen(true)
-						}
+						// Not gated on `selectedCard`: a conflict is *most* likely to be in
+						// the selected card's own worktree, and hiding the button there is
+						// what made it unreachable exactly when it was needed.
+						onGitConflicts={() => {
+							setConflictWorktreePath(null);
+							setIsConflictsDialogOpen(true);
+						}}
 						onToggleTerminal={
 							hasNoProjects
 								? undefined
@@ -2008,6 +2020,14 @@ export default function App(): ReactElement {
 					open={isConflictsDialogOpen}
 					onOpenChange={setIsConflictsDialogOpen}
 					workspaceId={currentProjectId}
+					scope={
+						conflictWorktreePath
+							? { worktreePath: conflictWorktreePath }
+							: null
+					}
+					onResolved={() => {
+						void refreshWorkspaceState();
+					}}
 				/>
 				<TaskCreateDialog
 					open={isInlineTaskCreateOpen}

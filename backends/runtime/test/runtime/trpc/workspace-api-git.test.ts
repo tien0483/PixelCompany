@@ -14,7 +14,7 @@ const gitSyncMocks = vi.hoisted(() => ({
 	runGitCherryPickAction: vi.fn(),
 	runGitMergeIntoCurrentAction: vi.fn(),
 	runGitMergeBranchAction: vi.fn(),
-	runGitMergeBranchInTemporaryWorktree: vi.fn(),
+	runGitMergeBranchInBorrowedWorktree: vi.fn(),
 	runGitPushBranchAction: vi.fn(),
 	runGitRebaseCurrentOntoAction: vi.fn(),
 	runGitSyncAction: vi.fn(),
@@ -205,10 +205,16 @@ describe("workspaceApi.getBlame", () => {
 
 describe("workspaceApi.getMergeConflicts", () => {
 	it("passes the resolved cwd and never broadcasts (read-only)", async () => {
-		gitSyncMocks.getMergeConflicts.mockResolvedValue({ ok: true, conflicts: [] });
+		gitSyncMocks.getMergeConflicts.mockResolvedValue({
+			ok: true,
+			conflicts: [],
+			operation: null,
+			worktreePath: "/repo/.worktrees/task-1",
+			autostashHeld: false,
+		});
 		const { api, broadcast } = makeApi();
 
-		await api.getMergeConflicts(SCOPE, TASK_INFO);
+		await api.getMergeConflicts(SCOPE, { taskInfo: TASK_INFO });
 
 		expect(gitSyncMocks.getMergeConflicts).toHaveBeenCalledWith({ cwd: "/repo/.worktrees/task-1" });
 		expect(broadcast).not.toHaveBeenCalled();
@@ -220,7 +226,14 @@ describe("workspaceApi.getMergeConflicts", () => {
 
 		const res = await api.getMergeConflicts(SCOPE, null);
 
-		expect(res).toEqual({ ok: false, conflicts: [], error: "bad" });
+		expect(res).toEqual({
+			ok: false,
+			conflicts: [],
+			operation: null,
+			worktreePath: null,
+			autostashHeld: false,
+			error: "bad",
+		});
 	});
 });
 
@@ -521,7 +534,7 @@ describe("workspaceApi.mergeTaskBranch", () => {
 		expect(res.ok).toBe(true);
 	});
 
-	it("merges through a temporary worktree when no worktree has the base checked out", async () => {
+	it("merges through a borrowed worktree when no worktree has the base checked out", async () => {
 		taskWorktreeMocks.getTaskWorkspaceInfo.mockResolvedValue({
 			taskId: "task-1",
 			path: "/repo/.worktrees/task-1",
@@ -536,7 +549,7 @@ describe("workspaceApi.mergeTaskBranch", () => {
 			ok: true,
 			worktrees: [{ path: "/repo", branch: "main" }],
 		});
-		gitSyncMocks.runGitMergeBranchInTemporaryWorktree.mockResolvedValue({
+		gitSyncMocks.runGitMergeBranchInBorrowedWorktree.mockResolvedValue({
 			ok: true,
 			branch: "kanban/task-1",
 			baseRef: "release",
@@ -548,7 +561,7 @@ describe("workspaceApi.mergeTaskBranch", () => {
 		const res = await api.mergeTaskBranch(SCOPE, { taskId: "task-1", baseRef: "main" });
 
 		expect(gitSyncMocks.runGitMergeBranchAction).not.toHaveBeenCalled();
-		expect(gitSyncMocks.runGitMergeBranchInTemporaryWorktree).toHaveBeenCalledWith({
+		expect(gitSyncMocks.runGitMergeBranchInBorrowedWorktree).toHaveBeenCalledWith({
 			repoPath: "/repo",
 			branch: "kanban/task-1",
 			baseRef: "release",
@@ -573,7 +586,7 @@ describe("workspaceApi.mergeTaskBranch", () => {
 			ok: true,
 			worktrees: [{ path: "/repo", branch: "main" }],
 		});
-		gitSyncMocks.runGitMergeBranchInTemporaryWorktree.mockResolvedValue({
+		gitSyncMocks.runGitMergeBranchInBorrowedWorktree.mockResolvedValue({
 			ok: true,
 			branch: "kanban/task-1",
 			baseRef: "release",
@@ -591,7 +604,7 @@ describe("workspaceApi.mergeTaskBranch", () => {
 			taskId: "task-1",
 			baseRef: "release",
 		});
-		expect(gitSyncMocks.runGitMergeBranchInTemporaryWorktree).toHaveBeenCalledWith({
+		expect(gitSyncMocks.runGitMergeBranchInBorrowedWorktree).toHaveBeenCalledWith({
 			repoPath: "/repo",
 			branch: "kanban/task-1",
 			baseRef: "release",
@@ -640,7 +653,7 @@ describe("workspaceApi.mergeTaskBranch", () => {
 
 		expect(worktreeInventoryMocks.listGitWorktrees).not.toHaveBeenCalled();
 		expect(gitSyncMocks.runGitMergeBranchAction).not.toHaveBeenCalled();
-		expect(gitSyncMocks.runGitMergeBranchInTemporaryWorktree).not.toHaveBeenCalled();
+		expect(gitSyncMocks.runGitMergeBranchInBorrowedWorktree).not.toHaveBeenCalled();
 		expect(broadcast).not.toHaveBeenCalled();
 		expect(res.ok).toBe(false);
 		expect(res.error).toContain("Pick the base branch on the task card");

@@ -1,13 +1,16 @@
-import { access, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { isAbsolute, join } from "node:path";
+import { join } from "node:path";
 
 import type {
 	RuntimeCleanStashResponse,
 	RuntimeGitCheckoutResponse,
 	RuntimeGitCherryPickResponse,
 	RuntimeGitCommitResponse,
+	RuntimeGitConflictFile,
+	RuntimeGitConflictOperationResponse,
 	RuntimeGitConflictSide,
+	RuntimeGitConflictState,
 	RuntimeGitConflictsResponse,
 	RuntimeGitCreateBranchResponse,
 	RuntimeGitDeleteBranchResponse,
@@ -24,13 +27,26 @@ import type {
 } from "../core/api-contract";
 import { mapWithConcurrency } from "../core/async-pool";
 import { appendBranchRegistryStatusLog, getActiveBranchEntry } from "./branch-registry";
+import type { GitConflictState } from "./git-conflict-state";
 import {
+	abortGitOperation,
+	continueGitOperation,
+	isMergeInProgress,
+	isRebaseInProgress,
+	probeGitConflictState,
+	skipRebaseCommit,
+	stoppedOnResolvableConflict,
+} from "./git-conflict-state";
+import { borrowBaseWorktree, releaseBaseWorktree } from "./git-conflict-worktree";
+import {
+	CONFLICT_FILE_MAX_BYTES,
 	PATH_FINGERPRINT_CONCURRENCY,
 	UNTRACKED_ADDITION_MAX_FILE_BYTES,
 	UNTRACKED_ADDITION_SCAN_MAX_FILES,
 	UNTRACKED_FINGERPRINT_MAX_PATHS,
+	WORKSPACE_CHANGES_CONCURRENCY,
 } from "./git-limits";
-import { getGitStdout, runGit } from "./git-utils";
+import { getGitStdout, resolveGitRepoRoot as resolveRepoRoot, runGit } from "./git-utils";
 
 interface GitPathFingerprint {
 	path: string;
@@ -229,14 +245,6 @@ export async function probeGitWorkspaceState(cwd: string): Promise<GitWorkspaceP
 	};
 }
 
-async function resolveRepoRoot(cwd: string): Promise<string> {
-	const result = await runGit(cwd, ["rev-parse", "--show-toplevel"]);
-	if (!result.ok || !result.stdout) {
-		throw new Error("No git repository detected for this workspace.");
-	}
-	return result.stdout;
-}
-
 /**
  * Reads untracked files to count their lines for the `+N` badge. Every byte of
  * every untracked file used to land in memory at once, every poll tick; the
@@ -265,33 +273,6 @@ async function hasGitRef(repoRoot: string, ref: string): Promise<boolean> {
 	return result.ok;
 }
 
-async function gitPathExists(repoRoot: string, gitPath: string): Promise<boolean> {
-	const pathResult = await runGit(repoRoot, ["rev-parse", "--git-path", gitPath]);
-	if (!pathResult.ok || !pathResult.stdout) {
-		return false;
-	}
-	const resolved = isAbsolute(pathResult.stdout) ? pathResult.stdout : join(repoRoot, pathResult.stdout);
-	try {
-		await access(resolved);
-		return true;
-	} catch {
-		return false;
-	}
-}
-
-async function isMergeInProgress(repoRoot: string): Promise<boolean> {
-	const mergeHead = await runGit(repoRoot, ["rev-parse", "-q", "--verify", "MERGE_HEAD"]);
-	return mergeHead.ok;
-}
-
-async function isRebaseInProgress(repoRoot: string): Promise<boolean> {
-	const rebaseMerge = await gitPathExists(repoRoot, "rebase-merge");
-	if (rebaseMerge) {
-		return true;
-	}
-	return await gitPathExists(repoRoot, "rebase-apply");
-}
-
 export async function getGitSyncSummary(
 	cwd: string,
 	options?: { probe?: GitWorkspaceProbe },
@@ -300,6 +281,9 @@ export async function getGitSyncSummary(
 	const diffResult = await runGit(probe.repoRoot, ["diff", "--numstat", "HEAD", "--"]);
 	const trackedTotals = diffResult.ok ? parseNumstatTotals(diffResult.stdout) : { additions: 0, deletions: 0 };
 	const untrackedAdditions = await countUntrackedAdditions(probe.repoRoot, probe.untrackedPaths);
+	// An unfinished merge/rebase/cherry-pick rides along on the summary so the git
+	// panel and the top bar can badge it without a second round trip.
+	const conflictState = await probeGitConflictState(probe.repoRoot);
 
 	return {
 		currentBranch: probe.currentBranch,
@@ -309,6 +293,8 @@ export async function getGitSyncSummary(
 		deletions: trackedTotals.deletions,
 		aheadCount: probe.aheadCount,
 		behindCount: probe.behindCount,
+		conflictedFiles: conflictState.paths.length,
+		pendingOperation: conflictState.operation,
 	};
 }
 
@@ -661,10 +647,47 @@ export async function runGitCreateBranchAction(options: {
 }
 
 /**
+ * Decides what to do with a merge/rebase/cherry-pick that just failed.
+ *
+ * A conflict is *left in place* so the user can resolve it from the
+ * Resolve-merge-conflicts dialog — aborting it unconditionally, as every one of
+ * these actions used to, meant `MERGE_HEAD` never survived a request and the dialog
+ * could never see a conflict at all. Any other failure (an unknown ref, a hook
+ * refusal) has nothing to resolve, so it is still aborted rather than leaving the
+ * worktree stranded half-way.
+ */
+function toConflictState(state: GitConflictState, worktreePath: string): RuntimeGitConflictState | null {
+	if (!state.operation) {
+		return null;
+	}
+	return {
+		operation: state.operation,
+		worktreePath,
+		paths: state.paths,
+		autostashHeld: state.autostashHeld,
+	};
+}
+
+async function settleFailedGitOperation(
+	repoRoot: string,
+	worktreePath: string,
+): Promise<RuntimeGitConflictState | null> {
+	const conflict = await stoppedOnResolvableConflict(repoRoot);
+	if (conflict) {
+		return toConflictState(conflict, worktreePath);
+	}
+	const state = await probeGitConflictState(repoRoot);
+	if (state.operation) {
+		await abortGitOperation(repoRoot, state.operation);
+	}
+	return null;
+}
+
+/**
  * Merges {@link options.branch} into {@link options.baseRef}. {@link options.cwd}
  * must be the worktree that currently has `baseRef` checked out. Uses `--no-ff`
- * so the merge is always an explicit commit, and aborts the merge on conflict so
- * the base worktree is never left half-merged.
+ * so the merge is always an explicit commit, and leaves a *conflicting* merge in
+ * place for the user to resolve while still aborting any other failure.
  */
 export async function runGitMergeBranchAction(options: {
 	cwd: string;
@@ -700,24 +723,25 @@ export async function runGitMergeBranchAction(options: {
 	const mergeResult = await runGit(options.cwd, [
 		"merge",
 		"--no-ff",
+		"--autostash",
 		branch,
 		"-m",
 		`Merge branch '${branch}' into ${baseRef}`,
 	]);
-	const nextSummary = await getGitSyncSummary(options.cwd);
 
 	if (!mergeResult.ok) {
-		// Leave the base worktree clean; the user resolves conflicts deliberately.
-		await runGit(options.cwd, ["merge", "--abort"]);
+		const repoRoot = await resolveRepoRoot(options.cwd);
+		const conflictState = await settleFailedGitOperation(repoRoot, repoRoot);
 		return {
 			ok: false,
 			branch,
 			baseRef,
-			summary: nextSummary,
+			summary: await getGitSyncSummary(options.cwd),
 			output: mergeResult.output,
-			error:
-				mergeResult.error ??
-				`Could not merge '${branch}' into ${baseRef} (likely conflicts). The merge was aborted; resolve it manually.`,
+			error: conflictState
+				? `Merging '${branch}' into ${baseRef} hit ${conflictState.paths.length === 1 ? "a conflict" : `${String(conflictState.paths.length)} conflicts`}. Resolve them to finish the merge.`
+				: (mergeResult.error ?? `Could not merge '${branch}' into ${baseRef}. The merge was aborted.`),
+			conflictState,
 		};
 	}
 
@@ -725,8 +749,9 @@ export async function runGitMergeBranchAction(options: {
 		ok: true,
 		branch,
 		baseRef,
-		summary: nextSummary,
+		summary: await getGitSyncSummary(options.cwd),
 		output: mergeResult.output,
+		conflictState: null,
 	};
 }
 
@@ -736,40 +761,71 @@ export async function runGitMergeBranchAction(options: {
  *
  * A task's base ref is pinned at worktree creation, but the home repo moves on, so
  * requiring the base to be the current HEAD somewhere made the merge target follow
- * whatever the user last checked out. A throwaway worktree gives the base branch a
- * checkout of its own for the length of the merge and leaves every existing worktree
- * (including the home repo's HEAD) untouched.
+ * whatever the user last checked out. A borrowed worktree gives the base branch a
+ * checkout of its own and leaves every existing worktree (including the home repo's
+ * HEAD) untouched.
+ *
+ * The borrowed checkout is released as soon as the merge finishes — but **not** when
+ * it stops on a conflict, because the conflict lives inside it. Its predecessor was
+ * an `mkdtemp` deleted in a `finally`, so a conflicting merge-to-base had its state
+ * destroyed before the response was even sent; the next attempt reuses whatever is
+ * still stopped there rather than starting a second one.
  */
-export async function runGitMergeBranchInTemporaryWorktree(options: {
+export async function runGitMergeBranchInBorrowedWorktree(options: {
 	repoPath: string;
 	branch: string;
 	baseRef: string;
 }): Promise<RuntimeGitMergeBranchResponse> {
 	const branch = options.branch.trim();
 	const baseRef = options.baseRef.trim();
-	const temporaryRoot = await mkdtemp(join(tmpdir(), "kanban-merge-base-"));
-	const worktreePath = join(temporaryRoot, "base");
-	try {
-		const addResult = await runGit(options.repoPath, ["worktree", "add", worktreePath, baseRef]);
-		if (!addResult.ok) {
-			return {
-				ok: false,
-				branch,
-				baseRef,
-				summary: await getGitSyncSummary(options.repoPath),
-				output: addResult.output,
-				error: addResult.error ?? `Could not check out '${baseRef}' to merge into.`,
-			};
-		}
-		const response = await runGitMergeBranchAction({ cwd: worktreePath, branch, baseRef });
-		// Report the home repo's summary: the caller feeds this into the home git panel,
-		// and a throwaway checkout's state would flash the wrong branch there.
-		return { ...response, summary: await getGitSyncSummary(options.repoPath) };
-	} finally {
-		await runGit(options.repoPath, ["worktree", "remove", "--force", worktreePath]);
-		await rm(temporaryRoot, { recursive: true, force: true });
-		await runGit(options.repoPath, ["worktree", "prune"]);
+	const borrowed = await borrowBaseWorktree(options.repoPath, baseRef);
+	if (!borrowed.ok) {
+		return {
+			ok: false,
+			branch,
+			baseRef,
+			summary: await getGitSyncSummary(options.repoPath),
+			output: borrowed.output,
+			error: borrowed.error,
+			conflictState: null,
+		};
 	}
+
+	const worktreePath = borrowed.worktree.path;
+	// A reused checkout may already be stopped mid-conflict from a previous attempt;
+	// re-running the merge there would only fail with "you have unmerged files".
+	const existing = await stoppedOnResolvableConflict(worktreePath);
+	if (existing?.operation) {
+		return {
+			ok: false,
+			branch,
+			baseRef,
+			summary: await getGitSyncSummary(options.repoPath),
+			output: "",
+			error: `An earlier merge into ${baseRef} is still unresolved. Finish or abort it to merge again.`,
+			conflictState: {
+				operation: existing.operation,
+				worktreePath,
+				paths: existing.paths,
+				autostashHeld: existing.autostashHeld,
+			},
+		};
+	}
+
+	let response: RuntimeGitMergeBranchResponse;
+	try {
+		response = await runGitMergeBranchAction({ cwd: worktreePath, branch, baseRef });
+	} catch (error) {
+		await releaseBaseWorktree(options.repoPath, worktreePath);
+		throw error;
+	}
+
+	if (!response.conflictState) {
+		await releaseBaseWorktree(options.repoPath, worktreePath);
+	}
+	// Report the home repo's summary: the caller feeds this into the home git panel,
+	// and the borrowed checkout's state would flash the wrong branch there.
+	return { ...response, summary: await getGitSyncSummary(options.repoPath) };
 }
 
 /**
@@ -834,19 +890,13 @@ export async function runGitMergeIntoCurrentAction(options: {
 		};
 	}
 
-	if (initialSummary.changedFiles > 0) {
-		return {
-			ok: false,
-			branch,
-			summary: initialSummary,
-			output: "",
-			error: "Working tree has local changes. Commit, stash, or discard changes before merging.",
-		};
-	}
-
+	// `--autostash` replaces what used to be a flat refusal on a dirty tree, which
+	// forced a manual stash push/merge/pop cycle outside the app. Git holds the work
+	// in `MERGE_AUTOSTASH` and restores it when the merge finishes *or* aborts.
 	const mergeResult = await runGit(repoRoot, [
 		"merge",
 		"--no-ff",
+		"--autostash",
 		branch,
 		"-m",
 		`Merge branch '${branch}' into ${initialSummary.currentBranch}`,
@@ -876,7 +926,8 @@ export async function runGitMergeIntoCurrentAction(options: {
 
 /**
  * Rebases the currently checked-out branch onto {@link options.branch} (HEAD stays on current).
- * Aborts the rebase on conflict so the worktree is never left mid-rebase.
+ * A conflicting step is left stopped so the user can resolve it; any other failure
+ * is still aborted.
  */
 export async function runGitRebaseCurrentOntoAction(options: {
 	cwd: string;
@@ -936,44 +987,42 @@ export async function runGitRebaseCurrentOntoAction(options: {
 		};
 	}
 
-	if (initialSummary.changedFiles > 0) {
-		return {
-			ok: false,
-			branch,
-			summary: initialSummary,
-			output: "",
-			error: "Working tree has local changes. Commit, stash, or discard changes before rebasing.",
-		};
-	}
-
-	const rebaseResult = await runGit(repoRoot, ["rebase", branch]);
-	const nextSummary = await getGitSyncSummary(repoRoot);
+	// `--autostash` replaces what used to be a flat refusal on a dirty tree; git
+	// restores the work on `rebase --continue` and on `rebase --abort` alike.
+	const rebaseResult = await runGit(repoRoot, ["rebase", "--autostash", branch]);
 
 	if (!rebaseResult.ok) {
-		await runGit(repoRoot, ["rebase", "--abort"]);
+		const conflictState = await settleFailedGitOperation(repoRoot, repoRoot);
 		return {
 			ok: false,
 			branch,
 			summary: await getGitSyncSummary(repoRoot),
 			output: rebaseResult.output,
-			error:
-				rebaseResult.error ??
-				`Could not rebase '${initialSummary.currentBranch}' onto '${branch}' (likely conflicts). The rebase was aborted.`,
+			error: conflictState
+				? `Rebasing '${initialSummary.currentBranch}' onto '${branch}' stopped on ${conflictState.paths.length === 1 ? "a conflict" : `${String(conflictState.paths.length)} conflicts`}. Resolve them to continue the rebase.`
+				: (rebaseResult.error ??
+					`Could not rebase '${initialSummary.currentBranch}' onto '${branch}'. The rebase was aborted.`),
+			conflictState,
 		};
 	}
 
 	return {
 		ok: true,
 		branch,
-		summary: nextSummary,
+		summary: await getGitSyncSummary(repoRoot),
 		output: rebaseResult.output,
+		conflictState: null,
 	};
 }
 
 /**
  * Cherry-picks {@link options.commitHash} onto {@link options.targetBranch}.
  * {@link options.cwd} must be the worktree that currently has `targetBranch` checked out.
- * Aborts the cherry-pick on failure so the worktree is not left mid-conflict.
+ * A conflicting pick is left stopped so the user can resolve it; any other failure
+ * is still aborted.
+ *
+ * Note there is no `--autostash` for cherry-pick — git has no such flag — so its own
+ * dirty-tree refusal stands.
  */
 export async function runGitCherryPickAction(options: {
 	cwd: string;
@@ -1016,19 +1065,21 @@ export async function runGitCherryPickAction(options: {
 	}
 
 	const cherryPickResult = await runGit(options.cwd, ["cherry-pick", commitHash]);
-	const nextSummary = await getGitSyncSummary(options.cwd);
 
 	if (!cherryPickResult.ok) {
-		await runGit(options.cwd, ["cherry-pick", "--abort"]);
+		const repoRoot = await resolveRepoRoot(options.cwd);
+		const conflictState = await settleFailedGitOperation(repoRoot, repoRoot);
 		return {
 			ok: false,
 			commitHash,
 			targetBranch,
-			summary: nextSummary,
+			summary: await getGitSyncSummary(options.cwd),
 			output: cherryPickResult.output,
-			error:
-				cherryPickResult.error ??
-				`Could not cherry-pick '${commitHash}' onto ${targetBranch} (likely conflicts). The cherry-pick was aborted; resolve it manually.`,
+			error: conflictState
+				? `Cherry-picking '${commitHash}' onto ${targetBranch} hit ${conflictState.paths.length === 1 ? "a conflict" : `${String(conflictState.paths.length)} conflicts`}. Resolve them to finish the pick.`
+				: (cherryPickResult.error ??
+					`Could not cherry-pick '${commitHash}' onto ${targetBranch}. The cherry-pick was aborted.`),
+			conflictState,
 		};
 	}
 
@@ -1036,8 +1087,9 @@ export async function runGitCherryPickAction(options: {
 		ok: true,
 		commitHash,
 		targetBranch,
-		summary: nextSummary,
+		summary: await getGitSyncSummary(options.cwd),
 		output: cherryPickResult.output,
+		conflictState: null,
 	};
 }
 
@@ -1277,26 +1329,174 @@ async function readConflictStage(repoRoot: string, stage: 1 | 2 | 3, path: strin
 	return result.ok ? result.stdout : null;
 }
 
+function looksBinary(text: string): boolean {
+	// git's own heuristic: a NUL byte in the first 8 KB.
+	return text.slice(0, 8000).includes("\0");
+}
+
+/**
+ * The working-tree file, i.e. git's merge with `<<<<<<<` markers in it. Seeds the
+ * resolver's editable pane, which is the only way to settle a conflict that neither
+ * side wins outright.
+ */
+async function readConflictWorkingCopy(repoRoot: string, path: string): Promise<string | null> {
+	try {
+		const absolutePath = join(repoRoot, path);
+		const fileStat = await stat(absolutePath);
+		if (fileStat.size > CONFLICT_FILE_MAX_BYTES) {
+			return null;
+		}
+		return await readFile(absolutePath, "utf8");
+	} catch {
+		// Absent on disk for a delete/modify conflict; not an error.
+		return null;
+	}
+}
+
+async function readConflictFile(repoRoot: string, path: string): Promise<RuntimeGitConflictFile> {
+	const [base, ours, theirs, merged] = await Promise.all([
+		readConflictStage(repoRoot, 1, path),
+		readConflictStage(repoRoot, 2, path),
+		readConflictStage(repoRoot, 3, path),
+		readConflictWorkingCopy(repoRoot, path),
+	]);
+
+	const sides = [base, ours, theirs, merged];
+	const binary = sides.some((side) => side !== null && looksBinary(side));
+	const oversized = sides.some((side) => side !== null && side.length > CONFLICT_FILE_MAX_BYTES);
+	if (binary || oversized) {
+		// Ship no text at all rather than a truncated side: a shortened `ours` diffed
+		// against a full `theirs` renders as a wrong diff, not a missing one.
+		return { path, base: null, ours: null, theirs: null, merged: null, binary, contentOmitted: true };
+	}
+	return { path, base, ours, theirs, merged, binary: false, contentOmitted: false };
+}
+
 export async function getMergeConflicts(options: { cwd: string }): Promise<RuntimeGitConflictsResponse> {
 	const repoRoot = await resolveRepoRoot(options.cwd);
+	const state = await probeGitConflictState(repoRoot);
 	const unmergedResult = await runGit(repoRoot, ["diff", "--name-only", "--diff-filter=U", "-z"]);
 	if (!unmergedResult.ok) {
-		return { ok: false, conflicts: [], error: unmergedResult.error ?? "Failed to list conflicted files." };
+		return {
+			ok: false,
+			conflicts: [],
+			operation: state.operation,
+			worktreePath: repoRoot,
+			autostashHeld: state.autostashHeld,
+			error: unmergedResult.error ?? "Failed to list conflicted files.",
+		};
 	}
 
 	const paths = unmergedResult.stdout.split("\0").filter(Boolean);
-	const conflicts = await Promise.all(
-		paths.map(async (path) => {
-			const [base, ours, theirs] = await Promise.all([
-				readConflictStage(repoRoot, 1, path),
-				readConflictStage(repoRoot, 2, path),
-				readConflictStage(repoRoot, 3, path),
-			]);
-			return { path, base, ours, theirs };
-		}),
+	const conflicts = await mapWithConcurrency(paths, WORKSPACE_CHANGES_CONCURRENCY, (path) =>
+		readConflictFile(repoRoot, path),
 	);
 
-	return { ok: true, conflicts };
+	return {
+		ok: true,
+		conflicts,
+		operation: state.operation,
+		worktreePath: repoRoot,
+		autostashHeld: state.autostashHeld,
+	};
+}
+
+/**
+ * Finishes the unfinished operation in this worktree — `git commit` for a merge,
+ * `--continue` for a rebase or cherry-pick. A rebase with more commits to replay can
+ * stop again immediately, which is why the remaining state is reported back.
+ */
+export async function continueConflictOperation(options: {
+	cwd: string;
+}): Promise<RuntimeGitConflictOperationResponse> {
+	const repoRoot = await resolveRepoRoot(options.cwd);
+	const state = await probeGitConflictState(repoRoot);
+	if (!state.operation) {
+		return {
+			ok: false,
+			summary: await getGitSyncSummary(repoRoot),
+			output: "",
+			error: "Nothing to continue: no merge, rebase or cherry-pick is in progress here.",
+			conflictState: null,
+		};
+	}
+	if (state.paths.length > 0) {
+		return {
+			ok: false,
+			summary: await getGitSyncSummary(repoRoot),
+			output: "",
+			error: `${String(state.paths.length)} file${state.paths.length === 1 ? "" : "s"} still conflicted. Resolve every file first.`,
+			conflictState: toConflictState(state, repoRoot),
+		};
+	}
+
+	const result = await continueGitOperation(repoRoot, state.operation);
+	const conflictState = toConflictState(await probeGitConflictState(repoRoot), repoRoot);
+
+	if (!result.ok) {
+		return {
+			ok: false,
+			summary: await getGitSyncSummary(repoRoot),
+			output: result.output,
+			error: result.error ?? `Could not continue the ${state.operation}.`,
+			conflictState,
+		};
+	}
+	return { ok: true, summary: await getGitSyncSummary(repoRoot), output: result.output, conflictState };
+}
+
+export async function abortConflictOperation(options: { cwd: string }): Promise<RuntimeGitConflictOperationResponse> {
+	const repoRoot = await resolveRepoRoot(options.cwd);
+	const state = await probeGitConflictState(repoRoot);
+	if (!state.operation) {
+		return {
+			ok: false,
+			summary: await getGitSyncSummary(repoRoot),
+			output: "",
+			error: "Nothing to abort: no merge, rebase or cherry-pick is in progress here.",
+			conflictState: null,
+		};
+	}
+
+	const result = await abortGitOperation(repoRoot, state.operation);
+	if (!result.ok) {
+		return {
+			ok: false,
+			summary: await getGitSyncSummary(repoRoot),
+			output: result.output,
+			error: result.error ?? `Could not abort the ${state.operation}.`,
+			conflictState: toConflictState(state, repoRoot),
+		};
+	}
+	return { ok: true, summary: await getGitSyncSummary(repoRoot), output: result.output, conflictState: null };
+}
+
+/** Drops the commit a rebase is stopped on and moves to the next one. */
+export async function skipConflictRebaseCommit(options: { cwd: string }): Promise<RuntimeGitConflictOperationResponse> {
+	const repoRoot = await resolveRepoRoot(options.cwd);
+	const state = await probeGitConflictState(repoRoot);
+	if (state.operation !== "rebase") {
+		return {
+			ok: false,
+			summary: await getGitSyncSummary(repoRoot),
+			output: "",
+			error: "Only a rebase can skip a commit.",
+			conflictState: toConflictState(state, repoRoot),
+		};
+	}
+
+	const result = await skipRebaseCommit(repoRoot);
+	const conflictState = toConflictState(await probeGitConflictState(repoRoot), repoRoot);
+	if (!result.ok) {
+		return {
+			ok: false,
+			summary: await getGitSyncSummary(repoRoot),
+			output: result.output,
+			error: result.error ?? "Could not skip the commit.",
+			conflictState,
+		};
+	}
+	return { ok: true, summary: await getGitSyncSummary(repoRoot), output: result.output, conflictState };
 }
 
 export async function resolveMergeConflict(options: {

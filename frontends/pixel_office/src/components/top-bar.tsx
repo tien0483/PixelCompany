@@ -29,7 +29,10 @@ import { cn } from "@/components/ui/cn";
 import { Spinner } from "@/components/ui/spinner";
 import { Tooltip } from "@/components/ui/tooltip";
 import { useIsMobile } from "@/hooks/use-is-mobile";
-import type { RuntimeGitSyncAction } from "@/runtime/types";
+import type {
+	RuntimeGitPendingOperation,
+	RuntimeGitSyncAction,
+} from "@/runtime/types";
 import {
 	useHomeGitSummaryValue,
 	useTaskWorkspaceInfoValue,
@@ -120,6 +123,49 @@ function GitBranchStatusControl({
 				<span className="text-text-tertiary">)</span>
 			</span>
 		</span>
+	);
+}
+
+/**
+ * Opens the resolve-conflicts dialog, badged when the summary already knows an
+ * operation is unfinished.
+ *
+ * Rendered for a selected task as well as for the home repo: a conflict is most
+ * likely to be in the card's own worktree, and the button used to be hidden there.
+ * The badge only reflects the summary at hand, so it can read 0 while a conflict
+ * sits in another worktree — the dialog enumerates all of them and is authoritative.
+ */
+function TopBarConflictsButton({
+	onGitConflicts,
+	conflictedFiles,
+	pendingOperation,
+}: {
+	onGitConflicts?: () => void;
+	conflictedFiles?: number;
+	pendingOperation?: RuntimeGitPendingOperation | null;
+}): React.ReactElement | null {
+	if (!onGitConflicts) {
+		return null;
+	}
+	const count = conflictedFiles ?? 0;
+	const tooltip = pendingOperation
+		? count > 0
+			? `${count} conflicted file${count === 1 ? "" : "s"} in an unfinished ${pendingOperation}. Resolve them here.`
+			: `An unfinished ${pendingOperation} is waiting to be committed or aborted.`
+		: "Resolve merge conflicts.";
+
+	return (
+		<Tooltip side="bottom" content={tooltip}>
+			<Button
+				variant={pendingOperation ? "primary" : "ghost"}
+				size="sm"
+				icon={<GitMerge size={16} />}
+				onClick={onGitConflicts}
+				aria-label="Resolve merge conflicts"
+			>
+				{count > 0 ? <span className="font-mono text-[11px]">{count}</span> : null}
+			</Button>
+		</Tooltip>
 	);
 }
 
@@ -328,15 +374,11 @@ function TopBarGitStatusSection({
 							aria-label="List worktrees"
 						/>
 					</Tooltip>
-					<Tooltip side="bottom" content="Resolve merge conflicts.">
-						<Button
-							variant="ghost"
-							size="sm"
-							icon={<GitMerge size={16} />}
-							onClick={onGitConflicts}
-							aria-label="Resolve merge conflicts"
-						/>
-					</Tooltip>
+					<TopBarConflictsButton
+						onGitConflicts={onGitConflicts}
+						conflictedFiles={homeGitSummary.conflictedFiles}
+						pendingOperation={homeGitSummary.pendingOperation}
+					/>
 				</div>
 			</>
 		);
@@ -358,6 +400,7 @@ function TopBarGitStatusSection({
 					onToggleGitHistory={onToggleGitHistory}
 					isGitHistoryOpen={isGitHistoryOpen}
 				/>
+				<TopBarConflictsButton onGitConflicts={onGitConflicts} />
 			</>
 		);
 	}

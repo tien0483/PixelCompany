@@ -4,16 +4,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const queryMocks = vi.hoisted(() => ({
 	fetchRuntimeWorktrees: vi.fn(),
-	fetchRuntimeMergeConflicts: vi.fn(),
-	resolveRuntimeMergeConflict: vi.fn(),
+	cleanRuntimeMergedWorktrees: vi.fn(),
 }));
 
 vi.mock("@/runtime/runtime-config-query", () => queryMocks);
 
-import {
-	ConflictsDialog,
-	WorktreesDialog,
-} from "@/components/git-inspector-dialogs";
+import { WorktreesDialog } from "@/components/git-inspector-dialogs";
 
 function findButton(label: string): HTMLButtonElement | null {
 	return (
@@ -39,8 +35,7 @@ describe("git inspector dialogs", () => {
 			globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
 		).IS_REACT_ACT_ENVIRONMENT = true;
 		queryMocks.fetchRuntimeWorktrees.mockReset();
-		queryMocks.fetchRuntimeMergeConflicts.mockReset();
-		queryMocks.resolveRuntimeMergeConflict.mockReset();
+		queryMocks.cleanRuntimeMergedWorktrees.mockReset();
 		container = document.createElement("div");
 		document.body.appendChild(container);
 		root = createRoot(container);
@@ -104,47 +99,6 @@ describe("git inspector dialogs", () => {
 		expect(document.body.textContent).toContain("no repo");
 	});
 
-	it("resolves a conflict by picking ours and reloads", async () => {
-		queryMocks.fetchRuntimeMergeConflicts
-			.mockResolvedValueOnce({
-				ok: true,
-				conflicts: [
-					{ path: "a.ts", base: null, ours: "ours", theirs: "theirs" },
-				],
-			})
-			.mockResolvedValueOnce({ ok: true, conflicts: [] });
-		queryMocks.resolveRuntimeMergeConflict.mockResolvedValue({
-			ok: true,
-			summary: {},
-			output: "",
-		});
-		const onResolved = vi.fn();
-
-		await act(async () => {
-			root.render(
-				<ConflictsDialog
-					open
-					onOpenChange={() => {}}
-					workspaceId="ws-1"
-					onResolved={onResolved}
-				/>,
-			);
-		});
-		await flush();
-		expect(document.body.textContent).toContain("a.ts");
-
-		await act(async () => {
-			findButton("Use ours")?.dispatchEvent(
-				new MouseEvent("click", { bubbles: true }),
-			);
-		});
-		await flush();
-
-		expect(queryMocks.resolveRuntimeMergeConflict).toHaveBeenCalledWith(
-			"ws-1",
-			{ path: "a.ts", side: "ours" },
-		);
-		expect(onResolved).toHaveBeenCalled();
-		expect(document.body.textContent).toContain("No unresolved conflicts");
-	});
+	// Conflict-resolution coverage moved with the dialog to
+	// `components/conflicts/conflicts-dialog.test.tsx`.
 });

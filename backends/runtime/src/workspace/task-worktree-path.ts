@@ -20,6 +20,14 @@ export const LEGACY_KANBAN_TASK_WORKTREES_HOME_DIR_NAME = `${LEGACY_RUNTIME_HOME
 export const KANBAN_TASK_WORKTREES_DIR_NAME = "worktrees";
 export const KANBAN_TASK_WORKTREES_DISPLAY_ROOT = `~/${KANBAN_TASK_WORKTREES_HOME_DIR_NAME}`;
 
+/**
+ * Checkouts borrowed to merge into a base ref no existing worktree has checked out.
+ * Kept apart from task worktrees because they are per-base-ref, not per-task, and
+ * because a conflicted one is reused by the next attempt instead of recreated.
+ */
+export const KANBAN_MERGE_WORKTREES_HOME_DIR_NAME = `${RUNTIME_HOME_PARENT_DIR_NAME}/merge-worktrees`;
+export const KANBAN_MERGE_WORKTREES_DISPLAY_ROOT = `~/${KANBAN_MERGE_WORKTREES_HOME_DIR_NAME}`;
+
 export function normalizeTaskIdForWorktreePath(taskId: string): string {
 	const normalized = taskId.trim();
 	if (!normalized || normalized.includes("/") || normalized.includes("\\") || normalized.includes("..")) {

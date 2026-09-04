@@ -79,6 +79,10 @@ import type {
 	RuntimeGitCommitDiffResponse,
 	RuntimeGitCommitRequest,
 	RuntimeGitCommitResponse,
+	RuntimeGitConflictOperationRequest,
+	RuntimeGitConflictOperationResponse,
+	RuntimeGitConflictScope,
+	RuntimeGitConflictStateResponse,
 	RuntimeGitConflictsResponse,
 	RuntimeGitCreateBranchRequest,
 	RuntimeGitCreateBranchResponse,
@@ -417,6 +421,10 @@ import {
 	runtimeGitCommitDiffResponseSchema,
 	runtimeGitCommitRequestSchema,
 	runtimeGitCommitResponseSchema,
+	runtimeGitConflictOperationRequestSchema,
+	runtimeGitConflictOperationResponseSchema,
+	runtimeGitConflictStateResponseSchema,
+	runtimeGitConflictsRequestSchema,
 	runtimeGitConflictsResponseSchema,
 	runtimeGitCreateBranchRequestSchema,
 	runtimeGitCreateBranchResponseSchema,
@@ -813,12 +821,25 @@ export interface RuntimeTrpcContext {
 		getBlame: (scope: RuntimeTrpcWorkspaceScope, input: RuntimeGitBlameRequest) => Promise<RuntimeGitBlameResponse>;
 		getMergeConflicts: (
 			scope: RuntimeTrpcWorkspaceScope,
-			input: RuntimeTaskWorkspaceInfoRequest | null,
+			input: RuntimeGitConflictScope | null,
 		) => Promise<RuntimeGitConflictsResponse>;
+		getConflictState: (scope: RuntimeTrpcWorkspaceScope) => Promise<RuntimeGitConflictStateResponse>;
 		resolveMergeConflict: (
 			scope: RuntimeTrpcWorkspaceScope,
 			input: RuntimeGitResolveConflictRequest,
 		) => Promise<RuntimeGitResolveConflictResponse>;
+		continueConflictOperation: (
+			scope: RuntimeTrpcWorkspaceScope,
+			input: RuntimeGitConflictOperationRequest,
+		) => Promise<RuntimeGitConflictOperationResponse>;
+		abortConflictOperation: (
+			scope: RuntimeTrpcWorkspaceScope,
+			input: RuntimeGitConflictOperationRequest,
+		) => Promise<RuntimeGitConflictOperationResponse>;
+		skipRebaseCommit: (
+			scope: RuntimeTrpcWorkspaceScope,
+			input: RuntimeGitConflictOperationRequest,
+		) => Promise<RuntimeGitConflictOperationResponse>;
 		createPullRequest: (
 			scope: RuntimeTrpcWorkspaceScope,
 			input: RuntimeGitPullRequestRequest,
@@ -1487,10 +1508,31 @@ export const runtimeAppRouter = t.router({
 				return await ctx.workspaceApi.getBlame(ctx.workspaceScope, input);
 			}),
 		getMergeConflicts: workspaceProcedure
-			.input(optionalTaskWorkspaceInfoRequestSchema)
+			.input(runtimeGitConflictsRequestSchema)
 			.output(runtimeGitConflictsResponseSchema)
 			.query(async ({ ctx, input }) => {
 				return await ctx.workspaceApi.getMergeConflicts(ctx.workspaceScope, input ?? null);
+			}),
+		getConflictState: workspaceProcedure.output(runtimeGitConflictStateResponseSchema).query(async ({ ctx }) => {
+			return await ctx.workspaceApi.getConflictState(ctx.workspaceScope);
+		}),
+		continueConflictOperation: workspaceProcedure
+			.input(runtimeGitConflictOperationRequestSchema)
+			.output(runtimeGitConflictOperationResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.workspaceApi.continueConflictOperation(ctx.workspaceScope, input);
+			}),
+		abortConflictOperation: workspaceProcedure
+			.input(runtimeGitConflictOperationRequestSchema)
+			.output(runtimeGitConflictOperationResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.workspaceApi.abortConflictOperation(ctx.workspaceScope, input);
+			}),
+		skipRebaseCommit: workspaceProcedure
+			.input(runtimeGitConflictOperationRequestSchema)
+			.output(runtimeGitConflictOperationResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.workspaceApi.skipRebaseCommit(ctx.workspaceScope, input);
 			}),
 		resolveMergeConflict: workspaceProcedure
 			.input(runtimeGitResolveConflictRequestSchema)

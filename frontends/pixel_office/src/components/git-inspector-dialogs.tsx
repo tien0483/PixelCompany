@@ -1,4 +1,4 @@
-import { GitMerge, Loader2, Trash2 } from "lucide-react";
+import { Loader2, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { showAppToast } from "@/components/app-toaster";
 import { Button } from "@/components/ui/button";
@@ -16,16 +16,8 @@ import {
 	DialogHeader,
 } from "@/components/ui/dialog";
 import { Spinner } from "@/components/ui/spinner";
-import {
-	cleanRuntimeMergedWorktrees,
-	fetchRuntimeMergeConflicts,
-	fetchRuntimeWorktrees,
-	resolveRuntimeMergeConflict,
-} from "@/runtime/runtime-config-query";
-import type {
-	RuntimeGitConflictFile,
-	RuntimeGitWorktreeEntry,
-} from "@/runtime/types";
+import { cleanRuntimeMergedWorktrees, fetchRuntimeWorktrees } from "@/runtime/runtime-config-query";
+import type { RuntimeGitWorktreeEntry } from "@/runtime/types";
 
 export function WorktreesDialog({
 	open,
@@ -181,115 +173,5 @@ export function WorktreesDialog({
 	);
 }
 
-export function ConflictsDialog({
-	open,
-	onOpenChange,
-	workspaceId,
-	onResolved,
-}: {
-	open: boolean;
-	onOpenChange: (open: boolean) => void;
-	workspaceId: string | null;
-	onResolved?: () => void;
-}): React.ReactElement {
-	const [conflicts, setConflicts] = useState<RuntimeGitConflictFile[] | null>(
-		null,
-	);
-	const [error, setError] = useState<string | null>(null);
-	const [resolvingPath, setResolvingPath] = useState<string | null>(null);
-
-	const load = useCallback(async () => {
-		setConflicts(null);
-		setError(null);
-		const response = await fetchRuntimeMergeConflicts(workspaceId);
-		if (response.ok) {
-			setConflicts(response.conflicts);
-		} else {
-			setError(response.error ?? "Failed to read merge conflicts.");
-		}
-	}, [workspaceId]);
-
-	useEffect(() => {
-		if (!open) {
-			return;
-		}
-		void load();
-	}, [open, load]);
-
-	const resolve = async (
-		path: string,
-		side: "ours" | "theirs",
-	): Promise<void> => {
-		setResolvingPath(path);
-		const response = await resolveRuntimeMergeConflict(workspaceId, {
-			path,
-			side,
-		});
-		setResolvingPath(null);
-		if (response.ok) {
-			onResolved?.();
-			await load();
-		} else {
-			setError(response.error ?? "Failed to resolve conflict.");
-		}
-	};
-
-	return (
-		<Dialog
-			open={open}
-			onOpenChange={onOpenChange}
-			size="lg"
-		>
-			<DialogHeader
-				title="Resolve merge conflicts"
-				icon={<GitMerge size={16} />}
-			/>
-			<DialogBody>
-				{error ? (
-					<p className="mb-2 text-[13px] text-status-red">{error}</p>
-				) : null}
-				{conflicts === null ? (
-					<div className="flex items-center gap-2 text-text-secondary">
-						<Loader2 size={14} className="animate-spin" /> Loading…
-					</div>
-				) : conflicts.length === 0 ? (
-					<p className="text-[13px] text-text-secondary">
-						No unresolved conflicts.
-					</p>
-				) : (
-					<ul className="flex flex-col gap-2">
-						{conflicts.map((conflict) => (
-							<li
-								key={conflict.path}
-								className="flex items-center gap-2 rounded-md border border-border bg-surface-2 px-2.5 py-2 text-[12px]"
-							>
-								<span
-									className="min-w-0 flex-1 truncate font-mono text-text-primary"
-									title={conflict.path}
-								>
-									{conflict.path}
-								</span>
-								<Button
-									variant="default"
-									size="sm"
-									disabled={resolvingPath === conflict.path}
-									onClick={() => void resolve(conflict.path, "ours")}
-								>
-									Use ours
-								</Button>
-								<Button
-									variant="default"
-									size="sm"
-									disabled={resolvingPath === conflict.path}
-									onClick={() => void resolve(conflict.path, "theirs")}
-								>
-									Use theirs
-								</Button>
-							</li>
-						))}
-					</ul>
-				)}
-			</DialogBody>
-		</Dialog>
-	);
-}
+// `ConflictsDialog` moved to `components/conflicts/` when it gained a split diff,
+// an editable merged pane and the commit/abort/skip controls.

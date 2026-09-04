@@ -15,6 +15,7 @@ import { isNativeClineAgentSelected } from "@/runtime/native-agent";
 import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
 import type {
 	RuntimeConfigResponse,
+	RuntimeGitConflictState,
 	RuntimeGitSyncAction,
 	RuntimeTaskSessionSummary,
 	RuntimeTaskWorkspaceInfoResponse,
@@ -80,6 +81,12 @@ interface UseGitActionsInput {
 	taskSessions?: Record<string, RuntimeTaskSessionSummary>;
 	isGitHistoryOpen: boolean;
 	refreshWorkspaceState: () => Promise<void>;
+	/**
+	 * Opens the resolve-conflicts dialog on the worktree holding a conflict a
+	 * merge/rebase/cherry-pick just stopped on. Without this the only signal is a
+	 * danger toast, and the user has to guess that the top-bar button is the cure.
+	 */
+	onOpenConflicts?: (worktreePath: string) => void;
 }
 
 export interface UseGitActionsResult {
@@ -197,7 +204,47 @@ export function useGitActions({
 	taskSessions,
 	isGitHistoryOpen,
 	refreshWorkspaceState,
+	onOpenConflicts,
 }: UseGitActionsInput): UseGitActionsResult {
+	/**
+	 * A failed merge/rebase/cherry-pick that stopped on a conflict is not a dead end
+	 * any more, so it must not read like one: the toast carries the way out.
+	 * Returns true when it handled the failure as a conflict.
+	 */
+	const reportGitConflictOrError = useCallback(
+		(
+			conflictState: RuntimeGitConflictState | null | undefined,
+			fallbackMessage: string,
+		): boolean => {
+			if (!conflictState) {
+				showAppToast({
+					intent: "danger",
+					icon: "warning-sign",
+					message: fallbackMessage,
+					timeout: 8000,
+				});
+				return false;
+			}
+			const { worktreePath } = conflictState;
+			showAppToast({
+				intent: "warning",
+				icon: "warning-sign",
+				message: fallbackMessage,
+				timeout: 12000,
+				...(onOpenConflicts
+					? {
+							action: {
+								label: "Resolve conflicts",
+								onClick: () => onOpenConflicts(worktreePath),
+							},
+						}
+					: {}),
+			});
+			return true;
+		},
+		[onOpenConflicts],
+	);
+
 	const [runningGitAction, setRunningGitAction] =
 		useState<RuntimeGitSyncAction | null>(null);
 	const [taskGitActionLoadingByTaskId, setTaskGitActionLoadingByTaskId] =
@@ -899,12 +946,12 @@ export function useGitActions({
 					if (payload.summary) {
 						setHomeGitSummary(payload.summary);
 					}
-					showAppToast({
-						intent: "danger",
-						icon: "warning-sign",
-						message: `Merge failed. ${payload.error ?? ""}`.trim(),
-						timeout: 8000,
-					});
+					reportGitConflictOrError(
+						payload.conflictState,
+						payload.conflictState
+							? (payload.error ?? "The merge stopped on conflicts.")
+							: `Merge failed. ${payload.error ?? ""}`.trim(),
+					);
 					return;
 				}
 				setHomeGitSummary(payload.summary);
@@ -938,6 +985,7 @@ export function useGitActions({
 			mergeTaskLoadingById,
 			refreshGitHistory,
 			refreshWorkspaceState,
+			reportGitConflictOrError,
 		],
 	);
 
@@ -1253,12 +1301,13 @@ export function useGitActions({
 					targetBranch,
 				});
 				if (!payload.ok) {
-					showAppToast({
-						intent: "danger",
-						icon: "warning-sign",
-						message: payload.error ?? "Cherry-pick failed.",
-						timeout: 8000,
-					});
+					if (payload.summary) {
+						setHomeGitSummary(payload.summary);
+					}
+					reportGitConflictOrError(
+						payload.conflictState,
+						payload.error ?? "Cherry-pick failed.",
+					);
 					return;
 				}
 				if (payload.summary) {
@@ -1281,7 +1330,12 @@ export function useGitActions({
 				});
 			}
 		},
-		[currentProjectId, homeGitSummary?.currentBranch, refreshGitHistory],
+		[
+			currentProjectId,
+			homeGitSummary?.currentBranch,
+			refreshGitHistory,
+			reportGitConflictOrError,
+		],
 	);
 
 	const mergeHomeBranchIntoCurrent = useCallback(
@@ -1368,13 +1422,12 @@ export function useGitActions({
 					if (payload.summary) {
 						setHomeGitSummary(payload.summary);
 					}
-					const errorMessage = payload.error ?? "Rebase failed.";
-					showAppToast({
-						intent: "danger",
-						icon: "warning-sign",
-						message: `Could not rebase current onto ${normalizedBranch}. ${errorMessage}`,
-						timeout: 7000,
-					});
+					reportGitConflictOrError(
+						payload.conflictState,
+						payload.conflictState
+							? (payload.error ?? "The rebase stopped on conflicts.")
+							: `Could not rebase current onto ${normalizedBranch}. ${payload.error ?? "Rebase failed."}`,
+					);
 					return;
 				}
 				setHomeGitSummary(payload.summary);
@@ -1404,6 +1457,7 @@ export function useGitActions({
 			isRebasingHomeBranch,
 			refreshGitHistory,
 			refreshWorkspaceState,
+			reportGitConflictOrError,
 		],
 	);
 

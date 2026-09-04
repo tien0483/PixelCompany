@@ -41,7 +41,10 @@ import type {
 	RuntimeDebugResetAllStateResponse,
 	RuntimeFeaturebaseTokenResponse,
 	RuntimeGitBlameResponse,
+	RuntimeGitConflictOperationResponse,
+	RuntimeGitConflictScope,
 	RuntimeGitConflictSide,
+	RuntimeGitConflictStateResponse,
 	RuntimeGitConflictsResponse,
 	RuntimeGitResolveConflictResponse,
 	RuntimeGitWorktreeInventoryResponse,
@@ -392,17 +395,55 @@ export async function cleanRuntimeStash(
 	return await trpcClient.workspace.cleanStash.mutate();
 }
 
+/**
+ * The scope used to be dropped on the floor here — `getMergeConflicts.query(null)`
+ * always asked about the home repo, so a conflict inside a task worktree or a
+ * borrowed base checkout was invisible no matter which card was selected.
+ */
 export async function fetchRuntimeMergeConflicts(
 	workspaceId: string | null,
+	scope?: RuntimeGitConflictScope | null,
 ): Promise<RuntimeGitConflictsResponse> {
 	const trpcClient = getRuntimeTrpcClient(workspaceId);
-	return await trpcClient.workspace.getMergeConflicts.query(null);
+	return await trpcClient.workspace.getMergeConflicts.query(scope ?? null);
+}
+
+/** Every worktree of this repo that is stopped mid-merge/rebase/cherry-pick. */
+export async function fetchRuntimeConflictState(
+	workspaceId: string | null,
+): Promise<RuntimeGitConflictStateResponse> {
+	const trpcClient = getRuntimeTrpcClient(workspaceId);
+	return await trpcClient.workspace.getConflictState.query();
 }
 
 export async function resolveRuntimeMergeConflict(
 	workspaceId: string | null,
-	input: { path: string; side: RuntimeGitConflictSide },
+	input: RuntimeGitConflictScope & { path: string; side: RuntimeGitConflictSide; content?: string },
 ): Promise<RuntimeGitResolveConflictResponse> {
 	const trpcClient = getRuntimeTrpcClient(workspaceId);
 	return await trpcClient.workspace.resolveMergeConflict.mutate(input);
+}
+
+export async function continueRuntimeConflictOperation(
+	workspaceId: string | null,
+	scope: RuntimeGitConflictScope,
+): Promise<RuntimeGitConflictOperationResponse> {
+	const trpcClient = getRuntimeTrpcClient(workspaceId);
+	return await trpcClient.workspace.continueConflictOperation.mutate(scope);
+}
+
+export async function abortRuntimeConflictOperation(
+	workspaceId: string | null,
+	scope: RuntimeGitConflictScope,
+): Promise<RuntimeGitConflictOperationResponse> {
+	const trpcClient = getRuntimeTrpcClient(workspaceId);
+	return await trpcClient.workspace.abortConflictOperation.mutate(scope);
+}
+
+export async function skipRuntimeRebaseCommit(
+	workspaceId: string | null,
+	scope: RuntimeGitConflictScope,
+): Promise<RuntimeGitConflictOperationResponse> {
+	const trpcClient = getRuntimeTrpcClient(workspaceId);
+	return await trpcClient.workspace.skipRebaseCommit.mutate(scope);
 }
