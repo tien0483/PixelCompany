@@ -281,6 +281,7 @@ import {
 	type RuntimeGitlabRawFileRequest,
 	type RuntimeGitlabRawFileResponse,
 	type RuntimeGitlabResolveDiscussionRequest,
+	type RuntimeGitlabUpdateMergeRequestRequest,
 	type RuntimeHtmlStatus,
 	RuntimeHtmlStatusSchema,
 	type RuntimeHtmlTemplate,
@@ -444,6 +445,7 @@ import {
 	runtimeGitlabRawFileRequestSchema,
 	runtimeGitlabRawFileResponseSchema,
 	runtimeGitlabResolveDiscussionRequestSchema,
+	runtimeGitlabUpdateMergeRequestRequestSchema,
 	runtimeGitMergeBranchRequestSchema,
 	runtimeGitMergeBranchResponseSchema,
 	runtimeGitMergeIntoCurrentRequestSchema,
@@ -998,6 +1000,9 @@ export interface RuntimeTrpcContext {
 			input: RuntimeGitlabMergeRequestListRequest,
 		) => Promise<RuntimeGitlabMergeRequestListResponse>;
 		getMergeRequest: (input: RuntimeGitlabMergeRequestRef) => Promise<RuntimeGitlabMergeRequestDetailResponse>;
+		updateMergeRequest: (
+			input: RuntimeGitlabUpdateMergeRequestRequest,
+		) => Promise<RuntimeGitlabMergeRequestDetailResponse>;
 		getDiffs: (input: RuntimeGitlabMergeRequestRef) => Promise<RuntimeGitlabDiffsResponse>;
 		getVersions: (input: RuntimeGitlabMergeRequestRef) => Promise<RuntimeGitlabMergeRequestVersionsResponse>;
 		getRawFile: (input: RuntimeGitlabRawFileRequest) => Promise<RuntimeGitlabRawFileResponse>;
@@ -2113,6 +2118,12 @@ export const runtimeAppRouter = t.router({
 			.output(runtimeGitlabMergeRequestDetailResponseSchema)
 			.query(async ({ ctx, input }) => {
 				return await ctx.gitlabApi.getMergeRequest(input);
+			}),
+		updateMergeRequest: t.procedure
+			.input(runtimeGitlabUpdateMergeRequestRequestSchema)
+			.output(runtimeGitlabMergeRequestDetailResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.gitlabApi.updateMergeRequest(input);
 			}),
 		getDiffs: t.procedure
 			.input(runtimeGitlabMergeRequestRefSchema)
