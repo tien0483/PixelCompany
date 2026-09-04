@@ -11,6 +11,11 @@ import {
 	type ReviewTagSectionId,
 	reviewTagColor,
 } from "@/review/review-tags";
+import {
+	describedTagLabelKeys,
+	reviewTagDescription,
+	reviewTagDescriptionHeadings,
+} from "@/review/review-tag-descriptions";
 import type { RuntimeReviewRule } from "@/runtime/types";
 
 function rule(category: string): RuntimeReviewRule {
@@ -177,5 +182,38 @@ describe("countTags", () => {
 		expect(countTags(section(sections, "tags"))).toBe(BUILTIN_REVIEW_TAGS.length);
 		expect(countTags(section(sections, "smells"))).toBe(23);
 		expect(countTags(section(sections, "refactorings"))).toBe(66);
+	});
+});
+
+describe("reviewTagDescription", () => {
+	const catalogTags = [
+		...BUILTIN_REVIEW_TAGS,
+		...CODE_SMELL_TAG_GROUPS.flatMap((group) => group.tags),
+		...REFACTORING_TAG_GROUPS.flatMap((group) => group.tags),
+	];
+
+	it("explains every chip the strip can render", () => {
+		const undescribed = catalogTags.filter((tag) => reviewTagDescription(tag) === null).map((tag) => tag.label);
+		expect(undescribed).toEqual([]);
+	});
+
+	it("has no description for a label the catalogs no longer carry", () => {
+		const known = new Set(catalogTags.map((tag) => tag.label.toLowerCase()));
+		expect(describedTagLabelKeys().filter((key) => !known.has(key))).toEqual([]);
+	});
+
+	it("matches a rules-bundle category to the builtin it shares a name with", () => {
+		// Same case-insensitive identity the colour and the dedup already use.
+		expect(reviewTagDescription({ kind: "rule-category", label: "security" })).toEqual(
+			reviewTagDescription({ kind: "builtin", label: "Security" }),
+		);
+		expect(reviewTagDescription({ kind: "rule-category", label: "Team Convention" })).toBeNull();
+	});
+
+	it("heads the two lines by kind, since 'Fix' reads wrong for a technique", () => {
+		expect(reviewTagDescriptionHeadings({ kind: "smell", label: "Feature Envy" }).then).toBe("Fix");
+		expect(reviewTagDescriptionHeadings({ kind: "refactoring", label: "Extract Method" }).then).toBe(
+			"What it does",
+		);
 	});
 });

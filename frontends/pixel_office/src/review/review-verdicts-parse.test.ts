@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { parseVerdictsFromStream } from "@/review/review-findings-parse";
+import {
+	parseSuggestionsFromChat,
+	parseVerdictsFromChat,
+	parseVerdictsFromStream,
+} from "@/review/review-findings-parse";
 
 describe("parseVerdictsFromStream", () => {
 	it("extracts a verdict from a bare JSON array", () => {
@@ -72,5 +76,53 @@ describe("parseVerdictsFromStream", () => {
 	it("returns empty array for unparseable text", () => {
 		expect(parseVerdictsFromStream("I found nothing notable.")).toEqual([]);
 		expect(parseVerdictsFromStream("[{bad json}]")).toEqual([]);
+	});
+});
+
+describe("parseVerdictsFromChat", () => {
+	function chatAnswer(body: string, fence = "suggestions"): string {
+		return ["Here is what I found.", "", `\`\`\`${fence}`, body, "```"].join("\n");
+	}
+
+	it("reads verdicts and findings out of the same suggestions block", () => {
+		const answer = chatAnswer(
+			[
+				"[",
+				'  {"newPath":"a.ts","newLine":4,"severity":"HIGH","message":"real finding"},',
+				'  {"annotationId":"ann-2","verdict":"confirmed","reasoning":"your hunch holds"}',
+				"]",
+			].join("\n"),
+		);
+
+		expect(parseVerdictsFromChat(answer)).toEqual([
+			{ annotationId: "ann-2", verdict: "confirmed", reasoning: "your hunch holds" },
+		]);
+		// The two parsers split the same array by element shape, so neither steals from
+		// the other.
+		expect(parseSuggestionsFromChat(answer)).toHaveLength(1);
+		expect(parseSuggestionsFromChat(answer)[0]?.newPath).toBe("a.ts");
+	});
+
+	it("returns verdicts when the block carries no findings at all", () => {
+		const answer = chatAnswer('[{"annotationId":"ann-1","verdict":"not_an_issue","reasoning":"safe"}]');
+
+		expect(parseVerdictsFromChat(answer)).toHaveLength(1);
+		expect(parseSuggestionsFromChat(answer)).toEqual([]);
+	});
+
+	it("ignores an array outside the suggestions fence", () => {
+		// Prose and json fences are where a chat answer keeps its code samples. Reading
+		// them would turn an example in an explanation into a verdict on a real spot.
+		const prose = 'You could write [{"annotationId":"ann-1","verdict":"confirmed","reasoning":"x"}] here.';
+		expect(parseVerdictsFromChat(prose)).toEqual([]);
+		expect(
+			parseVerdictsFromChat(chatAnswer('[{"annotationId":"ann-1","verdict":"confirmed","reasoning":"x"}]', "json")),
+		).toEqual([]);
+	});
+
+	it("drops an unknown verdict value rather than defaulting it", () => {
+		expect(parseVerdictsFromChat(chatAnswer('[{"annotationId":"ann-1","verdict":"maybe","reasoning":"unsure"}]'))).toEqual(
+			[],
+		);
 	});
 });

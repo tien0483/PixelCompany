@@ -1,4 +1,7 @@
-import { useCallback, useState } from "react";
+import { useCallback } from "react";
+
+import { HOME_ROUTE_BOARD, type HomeRoute, homeRouteCenterView } from "@/hooks/home-route";
+import type { NavigateHomeRouteOptions } from "@/hooks/use-home-route";
 
 /**
  * What occupies the home center pane.
@@ -11,7 +14,9 @@ import { useCallback, useState } from "react";
 export type HomeCenterView = "board" | "docs" | "git" | "learning" | "understand";
 
 export interface UseHomeCenterViewOptions {
-	hasNoProjects: boolean;
+	/** The shell's route — the source of truth for what is on screen, and for the URL. */
+	route: HomeRoute;
+	navigate: (route: HomeRoute, options?: NavigateHomeRouteOptions) => void;
 	/**
 	 * The Office right column is a *column*, not a center view, so it lives in
 	 * `useOfficeViewState`. Opening any non-board center view hides it, matching what
@@ -30,35 +35,47 @@ export interface UseHomeCenterViewResult {
 	/** Opens `view`, or returns to the board when it is already the current one. */
 	toggleView: (view: Exclude<HomeCenterView, "board">) => void;
 	/** Back to the board whatever is open. Used on project switch and when Office opens. */
-	resetToBoard: () => void;
+	resetToBoard: (options?: NavigateHomeRouteOptions) => void;
 	/** Closes git history only — leaves any other view alone. */
 	closeGitHistory: () => void;
 }
 
+/**
+ * Derives the center pane from the route and turns the toggles back into navigations.
+ *
+ * It used to own a `useState`, which is why none of these views had a URL. The public shape is
+ * unchanged so the toggle call sites in `App.tsx` did not have to move; the only new thing is
+ * that `resetToBoard` takes history options, because a project switch resetting the view is
+ * not a place the user navigated to.
+ */
 export function useHomeCenterView({
-	hasNoProjects,
+	route,
+	navigate,
 	closeOffice,
 }: UseHomeCenterViewOptions): UseHomeCenterViewResult {
-	const [centerView, setCenterView] = useState<HomeCenterView>("board");
+	const centerView = homeRouteCenterView(route);
 
 	const toggleView = useCallback(
 		(view: Exclude<HomeCenterView, "board">) => {
-			if (hasNoProjects) {
-				return;
-			}
 			closeOffice();
-			setCenterView((current) => (current === view ? "board" : view));
+			navigate(homeRouteCenterView(route) === view ? HOME_ROUTE_BOARD : { kind: "center", view });
 		},
-		[closeOffice, hasNoProjects],
+		[closeOffice, navigate, route],
 	);
 
-	const resetToBoard = useCallback(() => {
-		setCenterView("board");
-	}, []);
+	const resetToBoard = useCallback(
+		(options?: NavigateHomeRouteOptions) => {
+			navigate(HOME_ROUTE_BOARD, options);
+		},
+		[navigate],
+	);
 
 	const closeGitHistory = useCallback(() => {
-		setCenterView((current) => (current === "git" ? "board" : current));
-	}, []);
+		if (homeRouteCenterView(route) !== "git") {
+			return;
+		}
+		navigate(HOME_ROUTE_BOARD);
+	}, [navigate, route]);
 
 	return {
 		centerView,

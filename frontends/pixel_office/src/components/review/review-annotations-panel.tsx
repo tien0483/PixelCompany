@@ -1,6 +1,6 @@
 import type { ReactElement } from "react";
+import { ReviewTagChip } from "@/components/review/review-tag-chip";
 import { cn } from "@/components/ui/cn";
-import { reviewTagColor } from "@/review/review-tags";
 import type { RuntimeReviewAnnotation } from "@/runtime/types";
 
 export interface ReviewAnnotationsPanelProps {
@@ -18,7 +18,17 @@ function formatAnnotationLineLabel(annotation: RuntimeReviewAnnotation): string 
 	}
 	const start = isOldSide ? annotation.lineRange?.startOldLine : annotation.lineRange?.startNewLine;
 	const prefix = isOldSide ? ":-" : ":";
-	return start != null && start !== end ? `${prefix}${start}-${end}` : `${prefix}${end}`;
+	if (start != null && start !== end) {
+		return `${prefix}${start}-${end}`;
+	}
+	// A run that began on a deletion and ended on an addition has no start on the end's
+	// own side. Reporting only the end would render a multi-line run as a single line, so
+	// the other side's start is named explicitly rather than dropped.
+	const crossSideStart = isOldSide ? annotation.lineRange?.startNewLine : annotation.lineRange?.startOldLine;
+	if (crossSideStart != null) {
+		return `${isOldSide ? ":+" : ":-"}${crossSideStart}→${isOldSide ? "-" : "+"}${end}`;
+	}
+	return `${prefix}${end}`;
 }
 
 /** The tags themselves are dragged from `ReviewTagStrip`, above the diff, not from here. */
@@ -51,9 +61,7 @@ export function ReviewAnnotationsPanel({
 										onClick={() => onJumpToAnnotation(annotation)}
 									>
 										<div className="flex items-center gap-1">
-											<span className={cn("rounded border px-1 text-[9px]", reviewTagColor(annotation.tag).chip)}>
-												{annotation.tag.label}
-											</span>
+											<ReviewTagChip tag={annotation.tag} />
 											{annotation.verdict ? (
 												<span
 													title={annotation.verdict.reasoning}
@@ -85,6 +93,16 @@ export function ReviewAnnotationsPanel({
 										{annotation.note.length > 0 ? (
 											<div className="truncate text-[10px] text-text-secondary" title={annotation.note}>
 												{annotation.note}
+											</div>
+										) : null}
+										{/* The badge says whether the concern held; this is the answer to it,
+										    and it is the half the reviewer opened this tab to read. */}
+										{annotation.verdict && annotation.verdict.reasoning.length > 0 ? (
+											<div
+												className="mt-0.5 line-clamp-2 text-[10px] text-text-tertiary"
+												title={annotation.verdict.reasoning}
+											>
+												{annotation.verdict.reasoning}
 											</div>
 										) : null}
 									</button>

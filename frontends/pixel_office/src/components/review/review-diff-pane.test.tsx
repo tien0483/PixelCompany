@@ -6,6 +6,7 @@ import {
 	type ReviewCommentDraftInput,
 	ReviewDiffPane,
 } from "@/components/review/review-diff-pane";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { DEEP_SCROLL_IDLE_RESET_MS } from "@/review/review-deep-scroll";
 import type { ReviewTag, ReviewTagSection } from "@/review/review-tags";
 import type { ReviewLineFocus, ReviewNavDirection } from "@/review/review-target";
@@ -136,6 +137,16 @@ function dragStartEvent(): Event {
 	return event;
 }
 
+/** The same stub for the receiving half of a drag: `dropEffect` is all the rows set. */
+function tagDragEvent(type: "dragenter" | "dragover" | "drop"): Event {
+	const event = new Event(type, { bubbles: true, cancelable: true });
+	Object.defineProperty(event, "dataTransfer", { value: { dropEffect: "none", getData: () => "" } });
+	// The scroll container measures itself on dragover; jsdom lays nothing out, so the
+	// autoscroll ramp would read every edge as 0 away and scroll on every event.
+	Object.defineProperty(event, "clientY", { value: 200 });
+	return event;
+}
+
 describe("ReviewDiffPane", () => {
 	let container: HTMLDivElement;
 	let root: Root;
@@ -179,6 +190,13 @@ describe("ReviewDiffPane", () => {
 			onFetchFullFile?: () => Promise<FullFileFetchResult>;
 			lineFocus?: ReviewLineFocus | null;
 			onTagDragStart?: (tag: ReviewTag) => void;
+			/** A chip already in flight, which is what the drop handlers are gated on. */
+			draggedTag?: ReviewTag;
+			onAddAnnotation?: (input: {
+				oldLine: number | null;
+				newLine: number | null;
+				lineRange?: { startOldLine: number | null; startNewLine: number | null };
+			}) => void;
 			/** Omitted entirely by default, which is how the standalone pane renders. */
 			withTags?: boolean;
 		} = {},
@@ -187,16 +205,19 @@ describe("ReviewDiffPane", () => {
 			? {
 					annotations: [],
 					sections: SECTIONS,
-					draggedTag: null,
+					draggedTag: overrides.draggedTag ?? null,
 					currentHeadSha: null,
 					onDragStart: overrides.onTagDragStart ?? (() => {}),
 					onDragEnd: () => {},
-					onAdd: () => {},
+					onAdd: overrides.onAddAnnotation ?? (() => {}),
 					onRemove: () => {},
 				}
 			: undefined;
 		await act(async () => {
 			root.render(
+				// The app mounts one provider per entry (main.tsx / main-review.tsx); a bare
+				// render of the pane has to supply it for the chips' hover descriptions.
+				<TooltipProvider>
 				<ReviewDiffPane
 					file={overrides.file ?? FILE}
 					mode="unified"
@@ -218,7 +239,8 @@ describe("ReviewDiffPane", () => {
 					{...(overrides.navTargets ? { navTargets: overrides.navTargets } : {})}
 					{...(overrides.onFetchFullFile ? { onFetchFullFile: overrides.onFetchFullFile } : {})}
 					{...(tagAnnotations ? { tagAnnotations } : {})}
-				/>,
+				/>
+				</TooltipProvider>,
 			);
 		});
 	}
@@ -443,6 +465,111 @@ describe("ReviewDiffPane", () => {
 		expect(Array.from(container.querySelectorAll("button")).some((button) => button.draggable)).toBe(false);
 		expect(tagStripToggle("Tags").getAttribute("aria-expanded")).toBe("false");
 		expect(window.localStorage.getItem(LocalStorageKey.ReviewTagStripExpanded)).toBe("false");
+	});
+
+	/**
+	 * Drags a chip across the given rows and releases on the last one. `dragenter` and
+	 * `dragover` both fire per row, as a browser does, so the head-reassert path is
+	 * exercised too.
+	 */
+	async function dragTagAcross(rows: HTMLElement[]): Promise<void> {
+		await act(async () => {
+			for (const element of rows) {
+				element.dispatchEvent(tagDragEvent("dragenter"));
+				element.dispatchEvent(tagDragEvent("dragover"));
+			}
+		});
+		const last = rows[rows.length - 1];
+		if (!last) {
+			throw new Error("A tag drag needs at least one row.");
+		}
+		await act(async () => {
+			last.dispatchEvent(tagDragEvent("drop"));
+		});
+	}
+
+	async function saveTagNote(note: string): Promise<void> {
+		const input = Array.from(container.querySelectorAll("input")).find((candidate) =>
+			candidate.placeholder.startsWith("Optional note"),
+		);
+		if (!input) {
+			throw new Error("No pending-annotation note input.");
+		}
+		await act(async () => {
+			setInputValue(input, note);
+		});
+		await act(async () => {
+			input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+		});
+	}
+
+	const SMELL: ReviewTag = { kind: "smell", label: "Feature Envy" };
+
+	it("marks a run that spans a hunk's additions and its deletion with one chip", async () => {
+		const added: Array<{
+			oldLine: number | null;
+			newLine: number | null;
+			lineRange?: { startOldLine: number | null; startNewLine: number | null };
+		}> = [];
+		await renderPane({ withTags: true, draggedTag: SMELL, onAddAnnotation: (input) => added.push(input) });
+
+		// n-2/n-3/n-4 are additions and o-2 is the deletion after them: the exact pair a
+		// GitLab range note may not span, and the reason the clamp had to go for tags.
+		await dragTagAcross([row("n-2", "right"), row("n-3", "right"), row("n-4", "right"), row("o-2", "left")]);
+		await saveTagNote("This whole rewrite envies the other object.");
+
+		expect(added).toHaveLength(1);
+		expect(added[0]).toMatchObject({
+			// Filled from the last row that carries each number, so neither side is lost.
+			oldLine: 2,
+			newLine: 4,
+			lineRange: { startOldLine: 2, startNewLine: 2 },
+		});
+	});
+
+	it("highlights every row a chip drag has crossed, deletions included", async () => {
+		await renderPane({ withTags: true, draggedTag: SMELL });
+
+		await act(async () => {
+			for (const element of [row("n-2", "right"), row("n-3", "right"), row("o-2", "left")]) {
+				element.dispatchEvent(tagDragEvent("dragenter"));
+			}
+		});
+
+		// Four, not three: the run is anchor-to-head, so n-4 is covered even though a fast
+		// pointer never raised an event on it.
+		expect(container.querySelectorAll(".kb-diff-row-drop-target")).toHaveLength(4);
+		expect(row("n-4", "right").className).toContain("kb-diff-row-drop-target");
+		expect(row("o-2", "left").className).toContain("kb-diff-row-drop-target");
+	});
+
+	it("tags a single line when the chip is dropped without crossing a row", async () => {
+		const added: Array<{ newLine: number | null; lineRange?: unknown }> = [];
+		await renderPane({ withTags: true, draggedTag: SMELL, onAddAnnotation: (input) => added.push(input) });
+
+		await dragTagAcross([row("n-3", "right")]);
+		await saveTagNote("");
+
+		expect(added).toHaveLength(1);
+		expect(added[0]?.newLine).toBe(3);
+		// No range: a one-row run is the old click-to-tag, and must stay a single line.
+		expect(added[0]?.lineRange).toBeUndefined();
+	});
+
+	it("clears the run when the chip leaves the diff without being dropped", async () => {
+		await renderPane({ withTags: true, draggedTag: SMELL });
+
+		await act(async () => {
+			row("n-2", "right").dispatchEvent(tagDragEvent("dragenter"));
+			row("n-3", "right").dispatchEvent(tagDragEvent("dragenter"));
+		});
+		expect(container.querySelectorAll(".kb-diff-row-drop-target")).toHaveLength(2);
+
+		await act(async () => {
+			scrollContainer().dispatchEvent(new Event("dragleave", { bubbles: true }));
+		});
+
+		expect(container.querySelectorAll(".kb-diff-row-drop-target")).toHaveLength(0);
 	});
 
 	it("opens the composer for the run a drag covers", async () => {
