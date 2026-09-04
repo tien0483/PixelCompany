@@ -1,6 +1,7 @@
 import { ChevronDown, ChevronRight, X } from "lucide-react";
 import { type ReactElement, useState } from "react";
 
+import { ReviewTagTooltip } from "@/components/review/review-tag-chip";
 import { cn } from "@/components/ui/cn";
 import {
 	loadBooleanResizePreference,
@@ -27,7 +28,8 @@ const SECTION_PREFERENCES: Record<ReviewTagSectionId, ResizeBooleanPreference> =
 	refactorings: { key: LocalStorageKey.ReviewRefactoringSectionExpanded, defaultValue: false },
 };
 
-const DRAG_HINT = "Drag a tag onto a diff line to mark a suspect spot.";
+const DRAG_HINT =
+	"Drag a tag onto a diff line to mark a suspect spot, or across several lines — including a hunk's deletions and additions together — to mark the whole run.";
 
 export interface ReviewTagStripProps {
 	sections: ReviewTagSection[];
@@ -124,25 +126,26 @@ export function ReviewTagStrip({ sections, onTagDragStart, onTagDragEnd }: Revie
 												</span>
 											) : null}
 											{group.tags.map((tag) => (
-												<button
-													key={`${tag.kind}-${tag.label}`}
-													type="button"
-													draggable
-													// The browser builds the drag image out of this element, so the chip's
-													// own color is what the reviewer sees following the cursor.
-													className={cn(
-														"cursor-grab rounded border px-2 py-0.5 text-[10px] hover:brightness-125",
-														reviewTagColor(tag).chip,
-													)}
-													onDragStart={(event) => {
-														event.dataTransfer.effectAllowed = "copy";
-														event.dataTransfer.setData("text/plain", tag.label);
-														onTagDragStart(tag);
-													}}
-													onDragEnd={onTagDragEnd}
-												>
-													{tag.label}
-												</button>
+												<ReviewTagTooltip key={`${tag.kind}-${tag.label}`} tag={tag} side="bottom">
+													<button
+														type="button"
+														draggable
+														// The browser builds the drag image out of this element, so the chip's
+														// own color is what the reviewer sees following the cursor.
+														className={cn(
+															"cursor-grab rounded border px-2 py-0.5 text-[10px] hover:brightness-125",
+															reviewTagColor(tag).chip,
+														)}
+														onDragStart={(event) => {
+															event.dataTransfer.effectAllowed = "copy";
+															event.dataTransfer.setData("text/plain", tag.label);
+															onTagDragStart(tag);
+														}}
+														onDragEnd={onTagDragEnd}
+													>
+														{tag.label}
+													</button>
+												</ReviewTagTooltip>
 											))}
 										</div>
 									))
