@@ -113,23 +113,55 @@ const surfaces = [
 		feature: "agent-stack",
 		port: "8000",
 	},
+	{
+		id: "plan-editor-standalone",
+		eyebrow: "Standalone package",
+		name: "Plan editor standalone",
+		tagline: "The plan editor as a folder you can hand to someone.",
+		body: "The same markdown-to-HTML plan editor, built as a self-contained package: write the plan, refine it with an agent, pick a papp template, generate the page. No board, Office, git view or accounts UI. It needs Node and a locally logged-in Claude Code CLI, and no credential of any kind is bundled. Plans land in the same runtime data folder the full app uses, so nothing is lost if you install PIXTiel later.",
+		bullets: [
+			"Ships as a folder or a zip — start.sh on macOS/Linux, start.bat on Windows",
+			"~50 MB built --slim; a one-time build.sh installs the sidecar's deps on the target",
+			"Versioned plans with undo, redo and history, backed by git objects",
+		],
+		shot: null,
+		feature: "plan-editor-standalone",
+		port: "4173",
+	},
+	{
+		id: "review-standalone",
+		eyebrow: "Standalone package",
+		name: "Review standalone",
+		tagline: "Merge-request review without the rest of the workspace.",
+		body: "Read a GitLab merge request side by side, check it against your team's own extracted rules, draft inline notes locally, and publish them in one action. Authorize GitLab once on the loopback callback; the token is stored in your home runtime data folder at mode 0600. Drafts persist per merge request, so closing the tab discards nothing.",
+		bullets: [
+			"No sidecar, so every build is already slim — Node 20 and go",
+			"Rules extracted from your own guideline documents, each citation traceable to its heading",
+			"Runs on 4183, clear of the plan editor's 4173, so both packages coexist",
+		],
+		shot: null,
+		feature: "review-standalone",
+		port: "4183",
+	},
 ];
 ---
 
 <BaseLayout
 	title="Products"
-	description="Every surface PIXTiel ships: the board, plan editor, review, agent studio, learning room, seats and the agent stack."
+	description="Every surface PIXTiel ships: the board, plan editor, review, agent studio, learning room, seats and the agent stack — plus two packages that ship on their own."
 >
 	<!-- Header -->
 	<section class="border-b border-border">
 		<div class="max-w-6xl mx-auto px-4 sm:px-6 py-16 sm:py-20">
 			<p class="text-xs font-mono uppercase tracking-widest text-accent mb-4">Products</p>
 			<h1 class="text-3xl sm:text-5xl font-bold tracking-tight text-text-primary max-w-3xl">
-				One workspace, seven surfaces, no cloud.
+				One workspace, seven surfaces — two of them ship on their own.
 			</h1>
 			<p class="mt-5 text-base sm:text-lg text-text-secondary max-w-2xl leading-relaxed">
 				PIXTiel is one local install. The board is the core; everything else is a feature you tick on
-				during setup and can add later. Nothing phones home, and every service binds to loopback.
+				during setup and can add later. The installer also builds the plan editor and Review as
+				self-contained packages you can hand to someone who does not want the board. Nothing phones
+				home, and every service binds to loopback.
 			</p>
 			<div class="mt-8 flex flex-wrap gap-3">
 				<a

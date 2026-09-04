@@ -727,6 +727,7 @@ export function createWorkspaceApi(deps: CreateWorkspaceApiDependencies): Runtim
 					dryRun: input?.dryRun,
 					categories: input?.categories,
 					taskIds: input?.taskIds,
+					includeOrphanNodeModules: input?.includeOrphanNodeModules,
 				});
 				if (!input?.dryRun && response.cleanedTaskIds.length > 0) {
 					void deps.broadcastRuntimeWorkspaceStateUpdated(

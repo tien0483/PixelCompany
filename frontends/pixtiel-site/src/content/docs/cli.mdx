@@ -49,13 +49,15 @@ writes. If usage jumps after you enable the stack, this is the lever.
 ```bash
 pnpm run setup                             # interactive: picker, then "Start PIXTiel now? [Y/n]"
 pnpm run setup -- --features kanban,review # non-interactive selection
+pnpm run setup -- --features plan-editor-standalone  # build one shippable package
 pnpm run setup -- --start                  # install, then always start
 pnpm run setup -- --no-start               # install, never start (what CI wants)
 ```
 
 Without `--start`/`--no-start`, an interactive run asks and a non-interactive run prints the next
 command and exits `0`. An unknown feature id exits `2` and lists the valid ones. Selections are
-remembered in `.pixtiel/install-manifest.json`, so a re-run starts from what you chose last time.
+remembered in `.pixtiel/install-manifest.json`, so a re-run starts from what you chose last time,
+and a `--features` run merges into that record rather than replacing it.
 
 ---
 
@@ -73,6 +75,16 @@ remembered in `.pixtiel/install-manifest.json`, so a re-run starts from what you
 | `3030` | This documentation site — what the in-app **Docs** tab frames |
 | `8000` | Agent stack switchboard |
 | `5173` | Vite dev server — `pnpm dev` only |
+
+The [standalone packages](/docs/install#standalone-packages) run outside `pnpm start` and have
+ports of their own, so they can sit beside a full install without colliding with it:
+
+| Port | Service |
+|---|---|
+| `4173` | Plan editor standalone — `PLAN_EDITOR_HTML_PORT` moves its sidecar, not this |
+| `8422` | That package's own HTML/template sidecar (the in-app one is `8322`) |
+| `4183` | Review standalone — move with `REVIEW_PORT` |
+| `14995` | Review standalone's GitLab OAuth callback — shared with a Claude session's GitLab MCP client, so only one can hold it |
 
 Everything binds to `127.0.0.1`. Nothing listens on a public interface unless you put a proxy in
 front of it, in which case turn on the passcode gate or Google OIDC first — see
@@ -93,6 +105,10 @@ Useful ones: `PIXTIEL_PORT`, `PIXTIEL_DOCSKILL_PORT`, `PIXTIEL_HTML_PORT`,
 `PIXTIEL_FLOWISE_PORT`, `PIXTIEL_OPENMAIC_PORT`, `PIXTIEL_WEBSITE_PORT`,
 `PIXTIEL_WEBSITE_DIST`, `PIXTIEL_AGENT_DATA`, `PIXTIEL_NODE`, `PIXTIEL_HOME`
 (installer target).
+
+Two names break the `PIXTIEL_*` pattern because they belong to the standalone packages rather than
+to this app: `PLAN_EDITOR_HTML_PORT` (the standalone plan editor's template sidecar) and
+`REVIEW_PORT` (the standalone Review server). Setting either has no effect on `pnpm start`.
 
 ### The in-app Docs tab
 

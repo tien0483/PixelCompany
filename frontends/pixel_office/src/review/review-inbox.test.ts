@@ -6,9 +6,15 @@ import {
 	describeReviewers,
 	describeReviewedState,
 	filterMergeRequestsForTab,
+	indexReviewedMarks,
+	reviewMarkKey,
 	splitByReviewerRequested,
 } from "@/review/review-inbox";
-import type { RuntimeGitlabMergeRequestSummary, RuntimeReviewAllMark } from "@/runtime/types";
+import type {
+	RuntimeGitlabMergeRequestSummary,
+	RuntimeReviewAllMark,
+	RuntimeReviewSessionMark,
+} from "@/runtime/types";
 
 function mergeRequest(
 	iid: number,
@@ -50,6 +56,42 @@ function withNotes(
 ): RuntimeGitlabMergeRequestSummary {
 	return { ...summary, userNotesCount };
 }
+
+describe("indexReviewedMarks", () => {
+	const allMark: RuntimeReviewAllMark = {
+		at: "2026-09-01T10:00:00.000Z",
+		headSha: "abc",
+		fileCount: 3,
+		notesCount: 4,
+	};
+	const sessionMark = (
+		projectId: number,
+		iid: number,
+		reviewedAllMark: RuntimeReviewAllMark | null,
+	): RuntimeReviewSessionMark => ({ projectId, iid, reviewedCount: 3, reviewedAllMark });
+
+	it("keys a marked session by project and iid", () => {
+		const indexed = indexReviewedMarks([sessionMark(7, 9386, allMark)]);
+		expect(indexed.get(reviewMarkKey(7, 9386))).toEqual(allMark);
+	});
+
+	it("drops sessions that exist but were never marked, so a lookup miss means unreviewed", () => {
+		const indexed = indexReviewedMarks([sessionMark(7, 9386, null), sessionMark(7, 9467, allMark)]);
+		expect(indexed.has(reviewMarkKey(7, 9386))).toBe(false);
+		expect(indexed.size).toBe(1);
+	});
+
+	it("does not confuse the same iid in two projects", () => {
+		const other: RuntimeReviewAllMark = { ...allMark, headSha: "def" };
+		const indexed = indexReviewedMarks([sessionMark(7, 12, allMark), sessionMark(8, 12, other)]);
+		expect(indexed.get(reviewMarkKey(7, 12))?.headSha).toBe("abc");
+		expect(indexed.get(reviewMarkKey(8, 12))?.headSha).toBe("def");
+	});
+
+	it("returns an empty index for a host with no sessions", () => {
+		expect(indexReviewedMarks([]).size).toBe(0);
+	});
+});
 
 describe("describeReviewedState", () => {
 	const mark = (notesCount: number | null): RuntimeReviewAllMark => ({

@@ -75,7 +75,6 @@ import { useReviewReadyNotifications } from "@/hooks/use-review-ready-notificati
 import { useReviewStalenessAlert } from "@/hooks/use-review-staleness-alert";
 import type { ReviewTarget } from "@/review/review-target";
 import { useSavedPlans } from "@/hooks/use-saved-plans";
-import { useShortcutActions } from "@/hooks/use-shortcut-actions";
 import { useStackControl } from "@/hooks/use-stack-control";
 import { useStartupOnboarding } from "@/hooks/use-startup-onboarding";
 import {
@@ -330,26 +329,10 @@ export default function App(): ReactElement {
 		handleOpenStackDialog,
 		handleStackDialogOpenChange,
 	} = useStackControl();
-	const {
-		markConnectionReady: markTerminalConnectionReady,
-		prepareWaitForConnection: prepareWaitForTerminalConnectionReady,
-	} = useTerminalConnectionReady();
+	const { markConnectionReady: markTerminalConnectionReady } =
+		useTerminalConnectionReady();
 	const readyForReviewNotificationsEnabled =
 		runtimeProjectConfig?.readyForReviewNotificationsEnabled ?? true;
-	const shortcuts = runtimeProjectConfig?.shortcuts ?? [];
-	const selectedShortcutLabel = useMemo(() => {
-		if (shortcuts.length === 0) {
-			return null;
-		}
-		const configured = runtimeProjectConfig?.selectedShortcutLabel ?? null;
-		if (
-			configured &&
-			shortcuts.some((shortcut) => shortcut.label === configured)
-		) {
-			return configured;
-		}
-		return shortcuts[0]?.label ?? null;
-	}, [runtimeProjectConfig?.selectedShortcutLabel, shortcuts]);
 	const {
 		upsertSession,
 		ensureTaskWorkspace,
@@ -719,7 +702,6 @@ export default function App(): ReactElement {
 		handleToggleDetailTerminal,
 		handleSendAgentCommandToHomeTerminal,
 		handleSendAgentCommandToDetailTerminal,
-		prepareTerminalForShortcut,
 		resetBottomTerminalLayoutCustomizations,
 		collapseHomeTerminal,
 		collapseDetailTerminal,
@@ -735,20 +717,6 @@ export default function App(): ReactElement {
 		sendTaskSessionInput,
 	});
 	const homeTerminalSummary = sessions[homeTerminalTaskId] ?? null;
-	const {
-		runningShortcutLabel,
-		handleSelectShortcutLabel,
-		handleRunShortcut,
-		handleCreateShortcut,
-	} = useShortcutActions({
-		currentProjectId,
-		selectedShortcutLabel: runtimeProjectConfig?.selectedShortcutLabel,
-		shortcuts,
-		refreshRuntimeProjectConfig,
-		prepareTerminalForShortcut,
-		prepareWaitForTerminalConnectionReady,
-		sendTaskSessionInput,
-	});
 
 	const persistWorkspaceStateAsync = useCallback(
 		async (input: {
@@ -1550,14 +1518,6 @@ export default function App(): ReactElement {
 						onOpenStack={handleOpenStackDialog}
 						onOpenCleanup={hasNoProjects ? undefined : handleOpenCleanupDialog}
 						cleanupReclaimableBytes={cleanupReclaimableBytes}
-						shortcuts={shortcuts}
-						selectedShortcutLabel={selectedShortcutLabel}
-						onSelectShortcutLabel={handleSelectShortcutLabel}
-						runningShortcutLabel={runningShortcutLabel}
-						onRunShortcut={handleRunShortcut}
-						onCreateFirstShortcut={
-							currentProjectId ? handleCreateShortcut : undefined
-						}
 						openTargetOptions={openTargetOptions}
 						selectedOpenTargetId={selectedOpenTargetId}
 						onSelectOpenTarget={onSelectOpenTarget}

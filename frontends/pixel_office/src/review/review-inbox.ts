@@ -2,6 +2,7 @@ import type {
 	RuntimeGitlabMergeRequestListRequest,
 	RuntimeGitlabMergeRequestSummary,
 	RuntimeReviewAllMark,
+	RuntimeReviewSessionMark,
 } from "@/runtime/types";
 
 /**
@@ -143,6 +144,30 @@ export function describeApprovalState(mergeRequest: RuntimeGitlabMergeRequestSum
 		return { label: `${mergeRequest.approvalsLeft ?? mergeRequest.approvalsRequired} to approve`, tone: "pending" };
 	}
 	return null;
+}
+
+/** Review sessions are stored per merge request, so both ids are needed to match a row. */
+export type ReviewedMarks = Map<string, RuntimeReviewAllMark>;
+
+/** The key both list surfaces use to find a row's session — one definition, so they agree. */
+export function reviewMarkKey(projectId: number, iid: number): string {
+	return `${projectId}-${iid}`;
+}
+
+/**
+ * Session projections from `review.listSessionMarks`, indexed for a list row.
+ *
+ * Rows without an MR-level mark are dropped rather than stored as null, so a lookup
+ * miss and an unmarked merge request are the same thing to every caller.
+ */
+export function indexReviewedMarks(marks: readonly RuntimeReviewSessionMark[]): ReviewedMarks {
+	const indexed: ReviewedMarks = new Map();
+	for (const mark of marks) {
+		if (mark.reviewedAllMark !== null) {
+			indexed.set(reviewMarkKey(mark.projectId, mark.iid), mark.reviewedAllMark);
+		}
+	}
+	return indexed;
 }
 
 /**

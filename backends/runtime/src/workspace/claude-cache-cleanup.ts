@@ -13,6 +13,7 @@ import type {
 import { resolveDefaultDshHome, resolveDshProfileDir } from "../orchestrator/dsh-endpoint";
 import { getLegacyRuntimeHomePath, getRuntimeHomePath, getTaskWorktreesHomePath } from "../state/workspace-state";
 import { cleanAgentHomes, scanAgentHomes, summarizeAgentHomes } from "./agent-home-cleanup";
+import { cleanBuildArtifacts, scanBuildArtifacts, summarizeBuildArtifacts } from "./build-artifact-cleanup";
 import { cleanHomeDiskCleanup, scanHomeDiskCleanup, summarizeHomeDiskCleanup } from "./home-disk-cleanup";
 import { disposePath, emptyRecycleBin, scanRecycleBin } from "./recycle-bin";
 import { measureDirectorySize } from "./worktree-disk-usage";
@@ -238,12 +239,16 @@ async function claudeHomeDirExists(claudeHomeDir: string): Promise<boolean> {
 }
 
 async function buildExtendedStatusFields(options?: { days?: number }) {
-	const [homeDiskScan, recycleBinScan] = await Promise.all([
+	// The build-artifact scan is the slowest of the three (it sizes multi-gigabyte Next
+	// caches), so it runs alongside the others rather than after them.
+	const [homeDiskScan, recycleBinScan, buildArtifactScan] = await Promise.all([
 		scanHomeDiskCleanup({ days: options?.days }),
 		scanRecycleBin(),
+		scanBuildArtifacts(),
 	]);
 	return {
 		...summarizeHomeDiskCleanup(homeDiskScan),
+		...summarizeBuildArtifacts(buildArtifactScan),
 		recycleBinItemCount: recycleBinScan.itemCount,
 		recycleBinSizeBytes: recycleBinScan.sizeBytes,
 		recycleBinPath: recycleBinScan.path,
@@ -412,6 +417,19 @@ export async function cleanClaudeCache(
 			cleaned.push({ path: item.path, sizeBytes: item.sizeBytes, tier: item.tier });
 		}
 		skipped.push(...homeDiskResult.skipped);
+
+		if (options.includeBuildCaches || options.includeBuildOutputs) {
+			const buildArtifactResult = await cleanBuildArtifacts({
+				dryRun: options.dryRun,
+				disposeMode,
+				includeBuildCaches: options.includeBuildCaches,
+				includeBuildOutputs: options.includeBuildOutputs,
+			});
+			for (const item of buildArtifactResult.cleaned) {
+				cleaned.push({ path: item.path, sizeBytes: item.sizeBytes, tier: item.tier });
+			}
+			skipped.push(...buildArtifactResult.skipped);
+		}
 
 		for (const candidate of candidates) {
 			if (options.dryRun) {
