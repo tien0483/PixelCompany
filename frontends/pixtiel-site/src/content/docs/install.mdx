@@ -39,13 +39,20 @@ The installer presents a checkbox interface to choose exactly which services to 
  ─────────────────────────────
 
  ❯ [x] Kanban board + runtime (core) (required)
-   [x] Agent Stack (Understand-Anything, rtk, headroom)
-   [x] Plan editor
-   [ ] OmniRoute
-   [ ] Review
-   [ ] Agent creation (Flowise studio)
+     [x] Agent Stack (Understand-Anything, rtk, headroom)
+     [x] Plan editor
+     [ ] OmniRoute
+     [ ] Review
+     [ ] Agent creation (Flowise studio)
+   [ ] Plan editor standalone
+   [ ] Review Standalone
    ↑/↓ move · space toggle · a all · enter confirm · q quit
 ```
+
+The optional features are indented under the required core because that is what they plug into.
+The nesting is presentational only — core is locked, so there is no parent/child cascade to fire,
+and toggling a child never changes anything else. The two standalone packages sit back at the
+outer level: they are not surfaces inside the app, they are folders you can ship on their own.
 
 ---
 
@@ -61,10 +68,65 @@ The installer recognizes the following modular components:
 | `omniroute` | **OmniRoute** | Multi-provider LLM proxy on `:8400` | Off |
 | `review` | **Review** | GitLab MR diff viewer and comment routing (ships in-tree) | Off |
 | `agent-creation` | **Agent studio** | Flowise canvas on `:3010` — needs Node 24 | Off |
+| `plan-editor-standalone` | **Plan editor standalone** | Builds a shippable `plan-editor-standalone/` folder (~50 MB) | Off |
+| `review-standalone` | **Review Standalone** | Builds a shippable `review-standalone/` folder | Off |
 
 The core is always installed; the others are independent. A feature that fails warns in red
 and the rest continue — a partial install is a valid state, and the matching surface simply
 shows its empty state until you install it.
+
+The two standalone rows come last on purpose: their builders shell to binaries under the
+workspace install that the core feature's `pnpm install` step provides, so core has to have run
+at least once — in this run or an earlier one.
+
+---
+
+## Standalone packages
+
+Two of the surfaces also build as self-contained folders you can zip and hand to someone who does
+not want the board at all. No Kanban board, no Office, no accounts UI, no agent stack — and no
+credential of any kind is bundled.
+
+| Package | What it is | Default URL |
+|---|---|---|
+| `plan-editor-standalone/` | Markdown plan editor: refine, pick a papp template, generate HTML | `http://127.0.0.1:4173` |
+| `review-standalone/` | GitLab merge-request review: side-by-side diff, local draft notes, publish | `http://127.0.0.1:4183` |
+
+Both need Node.js 20 or newer and a locally logged-in Claude Code CLI (`claude` on PATH) for the
+AI passes; everything else works without it. Review additionally needs a GitLab account on the
+instance you review — the first run opens your browser to authorize, and the token is stored under
+your home runtime data folder at mode `0600`.
+
+Run either one from inside its folder:
+
+```bash
+./start.sh          # macOS/Linux
+start.bat           # Windows (double-click)
+```
+
+The plan editor built with `--slim` ships no `node_modules`: run its one-time `./build.sh`
+(`build.bat` on Windows) once on the target machine, which needs network, before the first start.
+Its start script refuses to boot until that has happened. Review has no such step — it has no
+sidecar, so every build of it is already slim.
+
+Ports move by environment variable, not by flag: `PLAN_EDITOR_HTML_PORT` for the plan editor's own
+template sidecar (default `8422`) and `REVIEW_PORT` for Review. `4183` is deliberately clear of
+`4173` so both packages can run side by side.
+
+To build them without the picker:
+
+```bash
+node scripts/build-plan-editor-standalone.mjs --slim --zip
+node scripts/build-review-standalone.mjs --zip
+```
+
+Both accept an output directory as the first argument, and `--zip[=path]` archives the result
+(default `dist/<name>.zip`). `--slim` exists only for the plan editor: it defers the HTML sidecar's
+~440 MB of dependencies to the target machine, ~50 MB shipped instead of ~490 MB.
+
+**Rebuilding.** The installer skips a feature whose artifact already exists, and for these two the
+artifact is the folder itself. To rebuild, delete `plan-editor-standalone/` or `review-standalone/`
+first, then re-run `pnpm run setup`.
 
 ---
 
@@ -80,6 +142,12 @@ pnpm run setup -- --features kanban,agent-stack
 # Same thing without the package manager:
 node scripts/install/install.mjs --features kanban,agent-stack
 ```
+
+A `--features` run **merges** into whatever the manifest already recorded, so
+`--features review-standalone` adds that one package without erasing the record of everything else
+you installed — which is what `pnpm run upgrade` reinstalls from. A run that leaves core out is
+not a failure when core is already built: the installer probes for the artifact instead of
+demanding that this run produced it.
 
 An unknown id exits `2` and prints the valid ones. Start behaviour is controlled by two
 flags; without either, an interactive run asks and a non-interactive run just prints the
@@ -129,10 +197,13 @@ pnpm start
 
 ## Windows Native & Offline Installations
 
+Not to be confused with the [standalone packages](#standalone-packages) above — these bundle the
+*whole* app for Windows, rather than carving one surface out of it.
+
 For Windows users who prefer a native `.exe` or bundled source distribution rather than WSL2 bash:
 
 - **Offline One-File Installer**: A self-contained Inno Setup installer (`PixelOffice-Setup.exe`) is available that bundles Node, Python, and the pre-built UI into a standard Windows installer under `%LOCALAPPDATA%\PixelOffice`.
 - **Node Bundle Installer**: A zero-git zip bundle (`PixelOffice-windows.zip` with `PixelOffice-Setup.cmd`).
 - **PowerShell Shortcut Setup**: Direct `.ps1` launcher scripts pointing to existing local clones (`Install-PixelOfficeShortcut.ps1`).
 
-For detailed instructions on building or running the Windows standalone bundle, refer to `scripts/windows/README.md` in the repository.
+For detailed instructions on building or running the Windows native bundle, refer to `scripts/windows/README.md` in the repository.
