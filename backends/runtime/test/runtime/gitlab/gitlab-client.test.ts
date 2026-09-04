@@ -44,7 +44,7 @@ function createHarness(
 	responses: Array<() => Response>,
 	overrides?: Partial<Parameters<typeof createGitlabClient>[0]>,
 ) {
-	const calls: Array<{ url: string; method: string; token: string | null }> = [];
+	const calls: Array<{ url: string; method: string; token: string | null; body: string | null }> = [];
 	let index = 0;
 	const fetchImpl = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
 		const headers = new Headers(init?.headers);
@@ -52,6 +52,7 @@ function createHarness(
 			url: String(input),
 			method: init?.method ?? "GET",
 			token: headers.get("Authorization"),
+			body: typeof init?.body === "string" ? init.body : null,
 		});
 		const next = responses[Math.min(index, responses.length - 1)];
 		index += 1;
@@ -140,7 +141,8 @@ describe("createGitlabClient", () => {
 					approvals_required: 1,
 					approvals_left: 0,
 				}),
-			() => jsonResponse({ approved_by: [{ user: { username: "dev_bo" } }], approvals_required: 2, approvals_left: 1 }),
+			() =>
+				jsonResponse({ approved_by: [{ user: { username: "dev_bo" } }], approvals_required: 2, approvals_left: 1 }),
 		]);
 
 		const result = await client.listMergeRequests({ reviewerId: 7, withApprovals: true });
@@ -246,10 +248,10 @@ describe("createGitlabClient", () => {
 
 	it("reports reauth and marks the credential when the refresh fails", async () => {
 		const markReauthRequired = vi.fn(async () => {});
-		const { client, calls } = createHarness(
-			[() => jsonResponse({ message: "401 Unauthorized" }, { status: 401 })],
-			{ refreshCredential: async () => null, markReauthRequired },
-		);
+		const { client, calls } = createHarness([() => jsonResponse({ message: "401 Unauthorized" }, { status: 401 })], {
+			refreshCredential: async () => null,
+			markReauthRequired,
+		});
 
 		const result = await client.listProjects({});
 		expect(result.ok).toBe(false);
@@ -344,9 +346,19 @@ describe("createGitlabClient", () => {
 
 	it("walks diff pages while x-next-page is set and then reads the diff refs", async () => {
 		const { client, calls } = createHarness([
-			() => jsonResponse([{ new_path: "a.py", old_path: "a.py", diff: "@@ -1 +1 @@\n-a\n+b\n" }], { headers: { "x-next-page": "2" } }),
+			() =>
+				jsonResponse([{ new_path: "a.py", old_path: "a.py", diff: "@@ -1 +1 @@\n-a\n+b\n" }], {
+					headers: { "x-next-page": "2" },
+				}),
 			() => jsonResponse([{ new_path: "b.py", old_path: "b.py", diff: "@@ -0,0 +1 @@\n+x\n" }]),
-			() => jsonResponse({ project_id: 1, iid: 2, source_branch: "s", target_branch: "t", diff_refs: { base_sha: "b", start_sha: "s", head_sha: "h" } }),
+			() =>
+				jsonResponse({
+					project_id: 1,
+					iid: 2,
+					source_branch: "s",
+					target_branch: "t",
+					diff_refs: { base_sha: "b", start_sha: "s", head_sha: "h" },
+				}),
 		]);
 
 		const result = await client.getMergeRequestDiffs({ projectId: 1, iid: 2 });
@@ -400,6 +412,40 @@ describe("createGitlabClient", () => {
 		}
 		expect(result.value.approvedByMe).toBe(true);
 	});
+
+	it("rewrites the description and reports back what GitLab stored", async () => {
+		const { client, calls } = createHarness([
+			() =>
+				jsonResponse({
+					project_id: 1,
+					iid: 2,
+					source_branch: "s",
+					target_branch: "t",
+					description: "Stored body",
+				}),
+		]);
+
+		const result = await client.updateMergeRequest({ projectId: 1, iid: 2, description: "Sent body" });
+		expect(result.ok).toBe(true);
+		if (!result.ok) {
+			return;
+		}
+		// The response body, not an echo of the request: GitLab is free to normalize it.
+		expect(result.value.description).toBe("Stored body");
+		expect(calls[0]?.method).toBe("PUT");
+		expect(calls[0]?.url).toMatch(/\/projects\/1\/merge_requests\/2$/);
+		expect(calls[0]?.body).toBe(JSON.stringify({ description: "Sent body" }));
+	});
+
+	it("reports a refused description write as a failure", async () => {
+		const { client } = createHarness([() => jsonResponse({ message: "403 Forbidden" }, { status: 403 })]);
+		const result = await client.updateMergeRequest({ projectId: 1, iid: 2, description: "x" });
+		expect(result.ok).toBe(false);
+		if (result.ok) {
+			return;
+		}
+		expect(result.failure).toMatchObject({ kind: "http", status: 403 });
+	});
 });
 
 describe("gitlab parsers", () => {
@@ -435,7 +481,9 @@ describe("gitlab parsers", () => {
 
 	it("marks an empty non-truncated patch as binary", () => {
 		expect(parseDiffFile({ new_path: "logo.png", old_path: "logo.png", diff: "" })?.binary).toBe(true);
-		expect(parseDiffFile({ new_path: "huge.bin", old_path: "huge.bin", diff: "", too_large: true })?.binary).toBe(false);
+		expect(parseDiffFile({ new_path: "huge.bin", old_path: "huge.bin", diff: "", too_large: true })?.binary).toBe(
+			false,
+		);
 	});
 
 	it("resolves a thread only when every resolvable note is resolved", () => {

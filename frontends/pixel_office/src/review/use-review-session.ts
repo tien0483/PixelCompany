@@ -44,6 +44,12 @@ export interface ReviewSessionApi extends ReviewSessionState {
 	newCommitsSinceLastReview: { previousHeadSha: string; currentHeadSha: string } | null;
 	refresh: () => Promise<void>;
 	refreshDiscussions: () => Promise<void>;
+	/**
+	 * Rewrites the merge request's description on GitLab. Resolves false when the
+	 * write failed, so the editor can keep the reviewer's text on screen instead of
+	 * reverting it to whatever GitLab still holds.
+	 */
+	saveDescription: (description: string) => Promise<boolean>;
 	toggleFileReviewed: (path: string) => void;
 	addDraftComment: (
 		draft: Omit<RuntimeReviewDraftComment, "id" | "createdAt" | "author">,
@@ -245,6 +251,35 @@ export function useReviewSession(target: ReviewTarget, workspaceId: string | nul
 		const discussions = await loadDiscussions();
 		setState((prev) => ({ ...prev, discussions }));
 	}, [loadDiscussions]);
+
+	const saveDescription = useCallback(
+		async (description: string): Promise<boolean> => {
+			try {
+				const client = getRuntimeTrpcClient(workspaceId);
+				const response = await client.gitlab.updateMergeRequest.mutate({
+					projectId: target.projectId,
+					iid: target.iid,
+					description,
+				});
+				if (!response.ok || !response.mergeRequest) {
+					showAppToast({ intent: "danger", message: response.error ?? "Could not save the description." });
+					return false;
+				}
+				// GitLab answers with the whole merge request, so this is what it actually
+				// stored — not an echo of what was sent.
+				const mergeRequest = response.mergeRequest;
+				setState((prev) => ({ ...prev, mergeRequest }));
+				return true;
+			} catch (error) {
+				showAppToast({
+					intent: "danger",
+					message: error instanceof Error ? error.message : "Could not save the description.",
+				});
+				return false;
+			}
+		},
+		[target.iid, target.projectId, workspaceId],
+	);
 
 	const activeFile = useMemo(
 		() => state.files.find((file) => file.newPath === activePath) ?? null,
@@ -486,6 +521,7 @@ export function useReviewSession(target: ReviewTarget, workspaceId: string | nul
 		newCommitsSinceLastReview,
 		refresh,
 		refreshDiscussions,
+		saveDescription,
 		toggleFileReviewed,
 		addDraftComment,
 		removeDraftComment,
