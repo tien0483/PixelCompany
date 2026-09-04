@@ -1,14 +1,10 @@
 import type { ReactElement } from "react";
 import { cn } from "@/components/ui/cn";
 import type { RuntimeReviewAnnotation } from "@/runtime/types";
-import type { ReviewTag } from "@/review/review-tags";
 
-export interface ReviewTagPaletteProps {
-	tags: ReviewTag[];
+export interface ReviewAnnotationsPanelProps {
 	annotations: RuntimeReviewAnnotation[];
 	staleAnnotationIds: Set<string>;
-	onTagDragStart: (tag: ReviewTag) => void;
-	onTagDragEnd: () => void;
 	onJumpToAnnotation: (annotation: RuntimeReviewAnnotation) => void;
 	onRemoveAnnotation: (id: string) => void;
 }
@@ -24,42 +20,16 @@ function formatAnnotationLineLabel(annotation: RuntimeReviewAnnotation): string 
 	return start != null && start !== end ? `${prefix}${start}-${end}` : `${prefix}${end}`;
 }
 
-export function ReviewTagPalette({
-	tags,
+/** The tags themselves are dragged from `ReviewTagStrip`, above the diff, not from here. */
+export function ReviewAnnotationsPanel({
 	annotations,
 	staleAnnotationIds,
-	onTagDragStart,
-	onTagDragEnd,
 	onJumpToAnnotation,
 	onRemoveAnnotation,
-}: ReviewTagPaletteProps): ReactElement {
+}: ReviewAnnotationsPanelProps): ReactElement {
 	return (
 		<div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-2">
-			<div className="space-y-1.5">
-				<div className="text-[10px] text-text-tertiary">
-					Drag a tag onto a diff line to mark a suspect spot.
-				</div>
-				<div className="flex flex-wrap gap-1">
-					{tags.map((tag) => (
-						<button
-							key={`${tag.kind}-${tag.label}`}
-							type="button"
-							draggable
-							className="cursor-grab rounded border border-border bg-surface-2 px-2 py-0.5 text-[10px] text-text-secondary hover:text-text-primary"
-							onDragStart={(event) => {
-								event.dataTransfer.effectAllowed = "copy";
-								event.dataTransfer.setData("text/plain", tag.label);
-								onTagDragStart(tag);
-							}}
-							onDragEnd={onTagDragEnd}
-						>
-							{tag.label}
-						</button>
-					))}
-				</div>
-			</div>
-
-			<div className="mt-3 flex-1 space-y-1.5">
+			<div className="flex-1 space-y-1.5">
 				<div className="text-[11px] font-semibold text-text-primary">
 					Annotations ({annotations.length})
 				</div>
