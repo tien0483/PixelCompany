@@ -137,6 +137,7 @@ describe("ProjectNavigationPanel width persistence", () => {
 					reviewProjectKey="test-project"
 					onOpenMergeRequest={() => {}}
 					onOpenAgentStudio={() => {}}
+					onReturnToBoard={() => {}}
 					{...overrides}
 				/>,
 			);
@@ -201,6 +202,35 @@ describe("ProjectNavigationPanel width persistence", () => {
 			reviewTab?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
 		});
 		expect(onActiveSectionChange).toHaveBeenCalledWith("review");
+	});
+
+	it("returns to the board when the brand logo is clicked", () => {
+		const onReturnToBoard = vi.fn();
+		renderPanel({ onReturnToBoard });
+
+		const logo = container.querySelector<HTMLButtonElement>('[data-testid="brand-home-button"]');
+		expect(logo).not.toBeNull();
+		act(() => {
+			logo?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+		});
+		expect(onReturnToBoard).toHaveBeenCalledTimes(1);
+	});
+
+	it("keeps the brand logo reachable while the sidebar is collapsed", () => {
+		const onReturnToBoard = vi.fn();
+		renderPanel({ onReturnToBoard });
+
+		const collapse = container.querySelector<HTMLButtonElement>('[data-testid="collapse-left-sidebar-button"]');
+		act(() => {
+			collapse?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+		});
+
+		const logo = container.querySelector<HTMLButtonElement>('[data-testid="brand-home-button-collapsed"]');
+		expect(logo).not.toBeNull();
+		act(() => {
+			logo?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+		});
+		expect(onReturnToBoard).toHaveBeenCalledTimes(1);
 	});
 
 	it("shows the Review panel body when the review section is active", () => {

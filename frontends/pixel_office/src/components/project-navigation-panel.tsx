@@ -94,6 +94,7 @@ export function ProjectNavigationPanel({
 	managerSettingsFocusToken = 0,
 	onOpenPlan,
 	onOpenAgentStudio,
+	onReturnToBoard,
 }: {
 	projects: RuntimeProjectSummary[];
 	isLoadingProjects?: boolean;
@@ -122,6 +123,8 @@ export function ProjectNavigationPanel({
 	reviewProjectKey: string;
 	onOpenMergeRequest: (target: ReviewTarget) => void;
 	onOpenAgentStudio: (target: AgentStudioTarget) => void;
+	/** Brand logo click: back to this project's default board, nothing else open. */
+	onReturnToBoard: () => void;
 }): React.ReactElement {
 	const sortedProjects = [...projects].sort((a, b) => a.path.localeCompare(b.path));
 	const shouldShowFeaturebaseFeedback = canShowFeaturebaseFeedbackButton({
@@ -261,6 +264,18 @@ export function ProjectNavigationPanel({
 						className="absolute top-0 right-0 bottom-0 w-1.5 cursor-ew-resize z-10"
 					/>
 				)}
+				<button
+					type="button"
+					data-testid="brand-home-button-collapsed"
+					aria-label={`${BRAND_NAME} home`}
+					title="Back to board"
+					onClick={onReturnToBoard}
+					className="w-8 h-8 shrink-0 rounded-md overflow-hidden border-0 bg-transparent p-0 cursor-pointer"
+				>
+					{/* The asset is a 200x40 wordmark; object-cover at rail width crops it to the
+					    leading glyph so the collapsed rail gets a mark instead of a 7px smear. */}
+					<img src={pixtielLogo} alt={BRAND_NAME} className="h-8 w-8 object-cover object-left" />
+				</button>
 				{!isMobile && (
 					<button
 						type="button"
@@ -350,7 +365,16 @@ export function ProjectNavigationPanel({
 			<div style={{ padding: "12px 12px 8px" }}>
 				<div className="flex items-center justify-between">
 					<div className="font-semibold text-base flex items-center gap-1.5">
-						<img src={pixtielLogo} alt={BRAND_NAME} className="h-5 w-auto shrink-0" />
+						<button
+							type="button"
+							data-testid="brand-home-button"
+							aria-label={`${BRAND_NAME} home`}
+							title="Back to board"
+							onClick={onReturnToBoard}
+							className="flex items-center border-0 bg-transparent p-0 cursor-pointer"
+						>
+							<img src={pixtielLogo} alt={BRAND_NAME} className="h-5 w-auto shrink-0" />
+						</button>
 						<span className="text-text-secondary font-normal text-xs">{formatVersion(__APP_VERSION__)}</span>
 					</div>
 					{isMobile ? (

@@ -13,7 +13,10 @@ import {
 	resolveManagerAccountPin,
 } from "../manager/manager-account-pin";
 import { withStackBinOnPath } from "../stack/stack-paths";
+import { describeAgyTranscriptLine, resolveAgyBrainTranscriptPath } from "./agy-brain-transcript";
+import { classifyAgyLogLine, readAgyAuthenticatedAccount } from "./agy-log-file";
 import { isBinaryAvailableOnPath } from "./command-discovery";
+import { type FileLineFollower, followFileLines } from "./file-line-follower";
 
 export type AgentOneShotEvent =
 	| { type: "start"; agent: string; model?: string }
@@ -89,6 +92,22 @@ export interface RunAgentOneShotInput {
 	skipPermissions?: boolean;
 	/** Called as soon as the child process is spawned, with pause/resume controls. */
 	onSpawn?: (child: ChildProcess, control: AgentOneShotControl) => void;
+	/**
+	 * Antigravity only: where `agy` should write its own log, and the switch that
+	 * turns on live observability for the run.
+	 *
+	 * Passing it does two things a long run cannot be watched without. It moves
+	 * agy's diagnostics somewhere the runtime can tail — agy redirects fd 1 and
+	 * fd 2 into its own log file, so a spawning parent collects *zero* bytes of
+	 * stderr and never learns about an auth failure or a quota refusal. And it
+	 * opts the run into following agy's brain transcript, which is the only source
+	 * of the commands it runs and their results; the stream-json wire reports tool
+	 * steps as a bare `step_type` with no detail at all.
+	 *
+	 * Omitted by every caller that only needs an answer, which keeps their argv
+	 * byte-identical to before this existed.
+	 */
+	logFilePath?: string;
 }
 
 export interface AgentOneShotControl {
@@ -115,6 +134,14 @@ const AGENT_ONE_SHOT_LABELS: Record<AgentOneShotAgentId, string> = {
 	claude: "Claude",
 	gemini: "Antigravity CLI",
 };
+
+/**
+ * Grace period between the child exiting and the log/transcript followers being
+ * torn down. Longer than one poll interval, because the closing records — the
+ * final exit code, the planner's summary — are written in the same instant the
+ * process ends and would otherwise never be read.
+ */
+const AGY_OBSERVER_DRAIN_MS = 2_000;
 
 function resolveClaudeBinary(): string {
 	const entry = RUNTIME_AGENT_CATALOG.find((agent) => agent.id === "claude");
@@ -157,12 +184,17 @@ function resolveAgyBinary(): string {
  *   a 128 KB single-argument cap, and these prompts run well past it.
  * - `--print-timeout` defaults to 5 minutes and is a wall-clock kill, so anything
  *   longer than a chat turn has to raise it or get cut off mid-run.
+ * - `--log-file` is where agy's diagnostics go, and they go *only* there: it
+ *   redirects its own fd 1 and fd 2 into that file. Verified that it still writes
+ *   stream-json to the parent pipe when the flag is set, so overriding the path
+ *   costs nothing and is the only way to read its errors.
  */
 export function buildAgyArgv(options: {
 	model?: string;
 	effort?: "low" | "medium" | "high";
 	printTimeoutMs?: number;
 	skipPermissions?: boolean;
+	logFilePath?: string;
 }): string[] {
 	const seconds = options.printTimeoutMs === undefined ? null : Math.max(1, Math.round(options.printTimeoutMs / 1000));
 	return [
@@ -171,6 +203,7 @@ export function buildAgyArgv(options: {
 		...(seconds === null ? [] : [`--print-timeout=${String(seconds)}s`]),
 		...(options.model ? [`--model=${options.model}`] : []),
 		...(options.effort ? [`--effort=${options.effort}`] : []),
+		...(options.logFilePath ? [`--log-file=${options.logFilePath}`] : []),
 		...(options.skipPermissions ? ["--dangerously-skip-permissions"] : []),
 		// Last, and empty: the prompt is a stdin NDJSON message.
 		"-p=",
@@ -262,6 +295,7 @@ export async function runAgentOneShot(input: RunAgentOneShotInput): Promise<{ co
 				// caller's ceiling or it would cut a long job short at its 5-minute default.
 				...(input.timeoutMs === undefined ? {} : { printTimeoutMs: input.timeoutMs }),
 				...(input.skipPermissions === undefined ? {} : { skipPermissions: input.skipPermissions }),
+				...(input.logFilePath === undefined ? {} : { logFilePath: input.logFilePath }),
 			})
 		: buildClaudeArgv(input.model, input.allowedTools, {
 				appendSystemPrompt: input.appendSystemPrompt,
@@ -417,6 +451,46 @@ export async function runAgentOneShot(input: RunAgentOneShotInput): Promise<{ co
 		}, input.timeoutMs);
 	}
 
+	// Everything below is how an agy run becomes watchable. Both followers are
+	// pure readers of files agy writes anyway, so a failure to read either leaves
+	// the run itself untouched — see `followFileLines`, where every error is
+	// silence.
+	const observeAgy = isAgy && input.logFilePath !== undefined;
+	let logFollower: FileLineFollower | null = null;
+	let transcriptFollower: FileLineFollower | null = null;
+	let reportedAccount: string | null = null;
+
+	const stopFollowers = () => {
+		logFollower?.stop();
+		logFollower = null;
+		transcriptFollower?.stop();
+		transcriptFollower = null;
+	};
+
+	if (observeAgy && input.logFilePath) {
+		logFollower = followFileLines({
+			filePath: input.logFilePath,
+			onLine: (line) => {
+				const account = readAgyAuthenticatedAccount(line);
+				if (account && account !== reportedAccount) {
+					reportedAccount = account;
+					input.onEvent({ type: "meta", key: "agent_account", value: account });
+				}
+				const classified = classifyAgyLogLine(line);
+				if (!classified) {
+					return;
+				}
+				// An error goes down the channel that already renders as a failure;
+				// a notice is progress, and must not paint the panel red.
+				if (classified.kind === "error") {
+					input.onEvent({ type: "stderr", text: classified.line });
+				} else {
+					input.onEvent({ type: "meta", key: "progress_line", value: classified });
+				}
+			},
+		});
+	}
+
 	// agy reads one NDJSON message per line and runs a turn for each; Claude takes
 	// the prompt as raw text.
 	child.stdin?.on("error", () => {
@@ -438,6 +512,22 @@ export async function runAgentOneShot(input: RunAgentOneShotInput): Promise<{ co
 					input.onEvent({ type: "html", text: part.text });
 				} else if (part.kind === "meta") {
 					input.onEvent({ type: "meta", key: part.key, value: part.value });
+					// agy's conversation id is the key to its brain transcript, and the
+					// `init` frame that carries it is the first thing it prints — so this
+					// is the earliest the transcript can be located at all.
+					if (observeAgy && transcriptFollower === null && part.key === "session" && typeof part.value === "string") {
+						transcriptFollower = followFileLines({
+							filePath: resolveAgyBrainTranscriptPath(part.value),
+							onLine: (transcriptLine) => {
+								for (const progress of describeAgyTranscriptLine(transcriptLine)) {
+									// Real work is proof of life: a run whose stdout is nothing but
+									// identical `run_command` frames must not look idle.
+									resetIdleTimer();
+									input.onEvent({ type: "meta", key: "progress_line", value: progress });
+								}
+							},
+						});
+					}
 				}
 			}
 		});
@@ -464,6 +554,18 @@ export async function runAgentOneShot(input: RunAgentOneShotInput): Promise<{ co
 	if (hardTimer) {
 		clearTimeout(hardTimer);
 	}
+	// The followers poll, so the records written in the last fraction of a second
+	// before exit have not been read yet. Give them one more interval before
+	// tearing down, or every run loses its own closing lines.
+	if (observeAgy) {
+		// Deliberately *not* unref'd, unlike the poll intervals: this timer is
+		// awaited, so unreffing it lets the loop drain and leaves this promise
+		// unsettled in any process that has nothing else pending.
+		await new Promise<void>((resolveDrain) => {
+			setTimeout(resolveDrain, AGY_OBSERVER_DRAIN_MS);
+		});
+	}
+	stopFollowers();
 	if (input.signal) {
 		input.signal.removeEventListener("abort", onAbort);
 	}

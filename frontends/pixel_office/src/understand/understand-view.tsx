@@ -18,9 +18,11 @@ import { isLightUiTheme, useTheme } from "@/hooks/use-theme";
 import { useHtmlAgentStream } from "@/html/use-html-agent-stream";
 import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
 import type {
+	RuntimeAgentProgressLine,
 	RuntimeManagerAccount,
 	RuntimeReviewGraphRebuildRequest,
 } from "@/runtime/types";
+import { GraphBuildLog } from "./graph-build-log";
 import { ImportUnderstandDialog } from "./import-understand-dialog";
 
 /**
@@ -34,6 +36,21 @@ import { ImportUnderstandDialog } from "./import-understand-dialog";
  */
 export const UNDERSTAND_REBUILD_MODEL = "gemini-3.7-flash";
 export const UNDERSTAND_REBUILD_EFFORT = "medium" as const;
+
+/**
+ * Kept in step with `REBUILD_PROGRESS_LINE_LIMIT` in the runtime service, which
+ * bounds the same list server-side for replay. Not imported: the frontend shares
+ * only *types* with the contract, so a value would have to cross that boundary.
+ */
+const PROGRESS_LINE_LIMIT = 500;
+
+/** What the runtime reports about the job this stream just joined. */
+interface AttachedJobInfo {
+	attached: boolean;
+	status: RebuildStatusState;
+	startedAt: number | null;
+	pausedAt: number | null;
+}
 
 type GraphProbe =
 	| { state: "probing" }
@@ -81,8 +98,17 @@ export function UnderstandView({
 	const [rebuildStatusState, setRebuildStatusState] = useState<RebuildStatusState>("idle");
 	const [isActionPending, setIsActionPending] = useState(false);
 	const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
+	/** The run's real work, read out of agy's transcript by the runtime. */
+	const [progress, setProgress] = useState<RuntimeAgentProgressLine[]>([]);
+	/**
+	 * The Antigravity account the build actually authenticated as. Worth showing
+	 * because it is not necessarily the seat picked below: those credentials are
+	 * machine-wide in `~/.gemini`, so the pin only ever refuses a run — which is
+	 * why a build can complete while the pinned seat's usage never moves.
+	 */
+	const [accountEmail, setAccountEmail] = useState<string | null>(null);
+	const [attachedJob, setAttachedJob] = useState<AttachedJobInfo | null>(null);
 
-	const logRef = useRef<HTMLDivElement | null>(null);
 	const iframeRef = useRef<HTMLIFrameElement | null>(null);
 
 	const handleMeta = useCallback((key: string, value: unknown) => {
@@ -100,6 +126,24 @@ export function UnderstandView({
 				value === "idle"
 			) {
 				setRebuildStatusState(value);
+			}
+		} else if (key === "progress_line" && value && typeof value === "object") {
+			const line = value as RuntimeAgentProgressLine;
+			if (typeof line.line === "string" && typeof line.kind === "string") {
+				setProgress((prev) => {
+					const next = [...prev, line];
+					return next.length > PROGRESS_LINE_LIMIT ? next.slice(next.length - PROGRESS_LINE_LIMIT) : next;
+				});
+			}
+		} else if (key === "agent_account" && typeof value === "string") {
+			setAccountEmail(value);
+		} else if (key === "rebuild_attached" && value && typeof value === "object") {
+			const info = value as AttachedJobInfo;
+			setAttachedJob(info);
+			// The joined job's status wins over the optimistic "running" a click sets:
+			// a build paused before this tab existed must not read as in-flight.
+			if (info.attached) {
+				setRebuildStatusState(info.status);
 			}
 		}
 	}, []);
@@ -133,6 +177,16 @@ export function UnderstandView({
 					if (res.currentStep) {
 						setCurrentStep(res.currentStep);
 					}
+					// Seeded before the stream opens so the panel is never blank while
+					// re-attaching; the stream's own replay then supersedes it.
+					setProgress(res.progress.slice(-PROGRESS_LINE_LIMIT));
+					setAccountEmail(res.accountEmail);
+					setAttachedJob({
+						attached: true,
+						status: res.status,
+						startedAt: res.startedAt,
+						pausedAt: res.pausedAt,
+					});
 					setIsLogDismissed(false);
 					// Attach to background stream
 					void rebuild.run({
@@ -252,37 +306,49 @@ export function UnderstandView({
 		}
 	}, [rebuildStatus, rebuildDoneAt]);
 
-	// Auto-scroll on text stream and log updates
-	useEffect(() => {
-		if (rebuild.text.length === 0 && rebuild.log.length === 0) {
-			return;
-		}
-		if (logRef.current) {
-			if (typeof logRef.current.scrollTo === "function") {
-				logRef.current.scrollTo({ top: logRef.current.scrollHeight });
-			} else {
-				logRef.current.scrollTop = logRef.current.scrollHeight;
+	const antigravitySeat = managerAccounts.find(
+		(account) => account.provider === "antigravity" && account.isActive !== false,
+	);
+
+	const startBuild = useCallback(
+		(options?: { force?: boolean }) => {
+			if (projectPath === null) {
+				return;
 			}
-		}
-	}, [rebuild.text, rebuild.log]);
+			setIsLogDismissed(false);
+			setCurrentStep(null);
+			setProgress([]);
+			setAttachedJob(null);
+			setRebuildStatusState("running");
+			void rebuild.run({
+				projectPath,
+				model: UNDERSTAND_REBUILD_MODEL,
+				effort: UNDERSTAND_REBUILD_EFFORT,
+				...(antigravitySeat === undefined ? {} : { managerAccountId: antigravitySeat.id }),
+				...(options?.force === true ? { force: true } : {}),
+			});
+		},
+		[antigravitySeat, projectPath, rebuild],
+	);
 
 	const handleBuild = useCallback(() => {
-		if (projectPath === null || isBuilding) {
+		if (isBuilding) {
 			return;
 		}
-		setIsLogDismissed(false);
-		setCurrentStep(null);
-		setRebuildStatusState("running");
-		const antigravitySeat = managerAccounts.find(
-			(account) => account.provider === "antigravity" && account.isActive !== false,
-		);
-		void rebuild.run({
-			projectPath,
-			model: UNDERSTAND_REBUILD_MODEL,
-			effort: UNDERSTAND_REBUILD_EFFORT,
-			...(antigravitySeat === undefined ? {} : { managerAccountId: antigravitySeat.id }),
-		});
-	}, [isBuilding, managerAccounts, projectPath, rebuild]);
+		startBuild();
+	}, [isBuilding, startBuild]);
+
+	/**
+	 * Abandons the job that owns this project and starts a new one.
+	 *
+	 * The escape hatch for a build that cannot finish and cannot be resumed —
+	 * a process that was suspended and then died, say. Without it, the runtime
+	 * keys jobs by project path and every click attaches to the wedged one, which
+	 * is indistinguishable from the button doing nothing at all.
+	 */
+	const handleForceRestart = useCallback(() => {
+		startBuild({ force: true });
+	}, [startBuild]);
 
 	const handlePause = useCallback(async () => {
 		if (projectPath === null) {
@@ -437,7 +503,64 @@ export function UnderstandView({
 		</div>
 	);
 
-	const hasOutput = rebuild.text.length > 0 || rebuild.log.length > 0;
+	/**
+	 * Names the account the run is really billed against.
+	 *
+	 * The seat picked above is honoured only for its refusals — `agy` reads its
+	 * credential from the machine-wide keyring, whichever seat Manager last made
+	 * active — so a mismatch here is the answer to "the build ran but my seat
+	 * shows no usage".
+	 */
+	const billedAccountNote =
+		accountEmail === null ? null : (
+			<span className="text-[11px] text-text-tertiary">
+				Billed to <span className="font-mono text-text-secondary">{accountEmail}</span>
+				{antigravitySeat && antigravitySeat.email.toLowerCase() !== accountEmail.toLowerCase()
+					? ` — not the pinned seat (${antigravitySeat.email}); Antigravity credentials are machine-wide`
+					: ""}
+			</span>
+		);
+
+	const formatClockTime = (timestamp: number | null): string =>
+		timestamp === null ? "an unknown time" : new Date(timestamp).toLocaleTimeString();
+
+	/**
+	 * Shown when this stream joined a job it did not start. Previously
+	 * indistinguishable from a fresh build, which is how a suspended job could own
+	 * a project invisibly.
+	 */
+	const attachedJobBanner =
+		attachedJob?.attached !== true ? null : (
+			<div className="flex w-full max-w-2xl flex-col gap-1.5 rounded-md border border-status-orange/40 bg-status-orange/10 px-3 py-2 text-left">
+				<span className="text-[11px] text-text-secondary">
+					{attachedJob.status === "paused"
+						? `Joined a build that has been paused since ${formatClockTime(attachedJob.pausedAt ?? attachedJob.startedAt)}.`
+						: `Joined a build already running since ${formatClockTime(attachedJob.startedAt)}.`}
+				</span>
+				<div className="flex items-center gap-2">
+					{attachedJob.status === "paused" ? (
+						<Button
+							variant="default"
+							size="sm"
+							icon={isActionPending ? <Spinner size={12} /> : <Play size={13} />}
+							disabled={isActionPending}
+							onClick={handleResume}
+						>
+							Resume it
+						</Button>
+					) : null}
+					<Button
+						variant="ghost"
+						size="sm"
+						icon={<Hammer size={12} />}
+						disabled={isActionPending}
+						onClick={handleForceRestart}
+					>
+						Start a new build
+					</Button>
+				</div>
+			</div>
+		);
 
 	// Loading state with live progress and log view when building or paused
 	const loadingCenterView = (
@@ -468,6 +591,7 @@ export function UnderstandView({
 					/>
 					Runs in background — safe to close browser
 				</span>
+				{billedAccountNote}
 
 				<div className="flex items-center gap-2 mt-2">
 					{isPaused ? (
@@ -503,6 +627,8 @@ export function UnderstandView({
 				</div>
 			</div>
 
+			{attachedJobBanner}
+
 			{/* Stream logs box in center */}
 			<div className="w-full max-w-2xl flex flex-col gap-1 rounded-md border border-border bg-surface-1 p-2 text-left">
 				<div className="flex items-center justify-between text-[11px] text-text-secondary px-1">
@@ -511,35 +637,15 @@ export function UnderstandView({
 						{isPaused ? "PAUSED" : "RUNNING"}
 					</span>
 				</div>
-				<div
-					ref={logRef}
+				<GraphBuildLog
 					className="h-44 overflow-y-auto rounded border border-border bg-surface-0 px-2.5 py-1.5 font-mono text-[11px] text-text-secondary"
-				>
-					{!hasOutput ? (
-						<div className="flex items-center gap-2 py-2 text-text-tertiary">
-							<Spinner size={12} />
-							<span>Starting analysis pipeline…</span>
-						</div>
-					) : (
-						<div className="flex flex-col gap-0.5">
-							{rebuild.text ? (
-								<div className="whitespace-pre-wrap break-words">{rebuild.text}</div>
-							) : null}
-							{rebuild.log.map((line, index) => (
-								// biome-ignore lint/suspicious/noArrayIndexKey: log lines are append-only.
-								<div key={index} className="text-status-red/90">
-									{line}
-								</div>
-							))}
-							{!isPaused && currentStep ? (
-								<div className="flex items-center gap-1.5 pt-1 text-text-tertiary">
-									<Spinner size={10} />
-									<span>{currentStep}</span>
-								</div>
-							) : null}
-						</div>
-					)}
-				</div>
+					progress={progress}
+					errors={rebuild.log}
+					summary={rebuild.text}
+					currentStep={currentStep}
+					isPaused={isPaused}
+					pendingLabel="Starting analysis pipeline…"
+				/>
 			</div>
 		</div>
 	);
@@ -560,6 +666,7 @@ export function UnderstandView({
 						</span>
 					))}
 					<div className="flex-1" />
+					{billedAccountNote}
 					<Tooltip content="Close build log">
 						<Button
 							variant="ghost"
@@ -570,22 +677,15 @@ export function UnderstandView({
 						/>
 					</Tooltip>
 				</div>
-				<div
-					ref={logRef}
+				<GraphBuildLog
 					className="min-h-0 flex-1 overflow-y-auto rounded-md border border-border bg-surface-0 px-2 py-1 font-mono text-[11px] text-text-secondary"
-				>
-					<div className="flex flex-col gap-0.5">
-						{rebuild.text ? (
-							<div className="whitespace-pre-wrap break-words">{rebuild.text}</div>
-						) : null}
-						{rebuild.log.map((line, index) => (
-							// biome-ignore lint/suspicious/noArrayIndexKey: log lines are append-only.
-							<div key={index} className="text-status-red/90">
-								{line}
-							</div>
-						))}
-					</div>
-				</div>
+					progress={progress}
+					errors={rebuild.log}
+					summary={rebuild.text}
+					currentStep={null}
+					isPaused={isPaused}
+					pendingLabel="No output was captured for this run."
+				/>
 			</div>
 		);
 

@@ -95,6 +95,7 @@ describe("ReviewImpactPanel", () => {
 			projectPath?: string | undefined;
 			isRebuilding?: boolean;
 			canRebuild?: boolean;
+			rebuildProgressLine?: string | null;
 		} = {},
 	): Promise<void> {
 		await act(async () => {
@@ -105,6 +106,7 @@ describe("ReviewImpactPanel", () => {
 					projectPath={"projectPath" in overrides ? overrides.projectPath : "/repo"}
 					isRebuilding={overrides.isRebuilding ?? false}
 					canRebuild={overrides.canRebuild ?? true}
+					rebuildProgressLine={overrides.rebuildProgressLine ?? null}
 					onRefresh={onRefresh}
 					onRebuildGraph={onRebuildGraph}
 					onOpenDashboard={onOpenDashboard}

@@ -41,6 +41,11 @@ The installer draws a checkbox picker, remembers what you chose, and offers to s
 it finishes. It works entirely in user space — Node via nvm, Python tools via `uv`, no sudo, no
 system directories touched.
 
+The picker nests the optional pieces under the required core, and ends with two standalone
+packages — Plan editor and Review — that build into shippable folders of their own. Both are
+off by default. A feature whose artifact already exists is skipped, so to rebuild one, delete
+its output folder (`plan-editor-standalone/`, `review-standalone/`) and re-run `pnpm run setup`.
+
 > **Not under `/mnt/`.** On WSL that is a 9p mount where dependency installs and parallel git
 > operations stall or deadlock. The installer refuses, on purpose. Projects you *open* can live
 > anywhere.
