@@ -13,6 +13,7 @@ import {
 import { type ReactElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { ReviewCommentComposer } from "@/components/review/review-comment-composer";
+import { ReviewTagStrip } from "@/components/review/review-tag-strip";
 import {
 	buildDisplayItems,
 	CollapsedBlockControls,
@@ -273,11 +274,15 @@ export function ReviewDiffPane({
 	onNavigate?: (direction: ReviewNavDirection) => void;
 	/** Whether a target exists each way, so the buttons disable instead of no-op. */
 	navTargets?: { previous: boolean; next: boolean };
-	/** Reviewer tag annotations: data + the tag being dragged from the palette. */
+	/** Reviewer tag annotations: data + the tag being dragged from the strip above the diff. */
 	tagAnnotations?: {
 		annotations: RuntimeReviewAnnotation[];
+		/** Every tag that can be dragged, rendered as the strip under the file toolbar. */
+		tags: ReviewTag[];
 		draggedTag: ReviewTag | null;
 		currentHeadSha: string | null;
+		onDragStart: (tag: ReviewTag) => void;
+		onDragEnd: () => void;
 		onAdd: (input: {
 			newPath: string;
 			oldPath: string;
@@ -1204,6 +1209,14 @@ export function ReviewDiffPane({
 					</Button>
 				</div>
 			</div>
+
+			{tagAnnotations ? (
+				<ReviewTagStrip
+					tags={tagAnnotations.tags}
+					onTagDragStart={tagAnnotations.onDragStart}
+					onTagDragEnd={tagAnnotations.onDragEnd}
+				/>
+			) : null}
 
 			{mode === "split" ? (
 				<div className="grid shrink-0 grid-cols-2 divide-x divide-border border-b border-border bg-surface-0 px-0 font-mono text-[11px] text-text-tertiary">

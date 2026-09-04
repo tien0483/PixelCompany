@@ -3,6 +3,7 @@ import { type ReactElement, useCallback, useEffect, useMemo, useRef, useState } 
 
 import { showAppToast } from "@/components/app-toaster";
 import { ClaudeUsageChip } from "@/components/claude-usage-chip";
+import { ReviewAnnotationsPanel } from "@/components/review/review-annotations-panel";
 import { isMergeRequestScopedPrompt, isReviewCommandPrompt } from "@/components/review/review-chat-composer";
 import { ReviewClaudePanel } from "@/components/review/review-claude-panel";
 import { ReviewDescriptionPanel } from "@/components/review/review-description-panel";
@@ -11,7 +12,6 @@ import { ReviewFilesPanel } from "@/components/review/review-files-panel";
 import { ReviewImpactPanel } from "@/components/review/review-impact-panel";
 import { ReviewRulesPanel } from "@/components/review/review-rules-panel";
 import { ReviewRunDot, type ReviewRunState } from "@/components/review/review-run-dot";
-import { ReviewTagPalette } from "@/components/review/review-tag-palette";
 import { SeatPicker } from "@/manager/seat-picker";
 import {
 	ReviewSubmitDialog,
@@ -67,7 +67,7 @@ import type {
 	RuntimeReviewSuggestCommentRequest,
 } from "@/runtime/types";
 
-type LeftTab = "files" | "impact" | "threads" | "rules" | "tags";
+type LeftTab = "files" | "impact" | "threads" | "rules" | "annotations";
 
 /** Follows `pixtiel.review.seat.<host>` — same scope, same convention. */
 const REVIEW_DESCRIPTION_OPEN_KEY_PREFIX = "pixtiel.review.description.";
@@ -345,12 +345,15 @@ export function ReviewWorkspaceView({
 	const tagAnnotationsGroup = useMemo(
 		() => ({
 			annotations,
+			tags: tagPalette,
 			draggedTag,
 			currentHeadSha,
+			onDragStart: setDraggedTag,
+			onDragEnd: () => setDraggedTag(null),
 			onAdd: session.addAnnotation,
 			onRemove: session.removeAnnotation,
 		}),
-		[annotations, currentHeadSha, draggedTag, session.addAnnotation, session.removeAnnotation],
+		[annotations, currentHeadSha, draggedTag, session.addAnnotation, session.removeAnnotation, tagPalette],
 	);
 
 	// Audit findings land in the session only once, when the stream finishes. Parsing
@@ -1169,9 +1172,9 @@ export function ReviewWorkspaceView({
 							onSelect={() => setLeftTab("rules")}
 						/>
 						<LeftTabButton
-							label={`Tags (${annotations.length})`}
-							active={leftTab === "tags"}
-							onSelect={() => setLeftTab("tags")}
+							label={`Annotations (${annotations.length})`}
+							active={leftTab === "annotations"}
+							onSelect={() => setLeftTab("annotations")}
 						/>
 					</div>
 
@@ -1208,13 +1211,10 @@ export function ReviewWorkspaceView({
 								}
 							}}
 						/>
-					) : leftTab === "tags" ? (
-						<ReviewTagPalette
-							tags={tagPalette}
+					) : leftTab === "annotations" ? (
+						<ReviewAnnotationsPanel
 							annotations={annotations}
 							staleAnnotationIds={staleAnnotationIds}
-							onTagDragStart={setDraggedTag}
-							onTagDragEnd={() => setDraggedTag(null)}
 							onJumpToAnnotation={jumpToAnnotation}
 							onRemoveAnnotation={session.removeAnnotation}
 						/>

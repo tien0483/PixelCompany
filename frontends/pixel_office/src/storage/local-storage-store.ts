@@ -10,6 +10,8 @@ export enum LocalStorageKey {
 	ReviewPolishComments = "kanban.review-polish-comments",
 	/** Whether the review comment composer opens in rich or plain text mode. */
 	ReviewCommentEditorMode = "kanban.review-comment-editor-mode",
+	/** Whether the review diff pane's draggable tag strip is expanded. Defaults to open. */
+	ReviewTagStripExpanded = "kanban.review-tag-strip-expanded",
 	TaskCreatePrimaryStartAction = "kanban.task-create-primary-start-action",
 	BottomTerminalPaneHeight = "kanban.bottom-terminal-pane-height",
 	DetailAgentPanelRatio = "kanban.detail-agent-panel-ratio",
