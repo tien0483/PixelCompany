@@ -30,6 +30,28 @@ describe("evaluateCors", () => {
 		expect(decision).toEqual({ kind: "allow", origin: null });
 	});
 
+	// The header being *absent* and the header being the literal string "null"
+	// are different things and must stay distinguished: "null" is an opaque
+	// origin, i.e. the `sandbox="allow-scripts"` iframe that renders
+	// agent-generated HTML in the plan editor. Allowing it handed that content
+	// the terminal WebSocket and every input-less tRPC mutation.
+	it("rejects requests with the literal opaque Origin 'null'", () => {
+		const decision = evaluateCors({
+			method: "POST",
+			originHeader: "null",
+			allowedOrigins: ALLOWED_ORIGINS,
+		});
+		expect(decision).toEqual({ kind: "reject", origin: "null" });
+	});
+
+	it("rejects an opaque Origin on safe methods and preflights too", () => {
+		for (const method of ["GET", "OPTIONS"]) {
+			expect(
+				evaluateCors({ method, originHeader: "null", allowedOrigins: ALLOWED_ORIGINS }),
+			).toEqual({ kind: "reject", origin: "null" });
+		}
+	});
+
 	it("allows requests whose Origin matches the runtime origin", () => {
 		const decision = evaluateCors({
 			method: "POST",

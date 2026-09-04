@@ -96,6 +96,17 @@ export async function handleAgentStreamRoute<TInput>(
 	res: ServerResponse,
 	options: HandleAgentStreamRouteOptions<TInput>,
 ): Promise<void> {
+	// Every caller of this helper spawns an agent turn on the user's seat, and the
+	// body was parsed as JSON whatever the content type claimed — which made these
+	// routes CORS-simple, i.e. reachable by a cross-site POST with no preflight.
+	// Enforced here rather than at each call site so a new stream route inherits it.
+	const contentType = (req.headers?.["content-type"] ?? "").toString().trim().toLowerCase();
+	if (!contentType.startsWith("application/json")) {
+		res.writeHead(415, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" });
+		res.end(JSON.stringify({ error: "This endpoint requires Content-Type: application/json." }));
+		return;
+	}
+
 	let rawBody: string;
 	try {
 		rawBody = await readRequestBody(req, options.maxBodyBytes ?? DEFAULT_MAX_BODY_BYTES);

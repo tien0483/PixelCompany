@@ -123,3 +123,96 @@ export function isRequestHostAllowed(req: { headers: { get(name: string): string
     allowAny: process.env.HTML_ANYTHING_ALLOW_ANY_HOST === "1",
   });
 }
+
+/** Methods that can change state, and so need the cross-site check below. */
+const UNSAFE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+
+/**
+ * Refuse a JSON endpoint that was called with anything but `application/json`.
+ *
+ * `Request.json()` parses the body whatever the `Content-Type` says, so without
+ * this a caller can pick one of the three CORS-simple types (`text/plain`,
+ * `application/x-www-form-urlencoded`, `multipart/form-data`) and skip preflight
+ * entirely. The `Origin` check above is the primary defence; this closes the
+ * preflight-free shape so a future route that forgets it is not the whole story.
+ *
+ * Returns a 415 `Response` to send, or `null` when the request is acceptable.
+ */
+export function requireJsonContentType(req: {
+  headers: { get(name: string): string | null };
+}): Response | null {
+  const contentType = req.headers.get("content-type") ?? "";
+  if (contentType.trim().toLowerCase().startsWith("application/json")) {
+    return null;
+  }
+  return Response.json(
+    {
+      error: "Unsupported Media Type",
+      hint: "This endpoint requires Content-Type: application/json.",
+    },
+    { status: 415 },
+  );
+}
+
+/**
+ * Return true iff a browser `Origin` may issue a state-changing request.
+ *
+ * The host allowlist above stops DNS rebinding and nothing else. It cannot stop
+ * plain CSRF, because a cross-origin `no-cors` POST to `http://127.0.0.1:<port>`
+ * carries `Host: 127.0.0.1:<port>` — the *allowed* host — and skips preflight
+ * whenever its `Content-Type` is CORS-simple. What distinguishes that request is
+ * the `Origin` header, which browsers attach to every cross-origin POST
+ * including `no-cors` ones. So the two checks cover different attacks and both
+ * are required; this is the same pairing `manager/api/security.py` uses.
+ *
+ * The origin's hostname is matched against the same allowlist as `Host`, so an
+ * operator who widened one has widened both and the UI's own (loopback, or
+ * allow-listed) origin keeps working.
+ *
+ * The literal string `"null"` is NOT allowed: that is an opaque origin, i.e. a
+ * sandboxed iframe or a `data:`/`blob:` document. No first-party caller sends
+ * it, and treating it as trusted is what lets sandboxed content out of its box.
+ */
+export function isAllowedOrigin(
+  originHeader: string | null | undefined,
+  opts: HostValidationOptions = {},
+): boolean {
+  if (opts.allowAny) return true;
+  if (!originHeader) return false;
+  const trimmed = originHeader.trim();
+  if (!trimmed || trimmed.toLowerCase() === "null") return false;
+  let hostname: string;
+  try {
+    hostname = new URL(trimmed).hostname.toLowerCase();
+  } catch {
+    return false;
+  }
+  if (!hostname) return false;
+  // `LOOPBACK_HOSTS` stores IPv6 in the bracketed `[::1]` form. Node's
+  // `URL.hostname` already returns IPv6 bracketed, so only a bare colon-bearing
+  // host needs wrapping — bracketing an already-bracketed one yields `[[::1]]`,
+  // which matches nothing.
+  const bracketed =
+    hostname.includes(":") && !hostname.startsWith("[") ? `[${hostname}]` : hostname;
+  return isAllowedHost(bracketed, opts);
+}
+
+/**
+ * True when this request is a state-changing call carrying a foreign `Origin`,
+ * i.e. it must be refused. A request with no `Origin` at all is same-origin or
+ * a non-browser client (curl, the runtime's own server-side fetch) and is left
+ * alone — matching the Host gate's own posture that reachability is the boundary
+ * for local callers.
+ */
+export function isRequestCrossSiteWrite(req: {
+  method: string;
+  headers: { get(name: string): string | null };
+}): boolean {
+  if (!UNSAFE_METHODS.has(req.method.toUpperCase())) return false;
+  const origin = req.headers.get("origin");
+  if (!origin) return false;
+  return !isAllowedOrigin(origin, {
+    extraAllowed: parseAllowedHosts(process.env.HTML_ANYTHING_ALLOWED_HOSTS),
+    allowAny: process.env.HTML_ANYTHING_ALLOW_ANY_HOST === "1",
+  });
+}

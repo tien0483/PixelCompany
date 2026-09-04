@@ -799,6 +799,32 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 
 	const getRemoteIp = (req: IncomingMessage): string => req.socket.remoteAddress ?? "unknown";
 
+	/**
+	 * Refuse a JSON route called with anything else, and answer 415.
+	 *
+	 * These routes read the body and `JSON.parse` it without looking at the
+	 * content type, which made them CORS-*simple* — a cross-site POST with
+	 * `Content-Type: text/plain` reaches them with no preflight. `/api/html/generate`
+	 * and the review stream routes spawn an agent turn on the user's seat with a
+	 * caller-chosen cwd and prompt, so that shape is worth closing even though the
+	 * Origin gate in `middleware.ts` is the primary defence.
+	 *
+	 * Not applied blanket to `/api/`: the manager and html proxies forward whatever
+	 * content type the caller sent, on purpose.
+	 */
+	const rejectNonJsonContentType = (req: IncomingMessage, res: import("node:http").ServerResponse): boolean => {
+		const contentType = (req.headers["content-type"] ?? "").toString().trim().toLowerCase();
+		if (contentType.startsWith("application/json")) {
+			return false;
+		}
+		res.writeHead(415, {
+			"Content-Type": "application/json; charset=utf-8",
+			"Cache-Control": "no-store",
+		});
+		res.end(JSON.stringify({ error: "This endpoint requires Content-Type: application/json." }));
+		return true;
+	};
+
 	const tlsConfig = getKanbanRuntimeTls();
 	const requestHandler = async (req: IncomingMessage, res: import("node:http").ServerResponse) => {
 		try {
@@ -1080,6 +1106,28 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 				return;
 			}
 			if (pathname.startsWith("/api/trpc")) {
+				// tRPC ships three content-type handlers, and two of them turn a
+				// mutation into a *preflight-free* cross-site request: `multipart/form-data`
+				// is CORS-simple, and `application/octet-stream` is routed to a mutation
+				// too. Both hand `getRawInput` a FormData/stream rather than a parsed body,
+				// so any procedure declared without `.input()` — `runtime.resetAllState`,
+				// `runtime.runUpdateNow`, `gitlab.disconnect`, … — simply ignores it and
+				// runs. Nothing here declares a FormData or octet-stream input (verified by
+				// grep: no `octetInputParser`, no FormData schemas), so refusing the two
+				// outright closes the shape for every existing and future procedure, which
+				// is cheaper and harder to forget than an empty `.input()` on each one.
+				const trpcContentType = (req.headers["content-type"] ?? "").toString().trim().toLowerCase();
+				if (
+					trpcContentType.startsWith("multipart/form-data") ||
+					trpcContentType.startsWith("application/octet-stream")
+				) {
+					res.writeHead(415, {
+						"Content-Type": "application/json; charset=utf-8",
+						"Cache-Control": "no-store",
+					});
+					res.end(JSON.stringify({ error: "tRPC requires Content-Type: application/json." }));
+					return;
+				}
 				await trpcHttpHandler(req, res);
 				return;
 			}
@@ -1130,6 +1178,9 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 				return;
 			}
 			if (pathname === "/api/html/generate" && (req.method ?? "GET").toUpperCase() === "POST") {
+				if (rejectNonJsonContentType(req, res)) {
+					return;
+				}
 				let rawBody: string;
 				try {
 					rawBody = await readRequestBody(req, 2 * 1024 * 1024);
@@ -1240,6 +1291,9 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 				return;
 			}
 			if (pathname === "/api/html/brief" && (req.method ?? "GET").toUpperCase() === "POST") {
+				if (rejectNonJsonContentType(req, res)) {
+					return;
+				}
 				let rawBody: string;
 				try {
 					rawBody = await readRequestBody(req, 2 * 1024 * 1024);
@@ -1727,6 +1781,9 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 				// Hand-rolled rather than `handleAgentStreamRoute`, because the stream
 				// belongs to a background job and not to this request: the job outlives
 				// the connection, and closing the browser must not cancel a build.
+				if (rejectNonJsonContentType(req, res)) {
+					return;
+				}
 				let rawBody: string;
 				try {
 					// Same cap as this file's other review routes. The body is a path and

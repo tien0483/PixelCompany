@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { requireJsonContentType } from "@/lib/security/host-validation";
 import { buildDiffEditPrompt, buildEditPrompt } from "@/lib/templates/build-edit-prompt";
 import { loadSkill } from "@/lib/templates/loader";
 import { assemblePrompt } from "@/lib/templates/shared";
@@ -25,6 +26,9 @@ type Body = {
  * this route never spawns a CLI.
  */
 export async function POST(req: NextRequest) {
+  const contentTypeError = requireJsonContentType(req);
+  if (contentTypeError) return contentTypeError;
+
   let body: Body;
   try {
     body = (await req.json()) as Body;

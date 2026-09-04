@@ -17,6 +17,12 @@ const PASSCODE_LENGTH = 8;
 const SESSION_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 const RATE_LIMIT_MAX_ATTEMPTS = 5;
 const RATE_LIMIT_LOCKOUT_MS = 30 * 1000; // 30 seconds
+/**
+ * Cap on tracked source addresses. Well above any real deployment (this is a
+ * single-operator remote board), and only reached by an attacker spraying from
+ * many addresses — whose oldest, least-active entries are the ones dropped.
+ */
+const RATE_LIMIT_MAX_TRACKED_IPS = 4096;
 
 interface PasscodeState {
 	value: string;
@@ -115,17 +121,60 @@ export function validatePasscode(submitted: string): boolean {
 	return lengthMatch && bytesMatch;
 }
 
+/**
+ * Drop entries no longer doing any work, so neither map grows without bound.
+ *
+ * An expired session used to be evicted only when that exact token was looked up
+ * again — which never happens for a token nobody holds — and `rateLimitByIp`
+ * kept one entry per source address forever. Both are only reachable in remote
+ * mode, where they are slow memory growth rather than an attack, so the sweep
+ * rides along on the (rare) issue path instead of owning a timer.
+ */
+function sweepExpiredState(now: number): void {
+	for (const [token, entry] of sessions) {
+		if (now - entry.issuedAt > SESSION_TTL_MS) {
+			sessions.delete(token);
+		}
+	}
+	for (const [ip, entry] of rateLimitByIp) {
+		// A released lockout carries no state worth remembering. An entry with
+		// attempts still counting up is NOT dropped: clearing it would reset an
+		// in-progress attacker's counter every time some other client logs in.
+		if (entry.lockedUntil !== null && now >= entry.lockedUntil) {
+			rateLimitByIp.delete(ip);
+		}
+	}
+	// Attempt counters that never reached the lockout threshold would otherwise
+	// accumulate one entry per source address. Map iterates in insertion order, so
+	// this drops the oldest — the ones least likely to be a live attack.
+	if (rateLimitByIp.size > RATE_LIMIT_MAX_TRACKED_IPS) {
+		const excess = rateLimitByIp.size - RATE_LIMIT_MAX_TRACKED_IPS;
+		let dropped = 0;
+		for (const ip of rateLimitByIp.keys()) {
+			if (dropped >= excess) {
+				break;
+			}
+			rateLimitByIp.delete(ip);
+			dropped += 1;
+		}
+	}
+}
+
 /** Issue a new session token after successful passcode verification. */
 export function issueSession(): string {
+	const now = Date.now();
+	sweepExpiredState(now);
 	const token = randomBytes(32).toString("hex");
-	sessions.set(token, { issuedAt: Date.now() });
+	sessions.set(token, { issuedAt: now });
 	return token;
 }
 
 /** Issue a new session token bound to an authenticated user subject. */
 export function issueSessionForSubject(subject: SessionSubject): string {
+	const now = Date.now();
+	sweepExpiredState(now);
 	const token = randomBytes(32).toString("hex");
-	sessions.set(token, { issuedAt: Date.now(), subject });
+	sessions.set(token, { issuedAt: now, subject });
 	return token;
 }
 
