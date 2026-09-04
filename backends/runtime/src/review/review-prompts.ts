@@ -193,6 +193,41 @@ export function formatDiffsForPrompt(
 	return { text: blocks.join("\n\n"), omittedPaths };
 }
 
+/**
+ * The clause naming what the reviewer pinned. A plain tag is a one-word hint, so it
+ * stays as it was; the two catalog kinds carry a published meaning and say so, since
+ * "Middle Man" or "Extract Method" read as noise without it.
+ */
+function describeAnnotationTag(tag: RuntimeReviewAnnotation["tag"]): string {
+	if (tag.kind === "smell") {
+		return `Suspected code smell: ${tag.label}`;
+	}
+	if (tag.kind === "refactoring") {
+		return `Refactoring the reviewer wants applied here: ${tag.label}`;
+	}
+	return `Tag: ${tag.label}`;
+}
+
+/**
+ * Extra guidance for the catalog kinds, emitted only for the kinds actually present:
+ * a review with no smell chips must not pay for a paragraph about smells.
+ */
+function formatAnnotationKindGuidance(annotations: RuntimeReviewAnnotation[]): string {
+	const kinds = new Set(annotations.map((annotation) => annotation.tag.kind));
+	const lines: string[] = [];
+	if (kinds.has("smell")) {
+		lines.push(
+			'A "suspected code smell" names a smell from the published refactoring catalog (Fowler / refactoring.guru) and is used in its standard sense. Judge whether the diff actually demonstrates that smell, and say what it costs here rather than restating the definition.',
+		);
+	}
+	if (kinds.has("refactoring")) {
+		lines.push(
+			'A "refactoring the reviewer wants applied here" names a technique from that same catalog. Judge whether it applies to this code: confirmed = worth applying here, not_an_issue = it does not apply or would make the code worse, partial = it applies to only part of the marked range. Describe the shape of the change in a sentence or two; do not write the patch.',
+		);
+	}
+	return lines.length > 0 ? `\n\n${lines.join("\n\n")}` : "";
+}
+
 /** One line per annotation, budget-capped like `formatRulesForPrompt`. */
 export function formatAnnotationsForPrompt(
 	annotations: RuntimeReviewAnnotation[],
@@ -213,7 +248,7 @@ export function formatAnnotationsForPrompt(
 			currentHeadSha && annotation.headSha && annotation.headSha !== currentHeadSha
 				? " (added against an earlier revision — line numbers may have shifted)"
 				: "";
-		const line = `- [${annotation.id}] ${annotation.newPath}:${range} (${side}) — Tag: ${annotation.tag.label}${note}${stale}`;
+		const line = `- [${annotation.id}] ${annotation.newPath}:${range} (${side}) — ${describeAnnotationTag(annotation.tag)}${note}${stale}`;
 		if (used + line.length > budget) {
 			omitted += 1;
 			continue;
@@ -250,7 +285,7 @@ export function buildAuditPrompt(input: {
 	const graphSection = input.graphImpact ? `\n\n${input.graphImpact}` : "";
 	const annotationsSection =
 		input.annotations && input.annotations.length > 0
-			? `\n\n## Reviewer annotations\n\nThe reviewer flagged these spots by hand before running this review. Each is a hunch, not a confirmed defect.\n\n${formatAnnotationsForPrompt(input.annotations)}`
+			? `\n\n## Reviewer annotations\n\nThe reviewer flagged these spots by hand before running this review. Each is a hunch, not a confirmed defect.\n\n${formatAnnotationsForPrompt(input.annotations)}${formatAnnotationKindGuidance(input.annotations)}`
 			: "";
 	const verdictContract =
 		input.annotations && input.annotations.length > 0
@@ -471,7 +506,7 @@ export function buildChatPrompt(input: {
 				: null,
 			isMergeRequestScope ? null : screenBlock,
 			(input.annotations?.length ?? 0) > 0
-				? `## Reviewer-flagged spots\n\nThe reviewer marked these places as suspect before this run. Pay extra attention to them and address them where relevant to this request. They are hunches, not confirmed defects — it is fine to conclude one is not a problem, but say so.\n\n${formatAnnotationsForPrompt(input.annotations ?? [])}`
+				? `## Reviewer-flagged spots\n\nThe reviewer marked these places as suspect before this run. Pay extra attention to them and address them where relevant to this request. They are hunches, not confirmed defects — it is fine to conclude one is not a problem, but say so.\n\n${formatAnnotationsForPrompt(input.annotations ?? [])}${formatAnnotationKindGuidance(input.annotations ?? [])}`
 				: null,
 			input.graphImpact ?? null,
 		]

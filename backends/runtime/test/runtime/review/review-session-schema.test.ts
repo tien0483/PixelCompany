@@ -179,6 +179,52 @@ describe("runtimeReviewSessionSchema annotations field", () => {
 		expect(parsed.success).toBe(true);
 	});
 
+	it("accepts the refactoring-catalog tag kinds", () => {
+		for (const kind of ["smell", "refactoring"]) {
+			const parsed = runtimeReviewSessionSchema.safeParse({
+				...legacyDocument,
+				annotations: [
+					{
+						id: `ann-${kind}`,
+						newPath: "src/index.ts",
+						oldPath: "src/index.ts",
+						newLine: 10,
+						oldLine: null,
+						tag: { kind, label: "Feature Envy" },
+						note: "",
+						headSha: null,
+						createdAt: "2026-09-01T00:00:00.000Z",
+						verdict: null,
+					},
+				],
+			});
+
+			expect(parsed.success).toBe(true);
+		}
+	});
+
+	it("rejects an annotation with an unknown tag kind", () => {
+		const parsed = runtimeReviewSessionSchema.safeParse({
+			...legacyDocument,
+			annotations: [
+				{
+					id: "ann-4",
+					newPath: "a.ts",
+					oldPath: "a.ts",
+					newLine: 1,
+					oldLine: null,
+					tag: { kind: "design-pattern", label: "Observer" },
+					note: "",
+					headSha: null,
+					createdAt: "2026-09-01T00:00:00.000Z",
+					verdict: null,
+				},
+			],
+		});
+
+		expect(parsed.success).toBe(false);
+	});
+
 	it("rejects an annotation with an unknown verdict value", () => {
 		const parsed = runtimeReviewSessionSchema.safeParse({
 			...legacyDocument,
@@ -201,4 +247,3 @@ describe("runtimeReviewSessionSchema annotations field", () => {
 		expect(parsed.success).toBe(false);
 	});
 });
-

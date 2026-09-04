@@ -31,7 +31,7 @@ import {
 } from "@/review/review-agent-model";
 import { parseFindingsFromStream, parseVerdictsFromStream } from "@/review/review-findings-parse";
 import { isTypingTarget, resolveNavKey } from "@/review/review-nav-keys";
-import { buildTagPalette, type ReviewTag } from "@/review/review-tags";
+import { buildTagSections, type ReviewTag } from "@/review/review-tags";
 import {
 	countReviewProgress,
 	formatSelectionLabel,
@@ -329,7 +329,7 @@ export function ReviewWorkspaceView({
 			),
 		[annotations, currentHeadSha],
 	);
-	const tagPalette = useMemo(() => buildTagPalette(session.rules), [session.rules]);
+	const tagSections = useMemo(() => buildTagSections(session.rules), [session.rules]);
 	const jumpToAnnotation = useCallback(
 		(annotation: RuntimeReviewAnnotation) => {
 			session.setActivePath(annotation.newPath);
@@ -345,7 +345,7 @@ export function ReviewWorkspaceView({
 	const tagAnnotationsGroup = useMemo(
 		() => ({
 			annotations,
-			tags: tagPalette,
+			sections: tagSections,
 			draggedTag,
 			currentHeadSha,
 			onDragStart: setDraggedTag,
@@ -353,7 +353,7 @@ export function ReviewWorkspaceView({
 			onAdd: session.addAnnotation,
 			onRemove: session.removeAnnotation,
 		}),
-		[annotations, currentHeadSha, draggedTag, session.addAnnotation, session.removeAnnotation, tagPalette],
+		[annotations, currentHeadSha, draggedTag, session.addAnnotation, session.removeAnnotation, tagSections],
 	);
 
 	// Audit findings land in the session only once, when the stream finishes. Parsing

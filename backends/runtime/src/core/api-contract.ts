@@ -4075,8 +4075,12 @@ export const runtimeReviewRulesConfigResponseSchema = z.object({
 export type RuntimeReviewRulesConfigResponse = z.infer<typeof runtimeReviewRulesConfigResponseSchema>;
 
 export const runtimeReviewAnnotationTagSchema = z.object({
-	/** A curated tag, or one derived from the rules bundle's category values. */
-	kind: z.enum(["builtin", "rule-category"]),
+	/**
+	 * A curated tag, one derived from the rules bundle's category values, or a name
+	 * from the published refactoring catalog — a code smell the reviewer suspects, or
+	 * a refactoring technique they want applied here.
+	 */
+	kind: z.enum(["builtin", "rule-category", "smell", "refactoring"]),
 	label: z.string().min(1),
 });
 export type RuntimeReviewAnnotationTag = z.infer<typeof runtimeReviewAnnotationTagSchema>;

@@ -43,7 +43,7 @@ import {
 	normalizeWheelDeltaPx,
 } from "@/review/review-deep-scroll";
 import { buildFullFileRows } from "@/review/review-full-file-rows";
-import type { ReviewTag } from "@/review/review-tags";
+import { type ReviewTag, type ReviewTagSection, reviewTagChipClassName } from "@/review/review-tags";
 import {
 	buildLineAnnotations,
 	type ReviewDiffMode,
@@ -278,7 +278,7 @@ export function ReviewDiffPane({
 	tagAnnotations?: {
 		annotations: RuntimeReviewAnnotation[];
 		/** Every tag that can be dragged, rendered as the strip under the file toolbar. */
-		tags: ReviewTag[];
+		sections: ReviewTagSection[];
 		draggedTag: ReviewTag | null;
 		currentHeadSha: string | null;
 		onDragStart: (tag: ReviewTag) => void;
@@ -969,7 +969,12 @@ export function ReviewDiffPane({
 						>
 							<div className="min-w-0 space-y-0.5">
 								<div className="flex flex-wrap items-center gap-1">
-									<span className="rounded border border-border-bright bg-surface-2 px-1 text-[9px] text-text-secondary">
+									<span
+										className={cn(
+											"rounded border bg-surface-2 px-1 text-[9px] text-text-secondary",
+											reviewTagChipClassName(annotation.tag.kind) ?? "border-border-bright",
+										)}
+									>
 										{annotation.tag.label}
 									</span>
 									{annotation.verdict ? (
@@ -1019,7 +1024,12 @@ export function ReviewDiffPane({
 
 					{pendingAnnotation?.rowKey === row.key && pendingAnnotation.side === side && tagAnnotations && file ? (
 						<div className="flex items-center gap-1.5 border-l-2 border-status-purple bg-surface-2 px-2.5 py-1.5">
-							<span className="shrink-0 rounded border border-border-bright bg-surface-1 px-1 text-[9px] text-text-secondary">
+							<span
+								className={cn(
+									"shrink-0 rounded border bg-surface-1 px-1 text-[9px] text-text-secondary",
+									reviewTagChipClassName(pendingAnnotation.tag.kind) ?? "border-border-bright",
+								)}
+							>
 								{pendingAnnotation.tag.label}
 							</span>
 							<input
@@ -1212,7 +1222,7 @@ export function ReviewDiffPane({
 
 			{tagAnnotations ? (
 				<ReviewTagStrip
-					tags={tagAnnotations.tags}
+					sections={tagAnnotations.sections}
 					onTagDragStart={tagAnnotations.onDragStart}
 					onTagDragEnd={tagAnnotations.onDragEnd}
 				/>

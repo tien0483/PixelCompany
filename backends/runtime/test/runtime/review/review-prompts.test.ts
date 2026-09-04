@@ -1,12 +1,11 @@
 import { describe, expect, it } from "vitest";
-
+import type { RuntimeReviewAnnotation, RuntimeReviewRule } from "../../../src/core/api-contract";
 import {
 	ANNOTATIONS_PROMPT_BUDGET,
 	buildAuditPrompt,
 	buildChatPrompt,
 	formatAnnotationsForPrompt,
 } from "../../../src/review/review-prompts";
-import type { RuntimeReviewAnnotation, RuntimeReviewRule } from "../../../src/core/api-contract";
 
 function ann(overrides: Partial<RuntimeReviewAnnotation> = {}): RuntimeReviewAnnotation {
 	return {
@@ -47,6 +46,20 @@ describe("formatAnnotationsForPrompt", () => {
 		expect(text).toContain("new side");
 	});
 
+	it("keeps the plain-tag clause byte-identical", () => {
+		expect(formatAnnotationsForPrompt([ann()])).toBe("- [ann-1] src/app.ts:42 (new side) — Tag: Bug Risk");
+	});
+
+	it("names a code smell as one", () => {
+		const text = formatAnnotationsForPrompt([ann({ tag: { kind: "smell", label: "Feature Envy" } })]);
+		expect(text).toContain("Suspected code smell: Feature Envy");
+	});
+
+	it("names a refactoring as a request", () => {
+		const text = formatAnnotationsForPrompt([ann({ tag: { kind: "refactoring", label: "Extract Method" } })]);
+		expect(text).toContain("Refactoring the reviewer wants applied here: Extract Method");
+	});
+
 	it("formats an old-side (deleted line) annotation", () => {
 		const text = formatAnnotationsForPrompt([ann({ newLine: null, oldLine: 10 })]);
 		expect(text).toContain(":10");
@@ -77,9 +90,7 @@ describe("formatAnnotationsForPrompt", () => {
 
 	it("omits annotations over the budget and adds a note", () => {
 		// Build enough annotations to exceed ANNOTATIONS_PROMPT_BUDGET
-		const manyAnnotations = Array.from({ length: 200 }, (_, i) =>
-			ann({ id: `ann-${i}`, note: "x".repeat(80) }),
-		);
+		const manyAnnotations = Array.from({ length: 200 }, (_, i) => ann({ id: `ann-${i}`, note: "x".repeat(80) }));
 		const text = formatAnnotationsForPrompt(manyAnnotations, null, ANNOTATIONS_PROMPT_BUDGET);
 		expect(text).toContain("omitted");
 	});
@@ -108,6 +119,26 @@ describe("buildAuditPrompt — annotations section", () => {
 		const prompt = buildAuditPrompt({ ...base, annotations: [ann()] });
 		expect(prompt).toContain("verdict");
 		expect(prompt).toContain("annotationId");
+	});
+
+	it("explains a catalog kind only when that kind is present", () => {
+		const plain = buildAuditPrompt({ ...base, annotations: [ann()] });
+		expect(plain).not.toContain("refactoring.guru");
+		expect(plain).not.toContain("worth applying here");
+
+		const smells = buildAuditPrompt({
+			...base,
+			annotations: [ann({ tag: { kind: "smell", label: "Feature Envy" } })],
+		});
+		expect(smells).toContain("refactoring.guru");
+		expect(smells).not.toContain("worth applying here");
+
+		const refactorings = buildAuditPrompt({
+			...base,
+			annotations: [ann({ tag: { kind: "refactoring", label: "Extract Method" } })],
+		});
+		expect(refactorings).toContain("worth applying here");
+		expect(refactorings).not.toContain("refactoring.guru");
 	});
 
 	it("omits the annotations section when annotations array is empty", () => {
