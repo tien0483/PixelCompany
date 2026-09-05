@@ -1,6 +1,7 @@
 ---
 import Nav from "../components/Nav.astro";
 import Footer from "../components/Footer.astro";
+import { withBase } from "../lib/base";
 import "../styles/global.css";
 
 interface Props {
@@ -16,6 +17,8 @@ const {
 } = Astro.props;
 
 const pageTitle = title ? `${title} · PIXTiel` : "PIXTiel";
+const faviconHref = withBase("/favicon.svg");
+const ogImageHref = new URL(withBase(ogImage), Astro.site ?? "https://tien0483.github.io").href;
 ---
 
 <!doctype html>
@@ -23,7 +26,7 @@ const pageTitle = title ? `${title} · PIXTiel` : "PIXTiel";
 	<head>
 		<meta charset="UTF-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-		<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+		<link rel="icon" type="image/svg+xml" href={faviconHref} />
 		<meta name="generator" content={Astro.generator} />
 
 		<title>{pageTitle}</title>
@@ -33,13 +36,13 @@ const pageTitle = title ? `${title} · PIXTiel` : "PIXTiel";
 		<meta property="og:type" content="website" />
 		<meta property="og:title" content={pageTitle} />
 		<meta property="og:description" content={description} />
-		<meta property="og:image" content={ogImage} />
+		<meta property="og:image" content={ogImageHref} />
 
 		<!-- Twitter -->
 		<meta name="twitter:card" content="summary_large_image" />
 		<meta name="twitter:title" content={pageTitle} />
 		<meta name="twitter:description" content={description} />
-		<meta name="twitter:image" content={ogImage} />
+		<meta name="twitter:image" content={ogImageHref} />
 
 		<script is:inline>
 			(function () {

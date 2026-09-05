@@ -1,4 +1,5 @@
 ---
+import { withBase } from "../lib/base";
 import BaseLayout from "../layouts/BaseLayout.astro";
 import ScreenshotFrame from "../components/ScreenshotFrame.astro";
 
@@ -165,13 +166,13 @@ const surfaces = [
 			</p>
 			<div class="mt-8 flex flex-wrap gap-3">
 				<a
-					href="/#install"
+					href={withBase("/#install")}
 					class="px-5 py-2.5 rounded-lg bg-accent hover:bg-accent-hover text-white text-sm font-semibold transition-colors"
 				>
 					Install PIXTiel
 				</a>
 				<a
-					href="/docs/getting-started"
+					href={withBase("/docs/getting-started")}
 					class="px-5 py-2.5 rounded-lg border border-border hover:border-border-bright text-text-primary text-sm font-semibold transition-colors"
 				>
 					Read the docs
@@ -186,7 +187,7 @@ const surfaces = [
 			{
 				surfaces.map((s) => (
 					<a
-						href={`#${s.id}`}
+						href={withBase(`#${s.id}`)}
 						class="px-3 py-1.5 rounded-lg border border-border/60 bg-surface-0/60 hover:bg-surface-2 hover:border-border text-text-secondary hover:text-text-primary whitespace-nowrap transition-all inline-flex items-center gap-1.5 font-medium shadow-2xs"
 					>
 						{s.name}

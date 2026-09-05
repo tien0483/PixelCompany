@@ -1,4 +1,5 @@
 ---
+import { withBase } from "../../lib/base";
 import { getCollection, render } from "astro:content";
 import BaseLayout from "../../layouts/BaseLayout.astro";
 import "../../styles/prose.css";
@@ -37,7 +38,7 @@ const nextDoc = currentIndex < allDocs.length - 1 ? allDocs[currentIndex + 1] : 
 								const isActive = slug === currentSlug;
 								return (
 									<a
-										href={`/docs/${slug}`}
+										href={withBase(`/docs/${slug}`)}
 										class={`flex items-center px-3 py-2 text-sm rounded-lg transition-colors font-medium ${
 											isActive
 												? "bg-surface-2 text-text-primary font-semibold border-l-2 border-accent border-y border-r border-border shadow-xs"
@@ -77,9 +78,9 @@ const nextDoc = currentIndex < allDocs.length - 1 ? allDocs[currentIndex + 1] : 
 			<main class="min-w-0 flex-1 max-w-4xl">
 				<!-- Breadcrumb -->
 				<div class="flex items-center gap-2 text-xs font-mono text-text-secondary mb-6">
-					<a href="/" class="hover:text-text-primary transition-colors">Home</a>
+					<a href={withBase("/")} class="hover:text-text-primary transition-colors">Home</a>
 					<span>/</span>
-					<a href="/docs/getting-started" class="hover:text-text-primary transition-colors">Docs</a>
+					<a href={withBase("/docs/getting-started")} class="hover:text-text-primary transition-colors">Docs</a>
 					<span>/</span>
 					<span class="text-text-primary">{entry.data.title}</span>
 				</div>
@@ -93,7 +94,7 @@ const nextDoc = currentIndex < allDocs.length - 1 ? allDocs[currentIndex + 1] : 
 				<div class="mt-16 pt-8 border-t border-border grid grid-cols-1 sm:grid-cols-2 gap-4">
 					{prevDoc ? (
 						<a
-							href={`/docs/${prevDoc.id.replace(/\.mdx?$/, "")}`}
+							href={withBase(`/docs/${prevDoc.id.replace(/\.mdx?$/, "")}`)}
 							class="p-4 rounded-xl border border-border bg-surface-1 hover:border-border-bright transition-colors group flex flex-col items-start"
 						>
 							<span class="text-xs text-text-secondary group-hover:text-accent transition-colors">&larr; Previous</span>
@@ -103,7 +104,7 @@ const nextDoc = currentIndex < allDocs.length - 1 ? allDocs[currentIndex + 1] : 
 
 					{nextDoc ? (
 						<a
-							href={`/docs/${nextDoc.id.replace(/\.mdx?$/, "")}`}
+							href={withBase(`/docs/${nextDoc.id.replace(/\.mdx?$/, "")}`)}
 							class="p-4 rounded-xl border border-border bg-surface-1 hover:border-border-bright transition-colors group flex flex-col items-end sm:text-right"
 						>
 							<span class="text-xs text-text-secondary group-hover:text-accent transition-colors">Next &rarr;</span>

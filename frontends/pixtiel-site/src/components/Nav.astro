@@ -1,4 +1,6 @@
 ---
+import { stripBase, withBase } from "../lib/base";
+
 interface Props {
 	class?: string;
 }
@@ -12,20 +14,20 @@ const links = [
 	{ href: "/blog", label: "Blog", match: /^\/blog/ },
 ];
 
-const path = Astro.url.pathname;
+const path = stripBase(Astro.url.pathname);
 ---
 
 <nav class={`w-full border-b border-border bg-surface-0/80 backdrop-blur-md sticky top-0 z-50 ${className ?? ""}`}>
 	<div class="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
-		<a href="/" class="flex items-center gap-2.5 text-text-primary hover:opacity-80 transition-opacity group">
-			<img src="/pixtiel-logo.svg" alt="PIXTiel" class="h-8 w-auto" />
+		<a href={withBase("/")} class="flex items-center gap-2.5 text-text-primary hover:opacity-80 transition-opacity group">
+			<img src={withBase("/pixtiel-logo.svg")} alt="PIXTiel" class="h-8 w-auto" />
 		</a>
 
 		<div class="flex items-center gap-3 sm:gap-6 text-xs sm:text-sm font-medium text-text-secondary">
 			{
 				links.map((link) => (
 					<a
-						href={link.href}
+						href={withBase(link.href)}
 						aria-current={link.match.test(path) ? "page" : undefined}
 						class={`transition-colors ${link.match.test(path) ? "text-text-primary" : "hover:text-text-primary"}`}
 					>
@@ -33,7 +35,7 @@ const path = Astro.url.pathname;
 					</a>
 				))
 			}
-			<a href="/#install" class="hidden sm:inline-block hover:text-text-primary transition-colors">Install</a>
+			<a href={withBase("/#install")} class="hidden sm:inline-block hover:text-text-primary transition-colors">Install</a>
 			<a
 				href="https://github.com/tien0483/PixelCompany"
 				target="_blank"

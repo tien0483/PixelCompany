@@ -1,4 +1,6 @@
 ---
+import { withBase } from "../lib/base";
+
 interface Props {
 	class?: string;
 }
@@ -10,7 +12,7 @@ const { class: className } = Astro.props;
 	<div class="max-w-6xl mx-auto px-4 sm:px-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-8">
 		<div class="flex flex-col gap-2">
 			<div class="flex items-center gap-2.5 text-text-primary">
-				<img src="/pixtiel-logo.svg" alt="PIXTiel" class="h-7 w-auto" />
+				<img src={withBase("/pixtiel-logo.svg")} alt="PIXTiel" class="h-7 w-auto" />
 			</div>
 			<p class="text-xs text-text-tertiary max-w-sm">
 				Multi-agent coordination and workspace runtime for autonomous software engineering.
@@ -21,11 +23,11 @@ const { class: className } = Astro.props;
 		</div>
 
 		<div class="flex flex-col sm:flex-row items-start sm:items-center gap-6 sm:gap-8 text-sm">
-			<a href="/products" class="hover:text-text-primary transition-colors">Products</a>
-			<a href="/docs/getting-started" class="hover:text-text-primary transition-colors">Docs</a>
-			<a href="/blog" class="hover:text-text-primary transition-colors">Blog</a>
-			<a href="/#install" class="hover:text-text-primary transition-colors">Install</a>
-			<a href="/rss.xml" class="hover:text-text-primary transition-colors">RSS</a>
+			<a href={withBase("/products")} class="hover:text-text-primary transition-colors">Products</a>
+			<a href={withBase("/docs/getting-started")} class="hover:text-text-primary transition-colors">Docs</a>
+			<a href={withBase("/blog")} class="hover:text-text-primary transition-colors">Blog</a>
+			<a href={withBase("/#install")} class="hover:text-text-primary transition-colors">Install</a>
+			<a href={withBase("/rss.xml")} class="hover:text-text-primary transition-colors">RSS</a>
 			<a
 				href="https://github.com/tien0483/PixelCompany"
 				target="_blank"

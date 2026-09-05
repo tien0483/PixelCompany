@@ -1,4 +1,5 @@
 ---
+import { withBase } from "../lib/base";
 import { getCollection } from "astro:content";
 import BaseLayout from "../layouts/BaseLayout.astro";
 import ScreenshotFrame from "../components/ScreenshotFrame.astro";
@@ -35,13 +36,13 @@ const dateFormat = new Intl.DateTimeFormat("en", { month: "short", day: "numeric
 				Install PIXTiel
 			</a>
 			<a
-				href="/products"
+				href={withBase("/products")}
 				class="px-7 py-3.5 rounded-lg bg-surface-1 hover:bg-surface-2 border border-border text-text-primary font-semibold text-base transition-colors"
 			>
 				Explore the products
 			</a>
 			<a
-				href="/docs/getting-started"
+				href={withBase("/docs/getting-started")}
 				class="px-7 py-3.5 rounded-lg text-text-secondary hover:text-text-primary font-semibold text-base transition-colors"
 			>
 				Read the docs &rarr;
@@ -432,12 +433,12 @@ const dateFormat = new Intl.DateTimeFormat("en", { month: "short", day: "numeric
 							How it is built, and why
 						</h2>
 					</div>
-					<a href="/blog" class="text-sm font-semibold text-accent hover:text-[#339DFF]">All posts &rarr;</a>
+					<a href={withBase("/blog")} class="text-sm font-semibold text-accent hover:text-[#339DFF]">All posts &rarr;</a>
 				</div>
 				<div class="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
 					{posts.map((post) => (
 						<a
-							href={`/blog/${post.id.replace(/\.mdx?$/, "")}`}
+							href={withBase(`/blog/${post.id.replace(/\.mdx?$/, "")}`)}
 							class="group flex flex-col p-6 rounded-xl border border-border bg-surface-1 hover:border-border-bright transition-colors"
 						>
 							<time datetime={post.data.date.toISOString()} class="text-xs font-mono text-text-tertiary">
@@ -471,7 +472,7 @@ const dateFormat = new Intl.DateTimeFormat("en", { month: "short", day: "numeric
 					Install PIXTiel
 				</a>
 				<a
-					href="/docs/getting-started"
+					href={withBase("/docs/getting-started")}
 					class="px-7 py-3.5 rounded-lg bg-surface-1 hover:bg-surface-2 border border-border text-text-primary font-semibold text-base transition-colors"
 				>
 					Read the docs

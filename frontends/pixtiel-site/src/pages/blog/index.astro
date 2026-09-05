@@ -1,4 +1,5 @@
 ---
+import { withBase } from "../../lib/base";
 import { getCollection } from "astro:content";
 import BaseLayout from "../../layouts/BaseLayout.astro";
 
@@ -23,7 +24,7 @@ const [featured, ...rest] = posts;
 				traps that only show up once agents run in parallel on real repositories.
 			</p>
 			<a
-				href="/rss.xml"
+				href={withBase("/rss.xml")}
 				class="mt-6 inline-flex items-center gap-1.5 text-xs font-mono text-text-secondary hover:text-text-primary transition-colors"
 			>
 				<svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -44,7 +45,7 @@ const [featured, ...rest] = posts;
 				<div class="space-y-10">
 					{featured ? (
 						<a
-							href={`/blog/${featured.id.replace(/\.mdx?$/, "")}`}
+							href={withBase(`/blog/${featured.id.replace(/\.mdx?$/, "")}`)}
 							class="block group rounded-2xl border border-border bg-surface-1 p-6 sm:p-8 hover:border-border-bright transition-colors"
 						>
 							<div class="flex flex-wrap items-center gap-3 text-xs font-mono text-text-secondary">
@@ -75,7 +76,7 @@ const [featured, ...rest] = posts;
 						<div class="divide-y divide-border border-t border-border">
 							{rest.map((post) => (
 								<a
-									href={`/blog/${post.id.replace(/\.mdx?$/, "")}`}
+									href={withBase(`/blog/${post.id.replace(/\.mdx?$/, "")}`)}
 									class="block group py-7 hover:bg-surface-1/30 transition-colors -mx-4 px-4 rounded-lg"
 								>
 									<div class="flex flex-wrap items-center gap-3 text-xs font-mono text-text-secondary">

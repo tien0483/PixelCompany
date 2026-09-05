@@ -17,6 +17,7 @@ function escapeXml(value: string): string {
 export const GET: APIRoute = async ({ site }) => {
 	// `site` is unset when astro.config has no `site` — fall back to a relative feed.
 	const origin = site ? site.origin : "";
+	const base = import.meta.env.BASE_URL.replace(/\/$/, "");
 	const posts = (await getCollection("blog", ({ data }) => !data.draft)).sort(
 		(a, b) => b.data.date.valueOf() - a.data.date.valueOf(),
 	);
@@ -24,7 +25,7 @@ export const GET: APIRoute = async ({ site }) => {
 	const items = posts
 		.map((post) => {
 			const slug = post.id.replace(/\.mdx?$/, "");
-			const link = `${origin}/blog/${slug}`;
+			const link = `${origin}${base}/blog/${slug}`;
 			return [
 				"    <item>",
 				`      <title>${escapeXml(post.data.title)}</title>`,
@@ -45,7 +46,7 @@ export const GET: APIRoute = async ({ site }) => {
 		"  <channel>",
 		`    <title>${escapeXml(SITE_TITLE)}</title>`,
 		`    <description>${escapeXml(SITE_DESCRIPTION)}</description>`,
-		`    <link>${escapeXml(origin || "/")}</link>`,
+		`    <link>${escapeXml(origin ? `${origin}${base || "/"}` : "/")}</link>`,
 		"    <language>en</language>",
 		items,
 		"  </channel>",
