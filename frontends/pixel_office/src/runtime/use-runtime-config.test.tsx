@@ -60,6 +60,7 @@ function createRuntimeConfigResponse(selectedAgentId: RuntimeConfigResponse["sel
 			oauthAccountId: null,
 			oauthExpiresAt: null,
 		},
+		clineExecutionMode: "cli",
 		commitPromptTemplate: "",
 		openPrPromptTemplate: "",
 		commitPromptTemplateDefault: "",

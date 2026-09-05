@@ -154,6 +154,7 @@ function createRuntimeConfig(
 			oauthAccountId: null,
 			oauthExpiresAt: null,
 		},
+		clineExecutionMode: "cli",
 		commitPromptTemplate: "commit",
 		openPrPromptTemplate: "pr",
 		commitPromptTemplateDefault: "commit",

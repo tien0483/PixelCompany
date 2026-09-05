@@ -264,6 +264,7 @@ const savedClineOauthConfig = {
 		oauthAccountId: "acc-1",
 		oauthExpiresAt: 1_800_000_000_000,
 	},
+	clineExecutionMode: "cli",
 } as unknown as RuntimeConfigResponse;
 
 describe("RuntimeSettingsDialog", () => {

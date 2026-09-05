@@ -872,7 +872,8 @@ export function CardDetailView({
 		taskManagerAccounts,
 	]);
 	const showClineAgentChatPanel =
-		isNativeClineAgentSelected(effectiveTaskAgentId);
+		isNativeClineAgentSelected(effectiveTaskAgentId) &&
+		runtimeConfig?.clineExecutionMode === "sdk";
 	const availablePaths = useMemo(() => {
 		if (!runtimeFiles || runtimeFiles.length === 0) {
 			return [];

@@ -105,6 +105,7 @@ function createRuntimeConfigResponse(
 			oauthExpiresAt: null,
 			...clineOverrides,
 		},
+		clineExecutionMode: "cli",
 		commitPromptTemplate: "",
 		openPrPromptTemplate: "",
 		commitPromptTemplateDefault: "",

@@ -1,5 +1,6 @@
 import type { RuntimeConfigState } from "../config/runtime-config";
 import { deriveLegacyAutonomousModeEnabled } from "../config/agent-launch-options";
+import { resolveClineExecutionMode } from "../cline-cli/cline-execution-mode";
 import {
 	getRuntimeAgentBinaryCandidates,
 	getRuntimeLaunchSupportedAgentCatalog,
@@ -162,6 +163,7 @@ export function buildRuntimeConfigResponse(
 		agents,
 		shortcuts: runtimeConfig.shortcuts,
 		clineProviderSettings,
+		clineExecutionMode: resolveClineExecutionMode(),
 		commitPromptTemplate: runtimeConfig.commitPromptTemplate,
 		openPrPromptTemplate: runtimeConfig.openPrPromptTemplate,
 		commitPromptTemplateDefault: runtimeConfig.commitPromptTemplateDefault,

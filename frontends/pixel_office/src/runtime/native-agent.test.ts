@@ -59,6 +59,7 @@ function createRuntimeConfigResponse(
 			oauthAccountId: "acct_123",
 			oauthExpiresAt: 123,
 		},
+		clineExecutionMode: "cli",
 		commitPromptTemplate: "",
 		openPrPromptTemplate: "",
 		commitPromptTemplateDefault: "",
