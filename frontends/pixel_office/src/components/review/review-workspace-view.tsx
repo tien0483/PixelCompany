@@ -10,6 +10,7 @@ import { ReviewDescriptionPanel } from "@/components/review/review-description-p
 import { ReviewDiffPane, type ReviewCommentDraftInput } from "@/components/review/review-diff-pane";
 import { ReviewFilesPanel } from "@/components/review/review-files-panel";
 import { ReviewImpactPanel } from "@/components/review/review-impact-panel";
+import { ReviewRepoLockChip } from "@/components/review/review-repo-lock-chip";
 import { ReviewRulesPanel } from "@/components/review/review-rules-panel";
 import { ReviewRunDot, type ReviewRunState } from "@/components/review/review-run-dot";
 import { SeatPicker } from "@/manager/seat-picker";
@@ -56,6 +57,7 @@ import type { FullFileFetchResult } from "@/review/use-full-file-content";
 import { useReviewChat } from "@/review/use-review-chat";
 import { useReviewGraphImpact } from "@/review/use-review-graph-impact";
 import { useReviewProjectCommands } from "@/review/use-review-project-commands";
+import { useReviewRepoLock } from "@/review/use-review-repo-lock";
 import { useReviewRulesConfig } from "@/review/use-review-rules-config";
 import { useReviewSeat } from "@/review/use-review-seat";
 import { useReviewSession } from "@/review/use-review-session";
@@ -63,6 +65,7 @@ import { useBooleanLocalStorageValue } from "@/utils/react-use";
 import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
 import type {
 	RuntimeManagerAccount,
+	RuntimeProjectSummary,
 	RuntimeReviewAnnotation,
 	RuntimeReviewAuditRequest,
 	RuntimeReviewChatMessage,
@@ -93,6 +96,7 @@ export function ReviewWorkspaceView({
 	workspaceId,
 	managerAccounts = [],
 	managerActiveAccountId = null,
+	projects = [],
 	localRepoPath,
 	onClose,
 }: {
@@ -101,7 +105,9 @@ export function ReviewWorkspaceView({
 	/** Manager seats offered in the header picker. Empty in the standalone app. */
 	managerAccounts?: RuntimeManagerAccount[];
 	managerActiveAccountId?: number | null;
-	/** Local checkout path — passed as cwd to review chat so slash commands can read the repo. */
+	/** Checkouts offered in the header's repository pin. Empty in the standalone app. */
+	projects?: RuntimeProjectSummary[];
+	/** The project the shell currently points at — the pin's default, not its value. */
 	localRepoPath?: string;
 	onClose: () => void;
 }): ReactElement {
@@ -194,31 +200,48 @@ export function ReviewWorkspaceView({
 	 * up as prompts that quietly got worse.
 	 */
 	/**
+	 * The checkout every repo-scoped thing on this screen resolves against: the knowledge
+	 * graph, the project's slash commands, the chat agent's cwd.
+	 *
+	 * The pin rather than `localRepoPath` directly. A merge request is opened from a
+	 * GitLab-wide inbox, so the shell's selected project has no necessary relationship to
+	 * the repository being reviewed — following it meant a project switch silently
+	 * repointed the graph at another repository, and since blast radius reaches the agents
+	 * as prose, that failed by quietly degrading every prompt rather than by erroring.
+	 */
+	const repoLock = useReviewRepoLock({
+		host: target.host,
+		projectId: target.projectId,
+		shellRepoPath: localRepoPath || undefined,
+	});
+	const repoPath = repoLock.lockedPath ?? localRepoPath ?? undefined;
+
+	/**
 	 * The checkout's own slash commands, offered as chips next to the stack skills.
-	 * Tied to `localRepoPath` because that path is the chat agent's cwd — a command
-	 * from any other project is one the run could not expand.
+	 * Tied to `repoPath` because that path is the chat agent's cwd — a command from any
+	 * other project is one the run could not expand.
 	 */
 	const projectCommands = useReviewProjectCommands({
-		projectPath: localRepoPath || undefined,
+		projectPath: repoPath,
 		workspaceId,
 	});
 
 	const graph = useReviewGraphImpact({
-		projectPath: localRepoPath || undefined,
+		projectPath: repoPath,
 		changedPaths: session.files.map((file) => file.newPath),
 		baseBranch: session.mergeRequest?.targetBranch,
 		workspaceId,
 	});
 
 	const openGraphDashboard = useCallback(() => {
-		if (!localRepoPath) {
+		if (!repoPath) {
 			showAppToast({ intent: "danger", message: "No local checkout is selected for this project." });
 			return;
 		}
 		void (async () => {
 			try {
 				const client = getRuntimeTrpcClient(workspaceId);
-				const response = await client.review.openGraphDashboard.mutate({ projectPath: localRepoPath });
+				const response = await client.review.openGraphDashboard.mutate({ projectPath: repoPath });
 				if (!response.ok || !response.url) {
 					const message = response.error ?? "The graph dashboard could not be started.";
 					setAgentError(message);
@@ -234,10 +257,10 @@ export function ReviewWorkspaceView({
 				showAppToast({ intent: "danger", message });
 			}
 		})();
-	}, [localRepoPath, workspaceId]);
+	}, [repoPath, workspaceId]);
 
 	const rebuildGraph = useCallback(() => {
-		if (!localRepoPath) {
+		if (!repoPath) {
 			showAppToast({ intent: "danger", message: "No local checkout is selected for this project." });
 			return;
 		}
@@ -248,12 +271,12 @@ export function ReviewWorkspaceView({
 			message: "Rebuilding the knowledge graph on the Antigravity seat. This analyzes the whole repository.",
 		});
 		void graphRebuild.run({
-			projectPath: localRepoPath,
+			projectPath: repoPath,
 			// No model: agy's own default. Pinning one here would hard-code an id from
 			// `agy models`, which carries its effort suffix and changes between releases.
 			managerAccountId: antigravityAccounts[0]?.id,
 		});
-	}, [antigravityAccounts, graphRebuild, localRepoPath]);
+	}, [antigravityAccounts, graphRebuild, repoPath]);
 
 	/**
 	 * The seat every review run pins. A reviewer who has never chosen gets the
@@ -702,7 +725,7 @@ export function ReviewWorkspaceView({
 					projectKey: target.projectKey,
 					model: agentModel,
 					managerAccountId: effectiveAccountId,
-					cwd: localRepoPath || undefined,
+					cwd: repoPath,
 				},
 			});
 		},
@@ -711,7 +734,7 @@ export function ReviewWorkspaceView({
 			annotations,
 			chat,
 			effectiveAccountId,
-			localRepoPath,
+			repoPath,
 			projectCommands,
 			selection,
 			session.activeFile,
@@ -791,7 +814,7 @@ export function ReviewWorkspaceView({
 					projectKey: target.projectKey,
 					model: agentModel,
 					managerAccountId: effectiveAccountId,
-					cwd: localRepoPath || undefined,
+					cwd: repoPath,
 				});
 				addDraftWith(polished);
 			} catch (error) {
@@ -807,7 +830,7 @@ export function ReviewWorkspaceView({
 		[
 			agentModel,
 			effectiveAccountId,
-			localRepoPath,
+			repoPath,
 			polishComments,
 			runSuggestCommentPass,
 			selection,
@@ -1096,7 +1119,14 @@ export function ReviewWorkspaceView({
 					 * looks exactly like one that has it, which is why this is in the header
 					 * rather than only inside the Impact tab.
 					 */}
-					{localRepoPath ? (
+					<ReviewRepoLockChip
+						projects={projects}
+						lockedPath={repoLock.lockedPath}
+						shellRepoPath={localRepoPath || undefined}
+						onLock={repoLock.lock}
+						onUnlock={repoLock.unlock}
+					/>
+					{repoPath ? (
 						<button
 							type="button"
 							data-testid="review-graph-chip"
@@ -1302,7 +1332,7 @@ export function ReviewWorkspaceView({
 						<ReviewImpactPanel
 							impact={graph.impact}
 							isLoading={graph.isLoading}
-							projectPath={localRepoPath || undefined}
+							projectPath={repoPath}
 							isRebuilding={graphRebuild.status === "running"}
 							canRebuild={antigravityAccounts.length > 0}
 							rebuildProgressLine={graphRebuildProgressLine}
@@ -1348,7 +1378,7 @@ export function ReviewWorkspaceView({
 							canCite={isComposerOpen}
 							sourceRoots={rulesConfig.sourceRoots}
 							isSavingSourceRoots={rulesConfig.isSaving}
-							suggestedSourceRoot={localRepoPath}
+							suggestedSourceRoot={repoPath}
 							onCite={citeRule}
 							onRefresh={extractRules}
 							onSaveSourceRoots={(roots) => void rulesConfig.save(roots)}

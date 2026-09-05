@@ -1563,6 +1563,7 @@ export default function App(): ReactElement {
 									workspaceId={currentProjectId}
 									managerAccounts={managedManagerAccounts}
 									managerActiveAccountId={manager?.activeAccountId ?? null}
+									projects={projects}
 									localRepoPath={navigationProjectPath ?? workspacePath ?? undefined}
 									onClose={() => navigateHome(sectionHomeRoute("review"))}
 								/>
