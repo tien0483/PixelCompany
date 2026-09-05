@@ -1279,6 +1279,19 @@ export const RuntimeManagerHookLogsSchema = z.object({
 });
 export type RuntimeManagerHookLogs = z.infer<typeof RuntimeManagerHookLogsSchema>;
 
+export const RuntimeManagerUsageBreakdownRowSchema = z.object({
+	provider: z.string(),
+	totalTokens: z.number(),
+	totalCostUsd: z.number(),
+	cacheHitRatio: z.number().nullable(),
+});
+export type RuntimeManagerUsageBreakdownRow = z.infer<typeof RuntimeManagerUsageBreakdownRowSchema>;
+
+export const RuntimeManagerUsageClientRowSchema = RuntimeManagerUsageBreakdownRowSchema.extend({
+	client: z.string(),
+});
+export type RuntimeManagerUsageClientRow = z.infer<typeof RuntimeManagerUsageClientRowSchema>;
+
 export const RuntimeManagerUsageOverviewSchema = z.object({
 	days: z.number().int().positive(),
 	totalTokens: z.number().nullable(),
@@ -1289,6 +1302,9 @@ export const RuntimeManagerUsageOverviewSchema = z.object({
 	flagCount: z.number().int().nonnegative(),
 	ready: z.boolean(),
 	error: z.string().nullable(),
+	source: z.enum(["tokscale", "none"]).default("none"),
+	byProvider: z.array(RuntimeManagerUsageBreakdownRowSchema).default([]),
+	byClient: z.array(RuntimeManagerUsageClientRowSchema).default([]),
 });
 export type RuntimeManagerUsageOverview = z.infer<typeof RuntimeManagerUsageOverviewSchema>;
 

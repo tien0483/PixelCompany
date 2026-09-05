@@ -223,14 +223,20 @@ async def lesson_stats(request: Request, days: int = Query(default=7, ge=1, le=3
 
 @router.get("/usage-overview")
 async def get_usage_overview(request: Request, days: int = Query(default=1, ge=1, le=365)):
-    """Overview: today's totals, cache health, project breakdown, active flags."""
-    db = _get_analytics_db(request)
-    if db is None:
-        return JSONResponse({"error": "Analytics not ready — scan in progress"}, status_code=503)
+    """Overview: tokscale tokens/cost/cache (+ by provider/client); flags from Claude DB."""
+    import asyncio
 
-    overview = db.get_overview(days=days)
-    flags = db.get_active_flags()
-    return {"overview": overview, "flags": flags}
+    from manager.web.tokscale_usage import fetch_tokscale_overview
+
+    tokscale = await asyncio.to_thread(fetch_tokscale_overview, days)
+    db = _get_analytics_db(request)
+    flags = db.get_active_flags() if db is not None else []
+    return {
+        "overview": tokscale["overview"],
+        "flags": flags,
+        "source": tokscale["source"],
+        "error": tokscale["error"],
+    }
 
 
 @router.get("/usage-sessions")
