@@ -4733,6 +4733,14 @@ export const runtimeReviewChatRequestSchema = z.object({
 	cwd: z.string().optional(),
 	model: z.string().optional(),
 	managerAccountId: z.number().int().positive().optional(),
+	/**
+	 * Compress the answer: verdict first, no self-revision narration, no prose weighing
+	 * of both sides. On by default in the panel, and a per-turn field rather than a
+	 * setting because it only shapes the reply — a resumed session picks up whatever
+	 * this turn asks for. Optional rather than defaulted: `z.infer` yields the output
+	 * type, so a default would make it required at every construction site.
+	 */
+	terse: z.boolean().optional(),
 });
 export type RuntimeReviewChatRequest = z.infer<typeof runtimeReviewChatRequestSchema>;
 

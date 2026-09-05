@@ -269,7 +269,18 @@ function createClineProviderDeps() {
 	};
 }
 
-function restoreEnvVar(name: "CLINE_API_KEY" | "OCA_API_KEY" | "CURSOR_API_KEY", value: string | undefined): void {
+/**
+ * Cline defaults to the PTY harness (`kanban cline-agent`), so every assertion about the
+ * in-process SDK service has to opt into `sdk` mode explicitly. Restored by the suite's afterEach.
+ */
+function useClineSdkExecutionMode(): void {
+	process.env.PIXTIEL_CLINE_MODE = "sdk";
+}
+
+function restoreEnvVar(
+	name: "CLINE_API_KEY" | "OCA_API_KEY" | "CURSOR_API_KEY" | "PIXTIEL_CLINE_MODE",
+	value: string | undefined,
+): void {
 	if (value === undefined) {
 		delete process.env[name];
 		return;
@@ -310,6 +321,7 @@ function createClineTaskSessionServiceMock() {
 
 describe("createRuntimeApi startTaskSession", () => {
 	const originalClineApiKey = process.env.CLINE_API_KEY;
+	const originalClineExecutionMode = process.env.PIXTIEL_CLINE_MODE;
 	const originalOcaApiKey = process.env.OCA_API_KEY;
 	const originalClineMcpSettingsPath = process.env.CLINE_MCP_SETTINGS_PATH;
 	const originalClineMcpOauthSettingsPath = process.env.CLINE_MCP_OAUTH_SETTINGS_PATH;
@@ -460,6 +472,7 @@ describe("createRuntimeApi startTaskSession", () => {
 	afterEach(() => {
 		restoreEnvVar("CLINE_API_KEY", originalClineApiKey);
 		restoreEnvVar("OCA_API_KEY", originalOcaApiKey);
+		restoreEnvVar("PIXTIEL_CLINE_MODE", originalClineExecutionMode);
 		if (originalClineMcpSettingsPath === undefined) {
 			delete process.env.CLINE_MCP_SETTINGS_PATH;
 		} else {
@@ -678,6 +691,7 @@ describe("createRuntimeApi startTaskSession", () => {
 	});
 
 	it("routes cline start sessions to cline task session service", async () => {
+		useClineSdkExecutionMode();
 		taskWorktreeMocks.resolveTaskCwd.mockResolvedValue("/tmp/existing-worktree");
 		agentRegistryMocks.resolveAgentCommand.mockReturnValue(null);
 		setSelectedProviderSettings({
@@ -750,7 +764,67 @@ describe("createRuntimeApi startTaskSession", () => {
 		expect(terminalManager.startTaskSession).not.toHaveBeenCalled();
 	});
 
+	it("routes cline start sessions to the PTY harness by default", async () => {
+		// No useClineSdkExecutionMode(): the default is the `kanban cline-agent` harness, so a
+		// Cline card takes the same terminal path as every other agent and carries the card's seat
+		// pins along for the adapter to turn into --provider/--model flags.
+		taskWorktreeMocks.resolveTaskCwd.mockResolvedValue("/tmp/existing-worktree");
+		agentRegistryMocks.resolveAgentCommand.mockReturnValue({
+			agentId: "cline",
+			label: "Cline",
+			command: "kanban cline-agent",
+			binary: "kanban cline-agent",
+			args: [],
+		});
+
+		const terminalManager = {
+			startTaskSession: vi.fn(async () => createSummary({ agentId: "cline" })),
+			applyTurnCheckpoint: vi.fn(),
+			getSummary: vi.fn(() => null),
+		};
+		const clineTaskSessionService = createClineTaskSessionServiceMock();
+
+		const api = createTestRuntimeApi({
+			getActiveWorkspaceId: vi.fn(() => "workspace-1"),
+			loadScopedRuntimeConfig: vi.fn(async () => {
+				const runtimeConfigState = createRuntimeConfigState();
+				runtimeConfigState.selectedAgentId = "cline";
+				return runtimeConfigState;
+			}),
+			setActiveRuntimeConfig: vi.fn(),
+			getScopedTerminalManager: vi.fn(async () => terminalManager as never),
+			getScopedClineTaskSessionService: vi.fn(async () => clineTaskSessionService as never),
+			resolveInteractiveShellCommand: vi.fn(),
+			runCommand: vi.fn(),
+		});
+
+		const response = await api.startTaskSession(
+			{
+				workspaceId: "workspace-1",
+				workspacePath: "/tmp/repo",
+			},
+			{
+				taskId: "task-1",
+				baseRef: "main",
+				prompt: "Continue task",
+				clineSettings: { providerId: "anthropic", modelId: "claude-sonnet-4-6" },
+			},
+		);
+
+		expect(response.ok).toBe(true);
+		expect(clineTaskSessionService.startTaskSession).not.toHaveBeenCalled();
+		expect(terminalManager.startTaskSession).toHaveBeenCalledWith(
+			expect.objectContaining({
+				taskId: "task-1",
+				agentId: "cline",
+				cwd: "/tmp/existing-worktree",
+				clineSettings: { providerId: "anthropic", modelId: "claude-sonnet-4-6" },
+			}),
+		);
+	});
+
 	it("applies task-level reasoning overrides even without task model/provider overrides", async () => {
+		useClineSdkExecutionMode();
 		taskWorktreeMocks.resolveTaskCwd.mockResolvedValue("/tmp/existing-worktree");
 		agentRegistryMocks.resolveAgentCommand.mockReturnValue(null);
 		setSelectedProviderSettings({
@@ -807,6 +881,7 @@ describe("createRuntimeApi startTaskSession", () => {
 	});
 
 	it("uses model-default reasoning when a task overrides the model but leaves reasoning on default", async () => {
+		useClineSdkExecutionMode();
 		taskWorktreeMocks.resolveTaskCwd.mockResolvedValue("/tmp/existing-worktree");
 		agentRegistryMocks.resolveAgentCommand.mockReturnValue(null);
 		setSelectedProviderSettings({
@@ -974,6 +1049,7 @@ describe("createRuntimeApi startTaskSession", () => {
 	});
 
 	it("probes cline persisted sessions on resumeFromTrash when no terminal agent summary exists", async () => {
+		useClineSdkExecutionMode();
 		taskWorktreeMocks.resolveTaskCwd.mockResolvedValue("/tmp/existing-worktree");
 		agentRegistryMocks.resolveAgentCommand.mockReturnValue({
 			agentId: "codex",
@@ -1042,6 +1118,7 @@ describe("createRuntimeApi startTaskSession", () => {
 	});
 
 	it("uses saved cline settings even when no last-used provider is recorded", async () => {
+		useClineSdkExecutionMode();
 		taskWorktreeMocks.resolveTaskCwd.mockResolvedValue("/tmp/existing-worktree");
 		agentRegistryMocks.resolveAgentCommand.mockReturnValue(null);
 		oauthMocks.getLastUsedProviderSettings.mockReturnValue(undefined);
@@ -1097,6 +1174,7 @@ describe("createRuntimeApi startTaskSession", () => {
 	});
 
 	it("fails early when the cline provider is selected without cline credentials", async () => {
+		useClineSdkExecutionMode();
 		taskWorktreeMocks.resolveTaskCwd.mockResolvedValue("/tmp/existing-worktree");
 		agentRegistryMocks.resolveAgentCommand.mockReturnValue(null);
 		delete process.env.CLINE_API_KEY;
@@ -1145,6 +1223,7 @@ describe("createRuntimeApi startTaskSession", () => {
 	});
 
 	it("allows the cline provider to launch when CLINE_API_KEY is present in the environment", async () => {
+		useClineSdkExecutionMode();
 		taskWorktreeMocks.resolveTaskCwd.mockResolvedValue("/tmp/existing-worktree");
 		agentRegistryMocks.resolveAgentCommand.mockReturnValue(null);
 		process.env.CLINE_API_KEY = "env-cline-api-key";
@@ -1362,6 +1441,7 @@ describe("createRuntimeApi startTaskSession", () => {
 	});
 
 	it("prefers OAuth api key when cline OAuth credentials are configured", async () => {
+		useClineSdkExecutionMode();
 		taskWorktreeMocks.resolveTaskCwd.mockResolvedValue("/tmp/existing-worktree");
 		agentRegistryMocks.resolveAgentCommand.mockReturnValue(null);
 
@@ -1439,6 +1519,7 @@ describe("createRuntimeApi startTaskSession", () => {
 	});
 
 	it("does not use OAuth credentials for non-OAuth providers", async () => {
+		useClineSdkExecutionMode();
 		taskWorktreeMocks.resolveTaskCwd.mockResolvedValue("/tmp/existing-worktree");
 		agentRegistryMocks.resolveAgentCommand.mockReturnValue(null);
 

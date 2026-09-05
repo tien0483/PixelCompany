@@ -47,6 +47,21 @@ export const REVIEW_CHAT_ALLOWED_TOOLS = [
 	"Bash(git ls-files:*)",
 	// Deliberately absent: `git branch`, which reads with no flags but deletes with
 	// `-D`. `git rev-parse --abbrev-ref HEAD` covers what a review command needs.
+	//
+	// `rtk` is the agent stack's output compressor, already on PATH for every one-shot
+	// via `withStackBinOnPath`. It is enumerated one subcommand at a time for the same
+	// reason git is, and here the reason is sharper: `rtk run` executes a raw command
+	// through `sh -c` and `rtk proxy` executes one unfiltered, so a blanket `Bash(rtk:*)`
+	// would be arbitrary command execution that walks straight past this allowlist in a
+	// panel whose entire contract is "you are reading, not editing". Never widen it, and
+	// never add `run` or `proxy`.
+	"Bash(rtk git diff:*)",
+	"Bash(rtk git show:*)",
+	"Bash(rtk git log:*)",
+	"Bash(rtk git status:*)",
+	"Bash(rtk grep:*)",
+	"Bash(rtk rg:*)",
+	"Bash(rtk read:*)",
 ] as const;
 
 /**

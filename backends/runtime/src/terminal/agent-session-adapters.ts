@@ -6,6 +6,7 @@ import { pathToFileURL } from "node:url";
 import type {
 	RuntimeAgentId,
 	RuntimeHookEvent,
+	RuntimeTaskClineSettings,
 	RuntimeTaskImage,
 	RuntimeTaskLaunchSettings,
 	RuntimeTaskSessionSummary,
@@ -40,7 +41,7 @@ import {
 } from "./cursor-output-transition";
 import { stripAnsi } from "./output-utils";
 import type { SessionTransitionEvent } from "./session-state-machine";
-import { prepareOrchestratorLaunch } from "../orchestrator/orchestrator-launch";
+import { collectCustomAgentFlowIds } from "../orchestrator/orchestrator-launch";
 import { resolveSubagentSeatEnv } from "./subagent-seat-launch";
 import { prepareProjectMcpConfig } from "./agent-mcp-launch";
 import { prepareAgyHooksConfig } from "./agy-hooks-config";
@@ -81,6 +82,8 @@ export interface AgentAdapterLaunchInput {
 	env?: Record<string, string | undefined>;
 	workspaceId?: string;
 	taskLaunchSettings?: RuntimeTaskLaunchSettings;
+	/** Card's Cline seat/model/effort; consumed only by `clineAdapter`. */
+	clineSettings?: RuntimeTaskClineSettings;
 }
 
 export type AgentOutputTransitionDetector = (
@@ -1881,6 +1884,18 @@ const kiroAdapter: AgentSessionAdapter = {
 	},
 };
 
+/**
+ * Cline, as a PTY.
+ *
+ * There is no `cline` binary on PATH: the harness is `kanban cline-agent`, this runtime's own
+ * subcommand over `@clinebot/core` (see `src/cline-cli/`). `buildKanbanCommandParts` resolves the
+ * node + entrypoint pair for however this process was started, which is the same trick the hook
+ * scripts below use — and it is why `resolveAgentCommand` has to special-case `cline` rather than
+ * probing PATH.
+ *
+ * The flags are unchanged from when this adapter targeted the upstream Cline CLI; the harness was
+ * written to that grammar on purpose, so this file stayed the source of truth for the argv.
+ */
 const clineAdapter: AgentSessionAdapter = {
 	async prepare(input) {
 		const args = [...input.args];
@@ -1890,12 +1905,32 @@ const clineAdapter: AgentSessionAdapter = {
 			args.push("--auto-approve-all");
 		}
 
-		if (input.resumeFromTrash && !hasCliOption(args, "--continue")) {
+		if ((input.resumeFromTrash || input.resumeFromPersistence) && !hasCliOption(args, "--continue")) {
 			args.push("--continue");
 		}
 
 		if (input.startInPlanMode) {
 			args.push("--plan");
+		}
+
+		// The card's seat and model. Without these the harness resolves the workspace default,
+		// which silently ignores a per-card model pick.
+		const clineSettings = input.clineSettings;
+		const providerId = clineSettings?.providerId?.trim();
+		if (providerId && !hasCliOption(args, "--provider")) {
+			args.push("--provider", providerId);
+		}
+		const modelId = clineSettings?.modelId?.trim();
+		if (modelId && !hasCliOption(args, "--model")) {
+			args.push("--model", modelId);
+		}
+		if (clineSettings?.reasoningEffort && !hasCliOption(args, "--reasoning-effort")) {
+			args.push("--reasoning-effort", clineSettings.reasoningEffort);
+		}
+		// Session persistence is keyed by task id, so a resume finds the conversation the previous
+		// run (SDK path included) left behind.
+		if (!hasCliOption(args, "--session-id")) {
+			args.push("--session-id", input.taskId);
 		}
 
 		const hooks = resolveHookContext(input);
@@ -1928,8 +1963,13 @@ const clineAdapter: AgentSessionAdapter = {
 		}
 
 		const withPromptLaunch = withPrompt(args, input.prompt, "append");
+		// [node, entrypoint] first, then `cline-agent`, then everything above. The prompt is
+		// already the trailing bare argument, which is what the command's parser expects.
+		const commandParts = buildKanbanCommandParts(["cline-agent", ...withPromptLaunch.args]);
 		return {
 			...withPromptLaunch,
+			binary: commandParts[0] ?? process.execPath,
+			args: commandParts.slice(1),
 			env: {
 				...withPromptLaunch.env,
 				...env,
@@ -2040,33 +2080,38 @@ const cursorAdapter: AgentSessionAdapter = {
 	},
 };
 
+/**
+ * Custom Agent (DeepSeek Harness), as a PTY.
+ *
+ * The composed argv is built by `kanban custom-agent`, not here: dsh's launcher hands everything
+ * past its own flags to the booted profile, so the exact ordering of `--profile`/`--patch`/prompt
+ * is load-bearing and must have exactly one owner. Routing the board through the same subcommand a
+ * human would type is what makes a card's run reproducible — and it keeps the patch overlays'
+ * lifetime (they are temp files) inside the process that spawned dsh.
+ */
 const orchestratorAdapter: AgentSessionAdapter = {
 	async prepare(input) {
-		const launch = await prepareOrchestratorLaunch({
-			cwd: input.cwd,
-			prompt: input.prompt,
-			taskLaunchSettings: input.taskLaunchSettings,
-			autonomousModeEnabled: input.autonomousModeEnabled,
-			warn: (message) => {
-				console.warn(`[kanban] ${message}`);
-			},
-			log: (message) => {
-				console.log(`[kanban] ${message}`);
-			},
-		});
-		if (launch === null) {
-			throw new Error(
-				"Custom Agent (dsh) could not launch — install DeepSeek Harness (or set PIXTIEL_DSH_BINARY), and give the card a prompt.",
-			);
+		const args = ["custom-agent", "--cwd", input.cwd];
+		if (input.autonomousModeEnabled) {
+			args.push("--autonomous");
 		}
+		for (const flowId of collectCustomAgentFlowIds(input.taskLaunchSettings)) {
+			args.push("--flow", flowId);
+		}
+		if (hasMcpAllowlist(input.taskLaunchSettings)) {
+			for (const mcpServerId of input.taskLaunchSettings?.mcpServerIds ?? []) {
+				args.push("--mcp", mcpServerId);
+			}
+		}
+		// Last and bare, exactly as dsh's headless app reads it.
+		const withPromptLaunch = withPrompt(args, input.prompt, "append");
+		const commandParts = buildKanbanCommandParts(withPromptLaunch.args);
 		return {
-			binary: launch.command,
-			args: launch.args,
+			binary: commandParts[0] ?? process.execPath,
+			args: commandParts.slice(1),
 			env: {
 				...input.env,
-				...launch.env,
 			},
-			cleanup: launch.cleanup,
 		};
 	},
 };

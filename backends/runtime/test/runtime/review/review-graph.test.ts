@@ -4,10 +4,12 @@ import path from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { buildReviewGraphSymbolSection, extractSymbolCandidates } from "../../../src/review/review-graph-brief";
 import {
 	clearReviewGraphCache,
 	computeReviewGraphImpact,
 	loadReviewGraphIndex,
+	lookupReviewGraphSymbols,
 	matchChangedPathNodeIds,
 	type ReviewGraphIndex,
 	resolveReviewGraphLocation,
@@ -173,6 +175,140 @@ describe("matchChangedPathNodeIds", () => {
 		const index = await loadIndex();
 
 		expect(matchChangedPathNodeIds(index, "src/brand_new.py")).toEqual([]);
+	});
+});
+
+describe("lookupReviewGraphSymbols", () => {
+	it("locates a unique name and carries its file", async () => {
+		await writeGraph(".ua", graphDocument());
+		const index = await loadIndex();
+
+		const [lookup] = lookupReviewGraphSymbols(index, ["solve"]);
+
+		expect(lookup).toMatchObject({ name: "solve", kind: "found", totalMatches: 1 });
+		expect(lookup?.definitions[0]).toMatchObject({ filePath: "src/core.py", type: "function" });
+	});
+
+	it("matches case-insensitively and never repeats a name", async () => {
+		await writeGraph(".ua", graphDocument());
+		const index = await loadIndex();
+
+		const lookups = lookupReviewGraphSymbols(index, ["SOLVE", "solve", " solve "]);
+
+		expect(lookups).toHaveLength(1);
+		expect(lookups[0]?.kind).toBe("found");
+	});
+
+	it("reports every definition when a name is shared, so the agent asks which", async () => {
+		const document = graphDocument() as { nodes: Array<Record<string, unknown>> };
+		document.nodes.push({
+			id: "function:src/api.py:solve",
+			type: "function",
+			name: "solve",
+			filePath: "src/api.py",
+		});
+		await writeGraph(".ua", document);
+		const index = await loadIndex();
+
+		const [lookup] = lookupReviewGraphSymbols(index, ["solve"]);
+
+		expect(lookup).toMatchObject({ kind: "ambiguous", totalMatches: 2 });
+		expect(lookup?.definitions.map((definition) => definition.filePath)).toEqual(["src/core.py", "src/api.py"]);
+	});
+
+	it("locates nothing past the ambiguity threshold — four of forty reads as an answer", async () => {
+		const document = graphDocument() as { nodes: Array<Record<string, unknown>> };
+		for (let i = 0; i < 25; i += 1) {
+			document.nodes.push({ id: `function:src/f${i}.py:run`, type: "function", name: "run", filePath: `src/f${i}.py` });
+		}
+		await writeGraph(".ua", document);
+		const index = await loadIndex();
+
+		const [lookup] = lookupReviewGraphSymbols(index, ["run"]);
+
+		expect(lookup).toMatchObject({ kind: "ambiguous", totalMatches: 25 });
+		expect(lookup?.definitions).toEqual([]);
+	});
+
+	it("reports a name the graph has never seen", async () => {
+		await writeGraph(".ua", graphDocument());
+		const index = await loadIndex();
+
+		expect(lookupReviewGraphSymbols(index, ["not_in_the_graph"])[0]).toMatchObject({
+			kind: "absent",
+			totalMatches: 0,
+		});
+	});
+});
+
+describe("extractSymbolCandidates", () => {
+	it("takes backticked spans and splits a qualified reference", () => {
+		expect(extractSymbolCandidates("is `directories.get_empirical_data_dir` a Path?")).toEqual([
+			"directories.get_empirical_data_dir",
+			"directories",
+			"get_empirical_data_dir",
+		]);
+	});
+
+	it("sheds a call's parentheses", () => {
+		expect(extractSymbolCandidates("what does `solve()` return")).toEqual(["solve"]);
+	});
+
+	it("extracts nothing from prose, so no graph is loaded for it", () => {
+		expect(extractSymbolCandidates("what does this function return here")).toEqual([]);
+	});
+
+	it("falls back to code-shaped bare tokens only when there are no backticks", () => {
+		expect(extractSymbolCandidates("is source_collection_dir the same as sourceDir here")).toEqual([
+			"source_collection_dir",
+			"sourceDir",
+		]);
+		// A backtick anywhere disables the fallback: the reviewer has said which is code.
+		expect(extractSymbolCandidates("is `solve` like source_collection_dir")).toEqual(["solve"]);
+	});
+});
+
+describe("buildReviewGraphSymbolSection", () => {
+	it("says the graph records no types, so a location is never read as a signature", async () => {
+		await writeGraph(".ua", graphDocument());
+
+		const section = await buildReviewGraphSymbolSection({
+			projectPath: projectDir,
+			prompt: "what does `solve` return?",
+			changedPaths: [],
+		});
+
+		expect(section).toContain("`src/core.py`");
+		expect(section).toContain("no signatures");
+	});
+
+	it("marks a definition the merge request already changed", async () => {
+		await writeGraph(".ua", graphDocument());
+
+		const section = await buildReviewGraphSymbolSection({
+			projectPath: projectDir,
+			prompt: "is `solve` still correct?",
+			changedPaths: ["src/core.py"],
+		});
+
+		expect(section).toContain("changed in this merge request");
+	});
+
+	it("reports a backticked name the graph is missing, but drops a bare guess", async () => {
+		await writeGraph(".ua", graphDocument());
+
+		await expect(
+			buildReviewGraphSymbolSection({ projectPath: projectDir, prompt: "about `no_such_name`", changedPaths: [] }),
+		).resolves.toContain("no node with this name");
+		await expect(
+			buildReviewGraphSymbolSection({ projectPath: projectDir, prompt: "about no_such_name", changedPaths: [] }),
+		).resolves.toBeUndefined();
+	});
+
+	it("returns nothing when the project has no graph at all", async () => {
+		await expect(
+			buildReviewGraphSymbolSection({ projectPath: projectDir, prompt: "what does `solve` do?", changedPaths: [] }),
+		).resolves.toBeUndefined();
 	});
 });
 

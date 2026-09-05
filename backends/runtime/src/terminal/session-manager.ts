@@ -4,6 +4,7 @@
 import type {
 	RuntimeAgentId,
 	RuntimeAuthFailoverOutcome,
+	RuntimeTaskClineSettings,
 	RuntimeTaskHookActivity,
 	RuntimeTaskImage,
 	RuntimeTaskLaunchSettings,
@@ -186,6 +187,11 @@ export interface StartTaskSessionRequest {
 	/** Claude account this session is pinned to; recorded on the summary for the UI. */
 	managerAccountId?: number;
 	taskLaunchSettings?: RuntimeTaskLaunchSettings;
+	/**
+	 * Card's Cline seat/model/effort. Only the PTY harness (`kanban cline-agent`) reads these; the
+	 * in-process SDK path takes them straight off the request instead.
+	 */
+	clineSettings?: RuntimeTaskClineSettings;
 	/** Card opt-in: a usage-limit exit parks as "usage_paused" and auto-resumes at the reset. */
 	autoResumeOnUsageLimit?: boolean;
 	/** Card opt-in: a usage-limit exit cross-seat restarts before same-seat pause/resume. */
@@ -746,6 +752,7 @@ export class TerminalSessionManager implements TerminalSessionService {
 			env: request.env,
 			workspaceId: request.workspaceId,
 			taskLaunchSettings: request.taskLaunchSettings,
+			clineSettings: request.clineSettings,
 		});
 
 		const env = buildTerminalEnvironment(request.env, launch.env);

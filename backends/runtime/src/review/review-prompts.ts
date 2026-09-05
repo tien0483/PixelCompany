@@ -6,7 +6,14 @@
 // anyway, but asking for clean output is what keeps the common case cheap.
 import type { RuntimeReviewAnnotation, RuntimeReviewRule } from "../core/api-contract";
 import { expandReviewCommand } from "./review-command-expansion";
-import type { ReviewGraphFreshness, ReviewGraphImpact, ReviewGraphImpactComponent } from "./review-graph";
+import type {
+	ReviewGraphFreshness,
+	ReviewGraphImpact,
+	ReviewGraphImpactComponent,
+	ReviewGraphProject,
+	ReviewGraphSymbolDefinition,
+	ReviewGraphSymbolLookup,
+} from "./review-graph";
 
 /** Budget for the rules text pasted into an audit prompt, in characters. */
 const RULES_PROMPT_BUDGET = 24_000;
@@ -14,6 +21,12 @@ const RULES_PROMPT_BUDGET = 24_000;
 const DIFF_PROMPT_BUDGET = 60_000;
 /** Budget for reviewer annotations pasted into prompts, in characters. */
 export const ANNOTATIONS_PROMPT_BUDGET = 8_000;
+/**
+ * Budget for the symbol-locator section, in characters. Small on purpose: it is spent
+ * on every turn where the reviewer names a symbol, not once per conversation, and one
+ * definition line is ~100 characters.
+ */
+export const SYMBOL_LOOKUP_PROMPT_BUDGET = 2_000;
 
 /**
  * The knowledge-graph brief, rendered for a prompt.
@@ -114,6 +127,106 @@ export function formatGraphImpactForPrompt(input: {
 	}
 	if (caveats.length > 0) {
 		lines.push("### Caveats", "", caveats.map((caveat) => `- ${caveat}`).join("\n"), "");
+	}
+
+	return lines.join("\n").trimEnd();
+}
+
+/**
+ * A generator stub, i.e. a summary that restates the line it would sit on.
+ *
+ * 24 530 of `akselos-dev`'s 33 511 summaries are exactly this shape. Pasting them
+ * back as if they were documentation is worse than saying nothing: it converts an
+ * honest "I cannot see the code" into a confident non-answer.
+ */
+function isTemplateSummary(summary: string, definition: ReviewGraphSymbolDefinition): boolean {
+	const stripped = summary.trim();
+	if (definition.filePath && stripped === `Code file (${definition.filePath}).`) {
+		return true;
+	}
+	return new RegExp(
+		`^(Function|Class|Method|Module|File|Variable|Constant|Interface|Type) \`?${definition.name.replace(
+			/[.*+?^${}()|[\]\\]/g,
+			"\\$&",
+		)}\`? (defined|declared) in \`?[^\`]+\`?\\.?$`,
+		"i",
+	).test(stripped);
+}
+
+function formatSymbolDefinition(definition: ReviewGraphSymbolDefinition, changedPaths: ReadonlySet<string>): string {
+	const location = definition.filePath ?? "(no file recorded)";
+	const range = definition.lineRange ? `:${definition.lineRange[0]}-${definition.lineRange[1]}` : "";
+	// A definition inside this merge request is already in the prompt as a patch, and
+	// the worktree copy is the pre-merge text — reading it would answer the wrong
+	// question.
+	const changed =
+		definition.filePath && changedPaths.has(definition.filePath)
+			? " — changed in this merge request, so the patch above is its current text"
+			: "";
+	const summary =
+		definition.summary && !isTemplateSummary(definition.summary, definition) ? `\n  ${definition.summary}` : "";
+	return `- [${definition.type}] \`${location}${range}\`${changed}${summary}`;
+}
+
+/**
+ * The symbol-locator section.
+ *
+ * Its job is to be clearly a *location*, never a description. The graph has no
+ * signature, parameter or return-type field anywhere, so a section that reads like
+ * documentation would license exactly the confident wrong answer this feature exists
+ * to replace — hence the flat statement in the header rather than a caveat at the end.
+ */
+export function formatGraphSymbolsForPrompt(input: {
+	lookups: readonly ReviewGraphSymbolLookup[];
+	changedPaths: readonly string[];
+	project: ReviewGraphProject;
+	dataDir: string;
+	budget?: number;
+}): string {
+	const changedPaths = new Set(input.changedPaths);
+	const builtAt = input.project.gitCommitHash?.slice(0, 8);
+	const lines: string[] = [
+		"## Knowledge graph: symbols named in the request",
+		"",
+		`Where these are declared, from this project's Understand Anything knowledge graph (\`${input.dataDir}\`)${
+			builtAt ? `, built at ${builtAt}` : ""
+		}. Locations only: the graph records no signatures, no parameters and no return types, so read the file to answer anything about behaviour or type. A file that moved since the graph was built will have the wrong path here — if the read misses, say so rather than guessing.`,
+		"",
+	];
+
+	const budget = input.budget ?? SYMBOL_LOOKUP_PROMPT_BUDGET;
+	let used = 0;
+	let omitted = 0;
+	for (const lookup of input.lookups) {
+		let block: string;
+		if (lookup.kind === "absent") {
+			block = `### \`${lookup.name}\`\n\nThe graph has no node with this name. Do not search the repository for it; ask the reviewer which file it is in.`;
+		} else if (lookup.definitions.length === 0) {
+			block = `### \`${lookup.name}\`\n\n${lookup.totalMatches} nodes share this name — too common to locate. Ask the reviewer which file they mean.`;
+		} else {
+			const heading =
+				lookup.totalMatches === 1
+					? ""
+					: `${lookup.totalMatches} nodes share this name, so confirm which one is meant before answering:\n\n`;
+			const more =
+				lookup.totalMatches > lookup.definitions.length
+					? `\n\n(${lookup.totalMatches - lookup.definitions.length} further definition(s) omitted.)`
+					: "";
+			block = `### \`${lookup.name}\`\n\n${heading}${lookup.definitions
+				.map((definition) => formatSymbolDefinition(definition, changedPaths))
+				.join("\n")}${more}`;
+		}
+
+		if (used + block.length > budget && used > 0) {
+			omitted += 1;
+			continue;
+		}
+		lines.push(block, "");
+		used += block.length;
+	}
+
+	if (omitted > 0) {
+		lines.push(`(${omitted} further symbol(s) omitted for length.)`, "");
 	}
 
 	return lines.join("\n").trimEnd();
@@ -349,6 +462,13 @@ How to answer:
 - You are given the lines the reviewer is currently looking at. Prefer them. When a question is clearly about the selected lines, do not widen the answer to the whole file.
 - Say when you do not know or cannot see the relevant code, rather than inferring from the diff alone.
 - You are reading, not editing. Never modify, create or delete a file in the repository, and never run a command that would.
+- \`rtk\` is available as an optional wrapper that compresses a command's output before you read it — \`rtk git diff …\`, \`rtk grep …\`, \`rtk read …\`. Use it where you would have run the plain command. If it is not on PATH, run the plain command instead; it is a saving, not a dependency.
+
+On "where is this defined":
+
+- When a "Knowledge graph: symbols named" section is in your context, it tells you where a symbol lives. Use the path it gives and read that file, bounded to the symbol in question. One targeted read beats a hedge.
+- That section records locations only. The graph holds no signatures, no parameter lists and no return types, so it can never tell you what something returns or which type a name holds — only which file to look in. Read the file for the answer, and never present a graph entry as if it were documentation.
+- When it reports a name as ambiguous, say which files it could be and ask the reviewer which they mean. When it reports one as absent, say the graph has no entry for it. Neither is a reason to search the repository.
 
 On "what else does this affect":
 
@@ -499,6 +619,13 @@ export function buildChatPrompt(input: {
 	 * never told to read a section it was not given.
 	 */
 	graphImpact?: string;
+	/**
+	 * Where the symbols this request names are declared. Unlike the impact brief this
+	 * is sent on *every* turn, including resumed ones: "where is X defined" is a
+	 * mid-conversation question, and the session's copy answers whatever the first
+	 * message happened to mention.
+	 */
+	graphSymbols?: string;
 }): string {
 	const screenBlock = formatScreenContext(input);
 
@@ -561,6 +688,7 @@ export function buildChatPrompt(input: {
 				? `## Reviewer-flagged spots\n\nThe reviewer marked these places as suspect before this run. Pay extra attention to them and address them where relevant to this request. They are hunches, not confirmed defects — it is fine to conclude one is not a problem, but say so.\n\n${formatAnnotationsForPrompt(input.annotations ?? [])}${formatAnnotationKindGuidance(input.annotations ?? [])}`
 				: null,
 			input.graphImpact ?? null,
+			input.graphSymbols ?? null,
 		]
 			.filter((part): part is string => part !== null)
 			.join("\n\n");
@@ -572,10 +700,14 @@ Context for the request above (the reviewer is reading a merge request, not edit
 
 ${context}`,
 		);
-	} else if (screenBlock !== null) {
-		parts.push(`---
-
-${screenBlock}`);
+	} else {
+		// A resumed turn sends no context block, but it can still name a symbol — and
+		// what is in the session is where the *first* message's symbols were, which is
+		// not an answer to this one.
+		const resumed = [screenBlock, input.graphSymbols ?? null].filter((part): part is string => part !== null);
+		if (resumed.length > 0) {
+			parts.push(`---\n\n${resumed.join("\n\n")}`);
+		}
 	}
 
 	if (input.expectSuggestions) {

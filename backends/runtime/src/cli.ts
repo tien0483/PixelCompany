@@ -7,6 +7,8 @@ import { Command, Option } from "commander";
 import ora, { type Ora } from "ora";
 import packageJson from "../package.json" with { type: "json" };
 import { disposeCliTelemetryService } from "./cline-sdk/cline-telemetry-service.js";
+import { registerClineAgentCommand } from "./commands/cline-agent";
+import { registerCustomAgentCommand } from "./commands/custom-agent";
 import { registerHooksCommand } from "./commands/hooks";
 import { registerTaskCommand } from "./commands/task";
 import { loadGlobalRuntimeConfig, loadRuntimeConfig } from "./config/runtime-config";
@@ -997,6 +999,10 @@ function createProgram(invocationArgs: string[]): Command {
 
 	registerTaskCommand(program);
 	registerHooksCommand(program);
+	// Agent harnesses. Both are launched as PTY commands by the runtime's own adapters, and both
+	// are runnable by hand — which is the point: every agent on this board now speaks CLI.
+	registerClineAgentCommand(program);
+	registerCustomAgentCommand(program);
 
 	program
 		.command("mcp")

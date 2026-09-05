@@ -18,14 +18,14 @@ import {
 	REVIEW_SUGGEST_ALLOWED_TOOLS,
 	resolveReviewAgentCwd,
 } from "../review/review-agent-args";
+import { buildReviewChatSystemPrompt } from "../review/review-answer-style";
 import { reviewCommandNeedsGraphImpact, reviewCommandNeedsRules } from "../review/review-command-expansion";
-import { buildReviewGraphPromptSection } from "../review/review-graph-brief";
+import { buildReviewGraphPromptSection, buildReviewGraphSymbolSection } from "../review/review-graph-brief";
 import {
 	buildAuditPrompt,
 	buildChatPrompt,
 	buildRulesExtractPrompt,
 	buildSuggestionRewritePrompt,
-	REVIEW_CHAT_SYSTEM_PROMPT,
 } from "../review/review-prompts";
 import { persistExtractedRules, readReviewRulesBundle } from "../review/review-rules";
 import { handleAgentStreamRoute } from "../review/review-stream-route";
@@ -131,6 +131,13 @@ export async function tryHandleReviewStandaloneRoute(
 								baseBranch: mergeRequest?.targetBranch ?? "unknown",
 							})
 						: undefined;
+				// Every turn, unlike the brief: "where is X defined" is a mid-conversation
+				// question, and a prompt naming no symbol returns before the graph is loaded.
+				const graphSymbols = await buildReviewGraphSymbolSection({
+					projectPath: cwd,
+					prompt: input.prompt,
+					changedPaths: input.changedPaths,
+				});
 				// Only the whole-merge-request review asks for these, and a missing bundle is
 				// not an error — the expansion then tells the pass not to invent a style.
 				const rules = reviewCommandNeedsRules(input.prompt)
@@ -153,13 +160,14 @@ export async function tryHandleReviewStandaloneRoute(
 						isFirstTurn,
 						expectSuggestions: input.expectSuggestions,
 						...(graphImpact === undefined ? {} : { graphImpact }),
+						...(graphSymbols === undefined ? {} : { graphSymbols }),
 						...(rules === undefined ? {} : { rules }),
 						...(input.annotations === undefined ? {} : { annotations: input.annotations }),
 					}),
 					...(cwd === undefined ? {} : { cwd }),
 					model: input.model,
 					allowedTools: REVIEW_CHAT_ALLOWED_TOOLS,
-					appendSystemPrompt: REVIEW_CHAT_SYSTEM_PROMPT,
+					appendSystemPrompt: buildReviewChatSystemPrompt({ terse: input.terse ?? false }),
 					resumeSessionId: input.resumeSessionId,
 				};
 			},
