@@ -18,6 +18,18 @@ export enum LocalStorageKey {
 	ReviewSmellSectionExpanded = "kanban.review-smell-section-expanded",
 	/** Whether the tag strip's refactoring-technique section is expanded. Defaults to closed — 66 chips. */
 	ReviewRefactoringSectionExpanded = "kanban.review-refactoring-section-expanded",
+	/** Width of the review workspace's left column (files, impact, threads, rules, annotations). */
+	ReviewSidebarWidth = "kanban.review-sidebar-width",
+	/** Width of the review workspace's right column, the Claude panel. */
+	ReviewClaudePanelWidth = "kanban.review-claude-panel-width",
+	/** Height of the Claude panel's "Findings to triage" list. */
+	ReviewFindingsHeight = "kanban.review-findings-height",
+	/** Height of the Claude panel's draft-comment list. */
+	ReviewDraftsHeight = "kanban.review-drafts-height",
+	/** Height of the Claude panel's prompt textarea. */
+	ReviewComposerHeight = "kanban.review-composer-height",
+	/** Height of the rendered merge-request description body. */
+	ReviewDescriptionHeight = "kanban.review-description-height",
 	TaskCreatePrimaryStartAction = "kanban.task-create-primary-start-action",
 	BottomTerminalPaneHeight = "kanban.bottom-terminal-pane-height",
 	DetailAgentPanelRatio = "kanban.detail-agent-panel-ratio",
@@ -78,6 +90,12 @@ export const LAYOUT_CUSTOMIZATION_LOCAL_STORAGE_KEYS = [
 	LocalStorageKey.PlanEditorTemplatePaneWidth,
 	LocalStorageKey.PlanEditorTemplatePaneCollapsed,
 	LocalStorageKey.PlanEditorPaneViewMode,
+	LocalStorageKey.ReviewSidebarWidth,
+	LocalStorageKey.ReviewClaudePanelWidth,
+	LocalStorageKey.ReviewFindingsHeight,
+	LocalStorageKey.ReviewDraftsHeight,
+	LocalStorageKey.ReviewComposerHeight,
+	LocalStorageKey.ReviewDescriptionHeight,
 ] as const;
 
 function getLocalStorage(): Storage | null {
