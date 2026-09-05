@@ -12,7 +12,9 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
 import { Spinner } from "@/components/ui/spinner";
 import { ResizeHandle } from "@/resize/resize-handle";
+import { clampBetween } from "@/resize/resize-persistence";
 import { useResizeDrag } from "@/resize/use-resize-drag";
+import { MIN_REVIEW_DESCRIPTION_HEIGHT } from "@/resize/use-review-layout";
 
 /** One line of the body, for the collapsed strip. */
 function firstLine(description: string): string {
@@ -35,6 +37,7 @@ export function ReviewDescriptionPanel({
 	description,
 	isOpen,
 	bodyHeight,
+	maxBodyHeight,
 	onToggle,
 	onBodyHeightChange,
 	onSave,
@@ -43,6 +46,8 @@ export function ReviewDescriptionPanel({
 	isOpen: boolean;
 	/** Height of the rendered body, dragged from the handle on its bottom edge. */
 	bodyHeight: number;
+	/** What the body may grow to in the workspace as it stands, so a drag cannot overshoot. */
+	maxBodyHeight: number;
 	onToggle: () => void;
 	onBodyHeightChange: (height: number) => void;
 	/** Resolves false when GitLab refused the write, which keeps the editor open. */
@@ -58,7 +63,8 @@ export function ReviewDescriptionPanel({
 			const startY = event.clientY;
 			const startHeight = bodyHeight;
 			// The handle sits below the body, so dragging down grows it.
-			const nextHeight = (pointerY: number): number => startHeight + (pointerY - startY);
+			const nextHeight = (pointerY: number): number =>
+				clampBetween(startHeight + (pointerY - startY), MIN_REVIEW_DESCRIPTION_HEIGHT, maxBodyHeight, true);
 			startBodyResize(event, {
 				axis: "y",
 				cursor: "ns-resize",
@@ -66,7 +72,7 @@ export function ReviewDescriptionPanel({
 				onEnd: (pointerY) => onBodyHeightChange(nextHeight(pointerY)),
 			});
 		},
-		[bodyHeight, onBodyHeightChange, startBodyResize],
+		[bodyHeight, maxBodyHeight, onBodyHeightChange, startBodyResize],
 	);
 
 	const startEditing = useCallback(() => {

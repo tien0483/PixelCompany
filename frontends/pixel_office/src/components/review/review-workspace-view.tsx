@@ -1301,6 +1301,7 @@ export function ReviewWorkspaceView({
 					description={mergeRequest.description}
 					isOpen={isDescriptionOpen}
 					bodyHeight={layout.displayDescriptionHeight}
+					maxBodyHeight={layout.maxDescriptionHeight}
 					onToggle={() => setIsDescriptionOpen((open) => !open)}
 					onBodyHeightChange={layout.setDescriptionHeight}
 					onSave={session.saveDescription}
@@ -1569,6 +1570,9 @@ export function ReviewWorkspaceView({
 						findingsHeight={layout.displayFindingsHeight}
 						draftsHeight={layout.displayDraftsHeight}
 						composerHeight={layout.displayComposerHeight}
+						maxFindingsHeight={layout.maxFindingsHeight}
+						maxDraftsHeight={layout.maxDraftsHeight}
+						maxComposerHeight={layout.maxComposerHeight}
 						onFindingsHeightChange={layout.setFindingsHeight}
 						onDraftsHeightChange={layout.setDraftsHeight}
 						onComposerHeightChange={layout.setComposerHeight}

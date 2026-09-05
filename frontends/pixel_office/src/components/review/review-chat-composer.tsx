@@ -2,7 +2,9 @@ import { ArrowUp, Crosshair, X } from "lucide-react";
 import { type MouseEvent as ReactMouseEvent, type ReactElement, useCallback, useState } from "react";
 
 import { ResizeHandle } from "@/resize/resize-handle";
+import { clampBetween } from "@/resize/resize-persistence";
 import { useResizeDrag } from "@/resize/use-resize-drag";
+import { MIN_REVIEW_COMPOSER_HEIGHT } from "@/resize/use-review-layout";
 import type { ReviewProjectCommand } from "@/review/use-review-project-commands";
 
 /**
@@ -97,6 +99,7 @@ export function ReviewChatComposer({
 	projectCommands,
 	polishComments,
 	textareaHeight,
+	maxTextareaHeight,
 	onTogglePolish,
 	onClearContext,
 	onTextareaHeightChange,
@@ -113,6 +116,8 @@ export function ReviewChatComposer({
 	 * intrinsic, so the persisted number means what its name says.
 	 */
 	textareaHeight: number;
+	/** What the box may grow to in the column as it stands, so a drag cannot overshoot. */
+	maxTextareaHeight: number;
 	onTogglePolish: (next: boolean) => void;
 	onClearContext: () => void;
 	onTextareaHeightChange: (height: number) => void;
@@ -135,7 +140,8 @@ export function ReviewChatComposer({
 			const startY = event.clientY;
 			const startHeight = textareaHeight;
 			// The handle is on the composer's top edge, so dragging up grows the box.
-			const nextHeight = (pointerY: number): number => startHeight - (pointerY - startY);
+			const nextHeight = (pointerY: number): number =>
+				clampBetween(startHeight - (pointerY - startY), MIN_REVIEW_COMPOSER_HEIGHT, maxTextareaHeight, true);
 			startComposerResize(event, {
 				axis: "y",
 				cursor: "ns-resize",
@@ -143,7 +149,7 @@ export function ReviewChatComposer({
 				onEnd: (pointerY) => onTextareaHeightChange(nextHeight(pointerY)),
 			});
 		},
-		[onTextareaHeightChange, startComposerResize, textareaHeight],
+		[maxTextareaHeight, onTextareaHeightChange, startComposerResize, textareaHeight],
 	);
 
 	return (

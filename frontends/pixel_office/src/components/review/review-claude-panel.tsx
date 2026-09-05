@@ -2,7 +2,9 @@ import { Bot, Eraser, Trash2 } from "lucide-react";
 import { type MouseEvent as ReactMouseEvent, type ReactElement, useCallback } from "react";
 
 import { ResizeHandle } from "@/resize/resize-handle";
+import { clampBetween } from "@/resize/resize-persistence";
 import { useResizeDrag } from "@/resize/use-resize-drag";
+import { MIN_REVIEW_DRAFTS_HEIGHT, MIN_REVIEW_FINDINGS_HEIGHT } from "@/resize/use-review-layout";
 import { hasRunReviewCommand, ReviewChatComposer } from "@/components/review/review-chat-composer";
 import { ReviewChatMessages } from "@/components/review/review-chat-messages";
 import { ReviewFindingRow } from "@/components/review/review-finding-row";
@@ -41,6 +43,9 @@ export function ReviewClaudePanel({
 	findingsHeight,
 	draftsHeight,
 	composerHeight,
+	maxFindingsHeight,
+	maxDraftsHeight,
+	maxComposerHeight,
 	onFindingsHeightChange,
 	onDraftsHeightChange,
 	onComposerHeightChange,
@@ -92,6 +97,10 @@ export function ReviewClaudePanel({
 	findingsHeight: number;
 	draftsHeight: number;
 	composerHeight: number;
+	/** What each row may grow to in the column as it stands, so a drag cannot overshoot. */
+	maxFindingsHeight: number;
+	maxDraftsHeight: number;
+	maxComposerHeight: number;
 	onFindingsHeightChange: (height: number) => void;
 	onDraftsHeightChange: (height: number) => void;
 	onComposerHeightChange: (height: number) => void;
@@ -120,7 +129,8 @@ export function ReviewClaudePanel({
 			const startY = event.clientY;
 			const startHeight = findingsHeight;
 			// Handle on the bottom edge: dragging down grows the list.
-			const nextHeight = (pointerY: number): number => startHeight + (pointerY - startY);
+			const nextHeight = (pointerY: number): number =>
+				clampBetween(startHeight + (pointerY - startY), MIN_REVIEW_FINDINGS_HEIGHT, maxFindingsHeight, true);
 			startFindingsResize(event, {
 				axis: "y",
 				cursor: "ns-resize",
@@ -128,7 +138,7 @@ export function ReviewClaudePanel({
 				onEnd: (pointerY) => onFindingsHeightChange(nextHeight(pointerY)),
 			});
 		},
-		[findingsHeight, onFindingsHeightChange, startFindingsResize],
+		[findingsHeight, maxFindingsHeight, onFindingsHeightChange, startFindingsResize],
 	);
 
 	const handleDraftsSeparatorMouseDown = useCallback(
@@ -136,7 +146,8 @@ export function ReviewClaudePanel({
 			const startY = event.clientY;
 			const startHeight = draftsHeight;
 			// Handle on the top edge: dragging up grows the list.
-			const nextHeight = (pointerY: number): number => startHeight - (pointerY - startY);
+			const nextHeight = (pointerY: number): number =>
+				clampBetween(startHeight - (pointerY - startY), MIN_REVIEW_DRAFTS_HEIGHT, maxDraftsHeight, true);
 			startDraftsResize(event, {
 				axis: "y",
 				cursor: "ns-resize",
@@ -144,7 +155,7 @@ export function ReviewClaudePanel({
 				onEnd: (pointerY) => onDraftsHeightChange(nextHeight(pointerY)),
 			});
 		},
-		[draftsHeight, onDraftsHeightChange, startDraftsResize],
+		[draftsHeight, maxDraftsHeight, onDraftsHeightChange, startDraftsResize],
 	);
 
 	// `flex-1` like every sibling panel: without it the panel is content-height, so the
@@ -336,6 +347,7 @@ export function ReviewClaudePanel({
 				projectCommands={projectCommands}
 				polishComments={polishComments}
 				textareaHeight={composerHeight}
+				maxTextareaHeight={maxComposerHeight}
 				onTogglePolish={onTogglePolish}
 				onClearContext={onClearContext}
 				onTextareaHeightChange={onComposerHeightChange}

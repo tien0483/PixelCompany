@@ -181,6 +181,20 @@ describe("useReviewLayout", () => {
 		expect(withoutFindings.displayDraftsHeight - heightWithFindings).toBe(findingsHeight);
 	});
 
+	// The caps a drag clamps against have to be the same arithmetic the rendered heights
+	// come from, or a drag would stop somewhere the layout does not agree with.
+	it("caps each row where an over-large stored size would render", () => {
+		window.localStorage.setItem(LocalStorageKey.ReviewDraftsHeight, "5000");
+		window.localStorage.setItem(LocalStorageKey.ReviewFindingsHeight, "5000");
+		window.localStorage.setItem(LocalStorageKey.ReviewComposerHeight, "5000");
+
+		const layout = renderLayout({ claudePanelHeight: 900, hasFindings: true, hasDrafts: true });
+
+		expect(layout.displayDraftsHeight).toBe(layout.maxDraftsHeight);
+		expect(layout.displayFindingsHeight).toBe(layout.maxFindingsHeight);
+		expect(layout.displayComposerHeight).toBe(layout.maxComposerHeight);
+	});
+
 	it("starts on the sizes this screen was hard-coded to before it was resizable", () => {
 		const layout = renderLayout({ claudePanelHeight: null, hasFindings: true, hasDrafts: true });
 		expect(layout.sidebarWidth).toBe(320);

@@ -177,6 +177,19 @@ export interface ReviewLayout {
 	displayDraftsHeight: number;
 	displayComposerHeight: number;
 	displayDescriptionHeight: number;
+	/**
+	 * What each dragged row may grow to right now.
+	 *
+	 * Handed out so a drag can clamp as it happens. Sizes are stored *un*clamped — a
+	 * container that shrinks and grows back must give the reviewer their size back, which
+	 * is why the display values clamp rather than the setters — but without this a drag
+	 * past the cap would bank the overshoot and the next one would spend its first
+	 * hundred pixels undoing it.
+	 */
+	maxFindingsHeight: number;
+	maxDraftsHeight: number;
+	maxComposerHeight: number;
+	maxDescriptionHeight: number;
 	setSidebarWidth: (width: number) => void;
 	setClaudePanelWidth: (width: number) => void;
 	setFindingsHeight: (height: number) => void;
@@ -251,35 +264,38 @@ export function useReviewLayout({
 		};
 	}, [claudePanelWidth, containerWidth, sidebarWidth]);
 
-	const { displayFindingsHeight, displayDraftsHeight, displayComposerHeight } = useMemo(() => {
+	const stackHeights = useMemo(() => {
 		// Each row is clamped against the two others *as rendered*, so an unmounted row
 		// reserves nothing and the remaining rows get its space.
 		const mountedFindings = hasFindings ? findingsHeight : 0;
 		const mountedDrafts = hasDrafts ? draftsHeight : 0;
+		// A row's cap is what an unbounded request clamps to, so the cap and the rendered
+		// height can never be derived from different arithmetic.
+		const resolve = (
+			height: number,
+			minHeight: number,
+			otherSectionsHeight: number,
+		): { display: number; max: number } => ({
+			display: clampReviewStackHeight({ height, minHeight, panelHeight: claudePanelHeight, otherSectionsHeight }),
+			max: clampReviewStackHeight({
+				height: Number.MAX_SAFE_INTEGER,
+				minHeight,
+				panelHeight: claudePanelHeight,
+				otherSectionsHeight,
+			}),
+		});
 		return {
-			displayFindingsHeight: clampReviewStackHeight({
-				height: findingsHeight,
-				minHeight: MIN_REVIEW_FINDINGS_HEIGHT,
-				panelHeight: claudePanelHeight,
-				otherSectionsHeight: mountedDrafts + composerHeight,
-			}),
-			displayDraftsHeight: clampReviewStackHeight({
-				height: draftsHeight,
-				minHeight: MIN_REVIEW_DRAFTS_HEIGHT,
-				panelHeight: claudePanelHeight,
-				otherSectionsHeight: mountedFindings + composerHeight,
-			}),
-			displayComposerHeight: clampReviewStackHeight({
-				height: composerHeight,
-				minHeight: MIN_REVIEW_COMPOSER_HEIGHT,
-				panelHeight: claudePanelHeight,
-				otherSectionsHeight: mountedFindings + mountedDrafts,
-			}),
+			findings: resolve(findingsHeight, MIN_REVIEW_FINDINGS_HEIGHT, mountedDrafts + composerHeight),
+			drafts: resolve(draftsHeight, MIN_REVIEW_DRAFTS_HEIGHT, mountedFindings + composerHeight),
+			composer: resolve(composerHeight, MIN_REVIEW_COMPOSER_HEIGHT, mountedFindings + mountedDrafts),
 		};
 	}, [claudePanelHeight, composerHeight, draftsHeight, findingsHeight, hasDrafts, hasFindings]);
 
-	const displayDescriptionHeight = useMemo(
-		() => clampReviewDescriptionHeight(descriptionHeight, workspaceHeight),
+	const description = useMemo(
+		() => ({
+			display: clampReviewDescriptionHeight(descriptionHeight, workspaceHeight),
+			max: clampReviewDescriptionHeight(Number.MAX_SAFE_INTEGER, workspaceHeight),
+		}),
 		[descriptionHeight, workspaceHeight],
 	);
 
@@ -292,10 +308,14 @@ export function useReviewLayout({
 		draftsHeight,
 		composerHeight,
 		descriptionHeight,
-		displayFindingsHeight,
-		displayDraftsHeight,
-		displayComposerHeight,
-		displayDescriptionHeight,
+		displayFindingsHeight: stackHeights.findings.display,
+		displayDraftsHeight: stackHeights.drafts.display,
+		displayComposerHeight: stackHeights.composer.display,
+		displayDescriptionHeight: description.display,
+		maxFindingsHeight: stackHeights.findings.max,
+		maxDraftsHeight: stackHeights.drafts.max,
+		maxComposerHeight: stackHeights.composer.max,
+		maxDescriptionHeight: description.max,
 		setSidebarWidth,
 		setClaudePanelWidth,
 		setFindingsHeight,
