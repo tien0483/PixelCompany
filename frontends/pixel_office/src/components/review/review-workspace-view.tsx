@@ -49,6 +49,13 @@ import { Spinner } from "@/components/ui/spinner";
 import { runAgentTextRequest } from "@/html/agent-sse";
 import { useHtmlAgentStream } from "@/html/use-html-agent-stream";
 import { autoFallbackAccount } from "@/manager/task-account-picker";
+import { ResizeHandle } from "@/resize/resize-handle";
+import { useResizeDrag } from "@/resize/use-resize-drag";
+import {
+	clampReviewClaudePanelWidth,
+	clampReviewSidebarWidth,
+	useReviewLayout,
+} from "@/resize/use-review-layout";
 import {
 	type ReviewAgentModelId,
 	readStoredReviewAgentModel,
@@ -59,14 +66,7 @@ import {
 	parseVerdictsFromStream,
 	type ReviewAnnotationVerdictResult,
 } from "@/review/review-findings-parse";
-import { ResizeHandle } from "@/resize/resize-handle";
-import { useResizeDrag } from "@/resize/use-resize-drag";
-import {
-	clampReviewLeftPanelWidth,
-	clampReviewRightPanelWidth,
-	REVIEW_SIDE_RAIL_WIDTH,
-	useReviewWorkspaceLayout,
-} from "@/resize/use-review-workspace-layout";
+import { useReviewPaneCollapse } from "@/resize/use-review-workspace-layout";
 import { buildFileBands } from "@/review/review-file-bands";
 import { isTypingTarget, resolveNavKey } from "@/review/review-nav-keys";
 import { buildTagSections, type ReviewTag } from "@/review/review-tags";
@@ -95,7 +95,7 @@ import { useReviewRepoLock } from "@/review/use-review-repo-lock";
 import { useReviewRulesConfig } from "@/review/use-review-rules-config";
 import { useReviewSeat } from "@/review/use-review-seat";
 import { useReviewSession } from "@/review/use-review-session";
-import { useBooleanLocalStorageValue } from "@/utils/react-use";
+import { useBooleanLocalStorageValue, useMeasure } from "@/utils/react-use";
 import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
 import type {
 	RuntimeManagerAccount,
@@ -113,9 +113,6 @@ type LeftTab = "files" | "impact" | "threads" | "rules" | "annotations";
 
 /** Follows `pixtiel.review.seat.<host>` — same scope, same convention. */
 const REVIEW_DESCRIPTION_OPEN_KEY_PREFIX = "pixtiel.review.description.";
-
-/** How little of the middle column a pane drag may leave behind. */
-const MIN_DIFF_COLUMN_WIDTH = 360;
 
 /**
  * What the dot on "Run Claude review" means. Spelled out rather than left to colour:
@@ -159,10 +156,7 @@ export function ReviewWorkspaceView({
 		(session.mergeRequest?.description ?? "").trim().length > 0,
 	);
 	const [leftTab, setLeftTab] = useState<LeftTab>("files");
-	const layout = useReviewWorkspaceLayout();
-	/** The three-column body, measured so a drag cannot push a pane past its container. */
-	const bodyRef = useRef<HTMLDivElement | null>(null);
-	const { startDrag: startPanelResize } = useResizeDrag();
+	const collapse = useReviewPaneCollapse();
 	const [diffMode, setDiffMode] = useState<ReviewDiffMode>("split");
 	const [pendingCitations, setPendingCitations] = useState<string[]>([]);
 	const [isComposerOpen, setIsComposerOpen] = useState(false);
@@ -442,52 +436,6 @@ export function ReviewWorkspaceView({
 		[draftCountByPath, reviewedPaths, session.activePath, session.files, session.newComments.byPath],
 	);
 
-	/**
-	 * Keeps a dragged pane from eating the diff: whatever is left after the other pane
-	 * and a readable minimum for the middle column is this one's ceiling.
-	 */
-	const clampAgainstBody = useCallback((width: number, otherPaneWidth: number): number => {
-		const body = bodyRef.current;
-		if (!body) {
-			return width;
-		}
-		const available = body.getBoundingClientRect().width - otherPaneWidth - MIN_DIFF_COLUMN_WIDTH;
-		return Math.min(width, Math.max(MIN_DIFF_COLUMN_WIDTH / 2, available));
-	}, []);
-
-	const handleLeftResizeMouseDown = useCallback(
-		(event: ReactMouseEvent<HTMLDivElement>) => {
-			const startX = event.clientX;
-			const startWidth = layout.leftWidth;
-			const otherPaneWidth = layout.isRightCollapsed ? REVIEW_SIDE_RAIL_WIDTH : layout.rightWidth;
-			startPanelResize(event, {
-				axis: "x",
-				cursor: "ew-resize",
-				onMove: (pointerX) => {
-					layout.setLeftWidth(clampAgainstBody(clampReviewLeftPanelWidth(startWidth + pointerX - startX), otherPaneWidth));
-				},
-			});
-		},
-		[clampAgainstBody, layout, startPanelResize],
-	);
-
-	const handleRightResizeMouseDown = useCallback(
-		(event: ReactMouseEvent<HTMLDivElement>) => {
-			const startX = event.clientX;
-			const startWidth = layout.rightWidth;
-			const otherPaneWidth = layout.isLeftCollapsed ? REVIEW_SIDE_RAIL_WIDTH : layout.leftWidth;
-			startPanelResize(event, {
-				axis: "x",
-				// Dragging right shrinks this pane: it is anchored to the far edge.
-				cursor: "ew-resize",
-				onMove: (pointerX) => {
-					layout.setRightWidth(clampAgainstBody(clampReviewRightPanelWidth(startWidth - (pointerX - startX)), otherPaneWidth));
-				},
-			});
-		},
-		[clampAgainstBody, layout, startPanelResize],
-	);
-
 	const annotations = session.session?.annotations ?? [];
 	const currentHeadSha = session.versions[0]?.headSha ?? session.diffRefs?.headSha ?? null;
 	const staleAnnotationIds = useMemo(
@@ -506,9 +454,9 @@ export function ReviewWorkspaceView({
 	const openLeftTab = useCallback(
 		(tab: LeftTab) => {
 			setLeftTab(tab);
-			layout.setLeftCollapsed(false);
+			collapse.setLeftCollapsed(false);
 		},
-		[layout],
+		[collapse],
 	);
 
 	/** The collapsed left aside: the same five tabs, as icons that expand it again. */
@@ -1230,11 +1178,77 @@ export function ReviewWorkspaceView({
 		[draftComments, session, target.iid, target.projectId, workspaceId],
 	);
 
+	/**
+	 * The three containers every pane size is clamped against.
+	 *
+	 * Observed rather than measured on window resize: the banners between the header and
+	 * the columns (new comments, mark-reviewed, agent errors) and the description panel
+	 * all appear and disappear without the window changing size, and each one moves the
+	 * Claude column's height under the stacked rows inside it. `useMeasure` degrades to a
+	 * no-op ref where `ResizeObserver` does not exist, and the layout hook treats the
+	 * resulting zero as "not laid out yet" rather than as a zero-sized container.
+	 */
+	const [workspaceMeasureRef, workspaceRect] = useMeasure<HTMLDivElement>();
+	const [columnsMeasureRef, columnsRect] = useMeasure<HTMLDivElement>();
+	const [claudePanelMeasureRef, claudePanelRect] = useMeasure<HTMLElement>();
+
+	const layout = useReviewLayout({
+		containerWidth: columnsRect.width,
+		claudePanelHeight: claudePanelRect.height,
+		workspaceHeight: workspaceRect.height,
+		hasFindings: pendingFindings.length > 0,
+		hasDrafts: draftComments.length > 0,
+		isSidebarCollapsed: collapse.isLeftCollapsed,
+		isClaudePanelCollapsed: collapse.isRightCollapsed,
+	});
+
+	const { startDrag: startSidebarResize } = useResizeDrag();
+	const { startDrag: startClaudePanelResize } = useResizeDrag();
+	const { displaySidebarWidth, displayClaudePanelWidth } = layout;
+	const setSidebarWidth = layout.setSidebarWidth;
+	const setClaudePanelWidth = layout.setClaudePanelWidth;
+
+	const handleSidebarSeparatorMouseDown = useCallback(
+		(event: ReactMouseEvent<HTMLDivElement>) => {
+			const containerWidth = columnsRect.width;
+			const startX = event.clientX;
+			const startWidth = displaySidebarWidth;
+			const nextWidth = (pointerX: number): number =>
+				clampReviewSidebarWidth(startWidth + (pointerX - startX), containerWidth, displayClaudePanelWidth);
+			startSidebarResize(event, {
+				axis: "x",
+				cursor: "ew-resize",
+				onMove: (pointerX) => setSidebarWidth(nextWidth(pointerX)),
+				onEnd: (pointerX) => setSidebarWidth(nextWidth(pointerX)),
+			});
+		},
+		[columnsRect.width, displayClaudePanelWidth, displaySidebarWidth, setSidebarWidth, startSidebarResize],
+	);
+
+	const handleClaudePanelSeparatorMouseDown = useCallback(
+		(event: ReactMouseEvent<HTMLDivElement>) => {
+			const containerWidth = columnsRect.width;
+			const startX = event.clientX;
+			const startWidth = displayClaudePanelWidth;
+			// The Claude column is to the *right* of its handle, so it grows as the pointer
+			// moves left — the opposite sign to the sidebar's.
+			const nextWidth = (pointerX: number): number =>
+				clampReviewClaudePanelWidth(startWidth - (pointerX - startX), containerWidth, displaySidebarWidth);
+			startClaudePanelResize(event, {
+				axis: "x",
+				cursor: "ew-resize",
+				onMove: (pointerX) => setClaudePanelWidth(nextWidth(pointerX)),
+				onEnd: (pointerX) => setClaudePanelWidth(nextWidth(pointerX)),
+			});
+		},
+		[columnsRect.width, displayClaudePanelWidth, displaySidebarWidth, setClaudePanelWidth, startClaudePanelResize],
+	);
+
 	const mergeRequest = session.mergeRequest;
 	const auditRunState = session.passRunState("audit");
 
 	return (
-		<div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-surface-0">
+		<div ref={workspaceMeasureRef} className="flex min-h-0 flex-1 flex-col overflow-hidden bg-surface-0">
 			<header className="flex h-12 shrink-0 items-center justify-between gap-3 border-b border-border bg-surface-1 px-3">
 				<div className="flex min-w-0 items-center gap-2">
 					<Button variant="ghost" size="sm" icon={<ArrowLeft size={14} />} onClick={onClose}>
@@ -1382,7 +1396,10 @@ export function ReviewWorkspaceView({
 				<ReviewDescriptionPanel
 					description={mergeRequest.description}
 					isOpen={isDescriptionOpen}
+					bodyHeight={layout.displayDescriptionHeight}
+					maxBodyHeight={layout.maxDescriptionHeight}
 					onToggle={() => setIsDescriptionOpen((open) => !open)}
+					onBodyHeightChange={layout.setDescriptionHeight}
 					onSave={session.saveDescription}
 				/>
 			) : null}
@@ -1463,18 +1480,18 @@ export function ReviewWorkspaceView({
 				</div>
 			) : null}
 
-			<div ref={bodyRef} className="flex min-h-0 flex-1 overflow-hidden">
-				{layout.isLeftCollapsed ? (
+			<div ref={columnsMeasureRef} className="flex min-h-0 flex-1 overflow-hidden">
+				{collapse.isLeftCollapsed ? (
 					<ReviewSideRail
 						side="left"
 						ariaLabel="Expand the review panels"
 						items={leftRailItems}
-						onExpand={() => layout.setLeftCollapsed(false)}
+						onExpand={() => collapse.setLeftCollapsed(false)}
 					/>
 				) : (
 				<aside
 					className="flex shrink-0 flex-col border-r border-border bg-surface-1"
-					style={{ width: layout.leftWidth }}
+					style={{ width: displaySidebarWidth }}
 				>
 					<div className="flex shrink-0 items-center border-b border-border text-[11px]">
 						<LeftTabButton
@@ -1518,7 +1535,7 @@ export function ReviewWorkspaceView({
 							aria-label="Collapse the review panels"
 							title="Collapse to a rail"
 							className="shrink-0 cursor-pointer px-1.5 py-2 text-text-tertiary hover:text-text-primary"
-							onClick={() => layout.setLeftCollapsed(true)}
+							onClick={() => collapse.setLeftCollapsed(true)}
 						>
 							<ChevronLeft size={12} />
 						</button>
@@ -1583,11 +1600,12 @@ export function ReviewWorkspaceView({
 				</aside>
 				)}
 
-				{layout.isLeftCollapsed ? null : (
+				{/* A collapsed column is a fixed rail, so there is nothing to drag. */}
+				{collapse.isLeftCollapsed ? null : (
 					<ResizeHandle
 						orientation="vertical"
-						ariaLabel="Resize the review panels"
-						onMouseDown={handleLeftResizeMouseDown}
+						ariaLabel="Resize the review file list"
+						onMouseDown={handleSidebarSeparatorMouseDown}
 						className="z-10"
 					/>
 				)}
@@ -1639,7 +1657,7 @@ export function ReviewWorkspaceView({
 
 				<ReviewFileRail bands={fileBands} onSelectPath={session.setActivePath} />
 
-				{layout.isRightCollapsed ? (
+				{collapse.isRightCollapsed ? (
 					<ReviewSideRail
 						side="right"
 						ariaLabel="Expand the Claude panel"
@@ -1649,22 +1667,24 @@ export function ReviewWorkspaceView({
 								icon: Bot,
 								label: "Claude",
 								count: pendingFindings.length,
-								onSelect: () => layout.setRightCollapsed(false),
+								onSelect: () => collapse.setRightCollapsed(false),
 							},
 						]}
-						onExpand={() => layout.setRightCollapsed(false)}
+						onExpand={() => collapse.setRightCollapsed(false)}
 					/>
 				) : (
 					<>
-					<ResizeHandle
-						orientation="vertical"
-						ariaLabel="Resize the Claude panel"
-						onMouseDown={handleRightResizeMouseDown}
-						className="z-10"
-					/>
+				<ResizeHandle
+					orientation="vertical"
+					ariaLabel="Resize the Claude panel"
+					onMouseDown={handleClaudePanelSeparatorMouseDown}
+					className="z-10"
+				/>
+
 				<aside
+					ref={claudePanelMeasureRef}
 					className="flex shrink-0 flex-col border-l border-border"
-					style={{ width: layout.rightWidth }}
+					style={{ width: displayClaudePanelWidth }}
 				>
 					<div className="flex shrink-0 justify-end border-b border-border">
 						<button
@@ -1672,7 +1692,7 @@ export function ReviewWorkspaceView({
 							aria-label="Collapse the Claude panel"
 							title="Collapse to a rail"
 							className="cursor-pointer px-1.5 py-1 text-text-tertiary hover:text-text-primary"
-							onClick={() => layout.setRightCollapsed(true)}
+							onClick={() => collapse.setRightCollapsed(true)}
 						>
 							<ChevronRight size={12} />
 						</button>
@@ -1694,6 +1714,15 @@ export function ReviewWorkspaceView({
 						isAuditing={audit.status === "running"}
 						model={agentModel}
 						terseAnswers={terseAnswers}
+						findingsHeight={layout.displayFindingsHeight}
+						draftsHeight={layout.displayDraftsHeight}
+						composerHeight={layout.displayComposerHeight}
+						maxFindingsHeight={layout.maxFindingsHeight}
+						maxDraftsHeight={layout.maxDraftsHeight}
+						maxComposerHeight={layout.maxComposerHeight}
+						onFindingsHeightChange={layout.setFindingsHeight}
+						onDraftsHeightChange={layout.setDraftsHeight}
+						onComposerHeightChange={layout.setComposerHeight}
 						onTerseAnswersChange={changeTerseAnswers}
 						onModelChange={changeAgentModel}
 						onSend={sendChat}

@@ -20,10 +20,22 @@ export enum LocalStorageKey {
 	ReviewRefactoringSectionExpanded = "kanban.review-refactoring-section-expanded",
 	/** Whether the tag rail's flyout stays open across a chip drag instead of getting out of the way. */
 	ReviewTagFlyoutPinned = "kanban.review-tag-flyout-pinned",
-	ReviewLeftPanelWidth = "kanban.review-left-panel-width",
+	/** Whether the review workspace's left column is collapsed to its rail. */
 	ReviewLeftPanelCollapsed = "kanban.review-left-panel-collapsed",
-	ReviewRightPanelWidth = "kanban.review-right-panel-width",
+	/** Whether the Claude panel is collapsed to its rail. */
 	ReviewRightPanelCollapsed = "kanban.review-right-panel-collapsed",
+	/** Width of the review workspace's left column (files, impact, threads, rules, annotations). */
+	ReviewSidebarWidth = "kanban.review-sidebar-width",
+	/** Width of the review workspace's right column, the Claude panel. */
+	ReviewClaudePanelWidth = "kanban.review-claude-panel-width",
+	/** Height of the Claude panel's "Findings to triage" list. */
+	ReviewFindingsHeight = "kanban.review-findings-height",
+	/** Height of the Claude panel's draft-comment list. */
+	ReviewDraftsHeight = "kanban.review-drafts-height",
+	/** Height of the Claude panel's prompt textarea. */
+	ReviewComposerHeight = "kanban.review-composer-height",
+	/** Height of the rendered merge-request description body. */
+	ReviewDescriptionHeight = "kanban.review-description-height",
 	TaskCreatePrimaryStartAction = "kanban.task-create-primary-start-action",
 	BottomTerminalPaneHeight = "kanban.bottom-terminal-pane-height",
 	DetailAgentPanelRatio = "kanban.detail-agent-panel-ratio",
@@ -78,9 +90,7 @@ export const LAYOUT_CUSTOMIZATION_LOCAL_STORAGE_KEYS = [
 	LocalStorageKey.GitHistoryRefsPanelWidth,
 	LocalStorageKey.GitHistoryCommitsPanelWidth,
 	LocalStorageKey.GitDiffFileTreePanelRatio,
-	LocalStorageKey.ReviewLeftPanelWidth,
 	LocalStorageKey.ReviewLeftPanelCollapsed,
-	LocalStorageKey.ReviewRightPanelWidth,
 	LocalStorageKey.ReviewRightPanelCollapsed,
 	LocalStorageKey.HomeRightColumnWidth,
 	LocalStorageKey.HomeRightSplitRatio,
@@ -88,6 +98,12 @@ export const LAYOUT_CUSTOMIZATION_LOCAL_STORAGE_KEYS = [
 	LocalStorageKey.PlanEditorTemplatePaneWidth,
 	LocalStorageKey.PlanEditorTemplatePaneCollapsed,
 	LocalStorageKey.PlanEditorPaneViewMode,
+	LocalStorageKey.ReviewSidebarWidth,
+	LocalStorageKey.ReviewClaudePanelWidth,
+	LocalStorageKey.ReviewFindingsHeight,
+	LocalStorageKey.ReviewDraftsHeight,
+	LocalStorageKey.ReviewComposerHeight,
+	LocalStorageKey.ReviewDescriptionHeight,
 ] as const;
 
 function getLocalStorage(): Storage | null {
