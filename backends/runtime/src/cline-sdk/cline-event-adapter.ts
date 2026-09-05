@@ -61,7 +61,10 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 	return value && typeof value === "object" ? (value as Record<string, unknown>) : null;
 }
 
-function readAgentEvent(event: unknown): RawClineSdkAgentEvent | null {
+// The five readers below are exported for `cline-cli/` (the PTY harness): its renderer has to
+// classify the same envelopes this adapter does, and a private copy of the unwrapping would drift
+// the moment the SDK changes a payload shape.
+export function readAgentEvent(event: unknown): RawClineSdkAgentEvent | null {
 	const record = asRecord(event);
 	if (!record || record.type !== "agent_event") {
 		return null;
@@ -77,7 +80,7 @@ function readAgentEvent(event: unknown): RawClineSdkAgentEvent | null {
 	return agentEvent as unknown as RawClineSdkAgentEvent;
 }
 
-function readChunkEvent(event: unknown): ClineSdkChunkEvent | null {
+export function readChunkEvent(event: unknown): ClineSdkChunkEvent | null {
 	const record = asRecord(event);
 	if (!record || record.type !== "chunk") {
 		return null;
@@ -92,7 +95,7 @@ function readChunkEvent(event: unknown): ClineSdkChunkEvent | null {
 	return { type: "chunk", payload: payload as unknown as ClineSdkChunkEvent["payload"] };
 }
 
-function readHookEvent(event: unknown): ClineSdkHookEvent | null {
+export function readHookEvent(event: unknown): ClineSdkHookEvent | null {
 	const record = asRecord(event);
 	if (!record || record.type !== "hook") {
 		return null;
@@ -104,7 +107,7 @@ function readHookEvent(event: unknown): ClineSdkHookEvent | null {
 	return { type: "hook", payload: payload as unknown as ClineSdkHookEvent["payload"] };
 }
 
-function readEndedEvent(event: unknown): ClineSdkEndedEvent | null {
+export function readEndedEvent(event: unknown): ClineSdkEndedEvent | null {
 	const record = asRecord(event);
 	if (!record || record.type !== "ended") {
 		return null;
@@ -116,7 +119,7 @@ function readEndedEvent(event: unknown): ClineSdkEndedEvent | null {
 	return { type: "ended", payload: payload as unknown as ClineSdkEndedEvent["payload"] };
 }
 
-function readStatusEvent(event: unknown): ClineSdkStatusEvent | null {
+export function readStatusEvent(event: unknown): ClineSdkStatusEvent | null {
 	const record = asRecord(event);
 	if (!record || record.type !== "status") {
 		return null;
