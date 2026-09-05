@@ -70,6 +70,7 @@ function createRuntimeConfigResponse(
 			oauthAccountId: null,
 			oauthExpiresAt: null,
 		},
+		clineExecutionMode: "cli",
 		commitPromptTemplate: "",
 		openPrPromptTemplate: "",
 		commitPromptTemplateDefault: "",

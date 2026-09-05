@@ -2753,6 +2753,8 @@ export const runtimeConfigResponseSchema = z.object({
 	agents: z.array(runtimeAgentDefinitionSchema),
 	shortcuts: z.array(runtimeProjectShortcutSchema),
 	clineProviderSettings: runtimeClineProviderSettingsSchema,
+	/** `cli` = PTY harness (default); `sdk` = in-process chat panel (`PIXTIEL_CLINE_MODE=sdk`). */
+	clineExecutionMode: z.enum(["cli", "sdk"]),
 	commitPromptTemplate: z.string(),
 	openPrPromptTemplate: z.string(),
 	commitPromptTemplateDefault: z.string(),

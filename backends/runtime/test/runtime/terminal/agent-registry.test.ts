@@ -48,6 +48,8 @@ beforeEach(() => {
 	delete process.env.KANBAN_DEBUG_MODE;
 	delete process.env.DEBUG_MODE;
 	delete process.env.debug_mode;
+	delete process.env.PIXTIEL_CLINE_MODE;
+	delete process.env.PIXELOFFICE_CLINE_MODE;
 });
 
 describe("agent-registry", () => {
@@ -147,6 +149,23 @@ describe("buildRuntimeConfigResponse", () => {
 			oauthExpiresAt: null,
 		});
 		expect(response.debugModeEnabled).toBe(true);
+		expect(response.clineExecutionMode).toBe("cli");
+	});
+
+	it("reports sdk cline execution mode from PIXTIEL_CLINE_MODE", () => {
+		process.env.PIXTIEL_CLINE_MODE = "sdk";
+		const response = buildRuntimeConfigResponse(createRuntimeConfigState(), {
+			providerId: null,
+			modelId: null,
+			baseUrl: null,
+			apiKeyConfigured: false,
+			oauthProvider: null,
+			oauthAccessTokenConfigured: false,
+			oauthRefreshTokenConfigured: false,
+			oauthAccountId: null,
+			oauthExpiresAt: null,
+		});
+		expect(response.clineExecutionMode).toBe("sdk");
 	});
 
 	it("supports debug_mode fallback env name", () => {

@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CardDetailView } from "@/components/card-detail-view";
 import type {
+	RuntimeConfigResponse,
 	RuntimeManagerAccount,
 	RuntimeTaskSessionSummary,
 } from "@/runtime/types";
@@ -551,7 +552,7 @@ describe("CardDetailView", () => {
 		expect(onCloseGitHistory).toHaveBeenCalledTimes(1);
 	});
 
-	it("renders native chat panel for cline agent", async () => {
+	it("renders terminal panel for cline agent by default", async () => {
 		await act(async () => {
 			root.render(
 				<CardDetailView
@@ -574,10 +575,36 @@ describe("CardDetailView", () => {
 
 		expect(
 			container.querySelector('[data-testid="cline-agent-chat-panel"]'),
-		).toBeInstanceOf(HTMLDivElement);
-		expect(
-			container.querySelector('[data-testid="agent-terminal-panel"]'),
 		).toBeNull();
+		expect(mockAgentTerminalPanel).toHaveBeenCalled();
+	});
+
+	it("renders native chat panel for cline agent when execution mode is sdk", async () => {
+		await act(async () => {
+			root.render(
+				<CardDetailView
+					selection={createSelection()}
+					currentProjectId="workspace-1"
+					selectedAgentId="cline"
+					runtimeConfig={{ clineExecutionMode: "sdk" } as RuntimeConfigResponse}
+					sessionSummary={null}
+					taskSessions={{}}
+					onSessionSummary={() => {}}
+					onCardSelect={() => {}}
+					onTaskDragEnd={() => {}}
+					onMoveToTrash={() => {}}
+					bottomTerminalOpen={false}
+					bottomTerminalTaskId={null}
+					bottomTerminalSummary={null}
+					onBottomTerminalClose={() => {}}
+				/>,
+			);
+		});
+
+		expect(
+			container.querySelector('[data-testid="cline-agent-chat-panel"]'),
+		).toBeInstanceOf(HTMLDivElement);
+		expect(mockAgentTerminalPanel).not.toHaveBeenCalled();
 	});
 
 	it("does not render native chat panel when the task explicitly uses a non-cline agent", async () => {
@@ -609,13 +636,59 @@ describe("CardDetailView", () => {
 		).toBeNull();
 	});
 
-	it("shows cline chat panel when task session agentId is cline even if global agent is claude", async () => {
+	it("shows terminal panel when task session agentId is cline even if global agent is claude", async () => {
 		await act(async () => {
 			root.render(
 				<CardDetailView
 					selection={createSelection()}
 					currentProjectId="workspace-1"
 					selectedAgentId="claude"
+					sessionSummary={{
+						taskId: "task-1",
+						state: "running",
+						agentId: "cline",
+						workspacePath: null,
+						pid: null,
+						startedAt: null,
+						activeRunMs: 0,
+						runningSince: null,
+						pausedAt: null,
+						pauseReason: null,
+						updatedAt: Date.now(),
+						lastOutputAt: null,
+						reviewReason: null,
+						exitCode: null,
+						lastHookAt: null,
+						latestHookActivity: null,
+						warningMessage: null,
+					}}
+					taskSessions={{}}
+					onSessionSummary={() => {}}
+					onCardSelect={() => {}}
+					onTaskDragEnd={() => {}}
+					onMoveToTrash={() => {}}
+					bottomTerminalOpen={false}
+					bottomTerminalTaskId={null}
+					bottomTerminalSummary={null}
+					onBottomTerminalClose={() => {}}
+				/>,
+			);
+		});
+
+		expect(
+			container.querySelector('[data-testid="cline-agent-chat-panel"]'),
+		).toBeNull();
+		expect(mockAgentTerminalPanel).toHaveBeenCalled();
+	});
+
+	it("shows cline chat panel when sdk mode and task session agentId is cline", async () => {
+		await act(async () => {
+			root.render(
+				<CardDetailView
+					selection={createSelection()}
+					currentProjectId="workspace-1"
+					selectedAgentId="claude"
+					runtimeConfig={{ clineExecutionMode: "sdk" } as RuntimeConfigResponse}
 					sessionSummary={{
 						taskId: "task-1",
 						state: "running",
@@ -735,6 +808,7 @@ describe("CardDetailView", () => {
 					selection={createSelection()}
 					currentProjectId="workspace-1"
 					selectedAgentId="cline"
+					runtimeConfig={{ clineExecutionMode: "sdk" } as RuntimeConfigResponse}
 					sessionSummary={null}
 					taskSessions={{}}
 					onSessionSummary={() => {}}
@@ -773,6 +847,7 @@ describe("CardDetailView", () => {
 					selection={createSelection()}
 					currentProjectId="workspace-1"
 					selectedAgentId="cline"
+					runtimeConfig={{ clineExecutionMode: "sdk" } as RuntimeConfigResponse}
 					sessionSummary={null}
 					taskSessions={{}}
 					onSessionSummary={() => {}}
