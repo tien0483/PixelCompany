@@ -1,5 +1,13 @@
 import { ArrowLeft, CheckCheck, ExternalLink, MessageSquare, Network, Send, Sparkles, X } from "lucide-react";
-import { type ReactElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+	type MouseEvent as ReactMouseEvent,
+	type ReactElement,
+	useCallback,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 
 import { showAppToast } from "@/components/app-toaster";
 import { ClaudeUsageChip } from "@/components/claude-usage-chip";
@@ -25,6 +33,13 @@ import { Spinner } from "@/components/ui/spinner";
 import { runAgentTextRequest } from "@/html/agent-sse";
 import { useHtmlAgentStream } from "@/html/use-html-agent-stream";
 import { autoFallbackAccount } from "@/manager/task-account-picker";
+import { ResizeHandle } from "@/resize/resize-handle";
+import { useResizeDrag } from "@/resize/use-resize-drag";
+import {
+	clampReviewClaudePanelWidth,
+	clampReviewSidebarWidth,
+	useReviewLayout,
+} from "@/resize/use-review-layout";
 import {
 	type ReviewAgentModelId,
 	readStoredReviewAgentModel,
@@ -62,7 +77,7 @@ import { useReviewRepoLock } from "@/review/use-review-repo-lock";
 import { useReviewRulesConfig } from "@/review/use-review-rules-config";
 import { useReviewSeat } from "@/review/use-review-seat";
 import { useReviewSession } from "@/review/use-review-session";
-import { useBooleanLocalStorageValue } from "@/utils/react-use";
+import { useBooleanLocalStorageValue, useMeasure } from "@/utils/react-use";
 import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
 import type {
 	RuntimeManagerAccount,
@@ -1069,11 +1084,75 @@ export function ReviewWorkspaceView({
 		[draftComments, session, target.iid, target.projectId, workspaceId],
 	);
 
+	/**
+	 * The three containers every pane size is clamped against.
+	 *
+	 * Observed rather than measured on window resize: the banners between the header and
+	 * the columns (new comments, mark-reviewed, agent errors) and the description panel
+	 * all appear and disappear without the window changing size, and each one moves the
+	 * Claude column's height under the stacked rows inside it. `useMeasure` degrades to a
+	 * no-op ref where `ResizeObserver` does not exist, and the layout hook treats the
+	 * resulting zero as "not laid out yet" rather than as a zero-sized container.
+	 */
+	const [workspaceMeasureRef, workspaceRect] = useMeasure<HTMLDivElement>();
+	const [columnsMeasureRef, columnsRect] = useMeasure<HTMLDivElement>();
+	const [claudePanelMeasureRef, claudePanelRect] = useMeasure<HTMLElement>();
+
+	const layout = useReviewLayout({
+		containerWidth: columnsRect.width,
+		claudePanelHeight: claudePanelRect.height,
+		workspaceHeight: workspaceRect.height,
+		hasFindings: pendingFindings.length > 0,
+		hasDrafts: draftComments.length > 0,
+	});
+
+	const { startDrag: startSidebarResize } = useResizeDrag();
+	const { startDrag: startClaudePanelResize } = useResizeDrag();
+	const { displaySidebarWidth, displayClaudePanelWidth } = layout;
+	const setSidebarWidth = layout.setSidebarWidth;
+	const setClaudePanelWidth = layout.setClaudePanelWidth;
+
+	const handleSidebarSeparatorMouseDown = useCallback(
+		(event: ReactMouseEvent<HTMLDivElement>) => {
+			const containerWidth = columnsRect.width;
+			const startX = event.clientX;
+			const startWidth = displaySidebarWidth;
+			const nextWidth = (pointerX: number): number =>
+				clampReviewSidebarWidth(startWidth + (pointerX - startX), containerWidth, displayClaudePanelWidth);
+			startSidebarResize(event, {
+				axis: "x",
+				cursor: "ew-resize",
+				onMove: (pointerX) => setSidebarWidth(nextWidth(pointerX)),
+				onEnd: (pointerX) => setSidebarWidth(nextWidth(pointerX)),
+			});
+		},
+		[columnsRect.width, displayClaudePanelWidth, displaySidebarWidth, setSidebarWidth, startSidebarResize],
+	);
+
+	const handleClaudePanelSeparatorMouseDown = useCallback(
+		(event: ReactMouseEvent<HTMLDivElement>) => {
+			const containerWidth = columnsRect.width;
+			const startX = event.clientX;
+			const startWidth = displayClaudePanelWidth;
+			// The Claude column is to the *right* of its handle, so it grows as the pointer
+			// moves left — the opposite sign to the sidebar's.
+			const nextWidth = (pointerX: number): number =>
+				clampReviewClaudePanelWidth(startWidth - (pointerX - startX), containerWidth, displaySidebarWidth);
+			startClaudePanelResize(event, {
+				axis: "x",
+				cursor: "ew-resize",
+				onMove: (pointerX) => setClaudePanelWidth(nextWidth(pointerX)),
+				onEnd: (pointerX) => setClaudePanelWidth(nextWidth(pointerX)),
+			});
+		},
+		[columnsRect.width, displayClaudePanelWidth, displaySidebarWidth, setClaudePanelWidth, startClaudePanelResize],
+	);
+
 	const mergeRequest = session.mergeRequest;
 	const auditRunState = session.passRunState("audit");
 
 	return (
-		<div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-surface-0">
+		<div ref={workspaceMeasureRef} className="flex min-h-0 flex-1 flex-col overflow-hidden bg-surface-0">
 			<header className="flex h-12 shrink-0 items-center justify-between gap-3 border-b border-border bg-surface-1 px-3">
 				<div className="flex min-w-0 items-center gap-2">
 					<Button variant="ghost" size="sm" icon={<ArrowLeft size={14} />} onClick={onClose}>
@@ -1221,7 +1300,10 @@ export function ReviewWorkspaceView({
 				<ReviewDescriptionPanel
 					description={mergeRequest.description}
 					isOpen={isDescriptionOpen}
+					bodyHeight={layout.displayDescriptionHeight}
+					maxBodyHeight={layout.maxDescriptionHeight}
 					onToggle={() => setIsDescriptionOpen((open) => !open)}
+					onBodyHeightChange={layout.setDescriptionHeight}
 					onSave={session.saveDescription}
 				/>
 			) : null}
@@ -1302,8 +1384,11 @@ export function ReviewWorkspaceView({
 				</div>
 			) : null}
 
-			<div className="flex min-h-0 flex-1 overflow-hidden">
-				<aside className="flex w-80 shrink-0 flex-col border-r border-border bg-surface-1">
+			<div ref={columnsMeasureRef} className="flex min-h-0 flex-1 overflow-hidden">
+				<aside
+					className="flex shrink-0 flex-col border-r border-border bg-surface-1"
+					style={{ width: displaySidebarWidth }}
+				>
 					<div className="flex shrink-0 border-b border-border text-[11px]">
 						<LeftTabButton
 							label={`Files (${session.files.length})`}
@@ -1401,6 +1486,13 @@ export function ReviewWorkspaceView({
 					)}
 				</aside>
 
+				<ResizeHandle
+					orientation="vertical"
+					ariaLabel="Resize the review file list"
+					onMouseDown={handleSidebarSeparatorMouseDown}
+					className="z-10"
+				/>
+
 				{session.isLoading ? (
 					<div className="flex min-h-0 flex-1 items-center justify-center">
 						<Spinner size={20} />
@@ -1446,7 +1538,18 @@ export function ReviewWorkspaceView({
 					/>
 				)}
 
-				<aside className="flex w-96 shrink-0 flex-col border-l border-border">
+				<ResizeHandle
+					orientation="vertical"
+					ariaLabel="Resize the Claude panel"
+					onMouseDown={handleClaudePanelSeparatorMouseDown}
+					className="z-10"
+				/>
+
+				<aside
+					ref={claudePanelMeasureRef}
+					className="flex shrink-0 flex-col border-l border-border"
+					style={{ width: displayClaudePanelWidth }}
+				>
 					<ReviewClaudePanel
 						messages={chat.messages}
 						streamingText={chat.streamingText}
@@ -1464,6 +1567,15 @@ export function ReviewWorkspaceView({
 						isAuditing={audit.status === "running"}
 						model={agentModel}
 						terseAnswers={terseAnswers}
+						findingsHeight={layout.displayFindingsHeight}
+						draftsHeight={layout.displayDraftsHeight}
+						composerHeight={layout.displayComposerHeight}
+						maxFindingsHeight={layout.maxFindingsHeight}
+						maxDraftsHeight={layout.maxDraftsHeight}
+						maxComposerHeight={layout.maxComposerHeight}
+						onFindingsHeightChange={layout.setFindingsHeight}
+						onDraftsHeightChange={layout.setDraftsHeight}
+						onComposerHeightChange={layout.setComposerHeight}
 						onTerseAnswersChange={changeTerseAnswers}
 						onModelChange={changeAgentModel}
 						onSend={sendChat}

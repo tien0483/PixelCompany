@@ -10,6 +10,25 @@ export function clampAtLeast(value: number, min: number, round = false): number 
 	return Math.max(min, normalizedValue);
 }
 
+/**
+ * One pane's size, held above its own minimum and below whatever the container has
+ * left once the panes beside it have taken theirs. Axis-neutral: the arithmetic is
+ * the same for a column's width and a stacked section's height.
+ */
+export function clampSizeToContainer({
+	size,
+	minSize,
+	containerSize,
+	reservedSize,
+}: {
+	size: number;
+	minSize: number;
+	containerSize: number;
+	reservedSize: number;
+}): number {
+	return clampBetween(size, minSize, containerSize - reservedSize, true);
+}
+
 export function clampWidthToContainer({
 	width,
 	minWidth,
@@ -21,7 +40,12 @@ export function clampWidthToContainer({
 	containerWidth: number;
 	reservedWidth: number;
 }): number {
-	return clampBetween(width, minWidth, containerWidth - reservedWidth, true);
+	return clampSizeToContainer({
+		size: width,
+		minSize: minWidth,
+		containerSize: containerWidth,
+		reservedSize: reservedWidth,
+	});
 }
 
 export function readPersistedResizeNumber({
