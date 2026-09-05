@@ -7,6 +7,7 @@ import { useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { Tooltip } from "@/components/ui/tooltip";
+import { resolveTaskGitReadiness } from "@/git-actions/task-git-readiness";
 import { isSessionPausedOffline } from "@/runtime/session-status";
 import type { RuntimeTaskSessionSummary } from "@/runtime/types";
 import { useTaskWorkspaceSnapshotValue } from "@/stores/workspace-metadata-store";
@@ -122,7 +123,9 @@ function AgentTerminalReviewActions({
 }): ReactElement | null {
 	const reviewWorkspaceSnapshot = useTaskWorkspaceSnapshotValue(taskId);
 	const showReviewGitActions =
-		taskColumnId === "review" && (reviewWorkspaceSnapshot?.changedFiles ?? 0) > 0 && Boolean(onCommit);
+		taskColumnId === "review" &&
+		resolveTaskGitReadiness(reviewWorkspaceSnapshot) === "dirty" &&
+		Boolean(onCommit);
 
 	if (!showReviewGitActions) {
 		return null;

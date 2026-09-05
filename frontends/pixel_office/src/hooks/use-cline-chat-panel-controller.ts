@@ -3,6 +3,7 @@
 // declarative and shared across detail and sidebar surfaces.
 import { useCallback, useState } from "react";
 
+import { resolveTaskGitReadiness } from "@/git-actions/task-git-readiness";
 import type { ClineChatActionResult } from "@/hooks/use-cline-chat-runtime-actions";
 import { type ClineChatMessage, useClineChatSession } from "@/hooks/use-cline-chat-session";
 import type { RuntimeTaskImage, RuntimeTaskSessionMode, RuntimeTaskSessionSummary } from "@/runtime/types";
@@ -77,7 +78,7 @@ export function useClineChatPanelController({
 	const canCancel = Boolean(onCancelTurn) && summary?.state === "running" && !isCanceling;
 	const showReviewActions =
 		taskColumnId === "review" &&
-		(reviewWorkspaceSnapshot?.changedFiles ?? 0) > 0 &&
+		resolveTaskGitReadiness(reviewWorkspaceSnapshot) === "dirty" &&
 		Boolean(onCommit);
 	const showAgentProgressIndicator = summary?.state === "running";
 	const showActionFooter = showMoveToTrash && Boolean(onMoveToTrash);

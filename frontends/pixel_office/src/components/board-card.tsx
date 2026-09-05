@@ -8,6 +8,7 @@ import {
 	Bot,
 	Clock,
 	GitBranch,
+	GitCommit,
 	GitMerge,
 	Hourglass,
 	Pause,
@@ -33,6 +34,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
 import { Spinner } from "@/components/ui/spinner";
 import { Tooltip } from "@/components/ui/tooltip";
+import { getTaskCommitsAhead, resolveTaskGitReadiness } from "@/git-actions/task-git-readiness";
 import { useCountdownMs, useElapsedMs } from "@/hooks/use-elapsed-timer";
 import { isSessionPausedLive, isSessionPausedOffline, pausedOfflineBadgeLabel } from "@/runtime/session-status";
 import type { RuntimeAuthFailoverOutcome, RuntimeTaskSessionSummary } from "@/runtime/types";
@@ -628,21 +630,20 @@ export function BoardCard({
 		reviewWorkspaceSnapshot?.branch ??
 		reviewWorkspaceSnapshot?.headCommit?.slice(0, 8) ??
 		"HEAD";
-	const reviewChangeSummary = reviewWorkspaceSnapshot
-		? reviewWorkspaceSnapshot.changedFiles == null
-			? null
-			: {
+	const gitReadiness = resolveTaskGitReadiness(reviewWorkspaceSnapshot);
+	const commitsAhead = getTaskCommitsAhead(reviewWorkspaceSnapshot);
+	// A committed-and-clean worktree renders "0 files +0 -0", which reads as "nothing was
+	// done". The commit counter below is the honest signal there, so drop the summary.
+	const reviewChangeSummary =
+		reviewWorkspaceSnapshot && reviewWorkspaceSnapshot.changedFiles != null && gitReadiness !== "ready"
+			? {
 					filesLabel: `${reviewWorkspaceSnapshot.changedFiles} ${reviewWorkspaceSnapshot.changedFiles === 1 ? "file" : "files"}`,
 					additions: reviewWorkspaceSnapshot.additions ?? 0,
 					deletions: reviewWorkspaceSnapshot.deletions ?? 0,
 				}
-		: null;
-	const showReviewGitActions =
-		columnId === "review" && (reviewWorkspaceSnapshot?.changedFiles ?? 0) > 0;
-	const canMergeToBase =
-		columnId === "review" &&
-		((reviewWorkspaceSnapshot?.changedFiles ?? 0) > 0 ||
-			(reviewWorkspaceSnapshot?.aheadOfBaseCount ?? 0) > 0);
+			: null;
+	const showReviewGitActions = columnId === "review" && gitReadiness === "dirty";
+	const canMergeToBase = columnId === "review" && (gitReadiness === "dirty" || gitReadiness === "ready");
 	const isAnyGitActionLoading = isCommitLoading || isMergeLoading;
 	const cancelAutomaticActionLabel =
 		!isTrashCard && card.autoReviewEnabled
@@ -1185,6 +1186,27 @@ export function BoardCard({
 														)
 													</span>
 												</>
+											) : null}
+											{/* The whole point of this chip: a clean worktree that already
+											    holds commits is otherwise indistinguishable on the board
+											    from one where nothing happened. */}
+											{commitsAhead > 0 ? (
+												<Tooltip
+													content={`${commitsAhead} commit${commitsAhead === 1 ? "" : "s"} on ${reviewWorkspaceSnapshot?.branch ?? "this task's branch"} not in ${baseRefHint}`}
+												>
+													<span
+														className={cn(
+															"ml-1.5 inline-flex items-center gap-0.5 align-middle",
+															gitReadiness === "ready"
+																? "text-status-green"
+																: "text-text-secondary",
+														)}
+													>
+														<GitCommit size={10} />
+														{commitsAhead} commit
+														{commitsAhead === 1 ? "" : "s"}
+													</span>
+												</Tooltip>
 											) : null}
 										</>
 									) : null}
