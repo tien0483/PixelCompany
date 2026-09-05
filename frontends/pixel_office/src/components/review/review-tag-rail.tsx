@@ -48,7 +48,15 @@ export function ReviewTagRail({
 
 	// A flyout wide enough to hold 66 chips covers the rows the chip has to land on, so
 	// unless it is pinned it stands aside for the drag and the rail brings it back.
-	const isFlyoutOpen = openSectionId !== null && (isPinned || !isDraggingTag);
+	//
+	// It stands aside by going invisible, never by unmounting: the chip being dragged is
+	// itself inside this flyout, and `onDragStart` flips `isDraggingTag` synchronously
+	// while `dragstart` is still dispatching — so removing the subtree would take the
+	// drag source out of the document before the browser had begun the drag session,
+	// which cancels the drag outright. `pointer-events-none` is what the unmount was
+	// really buying: it lets `dragover`/`drop` through to the rows underneath.
+	const isFlyoutMounted = openSectionId !== null;
+	const isFlyoutStoodAside = isFlyoutMounted && !isPinned && isDraggingTag;
 
 	return (
 		<>
@@ -79,12 +87,16 @@ export function ReviewTagRail({
 				})}
 			</div>
 
-			{isFlyoutOpen && openSectionId !== null ? (
+			{isFlyoutMounted && openSectionId !== null ? (
 				<div
 					data-testid="review-tag-flyout"
-					// `left-8`: flush against the rail, so the chips read as belonging to the icon
-					// that opened them. Above the rows but below the comment composer's own layer.
-					className="absolute top-0 bottom-0 left-8 z-20 flex w-[360px] flex-col border-r border-border bg-surface-1 shadow-lg"
+					aria-hidden={isFlyoutStoodAside}
+					className={cn(
+						// `left-8`: flush against the rail, so the chips read as belonging to the icon
+						// that opened them. Above the rows but below the comment composer's own layer.
+						"absolute top-0 bottom-0 left-8 z-20 flex w-[360px] flex-col border-r border-border bg-surface-1 shadow-lg",
+						isFlyoutStoodAside && "pointer-events-none opacity-0",
+					)}
 				>
 					<div className="flex shrink-0 items-center justify-between border-b border-border px-2 py-1 text-[10px] text-text-secondary">
 						<span>Tags</span>

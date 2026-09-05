@@ -433,7 +433,7 @@ describe("ReviewDiffPane", () => {
 		expect(container.textContent).toContain("Couplers");
 	});
 
-	it("stands aside while a chip is in flight, so the drop rows are reachable", async () => {
+	it("stands aside without unmounting, so the chip drag survives", async () => {
 		await renderPane({ withTags: true });
 		await openTagRail("tags");
 		expect(container.querySelector('[data-testid="review-tag-flyout"]')).not.toBeNull();
@@ -441,8 +441,30 @@ describe("ReviewDiffPane", () => {
 		// A flyout wide enough for the catalog covers the rows the chip has to land on.
 		await renderPane({ withTags: true, draggedTag: { kind: "builtin", label: "Security" } });
 
-		expect(container.querySelector('[data-testid="review-tag-flyout"]')).toBeNull();
+		const flyout = container.querySelector('[data-testid="review-tag-flyout"]');
+		if (!(flyout instanceof HTMLElement)) {
+			throw new Error("The flyout must stay mounted while a chip is in flight.");
+		}
+		expect(flyout.className).toContain("pointer-events-none");
+		expect(flyout.className).toContain("opacity-0");
 		expect(container.querySelector('[data-testid="review-tag-rail-tags"]')).not.toBeNull();
+	});
+
+	it("keeps the dragged chip in the document once the drag has been reported", async () => {
+		// The browser cancels a drag whose source element leaves the document, and the chip
+		// lives inside the flyout that gets out of the way — so the node standing aside
+		// takes with it is the very thing the drop depends on. jsdom starts no real drag,
+		// but it can hold the pane to the one property that made the feature work at all.
+		await renderPane({ withTags: true });
+		await openTagRail("tags");
+		const chip = tagChip("Security");
+
+		await act(async () => {
+			chip.dispatchEvent(dragStartEvent());
+		});
+		await renderPane({ withTags: true, draggedTag: { kind: "builtin", label: "Security" } });
+
+		expect(document.contains(chip)).toBe(true);
 	});
 
 	it("gives each chip its own color so a dragged tag is recognisable", async () => {
