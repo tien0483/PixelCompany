@@ -1085,4 +1085,82 @@ describe("BoardCard", () => {
 		expect(onResume).not.toHaveBeenCalled();
 		expect(onResumeEndedSession).not.toHaveBeenCalled();
 	});
+
+	describe("commit counter and git actions", () => {
+		function setSnapshot(
+			overrides: Partial<ReviewTaskWorkspaceSnapshot>,
+		): void {
+			mockWorkspaceSnapshot = {
+				taskId: "task-1",
+				path: "/tmp/worktrees/task-1",
+				branch: "kanban/task-1",
+				isDetached: false,
+				headCommit: "1234567890abcdef",
+				changedFiles: 0,
+				additions: 0,
+				deletions: 0,
+				aheadOfBaseCount: 0,
+				...overrides,
+			};
+		}
+
+		async function renderCard(columnId: "in_progress" | "review"): Promise<void> {
+			await act(async () => {
+				root.render(
+					<TooltipProvider>
+						<BoardCard
+							card={createCard()}
+							index={0}
+							columnId={columnId}
+							onCommit={() => {}}
+							onMerge={() => {}}
+						/>
+					</TooltipProvider>,
+				);
+			});
+		}
+
+		const findButton = (label: string) =>
+			Array.from(container.querySelectorAll("button")).find(
+				(button) => button.textContent?.trim() === label,
+			);
+
+		it("offers only Merge and the counter once the work is committed", async () => {
+			setSnapshot({ changedFiles: 0, aheadOfBaseCount: 3 });
+			await renderCard("review");
+
+			expect(container.textContent).toContain("3 commits");
+			// The misleading "0 files +0 -0" must be gone, not merely accompanied.
+			expect(container.textContent).not.toContain("0 files");
+			expect(findButton("Commit")).toBeUndefined();
+			expect(findButton("Merge to base")).toBeDefined();
+		});
+
+		it("still offers Commit while the worktree is dirty, and counts prior commits", async () => {
+			setSnapshot({ changedFiles: 2, additions: 5, deletions: 1, aheadOfBaseCount: 1 });
+			await renderCard("review");
+
+			expect(container.textContent).toContain("2 files");
+			expect(container.textContent).toContain("1 commit");
+			expect(findButton("Commit")).toBeDefined();
+			expect(findButton("Merge to base")).toBeDefined();
+		});
+
+		it("offers neither action when nothing has happened in the worktree", async () => {
+			setSnapshot({ changedFiles: 0, aheadOfBaseCount: 0 });
+			await renderCard("review");
+
+			expect(container.textContent).not.toContain("commit");
+			expect(findButton("Commit")).toBeUndefined();
+			expect(findButton("Merge to base")).toBeUndefined();
+		});
+
+		it("counts commits on an in-progress card but does not offer Merge there", async () => {
+			setSnapshot({ changedFiles: 0, aheadOfBaseCount: 2 });
+			await renderCard("in_progress");
+
+			expect(container.textContent).toContain("2 commits");
+			expect(findButton("Merge to base")).toBeUndefined();
+		});
+	});
 });
