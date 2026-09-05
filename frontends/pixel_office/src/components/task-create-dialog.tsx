@@ -477,7 +477,17 @@ export function TaskCreateDialog({
 	const secondaryStartShortcutModifier = secondaryStartAction === "start" ? "mod" : "alt";
 
 	return (
-		<Dialog open={open} onOpenChange={onOpenChange} size="lg">
+		<Dialog
+			open={open}
+			onOpenChange={onOpenChange}
+			size="lg"
+			// A backdrop click is almost always a misclick, and closing runs
+			// handleCancelCreateTask(), which discards the typed prompt, the images and the
+			// whole multi-task list with no undo. X / Cancel / Escape still close.
+			onInteractOutside={(event) => {
+				event.preventDefault();
+			}}
+		>
 			<DialogHeader title={dialogTitle} icon={<PencilLine size={16} />} />
 			<DialogBody>
 				{mode === "single" ? (

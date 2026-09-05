@@ -34,6 +34,7 @@ export function Dialog({
 	contentClassName,
 	contentAriaDescribedBy,
 	onEscapeKeyDown,
+	onInteractOutside,
 }: {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
@@ -42,6 +43,11 @@ export function Dialog({
 	contentClassName?: string;
 	contentAriaDescribedBy?: string;
 	onEscapeKeyDown?: (event: KeyboardEvent) => void;
+	/**
+	 * Radix dismisses on an outside pointerdown by default; `preventDefault()` here
+	 * opts a dialog out of that without touching the Escape path above.
+	 */
+	onInteractOutside?: (event: Event) => void;
 }): React.ReactElement {
 	return (
 		<RadixDialog.Root open={open} onOpenChange={onOpenChange}>
@@ -53,6 +59,7 @@ export function Dialog({
 				<RadixDialog.Content
 					aria-describedby={contentAriaDescribedBy}
 					onEscapeKeyDown={onEscapeKeyDown}
+					onInteractOutside={onInteractOutside}
 					className={cn(
 						"kb-dialog-content fixed left-1/2 top-1/2 z-50 flex flex-col rounded-lg border border-[#5A6572] bg-surface-1 shadow-2xl focus:outline-none",
 						DIALOG_SIZES[size],
