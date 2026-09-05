@@ -18,7 +18,7 @@ import { SiteDocsView } from "./site-docs-view";
 const ONLINE = {
 	built: true,
 	online: true,
-	baseUrl: "http://127.0.0.1:3030",
+	baseUrl: "https://pixtiel.vercel.app",
 	docsPath: "/docs/getting-started",
 	buildCommand: "pnpm --filter pixtiel-site build",
 };
@@ -66,7 +66,9 @@ describe("SiteDocsView", () => {
 
 		const frame = container.querySelector("iframe");
 		expect(frame).not.toBeNull();
-		expect(frame?.getAttribute("src")).toBe("http://localhost:3030/docs/getting-started?theme=default");
+		expect(frame?.getAttribute("src")).toBe(
+			"https://pixtiel.vercel.app/docs/getting-started?theme=default",
+		);
 		// No X-Frame-Options to satisfy; the site's own CSP scopes who may frame it.
 		expect(frame?.getAttribute("sandbox")).toContain("allow-scripts");
 	});
