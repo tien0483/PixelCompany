@@ -136,6 +136,12 @@ export interface ReviewGraphNode {
 	filePath?: string;
 	summary?: string;
 	complexity?: number | string;
+	/**
+	 * Where in the file it is declared, when the graph recorded it. Frequently absent
+	 * — `akselos-dev`'s 33 500 nodes carry none at all, while this repo's carry them
+	 * for four fifths — so every reader has to treat it as a bonus, not a field.
+	 */
+	lineRange?: readonly [number, number];
 }
 
 interface RawGraphEdge {
@@ -188,6 +194,13 @@ export interface ReviewGraphIndex {
 	nodeIdsByFilePath: Map<string, string[]>;
 	/** Lowercased path suffix index, for the mismatched-root fallback. */
 	nodeIdsByLowerFilePath: Map<string, string[]>;
+	/**
+	 * Lowercased node name to the ids declaring it, for the symbol locator. Names are
+	 * far from unique — 92% of `akselos-dev`'s 27 600 distinct names resolve to one
+	 * node, but `go` resolves to 432 — so the value is a list and every reader has to
+	 * handle ambiguity rather than take the first.
+	 */
+	nodeIdsByLowerName: Map<string, string[]>;
 	/** File node id to the ids it `contains`. */
 	containedNodeIds: Map<string, string[]>;
 	impactEdges: ReviewGraphImpactEdge[];
@@ -238,6 +251,18 @@ function toWeight(value: unknown): number {
 	return typeof value === "number" && Number.isFinite(value) ? value : 1;
 }
 
+/** `[start, end]` as the generator writes it, or nothing. Never a partial range. */
+function normalizeLineRange(value: unknown): readonly [number, number] | undefined {
+	if (!Array.isArray(value) || value.length < 2) {
+		return undefined;
+	}
+	const [start, end] = value;
+	if (typeof start !== "number" || typeof end !== "number" || !Number.isFinite(start) || !Number.isFinite(end)) {
+		return undefined;
+	}
+	return [start, end];
+}
+
 function buildIndex(input: {
 	projectPath: string;
 	dataDir: string;
@@ -257,6 +282,7 @@ function buildIndex(input: {
 	const nodesById = new Map<string, ReviewGraphNode>();
 	const nodeIdsByFilePath = new Map<string, string[]>();
 	const nodeIdsByLowerFilePath = new Map<string, string[]>();
+	const nodeIdsByLowerName = new Map<string, string[]>();
 
 	for (const candidate of rawNodes) {
 		const raw = candidate as Record<string, unknown>;
@@ -265,6 +291,7 @@ function buildIndex(input: {
 			continue;
 		}
 		const filePath = normalizeGraphFilePath(raw.filePath);
+		const lineRange = normalizeLineRange(raw.lineRange);
 		const node: ReviewGraphNode = {
 			id,
 			type: typeof raw.type === "string" ? raw.type : "node",
@@ -274,8 +301,18 @@ function buildIndex(input: {
 			...(typeof raw.complexity === "number" || typeof raw.complexity === "string"
 				? { complexity: raw.complexity }
 				: {}),
+			...(lineRange ? { lineRange } : {}),
 		};
 		nodesById.set(id, node);
+		const lowerName = node.name.toLowerCase();
+		if (lowerName.length > 0) {
+			const existingName = nodeIdsByLowerName.get(lowerName);
+			if (existingName) {
+				existingName.push(id);
+			} else {
+				nodeIdsByLowerName.set(lowerName, [id]);
+			}
+		}
 		if (filePath) {
 			const existing = nodeIdsByFilePath.get(filePath);
 			if (existing) {
@@ -346,6 +383,7 @@ function buildIndex(input: {
 		nodesById,
 		nodeIdsByFilePath,
 		nodeIdsByLowerFilePath,
+		nodeIdsByLowerName,
 		containedNodeIds,
 		impactEdges,
 		layers,
@@ -442,6 +480,112 @@ export function matchChangedPathNodeIds(index: ReviewGraphIndex, changedPath: st
 		}
 	}
 	return matches;
+}
+
+/**
+ * Above this many nodes sharing a name, the graph cannot locate anything useful and
+ * says so instead. Picked off the data: it excludes exactly the 27 `akselos-dev`
+ * names that are pure noise (`go` at 432, `get_parser` at 373, `run` at 49) while
+ * keeping the 105 names in the 6-20 band listable at four-of-N.
+ */
+export const AMBIGUOUS_SYMBOL_THRESHOLD = 20;
+/** How many definitions of one name reach the prompt before it says "and N more". */
+export const MAX_DEFINITIONS_PER_SYMBOL = 4;
+/**
+ * How many distinct names one turn may look up. A question naming more than a handful
+ * of symbols is not a question about a symbol, and the extractor's no-backtick
+ * fallback is a heuristic that must not be allowed to fill the section on its own.
+ */
+export const MAX_LOOKUP_SYMBOLS = 6;
+
+export interface ReviewGraphSymbolDefinition {
+	nodeId: string;
+	type: string;
+	name: string;
+	filePath?: string;
+	summary?: string;
+	complexity?: number | string;
+	lineRange?: readonly [number, number];
+}
+
+export interface ReviewGraphSymbolLookup {
+	/** The name as the reviewer wrote it, so the prompt can echo their spelling. */
+	name: string;
+	kind: "found" | "ambiguous" | "absent";
+	/** Every node sharing the name, before `MAX_DEFINITIONS_PER_SYMBOL` truncation. */
+	totalMatches: number;
+	definitions: ReviewGraphSymbolDefinition[];
+}
+
+/**
+ * Locates named symbols in the graph. A *locator*, deliberately not a describer.
+ *
+ * The graph records no signature, no parameter list and no return type — not in this
+ * repo's and not in `akselos-dev`'s — so this can never answer "what does this
+ * return". What it answers is "which file is this in", which is the question standing
+ * between the agent and a targeted `Read` it is already allowed to do. That is the
+ * whole value: `get_empirical_data_dir` resolves to two files in `akselos-dev`, and
+ * knowing which two is the difference between reading one and hedging.
+ *
+ * Exact lowercase lookup only. No prefix, substring or fuzzy matching: the one linear
+ * scan in this module is per changed *path* over a bounded list, and doing the same
+ * per prompt token over 33 500 names is the sweep the whole module exists to avoid.
+ */
+export function lookupReviewGraphSymbols(
+	index: ReviewGraphIndex,
+	names: readonly string[],
+	options?: { maxDefinitions?: number; ambiguousThreshold?: number },
+): ReviewGraphSymbolLookup[] {
+	const maxDefinitions = options?.maxDefinitions ?? MAX_DEFINITIONS_PER_SYMBOL;
+	const ambiguousThreshold = options?.ambiguousThreshold ?? AMBIGUOUS_SYMBOL_THRESHOLD;
+	const lookups: ReviewGraphSymbolLookup[] = [];
+	const seen = new Set<string>();
+
+	for (const name of names) {
+		const trimmed = name.trim();
+		const lower = trimmed.toLowerCase();
+		if (lower.length === 0 || seen.has(lower)) {
+			continue;
+		}
+		seen.add(lower);
+
+		const nodeIds = index.nodeIdsByLowerName.get(lower) ?? [];
+		if (nodeIds.length === 0) {
+			lookups.push({ name: trimmed, kind: "absent", totalMatches: 0, definitions: [] });
+			continue;
+		}
+		// Past the threshold, listing four of forty-nine reads as an answer rather than
+		// as a sample, so nothing is listed at all.
+		if (nodeIds.length > ambiguousThreshold) {
+			lookups.push({ name: trimmed, kind: "ambiguous", totalMatches: nodeIds.length, definitions: [] });
+			continue;
+		}
+
+		const definitions: ReviewGraphSymbolDefinition[] = [];
+		for (const nodeId of nodeIds.slice(0, maxDefinitions)) {
+			const node = index.nodesById.get(nodeId);
+			if (node === undefined) {
+				continue;
+			}
+			definitions.push({
+				nodeId: node.id,
+				type: node.type,
+				name: node.name,
+				...(node.filePath ? { filePath: node.filePath } : {}),
+				...(node.summary ? { summary: node.summary } : {}),
+				...(node.complexity !== undefined ? { complexity: node.complexity } : {}),
+				...(node.lineRange ? { lineRange: node.lineRange } : {}),
+			});
+		}
+		lookups.push({
+			name: trimmed,
+			kind: nodeIds.length === 1 ? "found" : "ambiguous",
+			totalMatches: nodeIds.length,
+			definitions,
+		});
+	}
+
+	return lookups;
 }
 
 export interface ReviewGraphImpactComponent {

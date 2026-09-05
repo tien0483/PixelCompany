@@ -8,6 +8,8 @@ export enum LocalStorageKey {
 	/** Claude model the Review tab's one-shot agents run on. Defaults to Haiku. */
 	ReviewAgentModel = "kanban.review-agent-model",
 	ReviewPolishComments = "kanban.review-polish-comments",
+	/** Whether the review chat answers in compressed form. Defaults to on. */
+	ReviewTerseAnswers = "kanban.review-terse-answers",
 	/** Whether the review comment composer opens in rich or plain text mode. */
 	ReviewCommentEditorMode = "kanban.review-comment-editor-mode",
 	/** Whether the review diff pane's draggable tag strip is expanded. Defaults to open. */
