@@ -7,16 +7,16 @@ const EDGE_ZONE_PX = 56;
 const MAX_SPEED_PX_PER_FRAME = 18;
 
 export interface DragAutoscrollHandlers {
-	onDragOver: (event: { clientY: number }) => void;
+	onPointerMove: (event: { clientY: number }) => void;
 	stop: () => void;
 }
 
 /**
  * Scrolls a container while something is dragged near its top or bottom edge.
  *
- * A native HTML5 drag suppresses wheel and keyboard scrolling, so without this a chip
- * can only ever be dropped on a row that was already on screen when the drag started —
- * which makes any range longer than the viewport unreachable.
+ * A drag holds the pointer down, so the reviewer has no hand free to scroll with —
+ * without this a chip could only ever be dropped on a row that was already on screen
+ * when the drag started, which makes any range longer than the viewport unreachable.
  *
  * The speed is a ramp rather than a constant: at the very edge it moves fast enough to
  * cross a long file, and a pointer that merely grazes the zone barely moves at all.
@@ -43,11 +43,11 @@ export function useDragAutoscroll(
 			stop();
 			return;
 		}
-		window.addEventListener("dragend", stop);
-		window.addEventListener("drop", stop);
+		window.addEventListener("pointerup", stop);
+		window.addEventListener("pointercancel", stop);
 		return () => {
-			window.removeEventListener("dragend", stop);
-			window.removeEventListener("drop", stop);
+			window.removeEventListener("pointerup", stop);
+			window.removeEventListener("pointercancel", stop);
 			stop();
 		};
 	}, [enabled, stop]);
@@ -62,7 +62,7 @@ export function useDragAutoscroll(
 		frameRef.current = requestAnimationFrame(step);
 	}, [containerRef]);
 
-	const onDragOver = useCallback(
+	const onPointerMove = useCallback(
 		(event: { clientY: number }) => {
 			const element = containerRef.current;
 			if (!enabled || !element) {
@@ -90,5 +90,5 @@ export function useDragAutoscroll(
 		[containerRef, enabled, step],
 	);
 
-	return { onDragOver, stop };
+	return { onPointerMove, stop };
 }

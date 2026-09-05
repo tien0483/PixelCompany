@@ -962,6 +962,16 @@ body.kb-dependency-link-mode {
 	user-select: none;
 }
 
+/*
+ * Set on <body> while a tag chip is in flight. Native drag-and-drop suppressed text
+ * selection for free; a pointer drag has to ask, or the chip smears a selection across
+ * every line it crosses.
+ */
+.kb-tag-dragging,
+.kb-tag-dragging * {
+	user-select: none;
+}
+
 .kb-diff-row-added {
 	background: rgba(63, 185, 80, 0.15);
 }
