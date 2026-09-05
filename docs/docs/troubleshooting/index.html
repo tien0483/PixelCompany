@@ -1,0 +1,172 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><link rel="icon" type="image/svg+xml" href="/favicon.svg"><meta name="generator" content="Astro v7.2.10"><title>Troubleshooting · PIXTiel</title><meta name="description" content="The failures that actually happen: busy ports, 9p mounts, a card stuck on the login screen, a blank Learning frame, and how to get work back out of a purged worktree."><!-- Open Graph / Social Tags --><meta property="og:type" content="website"><meta property="og:title" content="Troubleshooting · PIXTiel"><meta property="og:description" content="The failures that actually happen: busy ports, 9p mounts, a card stuck on the login screen, a blank Learning frame, and how to get work back out of a purged worktree."><meta property="og:image" content="/screenshots/board-hero.png"><!-- Twitter --><meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="Troubleshooting · PIXTiel"><meta name="twitter:description" content="The failures that actually happen: busy ports, 9p mounts, a card stuck on the login screen, a blank Learning frame, and how to get work back out of a purged worktree."><meta name="twitter:image" content="/screenshots/board-hero.png"><script>
+			(function () {
+				var VALID_THEMES = new Set([
+					"default",
+					"graphite",
+					"midnight",
+					"pitch",
+					"solarized-dark",
+					"light",
+					"overcast",
+					"solarized-light",
+					"latte",
+					"high-contrast-dark",
+					"high-contrast-light",
+				]);
+				var LIGHT_THEMES = new Set([
+					"light",
+					"overcast",
+					"solarized-light",
+					"latte",
+					"high-contrast-light",
+				]);
+
+				function applyTheme(theme) {
+					if (!theme || !VALID_THEMES.has(theme) || theme === "default") {
+						document.documentElement.removeAttribute("data-theme");
+					} else {
+						document.documentElement.setAttribute("data-theme", theme);
+					}
+					if (LIGHT_THEMES.has(theme)) {
+						document.documentElement.classList.remove("dark");
+						document.documentElement.classList.add("light");
+					} else {
+						document.documentElement.classList.remove("light");
+						document.documentElement.classList.add("dark");
+					}
+				}
+
+				try {
+					var params = new URLSearchParams(window.location.search);
+					var paramTheme = params.get("theme");
+					if (paramTheme && VALID_THEMES.has(paramTheme)) {
+						sessionStorage.setItem("pixtiel_theme", paramTheme);
+						applyTheme(paramTheme);
+					} else {
+						var stored =
+							sessionStorage.getItem("pixtiel_theme") ||
+							localStorage.getItem("pixtiel_theme") ||
+							localStorage.getItem("theme");
+						if (stored && VALID_THEMES.has(stored)) {
+							applyTheme(stored);
+						} else {
+							applyTheme("default");
+						}
+					}
+					if (params.get("embed") === "true" || window.self !== window.top) {
+						document.documentElement.classList.add("is-embedded");
+					}
+				} catch (e) {
+					applyTheme("default");
+				}
+
+				window.addEventListener("message", function (event) {
+					if (!event || !event.data) return;
+					if (event.data.type === "theme-change" || event.data.type === "set-theme") {
+						var nextTheme = event.data.theme || event.data.themeId;
+						if (typeof nextTheme === "string" && VALID_THEMES.has(nextTheme)) {
+							try {
+								sessionStorage.setItem("pixtiel_theme", nextTheme);
+							} catch (e) {}
+							applyTheme(nextTheme);
+						}
+					}
+				});
+			})();
+		</script><style>.docs-content h1{color:var(--color-text-primary);letter-spacing:-.025em;margin-bottom:1rem;font-size:2.25rem;font-weight:800;line-height:1.2}.docs-content h2{color:var(--color-text-primary);letter-spacing:-.02em;border-top:1px solid var(--color-border);margin-top:2.5rem;margin-bottom:1rem;padding-top:1rem;font-size:1.5rem;font-weight:700}.docs-content h3{color:var(--color-text-primary);letter-spacing:-.01em;margin-top:1.75rem;margin-bottom:.75rem;font-size:1.25rem;font-weight:600}.docs-content h4{color:var(--color-text-primary);margin-top:1.25rem;margin-bottom:.5rem;font-size:1.1rem;font-weight:600}.docs-content p{color:var(--color-text-primary);margin-bottom:1.25rem;line-height:1.7}.docs-content ul{margin-bottom:1.25rem;padding-left:1.5rem;list-style-type:disc}.docs-content ol{margin-bottom:1.25rem;padding-left:1.5rem;list-style-type:decimal}.docs-content li{color:var(--color-text-primary);margin-bottom:.35rem}.docs-content hr{border:0;border-top:1px solid var(--color-border);margin:2.5rem 0}.docs-content a{color:var(--color-accent);text-underline-offset:3px;font-weight:500;text-decoration:underline;transition:color .15s}.docs-content a:hover{color:var(--color-accent-hover)}.docs-content code:not(pre code){background-color:var(--color-surface-2);border:1px solid var(--color-border);color:var(--color-text-primary);font-size:.85em;font-family:var(--font-mono);border-radius:.375rem;padding:.2rem .45rem;font-weight:500}.docs-content pre{border:1px solid var(--color-border);font-size:.875rem;font-family:var(--font-mono);border-radius:.75rem;margin:1.5rem 0;padding:1.25rem;line-height:1.6;overflow-x:auto;background-color:#161b22!important}.docs-content pre code{color:#e6edf3!important;background-color:#0000!important;border:none!important;padding:0!important}.docs-content blockquote{border-left:4px solid var(--color-accent);background-color:var(--color-surface-1);border-top:1px solid var(--color-border);border-right:1px solid var(--color-border);border-bottom:1px solid var(--color-border);color:var(--color-text-primary);border-radius:0 .5rem .5rem 0;margin:1.5rem 0;padding:1rem 1.25rem;font-style:normal}.docs-content blockquote p{color:var(--color-text-primary);margin-bottom:0}.docs-content table{border-collapse:collapse;width:100%;margin:1.5rem 0;font-size:.875rem}.docs-content th{background-color:var(--color-surface-1);color:var(--color-text-primary);text-align:left;border:1px solid var(--color-border);padding:.75rem 1rem;font-weight:600}.docs-content td{border:1px solid var(--color-border);color:var(--color-text-primary);padding:.75rem 1rem}.docs-content tr:nth-child(2n) td{background-color:var(--color-surface-1)}
+</style><link rel="stylesheet" href="/PixelCompany/_astro/BaseLayout.C9NCAzjW.css"></head><body class="min-h-screen flex flex-col bg-surface-0 text-text-primary antialiased"><div id="site-nav-container"><nav class="w-full border-b border-border bg-surface-0/80 backdrop-blur-md sticky top-0 z-50 "><div class="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between"><a href="/" class="flex items-center gap-2.5 text-text-primary hover:opacity-80 transition-opacity group"><img src="/pixtiel-logo.svg" alt="PIXTiel" class="h-8 w-auto"></a><div class="flex items-center gap-3 sm:gap-6 text-xs sm:text-sm font-medium text-text-secondary"><a href="/products" class="transition-colors hover:text-text-primary">Products</a><a href="/docs/getting-started" class="transition-colors hover:text-text-primary">Docs</a><a href="/blog" class="transition-colors hover:text-text-primary">Blog</a><a href="/#install" class="hidden sm:inline-block hover:text-text-primary transition-colors">Install</a><a href="https://github.com/tien0483/PixelCompany" target="_blank" rel="noopener noreferrer" class="hover:text-text-primary transition-colors inline-flex items-center gap-1">GitHub<svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg></a></div></div></nav></div><main class="flex-1"><div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 md:py-12 docs-layout-container"><div class="flex flex-col lg:flex-row gap-8 lg:gap-12"><!-- Left Sidebar Navigation --><aside class="w-full lg:w-64 shrink-0"><div class="sticky top-24 space-y-6 docs-sidebar-sticky"><div><h5 class="text-xs font-mono uppercase tracking-wider text-text-secondary px-3 mb-3 font-semibold">Documentation</h5><nav class="space-y-1"><a href="/docs/getting-started" class="flex items-center px-3 py-2 text-sm rounded-lg transition-colors font-medium text-text-secondary hover:text-text-primary hover:bg-surface-1 border border-transparent"><span>Getting Started</span></a><a href="/docs/install" class="flex items-center px-3 py-2 text-sm rounded-lg transition-colors font-medium text-text-secondary hover:text-text-primary hover:bg-surface-1 border border-transparent"><span>Installation &amp; Setup</span></a><a href="/docs/cli" class="flex items-center px-3 py-2 text-sm rounded-lg transition-colors font-medium text-text-secondary hover:text-text-primary hover:bg-surface-1 border border-transparent"><span>Commands &amp; Scripts</span></a><a href="/docs/seats" class="flex items-center px-3 py-2 text-sm rounded-lg transition-colors font-medium text-text-secondary hover:text-text-primary hover:bg-surface-1 border border-transparent"><span>Multi-Account Seats</span></a><a href="/docs/agents" class="flex items-center px-3 py-2 text-sm rounded-lg transition-colors font-medium text-text-secondary hover:text-text-primary hover:bg-surface-1 border border-transparent"><span>Agent CLIs &amp; Skills</span></a><a href="/docs/review" class="flex items-center px-3 py-2 text-sm rounded-lg transition-colors font-medium text-text-secondary hover:text-text-primary hover:bg-surface-1 border border-transparent"><span>Merge Requests &amp; Review</span></a><a href="/docs/troubleshooting" class="flex items-center px-3 py-2 text-sm rounded-lg transition-colors font-medium bg-surface-2 text-text-primary font-semibold border-l-2 border-accent border-y border-r border-border shadow-xs"><span>Troubleshooting</span></a><a href="/docs/faq" class="flex items-center px-3 py-2 text-sm rounded-lg transition-colors font-medium text-text-secondary hover:text-text-primary hover:bg-surface-1 border border-transparent"><span>Frequently Asked Questions</span></a></nav></div><div class="p-4 rounded-xl border border-border bg-surface-1 text-xs text-text-secondary space-y-2"><div class="font-semibold text-text-primary flex items-center gap-1.5"><svg class="w-4 h-4 text-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg><span>Open Source</span></div><p>Need help or want to contribute? Check our repository on GitHub.</p><a href="https://github.com/tien0483/PixelCompany" target="_blank" rel="noopener noreferrer" class="inline-block text-accent hover:text-accent-hover font-medium">View Repository &rarr;</a></div></div></aside><!-- Main Content Area --><main class="min-w-0 flex-1 max-w-4xl"><!-- Breadcrumb --><div class="flex items-center gap-2 text-xs font-mono text-text-secondary mb-6"><a href="/" class="hover:text-text-primary transition-colors">Home</a><span>/</span><a href="/docs/getting-started" class="hover:text-text-primary transition-colors">Docs</a><span>/</span><span class="text-text-primary">Troubleshooting</span></div><!-- Article Body with Prose Styles --><article class="docs-content text-text-primary leading-relaxed"><h1 id="troubleshooting">Troubleshooting</h1>
+<p>Real symptoms, in the order people hit them.</p>
+<hr/>
+<h2 id="port-3484-is-already-in-use"><code>Port 3484 is already in use</code></h2>
+<p>Something is already serving PIXTiel — often a previous run that did not exit cleanly.</p>
+<pre class="astro-code github-dark" style="background-color:#24292e;color:#e1e4e8;overflow-x:auto" tabindex="0" data-language="bash"><code><span class="line"><span style="color:#B392F0">pnpm</span><span style="color:#9ECBFF"> start</span><span style="color:#79B8FF"> --</span><span style="color:#79B8FF"> --restart</span></span></code></pre>
+<p>That frees the app and stack ports and restarts the stack daemons. An already-served sidecar port
+is <em>adopted</em>, not treated as an error, so a second launch reusing a running Manager is normal and
+harmless.</p>
+<hr/>
+<h2 id="the-installer-aborts-on-mnt">The installer aborts on <code>/mnt/...</code></h2>
+<pre class="astro-code github-dark" style="background-color:#24292e;color:#e1e4e8;overflow-x:auto" tabindex="0" data-language="plaintext"><code><span class="line"><span>Error: Repo is on /mnt/e/x — a 9p Windows mount. Clone to the native Linux filesystem</span></span>
+<span class="line"><span>(e.g. ~/pixtiel); node_modules on /mnt hangs forever.</span></span></code></pre>
+<p>This is a guard, not a bug. On WSL, <code>/mnt/&lt;drive&gt;</code> is a 9p mount: dependency installs and
+parallel git operations there stall for minutes or deadlock outright. Install under your Linux
+home (<code>~/pixtiel</code>) and the same work takes seconds. You can still <em>open</em> projects that live
+elsewhere — it is the install that must be on ext4.</p>
+<hr/>
+<h2 id="a-card-opens-on-login-expired--please-run-login">A card opens on <code>Login expired · Please run /login</code></h2>
+<p>Usually the seat’s OAuth pair is stale rather than exhausted. PIXTiel grants one same-seat
+recovery attempt automatically — it re-prepares the seat, restarts the session with <code>--continue</code>
+and types <code>continue</code> for you. If that has already been spent, the card fails over to a standby
+seat instead.</p>
+<p>If it keeps coming back on one seat, its Claude Code credential is genuinely dead: open
+<strong>Manager → Seats</strong> and use that seat’s <strong>CC</strong> re-authorize button. A seat whose credential has
+lapsed can still show healthy pills, which is exactly why the button exists.</p>
+<hr/>
+<h2 id="the-learning-tab-renders-blank">The Learning tab renders blank</h2>
+<p>The classroom refuses to be framed. Its <code>X-Frame-Options</code> is baked in at <em>build</em> time, so a build
+made without the embed origins will never frame — and no error appears in the browser or the
+server log. PIXTiel detects that state and gives you an <strong>Open in a tab</strong> button, which works
+everywhere. To get the embed back, rebuild the sidecar with the frame-ancestors option set.</p>
+<hr/>
+<h2 id="the-agents-studio-says-a-route-is-failing">The Agents studio says a route is failing</h2>
+<p>The sidebar distinguishes “a seat exists” from “the route works”. A <code>seat · route failing</code> label
+means a zero-token probe reached the provider and got an error back — the message shown is the
+provider’s own. Common causes: the pinned seat has no remaining quota, or its credential needs
+re-authorizing. Nodes that read their base URL from the environment throw rather than silently
+falling back to a public endpoint, which is deliberate: a flow should fail loudly instead of
+billing an account you did not choose.</p>
+<hr/>
+<h2 id="a-worktree-disappeared-with-uncommitted-work-in-it">A worktree disappeared with uncommitted work in it</h2>
+<p>Worktrees are mortal — assume it happens once. Two recovery sources exist:</p>
+<pre class="astro-code github-dark" style="background-color:#24292e;color:#e1e4e8;overflow-x:auto" tabindex="0" data-language="bash"><code><span class="line"><span style="color:#6A737D"># every agent turn writes a checkpoint ref</span></span>
+<span class="line"><span style="color:#B392F0">git</span><span style="color:#9ECBFF"> for-each-ref</span><span style="color:#9ECBFF"> refs/kanban/checkpoints/</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#6A737D"># discarded work is kept as a patch</span></span>
+<span class="line"><span style="color:#B392F0">ls</span><span style="color:#9ECBFF"> ~/.agent/kanban/trashed-task-patches/</span></span></code></pre>
+<p>Restore the patch onto the commit the card recorded as its base. The habit that makes this
+painless: commit to the card’s named branch as soon as a change is meaningful — a branch survives
+a directory that does not.</p>
+<hr/>
+<h2 id="a-build-succeeded-but-produced-nothing">A build “succeeded” but produced nothing</h2>
+<p>If you script builds yourself, beware:</p>
+<pre class="astro-code github-dark" style="background-color:#24292e;color:#e1e4e8;overflow-x:auto" tabindex="0" data-language="bash"><code><span class="line"><span style="color:#B392F0">pnpm</span><span style="color:#9ECBFF"> build</span><span style="color:#F97583"> &gt;</span><span style="color:#9ECBFF"> log</span><span style="color:#F97583"> 2&gt;&amp;1</span><span style="color:#E1E4E8">; </span><span style="color:#79B8FF">echo</span><span style="color:#79B8FF"> $?</span><span style="color:#6A737D">    # reports the redirect&#39;s status, not the build&#39;s</span></span></code></pre>
+<p>Three “successful” builds during development were engine failures with no artifacts. Read the
+command’s own exit status instead:</p>
+<pre class="astro-code github-dark" style="background-color:#24292e;color:#e1e4e8;overflow-x:auto" tabindex="0" data-language="bash"><code><span class="line"><span style="color:#B392F0">pnpm</span><span style="color:#9ECBFF"> build</span><span style="color:#E1E4E8">; </span><span style="color:#79B8FF">echo</span><span style="color:#9ECBFF"> &quot;exit=</span><span style="color:#79B8FF">$?</span><span style="color:#9ECBFF">&quot;</span></span></code></pre>
+<hr/>
+<h2 id="a-fresh-clone-fails-on-pnpm-install">A fresh clone fails on <code>pnpm install</code></h2>
+<p>Fixed in current builds — the workspace binary now has a committed target rather than pointing at
+a build artifact that does not exist yet. On an older checkout, running <code>pnpm install</code> a second
+time succeeds, and <code>pnpm run upgrade</code> brings you onto a build where the first one does.</p>
+<hr/>
+<h2 id="timeouterror-the-operation-was-aborted-due-to-timeout-during-pnpm-install"><code>TimeoutError: The operation was aborted due to timeout</code> during <code>pnpm install</code></h2>
+<pre class="astro-code github-dark" style="background-color:#24292e;color:#e1e4e8;overflow-x:auto" tabindex="0" data-language="plaintext"><code><span class="line"><span>[WARN] Tarball download average speed is below 50 KiB/s...</span></span>
+<span class="line"><span>[WARN] GET https://registry.npmjs.org/@anthropic-ai/... error (23). Will retry in 10 seconds.</span></span>
+<span class="line"><span>[23] The operation was aborted due to timeout</span></span>
+<span class="line"><span>[kanban] step failed with exit code 1: pnpm install</span></span></code></pre>
+<p>This happens when downloading large native binaries (e.g. <code>@anthropic-ai/claude-agent-sdk</code> ~77MB, <code>@next/swc</code> ~45MB, <code>@openai/codex</code> ~42MB) over a slow or high-latency internet connection where requests exceed pnpm’s default 60-second fetch timeout.</p>
+<p><strong>Fix:</strong></p>
+<ol>
+<li>The repository now includes a root <code>.npmrc</code> configuring a 10-minute timeout (<code>fetch-timeout=600000</code>) and 5 retries.</li>
+<li>If installing globally or outside the repo, set the timeout in your global pnpm configuration:
+<pre class="astro-code github-dark" style="background-color:#24292e;color:#e1e4e8;overflow-x:auto" tabindex="0" data-language="bash"><code><span class="line"><span style="color:#B392F0">pnpm</span><span style="color:#9ECBFF"> config</span><span style="color:#9ECBFF"> set</span><span style="color:#9ECBFF"> fetch-timeout</span><span style="color:#79B8FF"> 600000</span></span>
+<span class="line"><span style="color:#B392F0">pnpm</span><span style="color:#9ECBFF"> config</span><span style="color:#9ECBFF"> set</span><span style="color:#9ECBFF"> fetch-retries</span><span style="color:#79B8FF"> 5</span></span></code></pre>
+</li>
+<li>If you are in a region with severe throttling to npmjs.org, you can temporarily point pnpm to a faster mirror:
+<pre class="astro-code github-dark" style="background-color:#24292e;color:#e1e4e8;overflow-x:auto" tabindex="0" data-language="bash"><code><span class="line"><span style="color:#B392F0">pnpm</span><span style="color:#9ECBFF"> config</span><span style="color:#9ECBFF"> set</span><span style="color:#9ECBFF"> registry</span><span style="color:#9ECBFF"> https://registry.npmmirror.com</span></span></code></pre>
+</li>
+<li>Re-run the installer setup:
+<pre class="astro-code github-dark" style="background-color:#24292e;color:#e1e4e8;overflow-x:auto" tabindex="0" data-language="bash"><code><span class="line"><span style="color:#B392F0">pnpm</span><span style="color:#9ECBFF"> run</span><span style="color:#9ECBFF"> setup</span></span></code></pre>
+</li>
+</ol>
+<hr/>
+<h2 id="usage-jumped-after-enabling-the-agent-stack">Usage jumped after enabling the agent stack</h2>
+<p>Expected, and reversible. Sessions on a warm repository run a very high prompt-cache hit rate;
+anything that rewrites context can break the cache prefix, turning a cheap cache read into a full
+write. Watch your provider’s usage view after enabling it, and take traffic back off the chain
+with:</p>
+<pre class="astro-code github-dark" style="background-color:#24292e;color:#e1e4e8;overflow-x:auto" tabindex="0" data-language="bash"><code><span class="line"><span style="color:#B392F0">pnpm</span><span style="color:#9ECBFF"> start</span><span style="color:#79B8FF"> --</span><span style="color:#79B8FF"> --no-proxy-env</span></span></code></pre>
+<hr/>
+<h2 id="still-stuck">Still stuck?</h2>
+<p>Ask the codebase. With a knowledge graph built, the <strong>Understand</strong> tab answers “how does X work”
+and “what calls Y” from the graph instead of a dozen file reads. Otherwise open an issue on
+<a href="https://github.com/tien0483/PixelCompany">GitHub</a> with the command you ran and its own output.</p></article><!-- Next / Prev Pagination --><div class="mt-16 pt-8 border-t border-border grid grid-cols-1 sm:grid-cols-2 gap-4"><a href="/docs/review" class="p-4 rounded-xl border border-border bg-surface-1 hover:border-border-bright transition-colors group flex flex-col items-start"><span class="text-xs text-text-secondary group-hover:text-accent transition-colors">&larr; Previous</span><span class="text-sm font-semibold text-text-primary mt-1">Merge Requests &amp; Review</span></a><a href="/docs/faq" class="p-4 rounded-xl border border-border bg-surface-1 hover:border-border-bright transition-colors group flex flex-col items-end sm:text-right"><span class="text-xs text-text-secondary group-hover:text-accent transition-colors">Next &rarr;</span><span class="text-sm font-semibold text-text-primary mt-1">Frequently Asked Questions</span></a></div></main></div></div></main><div id="site-footer-container"><footer class="w-full border-t border-border bg-surface-0 py-12 text-text-secondary "><div class="max-w-6xl mx-auto px-4 sm:px-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-8"><div class="flex flex-col gap-2"><div class="flex items-center gap-2.5 text-text-primary"><img src="/pixtiel-logo.svg" alt="PIXTiel" class="h-7 w-auto"></div><p class="text-xs text-text-tertiary max-w-sm">Multi-agent coordination and workspace runtime for autonomous software engineering.</p><p class="text-xs text-text-tertiary">Distributed under the MIT License.</p></div><div class="flex flex-col sm:flex-row items-start sm:items-center gap-6 sm:gap-8 text-sm"><a href="/products" class="hover:text-text-primary transition-colors">Products</a><a href="/docs/getting-started" class="hover:text-text-primary transition-colors">Docs</a><a href="/blog" class="hover:text-text-primary transition-colors">Blog</a><a href="/#install" class="hover:text-text-primary transition-colors">Install</a><a href="/rss.xml" class="hover:text-text-primary transition-colors">RSS</a><a href="https://github.com/tien0483/PixelCompany" target="_blank" rel="noopener noreferrer" class="hover:text-text-primary transition-colors">GitHub</a></div></div><div class="max-w-6xl mx-auto px-4 sm:px-6 mt-8 pt-6 border-t border-border/60 flex flex-col sm:flex-row items-center justify-between text-xs text-text-tertiary gap-4"><span>&copy; 2026 Tiến Nguyễn. All rights reserved.</span><span>Built with Astro &amp; Tailwind CSS</span></div></footer></div></body></html>

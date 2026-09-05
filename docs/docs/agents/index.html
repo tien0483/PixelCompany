@@ -1,0 +1,209 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><link rel="icon" type="image/svg+xml" href="/favicon.svg"><meta name="generator" content="Astro v7.2.10"><title>Agent CLIs &amp; Skills · PIXTiel</title><meta name="description" content="Which agent harnesses PIXTiel can launch, what a card pins before launch, and the token-compression stack every task agent gets on PATH."><!-- Open Graph / Social Tags --><meta property="og:type" content="website"><meta property="og:title" content="Agent CLIs &amp; Skills · PIXTiel"><meta property="og:description" content="Which agent harnesses PIXTiel can launch, what a card pins before launch, and the token-compression stack every task agent gets on PATH."><meta property="og:image" content="/screenshots/board-hero.png"><!-- Twitter --><meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="Agent CLIs &amp; Skills · PIXTiel"><meta name="twitter:description" content="Which agent harnesses PIXTiel can launch, what a card pins before launch, and the token-compression stack every task agent gets on PATH."><meta name="twitter:image" content="/screenshots/board-hero.png"><script>
+			(function () {
+				var VALID_THEMES = new Set([
+					"default",
+					"graphite",
+					"midnight",
+					"pitch",
+					"solarized-dark",
+					"light",
+					"overcast",
+					"solarized-light",
+					"latte",
+					"high-contrast-dark",
+					"high-contrast-light",
+				]);
+				var LIGHT_THEMES = new Set([
+					"light",
+					"overcast",
+					"solarized-light",
+					"latte",
+					"high-contrast-light",
+				]);
+
+				function applyTheme(theme) {
+					if (!theme || !VALID_THEMES.has(theme) || theme === "default") {
+						document.documentElement.removeAttribute("data-theme");
+					} else {
+						document.documentElement.setAttribute("data-theme", theme);
+					}
+					if (LIGHT_THEMES.has(theme)) {
+						document.documentElement.classList.remove("dark");
+						document.documentElement.classList.add("light");
+					} else {
+						document.documentElement.classList.remove("light");
+						document.documentElement.classList.add("dark");
+					}
+				}
+
+				try {
+					var params = new URLSearchParams(window.location.search);
+					var paramTheme = params.get("theme");
+					if (paramTheme && VALID_THEMES.has(paramTheme)) {
+						sessionStorage.setItem("pixtiel_theme", paramTheme);
+						applyTheme(paramTheme);
+					} else {
+						var stored =
+							sessionStorage.getItem("pixtiel_theme") ||
+							localStorage.getItem("pixtiel_theme") ||
+							localStorage.getItem("theme");
+						if (stored && VALID_THEMES.has(stored)) {
+							applyTheme(stored);
+						} else {
+							applyTheme("default");
+						}
+					}
+					if (params.get("embed") === "true" || window.self !== window.top) {
+						document.documentElement.classList.add("is-embedded");
+					}
+				} catch (e) {
+					applyTheme("default");
+				}
+
+				window.addEventListener("message", function (event) {
+					if (!event || !event.data) return;
+					if (event.data.type === "theme-change" || event.data.type === "set-theme") {
+						var nextTheme = event.data.theme || event.data.themeId;
+						if (typeof nextTheme === "string" && VALID_THEMES.has(nextTheme)) {
+							try {
+								sessionStorage.setItem("pixtiel_theme", nextTheme);
+							} catch (e) {}
+							applyTheme(nextTheme);
+						}
+					}
+				});
+			})();
+		</script><style>.docs-content h1{color:var(--color-text-primary);letter-spacing:-.025em;margin-bottom:1rem;font-size:2.25rem;font-weight:800;line-height:1.2}.docs-content h2{color:var(--color-text-primary);letter-spacing:-.02em;border-top:1px solid var(--color-border);margin-top:2.5rem;margin-bottom:1rem;padding-top:1rem;font-size:1.5rem;font-weight:700}.docs-content h3{color:var(--color-text-primary);letter-spacing:-.01em;margin-top:1.75rem;margin-bottom:.75rem;font-size:1.25rem;font-weight:600}.docs-content h4{color:var(--color-text-primary);margin-top:1.25rem;margin-bottom:.5rem;font-size:1.1rem;font-weight:600}.docs-content p{color:var(--color-text-primary);margin-bottom:1.25rem;line-height:1.7}.docs-content ul{margin-bottom:1.25rem;padding-left:1.5rem;list-style-type:disc}.docs-content ol{margin-bottom:1.25rem;padding-left:1.5rem;list-style-type:decimal}.docs-content li{color:var(--color-text-primary);margin-bottom:.35rem}.docs-content hr{border:0;border-top:1px solid var(--color-border);margin:2.5rem 0}.docs-content a{color:var(--color-accent);text-underline-offset:3px;font-weight:500;text-decoration:underline;transition:color .15s}.docs-content a:hover{color:var(--color-accent-hover)}.docs-content code:not(pre code){background-color:var(--color-surface-2);border:1px solid var(--color-border);color:var(--color-text-primary);font-size:.85em;font-family:var(--font-mono);border-radius:.375rem;padding:.2rem .45rem;font-weight:500}.docs-content pre{border:1px solid var(--color-border);font-size:.875rem;font-family:var(--font-mono);border-radius:.75rem;margin:1.5rem 0;padding:1.25rem;line-height:1.6;overflow-x:auto;background-color:#161b22!important}.docs-content pre code{color:#e6edf3!important;background-color:#0000!important;border:none!important;padding:0!important}.docs-content blockquote{border-left:4px solid var(--color-accent);background-color:var(--color-surface-1);border-top:1px solid var(--color-border);border-right:1px solid var(--color-border);border-bottom:1px solid var(--color-border);color:var(--color-text-primary);border-radius:0 .5rem .5rem 0;margin:1.5rem 0;padding:1rem 1.25rem;font-style:normal}.docs-content blockquote p{color:var(--color-text-primary);margin-bottom:0}.docs-content table{border-collapse:collapse;width:100%;margin:1.5rem 0;font-size:.875rem}.docs-content th{background-color:var(--color-surface-1);color:var(--color-text-primary);text-align:left;border:1px solid var(--color-border);padding:.75rem 1rem;font-weight:600}.docs-content td{border:1px solid var(--color-border);color:var(--color-text-primary);padding:.75rem 1rem}.docs-content tr:nth-child(2n) td{background-color:var(--color-surface-1)}
+</style><link rel="stylesheet" href="/PixelCompany/_astro/BaseLayout.C9NCAzjW.css"></head><body class="min-h-screen flex flex-col bg-surface-0 text-text-primary antialiased"><div id="site-nav-container"><nav class="w-full border-b border-border bg-surface-0/80 backdrop-blur-md sticky top-0 z-50 "><div class="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between"><a href="/" class="flex items-center gap-2.5 text-text-primary hover:opacity-80 transition-opacity group"><img src="/pixtiel-logo.svg" alt="PIXTiel" class="h-8 w-auto"></a><div class="flex items-center gap-3 sm:gap-6 text-xs sm:text-sm font-medium text-text-secondary"><a href="/products" class="transition-colors hover:text-text-primary">Products</a><a href="/docs/getting-started" class="transition-colors hover:text-text-primary">Docs</a><a href="/blog" class="transition-colors hover:text-text-primary">Blog</a><a href="/#install" class="hidden sm:inline-block hover:text-text-primary transition-colors">Install</a><a href="https://github.com/tien0483/PixelCompany" target="_blank" rel="noopener noreferrer" class="hover:text-text-primary transition-colors inline-flex items-center gap-1">GitHub<svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg></a></div></div></nav></div><main class="flex-1"><div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 md:py-12 docs-layout-container"><div class="flex flex-col lg:flex-row gap-8 lg:gap-12"><!-- Left Sidebar Navigation --><aside class="w-full lg:w-64 shrink-0"><div class="sticky top-24 space-y-6 docs-sidebar-sticky"><div><h5 class="text-xs font-mono uppercase tracking-wider text-text-secondary px-3 mb-3 font-semibold">Documentation</h5><nav class="space-y-1"><a href="/docs/getting-started" class="flex items-center px-3 py-2 text-sm rounded-lg transition-colors font-medium text-text-secondary hover:text-text-primary hover:bg-surface-1 border border-transparent"><span>Getting Started</span></a><a href="/docs/install" class="flex items-center px-3 py-2 text-sm rounded-lg transition-colors font-medium text-text-secondary hover:text-text-primary hover:bg-surface-1 border border-transparent"><span>Installation &amp; Setup</span></a><a href="/docs/cli" class="flex items-center px-3 py-2 text-sm rounded-lg transition-colors font-medium text-text-secondary hover:text-text-primary hover:bg-surface-1 border border-transparent"><span>Commands &amp; Scripts</span></a><a href="/docs/seats" class="flex items-center px-3 py-2 text-sm rounded-lg transition-colors font-medium text-text-secondary hover:text-text-primary hover:bg-surface-1 border border-transparent"><span>Multi-Account Seats</span></a><a href="/docs/agents" class="flex items-center px-3 py-2 text-sm rounded-lg transition-colors font-medium bg-surface-2 text-text-primary font-semibold border-l-2 border-accent border-y border-r border-border shadow-xs"><span>Agent CLIs &amp; Skills</span></a><a href="/docs/review" class="flex items-center px-3 py-2 text-sm rounded-lg transition-colors font-medium text-text-secondary hover:text-text-primary hover:bg-surface-1 border border-transparent"><span>Merge Requests &amp; Review</span></a><a href="/docs/troubleshooting" class="flex items-center px-3 py-2 text-sm rounded-lg transition-colors font-medium text-text-secondary hover:text-text-primary hover:bg-surface-1 border border-transparent"><span>Troubleshooting</span></a><a href="/docs/faq" class="flex items-center px-3 py-2 text-sm rounded-lg transition-colors font-medium text-text-secondary hover:text-text-primary hover:bg-surface-1 border border-transparent"><span>Frequently Asked Questions</span></a></nav></div><div class="p-4 rounded-xl border border-border bg-surface-1 text-xs text-text-secondary space-y-2"><div class="font-semibold text-text-primary flex items-center gap-1.5"><svg class="w-4 h-4 text-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg><span>Open Source</span></div><p>Need help or want to contribute? Check our repository on GitHub.</p><a href="https://github.com/tien0483/PixelCompany" target="_blank" rel="noopener noreferrer" class="inline-block text-accent hover:text-accent-hover font-medium">View Repository &rarr;</a></div></div></aside><!-- Main Content Area --><main class="min-w-0 flex-1 max-w-4xl"><!-- Breadcrumb --><div class="flex items-center gap-2 text-xs font-mono text-text-secondary mb-6"><a href="/" class="hover:text-text-primary transition-colors">Home</a><span>/</span><a href="/docs/getting-started" class="hover:text-text-primary transition-colors">Docs</a><span>/</span><span class="text-text-primary">Agent CLIs &amp; Skills</span></div><!-- Article Body with Prose Styles --><article class="docs-content text-text-primary leading-relaxed"><h1 id="agent-clis--skills">Agent CLIs &amp; Skills</h1>
+<p>PIXTiel is not tied to one vendor. The harness is a <strong>per-card setting</strong>, so switching providers
+is a dropdown rather than a migration, and the parts that should not change per vendor — worktree
+isolation, checkpointing, seat accounting, token compression — are the platform’s job.</p>
+<hr/>
+<h2 id="launchable-harnesses">Launchable harnesses</h2>
+<p>These are the agents a card can start today:</p>
+<table>
+<thead>
+<tr>
+<th>Harness</th>
+<th>Card label</th>
+<th>Auth</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Claude Code</strong></td>
+<td><code>Claude Code</code></td>
+<td>Anthropic OAuth (per-seat)</td>
+<td>Default. Supports a separate subagent seat and per-card MCP allowlists.</td>
+</tr>
+<tr>
+<td><strong>Cursor Agent</strong></td>
+<td><code>Cursor Agent</code></td>
+<td>Cursor account or <code>CURSOR_API_KEY</code></td>
+<td>Pin a Cursor seat on the card instead of switching accounts in the IDE.</td>
+</tr>
+<tr>
+<td><strong>Cline</strong></td>
+<td><code>Cline</code></td>
+<td>API key (multi-provider)</td>
+<td>Runs in-process through the SDK; needs an API-key seat to appear in the picker.</td>
+</tr>
+<tr>
+<td><strong>Antigravity CLI</strong></td>
+<td><code>Antigravity CLI</code></td>
+<td>Google account (per-seat)</td>
+<td>Headless print mode with per-task hooks.</td>
+</tr>
+<tr>
+<td><strong>Custom Agent</strong></td>
+<td><code>Custom Agent (dsh)</code></td>
+<td>DeepSeek Harness on PATH</td>
+<td>Bring your own harness; the card supplies the prompt and worktree.</td>
+</tr>
+</tbody>
+</table>
+<p>The catalog also carries <strong>OpenAI Codex</strong>, <strong>Factory Droid</strong>, <strong>Kiro</strong> and <strong>OpenCode</strong> entries.
+They are not launchable yet — they appear in the model, not the launcher — so treat them as
+planned rather than shipped.</p>
+<hr/>
+<h2 id="what-a-card-pins-before-launch">What a card pins before launch</h2>
+<p>Every card is configured independently, and none of it is a global setting:</p>
+<ul>
+<li><strong>Harness and model</strong> — pick the agent and the exact model id it should run.</li>
+<li><strong>Reasoning effort</strong> — where the harness supports it (<code>low</code> … <code>max</code>).</li>
+<li><strong>Primary seat</strong> — which account this card’s main session bills.</li>
+<li><strong>Subagent seat</strong> — optional; the account this card’s <em>subagents</em> bill instead. See
+<a href="/docs/seats">Multi-Account Seats</a>.</li>
+<li><strong>Base branch</strong> — resolved and locked at worktree creation, so the diff stays honest even
+after <code>main</code> advances.</li>
+<li><strong>Permission mode</strong> — start in plan mode to make the agent propose before it edits. The mode
+survives automatic restarts.</li>
+<li><strong>Skills, MCP servers and launch tags</strong> — which shelves and tool servers are mounted for this
+card only.</li>
+<li><strong>Allowed tools</strong> — restrict what the session may run.</li>
+</ul>
+<p>MCP secrets are not pasted into the card. Store them once in the vault and PIXTiel injects them
+into the launch environment of whichever harness the card uses.</p>
+<hr/>
+<h2 id="the-token-stack">The token stack</h2>
+<p>Installed with the <code>agent-stack</code> feature, inside the repository — nothing global, nothing to
+uninstall later. Every task agent gets these on PATH:</p>
+<table>
+<thead>
+<tr>
+<th>Tool</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>rtk</strong></td>
+<td>A CLI proxy that compresses bulky shell output — <code>rtk git status</code>, <code>rtk tsc</code>, <code>rtk lint</code>, <code>rtk test</code>. Only helps for shell commands; file reads go through the agent’s own tools. <code>rtk gain</code> reports what it saved.</td>
+</tr>
+<tr>
+<td><strong>Caveman</strong></td>
+<td>Compresses prose: drops filler and preamble while keeping technical substance, code blocks and exact error text intact.</td>
+</tr>
+<tr>
+<td><strong>Understand-Anything</strong></td>
+<td>Builds a knowledge graph of the repository, then answers architecture questions (“what calls this”, “where does that get set”) from the graph instead of a dozen file reads. Also powers the Understand dashboard and review blast radius.</td>
+</tr>
+<tr>
+<td><strong>Headroom</strong></td>
+<td>A proxy that rewrites context on the way upstream. Worth watching your cache-hit rate after enabling it — see the note below.</td>
+</tr>
+<tr>
+<td><strong>Ponytail</strong></td>
+<td>A review lens that hunts over-engineering: what to delete, what the standard library already does.</td>
+</tr>
+<tr>
+<td><strong>Switchboard</strong></td>
+<td>The control panel and router on <code>127.0.0.1:8000</code>, with a per-tool toggle file.</td>
+</tr>
+<tr>
+<td><strong>CCR / DevTools</strong></td>
+<td>Optional routers, off by default.</td>
+</tr>
+</tbody>
+</table>
+<div class="not-prose my-6 p-4 rounded-xl border border-border bg-surface-1 text-sm text-text-secondary"><p><strong class="text-text-primary">A caveat worth knowing.</strong> Sessions on a warm repository run
+a very high prompt-cache hit rate. Anything that rewrites context can break the cache prefix,
+which turns a cheap cache read into a full write. Enable Headroom, then watch your usage — and
+remember <code>pnpm start – –no-proxy-env</code> is the lever that takes agent traffic back off
+the chain.</p></div>
+<hr/>
+<h2 id="skills-agents-and-commands">Skills, agents and commands</h2>
+<p>Beyond the stack, PIXTiel ships a catalog you enable per project from the Manager shelves:</p>
+<ul>
+<li><strong>29 skills</strong> — reusable procedures an agent invokes by name (planning, QA, recovery,
+design passes, subagent spawning, and so on).</li>
+<li><strong>10 agent definitions</strong> — pre-authored <code>.claude/agents</code> personas.</li>
+<li><strong>30 slash commands</strong> and <strong>2 rule files</strong>.</li>
+</ul>
+<p>Toggling one on copies it into the project so the agent discovers it without prompting. Skills
+live under your repository:</p>
+<pre class="astro-code github-dark" style="background-color:#24292e;color:#e1e4e8;overflow-x:auto" tabindex="0" data-language="bash"><code><span class="line"><span style="color:#B392F0">.claude/skills/</span><span style="color:#6A737D">     # Claude Code discovers these</span></span>
+<span class="line"><span style="color:#B392F0">.agent/skills/</span><span style="color:#6A737D">      # shared shelf, symlinked per task worktree</span></span></code></pre>
+<p>Author your own with the <strong>Agent studio</strong> (the <code>agent-creation</code> feature) — a canvas with
+credential-free nodes wired to the seats you already manage.</p></article><!-- Next / Prev Pagination --><div class="mt-16 pt-8 border-t border-border grid grid-cols-1 sm:grid-cols-2 gap-4"><a href="/docs/seats" class="p-4 rounded-xl border border-border bg-surface-1 hover:border-border-bright transition-colors group flex flex-col items-start"><span class="text-xs text-text-secondary group-hover:text-accent transition-colors">&larr; Previous</span><span class="text-sm font-semibold text-text-primary mt-1">Multi-Account Seats</span></a><a href="/docs/review" class="p-4 rounded-xl border border-border bg-surface-1 hover:border-border-bright transition-colors group flex flex-col items-end sm:text-right"><span class="text-xs text-text-secondary group-hover:text-accent transition-colors">Next &rarr;</span><span class="text-sm font-semibold text-text-primary mt-1">Merge Requests &amp; Review</span></a></div></main></div></div></main><div id="site-footer-container"><footer class="w-full border-t border-border bg-surface-0 py-12 text-text-secondary "><div class="max-w-6xl mx-auto px-4 sm:px-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-8"><div class="flex flex-col gap-2"><div class="flex items-center gap-2.5 text-text-primary"><img src="/pixtiel-logo.svg" alt="PIXTiel" class="h-7 w-auto"></div><p class="text-xs text-text-tertiary max-w-sm">Multi-agent coordination and workspace runtime for autonomous software engineering.</p><p class="text-xs text-text-tertiary">Distributed under the MIT License.</p></div><div class="flex flex-col sm:flex-row items-start sm:items-center gap-6 sm:gap-8 text-sm"><a href="/products" class="hover:text-text-primary transition-colors">Products</a><a href="/docs/getting-started" class="hover:text-text-primary transition-colors">Docs</a><a href="/blog" class="hover:text-text-primary transition-colors">Blog</a><a href="/#install" class="hover:text-text-primary transition-colors">Install</a><a href="/rss.xml" class="hover:text-text-primary transition-colors">RSS</a><a href="https://github.com/tien0483/PixelCompany" target="_blank" rel="noopener noreferrer" class="hover:text-text-primary transition-colors">GitHub</a></div></div><div class="max-w-6xl mx-auto px-4 sm:px-6 mt-8 pt-6 border-t border-border/60 flex flex-col sm:flex-row items-center justify-between text-xs text-text-tertiary gap-4"><span>&copy; 2026 Tiến Nguyễn. All rights reserved.</span><span>Built with Astro &amp; Tailwind CSS</span></div></footer></div></body></html>

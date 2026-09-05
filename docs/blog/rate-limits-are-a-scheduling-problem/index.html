@@ -1,0 +1,133 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><link rel="icon" type="image/svg+xml" href="/favicon.svg"><meta name="generator" content="Astro v7.2.10"><title>Rate limits are a scheduling problem · PIXTiel</title><meta name="description" content="The 5-hour cap is not an error to surface — it is a resource window to schedule around. How seats, subagent seats and same-seat recovery keep long tasks alive."><!-- Open Graph / Social Tags --><meta property="og:type" content="website"><meta property="og:title" content="Rate limits are a scheduling problem · PIXTiel"><meta property="og:description" content="The 5-hour cap is not an error to surface — it is a resource window to schedule around. How seats, subagent seats and same-seat recovery keep long tasks alive."><meta property="og:image" content="/screenshots/board-hero.png"><!-- Twitter --><meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="Rate limits are a scheduling problem · PIXTiel"><meta name="twitter:description" content="The 5-hour cap is not an error to surface — it is a resource window to schedule around. How seats, subagent seats and same-seat recovery keep long tasks alive."><meta name="twitter:image" content="/screenshots/board-hero.png"><script>
+			(function () {
+				var VALID_THEMES = new Set([
+					"default",
+					"graphite",
+					"midnight",
+					"pitch",
+					"solarized-dark",
+					"light",
+					"overcast",
+					"solarized-light",
+					"latte",
+					"high-contrast-dark",
+					"high-contrast-light",
+				]);
+				var LIGHT_THEMES = new Set([
+					"light",
+					"overcast",
+					"solarized-light",
+					"latte",
+					"high-contrast-light",
+				]);
+
+				function applyTheme(theme) {
+					if (!theme || !VALID_THEMES.has(theme) || theme === "default") {
+						document.documentElement.removeAttribute("data-theme");
+					} else {
+						document.documentElement.setAttribute("data-theme", theme);
+					}
+					if (LIGHT_THEMES.has(theme)) {
+						document.documentElement.classList.remove("dark");
+						document.documentElement.classList.add("light");
+					} else {
+						document.documentElement.classList.remove("light");
+						document.documentElement.classList.add("dark");
+					}
+				}
+
+				try {
+					var params = new URLSearchParams(window.location.search);
+					var paramTheme = params.get("theme");
+					if (paramTheme && VALID_THEMES.has(paramTheme)) {
+						sessionStorage.setItem("pixtiel_theme", paramTheme);
+						applyTheme(paramTheme);
+					} else {
+						var stored =
+							sessionStorage.getItem("pixtiel_theme") ||
+							localStorage.getItem("pixtiel_theme") ||
+							localStorage.getItem("theme");
+						if (stored && VALID_THEMES.has(stored)) {
+							applyTheme(stored);
+						} else {
+							applyTheme("default");
+						}
+					}
+					if (params.get("embed") === "true" || window.self !== window.top) {
+						document.documentElement.classList.add("is-embedded");
+					}
+				} catch (e) {
+					applyTheme("default");
+				}
+
+				window.addEventListener("message", function (event) {
+					if (!event || !event.data) return;
+					if (event.data.type === "theme-change" || event.data.type === "set-theme") {
+						var nextTheme = event.data.theme || event.data.themeId;
+						if (typeof nextTheme === "string" && VALID_THEMES.has(nextTheme)) {
+							try {
+								sessionStorage.setItem("pixtiel_theme", nextTheme);
+							} catch (e) {}
+							applyTheme(nextTheme);
+						}
+					}
+				});
+			})();
+		</script><style>.docs-content h1{color:var(--color-text-primary);letter-spacing:-.025em;margin-bottom:1rem;font-size:2.25rem;font-weight:800;line-height:1.2}.docs-content h2{color:var(--color-text-primary);letter-spacing:-.02em;border-top:1px solid var(--color-border);margin-top:2.5rem;margin-bottom:1rem;padding-top:1rem;font-size:1.5rem;font-weight:700}.docs-content h3{color:var(--color-text-primary);letter-spacing:-.01em;margin-top:1.75rem;margin-bottom:.75rem;font-size:1.25rem;font-weight:600}.docs-content h4{color:var(--color-text-primary);margin-top:1.25rem;margin-bottom:.5rem;font-size:1.1rem;font-weight:600}.docs-content p{color:var(--color-text-primary);margin-bottom:1.25rem;line-height:1.7}.docs-content ul{margin-bottom:1.25rem;padding-left:1.5rem;list-style-type:disc}.docs-content ol{margin-bottom:1.25rem;padding-left:1.5rem;list-style-type:decimal}.docs-content li{color:var(--color-text-primary);margin-bottom:.35rem}.docs-content hr{border:0;border-top:1px solid var(--color-border);margin:2.5rem 0}.docs-content a{color:var(--color-accent);text-underline-offset:3px;font-weight:500;text-decoration:underline;transition:color .15s}.docs-content a:hover{color:var(--color-accent-hover)}.docs-content code:not(pre code){background-color:var(--color-surface-2);border:1px solid var(--color-border);color:var(--color-text-primary);font-size:.85em;font-family:var(--font-mono);border-radius:.375rem;padding:.2rem .45rem;font-weight:500}.docs-content pre{border:1px solid var(--color-border);font-size:.875rem;font-family:var(--font-mono);border-radius:.75rem;margin:1.5rem 0;padding:1.25rem;line-height:1.6;overflow-x:auto;background-color:#161b22!important}.docs-content pre code{color:#e6edf3!important;background-color:#0000!important;border:none!important;padding:0!important}.docs-content blockquote{border-left:4px solid var(--color-accent);background-color:var(--color-surface-1);border-top:1px solid var(--color-border);border-right:1px solid var(--color-border);border-bottom:1px solid var(--color-border);color:var(--color-text-primary);border-radius:0 .5rem .5rem 0;margin:1.5rem 0;padding:1rem 1.25rem;font-style:normal}.docs-content blockquote p{color:var(--color-text-primary);margin-bottom:0}.docs-content table{border-collapse:collapse;width:100%;margin:1.5rem 0;font-size:.875rem}.docs-content th{background-color:var(--color-surface-1);color:var(--color-text-primary);text-align:left;border:1px solid var(--color-border);padding:.75rem 1rem;font-weight:600}.docs-content td{border:1px solid var(--color-border);color:var(--color-text-primary);padding:.75rem 1rem}.docs-content tr:nth-child(2n) td{background-color:var(--color-surface-1)}
+</style><link rel="stylesheet" href="/PixelCompany/_astro/BaseLayout.C9NCAzjW.css"></head><body class="min-h-screen flex flex-col bg-surface-0 text-text-primary antialiased"><div id="site-nav-container"><nav class="w-full border-b border-border bg-surface-0/80 backdrop-blur-md sticky top-0 z-50 "><div class="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between"><a href="/" class="flex items-center gap-2.5 text-text-primary hover:opacity-80 transition-opacity group"><img src="/pixtiel-logo.svg" alt="PIXTiel" class="h-8 w-auto"></a><div class="flex items-center gap-3 sm:gap-6 text-xs sm:text-sm font-medium text-text-secondary"><a href="/products" class="transition-colors hover:text-text-primary">Products</a><a href="/docs/getting-started" class="transition-colors hover:text-text-primary">Docs</a><a href="/blog" class="transition-colors hover:text-text-primary">Blog</a><a href="/#install" class="hidden sm:inline-block hover:text-text-primary transition-colors">Install</a><a href="https://github.com/tien0483/PixelCompany" target="_blank" rel="noopener noreferrer" class="hover:text-text-primary transition-colors inline-flex items-center gap-1">GitHub<svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg></a></div></div></nav></div><main class="flex-1"><article class="max-w-3xl mx-auto px-4 sm:px-6 py-10 sm:py-16"><div class="flex items-center gap-2 text-xs font-mono text-text-secondary mb-8"><a href="/" class="hover:text-text-primary transition-colors">Home</a><span>/</span><a href="/blog" class="hover:text-text-primary transition-colors">Blog</a></div><header class="pb-8 border-b border-border"><div class="flex flex-wrap items-center gap-3 text-xs font-mono text-text-secondary"><time datetime="2026-08-20T00:00:00.000Z">August 20, 2026</time><span>·</span><span>Tiến Nguyễn</span><span class="px-2 py-0.5 rounded border border-border bg-surface-1">seats</span><span class="px-2 py-0.5 rounded border border-border bg-surface-1">architecture</span></div><h1 class="mt-4 text-3xl sm:text-4xl font-bold tracking-tight text-text-primary leading-tight">Rate limits are a scheduling problem</h1><p class="mt-4 text-base sm:text-lg text-text-secondary leading-relaxed">The 5-hour cap is not an error to surface — it is a resource window to schedule around. How seats, subagent seats and same-seat recovery keep long tasks alive.</p></header><div class="docs-content text-text-secondary leading-relaxed mt-10"><p>A long refactor dies 80% of the way through because a rolling usage window closed. The
+conventional handling is to show the error and stop. That treats a <em>scheduling</em> fact as a
+<em>failure</em>, and it charges you twice: once for the tokens already spent, and again to rebuild the
+context after the wait.</p>
+<p>PIXTiel treats the window as what it is — a resource that refills on a known schedule — and
+schedules around it.</p>
+<h2 id="a-seat-is-an-identity-plus-a-window">A seat is an identity plus a window</h2>
+<p>A seat is one account: its authentication state (an OAuth session or an API key), its git
+identity, and a live snapshot of both usage windows — the 5-hour rolling one and the 7-day one.
+Manager keeps that snapshot fresh, so “how much room is left” is a number the scheduler can read,
+not a surprise the agent discovers mid-turn.</p>
+<p>Cards pin seats explicitly. That matters more than it sounds: an unpinned card inherits whatever
+seat is globally active, and “whatever is active” is exactly the seat most likely to be the one
+that just ran out.</p>
+<h2 id="four-responses-in-order-of-preference">Four responses, in order of preference</h2>
+<p>When a card hits the wall, the cheapest correct response wins:</p>
+<ol>
+<li><strong>Same-seat recovery.</strong> Most “login expired” pops are not exhaustion at all — they are a
+stale OAuth pair. Re-preparing the <em>same</em> seat refreshes it, and the card relaunches with
+<code>--continue</code>. One attempt is granted per card, tracked per pop, because a genuine failure
+should not loop.</li>
+<li><strong>Park and resume.</strong> If the window really is closed, the card is parked with its state
+preserved and the runner samples live usage with escalating backoff — deliberately not waking
+straight into another spike — then resumes with <code>--continue</code> when the window clears.</li>
+<li><strong>Failover to a standby seat.</strong> If another seat has room, the card moves and keeps going.</li>
+<li><strong>Ask.</strong> Anything past that surfaces to you, with the reason.</li>
+</ol>
+<p>Getting the order right was the whole lesson. The first version reached for failover
+immediately, which is the <em>wrong</em> cure for the common case: it moved a perfectly healthy card
+onto a different account because a token needed refreshing.</p>
+<h2 id="subagent-seats-the-fix-nobody-expects-to-need">Subagent seats: the fix nobody expects to need</h2>
+<p>Orchestration-heavy work spawns subagents — symbol lookups, test runs, graph indexing. Under one
+seat, that overhead consumes the quota you wanted for actual code. The rate limit gets blamed;
+the real problem is accounting.</p>
+<p>So a card can pin a seat that <strong>only its subagents</strong> bill. The parent session keeps its own
+OAuth credential and its own cap; subagent traffic is diverted to the pinned seat. There is
+exactly one per-turn signal that distinguishes a subagent from its parent, and it is the model
+string the CLI sends verbatim for subagent requests — so that marker is the routing key, and a
+per-spawn model override would silently move the work back onto the parent’s cap.</p>
+<p>Two consequences worth stating plainly. A real API key is never exported to the session, because
+the CLI prefers a key over its OAuth credential and would move the <em>parent</em> off its seat too —
+the base URL alone does the job and the session’s own bearer is forwarded untouched. And every
+failure degrades to “subagents share the task’s seat” rather than blocking the launch: a
+misconfigured seat should cost you accounting, not the task.</p>
+<h2 id="permission-mode-survives-a-restart">Permission mode survives a restart</h2>
+<p>One more thing that only shows up once restarts are automatic. Every relaunch used to put the
+card back into its default permission mode, because the mode is a launch flag and <code>--continue</code>
+carries nothing about it. A card you had deliberately moved to plan mode came back in auto.</p>
+<p>The fix reads the mode the CLI itself recorded in the session transcript and re-passes the flag
+on any resuming launch. Unglamorous, and precisely the kind of thing that decides whether
+automatic recovery is trustworthy: a restart that silently changes what the agent is allowed to
+do is worse than no restart at all.</p>
+<h2 id="the-measurable-part">The measurable part</h2>
+<p>Nothing above reduces the tokens a task needs — it removes the <em>waste</em> around them: no
+re-explaining context after a wait, no orchestration overhead charged to the coding budget, no
+manual babysitting of which account is current. The cap still exists. It just stops being an
+outage.</p></div><div class="mt-16 pt-8 border-t border-border grid grid-cols-1 sm:grid-cols-2 gap-4"><div></div><a href="/blog/one-worktree-per-card" class="p-4 rounded-xl border border-border bg-surface-1 hover:border-border-bright transition-colors group flex flex-col items-end sm:text-right"><span class="text-xs text-text-secondary group-hover:text-accent transition-colors">Newer &rarr;</span><span class="text-sm font-semibold text-text-primary mt-1">One git worktree per card</span></a></div><div class="mt-10 p-6 rounded-2xl border border-border bg-surface-1"><h2 class="text-lg font-semibold text-text-primary">Run it yourself</h2><p class="mt-2 text-sm text-text-secondary">One command installs PIXTiel on Ubuntu or WSL2 and offers to start it.</p><pre class="mt-4 px-4 py-3 rounded-lg border border-border bg-surface-0 text-xs font-mono text-text-primary overflow-x-auto"><code>curl -fsSL https://raw.githubusercontent.com/tien0483/PixelCompany/main/install.sh | bash</code></pre><a href="/docs/getting-started" class="mt-4 inline-block text-sm font-semibold text-accent hover:text-[#339DFF]">Getting started &rarr;</a></div></article></main><div id="site-footer-container"><footer class="w-full border-t border-border bg-surface-0 py-12 text-text-secondary "><div class="max-w-6xl mx-auto px-4 sm:px-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-8"><div class="flex flex-col gap-2"><div class="flex items-center gap-2.5 text-text-primary"><img src="/pixtiel-logo.svg" alt="PIXTiel" class="h-7 w-auto"></div><p class="text-xs text-text-tertiary max-w-sm">Multi-agent coordination and workspace runtime for autonomous software engineering.</p><p class="text-xs text-text-tertiary">Distributed under the MIT License.</p></div><div class="flex flex-col sm:flex-row items-start sm:items-center gap-6 sm:gap-8 text-sm"><a href="/products" class="hover:text-text-primary transition-colors">Products</a><a href="/docs/getting-started" class="hover:text-text-primary transition-colors">Docs</a><a href="/blog" class="hover:text-text-primary transition-colors">Blog</a><a href="/#install" class="hover:text-text-primary transition-colors">Install</a><a href="/rss.xml" class="hover:text-text-primary transition-colors">RSS</a><a href="https://github.com/tien0483/PixelCompany" target="_blank" rel="noopener noreferrer" class="hover:text-text-primary transition-colors">GitHub</a></div></div><div class="max-w-6xl mx-auto px-4 sm:px-6 mt-8 pt-6 border-t border-border/60 flex flex-col sm:flex-row items-center justify-between text-xs text-text-tertiary gap-4"><span>&copy; 2026 Tiến Nguyễn. All rights reserved.</span><span>Built with Astro &amp; Tailwind CSS</span></div></footer></div></body></html>

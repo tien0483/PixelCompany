@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>PIXTiel</title>
+    <description>Engineering notes from building PIXTiel, a local multi-agent coding workspace.</description>
+    <link>https://tien0483.github.io</link>
+    <language>en</language>
+    <item>
+      <title>Introducing PIXTiel 1.0</title>
+      <description>A local workspace where every task is a card, every card is a git worktree, and the agent that runs it is yours to pick. Here is what ships in the first release.</description>
+      <link>https://tien0483.github.io/blog/introducing-pixtiel</link>
+      <guid isPermaLink="false">pixtiel:blog:introducing-pixtiel</guid>
+      <pubDate>Thu, 03 Sep 2026 00:00:00 GMT</pubDate>
+      <author>Tiến Nguyễn</author>
+      <category>release</category>
+    </item>
+    <item>
+      <title>One git worktree per card</title>
+      <description>Parallel agents in one checkout corrupt each other&apos;s work. The fix is boring and load-bearing: give every card its own worktree, lock its base ref, and checkpoint every turn.</description>
+      <link>https://tien0483.github.io/blog/one-worktree-per-card</link>
+      <guid isPermaLink="false">pixtiel:blog:one-worktree-per-card</guid>
+      <pubDate>Fri, 28 Aug 2026 00:00:00 GMT</pubDate>
+      <author>Tiến Nguyễn</author>
+      <category>architecture</category>
+      <category>git</category>
+    </item>
+    <item>
+      <title>Rate limits are a scheduling problem</title>
+      <description>The 5-hour cap is not an error to surface — it is a resource window to schedule around. How seats, subagent seats and same-seat recovery keep long tasks alive.</description>
+      <link>https://tien0483.github.io/blog/rate-limits-are-a-scheduling-problem</link>
+      <guid isPermaLink="false">pixtiel:blog:rate-limits-are-a-scheduling-problem</guid>
+      <pubDate>Thu, 20 Aug 2026 00:00:00 GMT</pubDate>
+      <author>Tiến Nguyễn</author>
+      <category>seats</category>
+      <category>architecture</category>
+    </item>
+  </channel>
+</rss>
