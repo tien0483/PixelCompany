@@ -1,6 +1,8 @@
 import { Bot, Eraser, Trash2 } from "lucide-react";
-import type { ReactElement } from "react";
+import { type MouseEvent as ReactMouseEvent, type ReactElement, useCallback } from "react";
 
+import { ResizeHandle } from "@/resize/resize-handle";
+import { useResizeDrag } from "@/resize/use-resize-drag";
 import { hasRunReviewCommand, ReviewChatComposer } from "@/components/review/review-chat-composer";
 import { ReviewChatMessages } from "@/components/review/review-chat-messages";
 import { ReviewFindingRow } from "@/components/review/review-finding-row";
@@ -36,6 +38,12 @@ export function ReviewClaudePanel({
 	isAuditing,
 	model,
 	terseAnswers,
+	findingsHeight,
+	draftsHeight,
+	composerHeight,
+	onFindingsHeightChange,
+	onDraftsHeightChange,
+	onComposerHeightChange,
 	onTerseAnswersChange,
 	onModelChange,
 	onSend,
@@ -77,6 +85,16 @@ export function ReviewClaudePanel({
 	 * Chat only — published comment text is never compressed.
 	 */
 	terseAnswers: boolean;
+	/**
+	 * The three dragged rows of this column. The transcript between them is the elastic
+	 * remainder, so it is the only one with no height of its own.
+	 */
+	findingsHeight: number;
+	draftsHeight: number;
+	composerHeight: number;
+	onFindingsHeightChange: (height: number) => void;
+	onDraftsHeightChange: (height: number) => void;
+	onComposerHeightChange: (height: number) => void;
 	onTerseAnswersChange: (next: boolean) => void;
 	onModelChange: (model: ReviewAgentModelId) => void;
 	/**
@@ -94,6 +112,41 @@ export function ReviewClaudePanel({
 	onRemoveDraft: (id: string) => void;
 	onJumpToDraft: (draft: RuntimeReviewDraftComment) => void;
 }): ReactElement {
+	const { startDrag: startFindingsResize } = useResizeDrag();
+	const { startDrag: startDraftsResize } = useResizeDrag();
+
+	const handleFindingsSeparatorMouseDown = useCallback(
+		(event: ReactMouseEvent<HTMLDivElement>) => {
+			const startY = event.clientY;
+			const startHeight = findingsHeight;
+			// Handle on the bottom edge: dragging down grows the list.
+			const nextHeight = (pointerY: number): number => startHeight + (pointerY - startY);
+			startFindingsResize(event, {
+				axis: "y",
+				cursor: "ns-resize",
+				onMove: (pointerY) => onFindingsHeightChange(nextHeight(pointerY)),
+				onEnd: (pointerY) => onFindingsHeightChange(nextHeight(pointerY)),
+			});
+		},
+		[findingsHeight, onFindingsHeightChange, startFindingsResize],
+	);
+
+	const handleDraftsSeparatorMouseDown = useCallback(
+		(event: ReactMouseEvent<HTMLDivElement>) => {
+			const startY = event.clientY;
+			const startHeight = draftsHeight;
+			// Handle on the top edge: dragging up grows the list.
+			const nextHeight = (pointerY: number): number => startHeight - (pointerY - startY);
+			startDraftsResize(event, {
+				axis: "y",
+				cursor: "ns-resize",
+				onMove: (pointerY) => onDraftsHeightChange(nextHeight(pointerY)),
+				onEnd: (pointerY) => onDraftsHeightChange(nextHeight(pointerY)),
+			});
+		},
+		[draftsHeight, onDraftsHeightChange, startDraftsResize],
+	);
+
 	// `flex-1` like every sibling panel: without it the panel is content-height, so the
 	// transcript's own `min-h-0 flex-1 overflow-y-auto` has nothing to resolve against and a
 	// long chat is clipped by the column instead of scrolling.
@@ -195,14 +248,14 @@ export function ReviewClaudePanel({
 			</div>
 
 			{pendingFindings.length > 0 ? (
-				<div className="shrink-0 space-y-1.5 border-b border-border bg-surface-2 p-2">
-					<div className="flex items-center justify-between text-[11px]">
+				<div className="flex shrink-0 flex-col border-b border-border bg-surface-2">
+					<div className="flex shrink-0 items-center justify-between px-2 pt-2 pb-1.5 text-[11px]">
 						<span className="font-semibold text-text-primary">Findings to triage</span>
 						<span className="rounded bg-surface-4 px-1.5 text-[10px] text-text-secondary">
 							{pendingFindings.length} pending
 						</span>
 					</div>
-					<div className="max-h-56 space-y-1.5 overflow-y-auto">
+					<div className="space-y-1.5 overflow-y-auto px-2 pb-2" style={{ height: findingsHeight }}>
 						{pendingFindings.map((finding) => (
 							<ReviewFindingRow
 								key={finding.id}
@@ -212,6 +265,12 @@ export function ReviewClaudePanel({
 							/>
 						))}
 					</div>
+					<ResizeHandle
+						orientation="horizontal"
+						ariaLabel="Resize the findings list"
+						onMouseDown={handleFindingsSeparatorMouseDown}
+						showBaseLine={false}
+					/>
 				</div>
 			) : null}
 
@@ -230,9 +289,17 @@ export function ReviewClaudePanel({
 			/>
 
 			{draftComments.length > 0 ? (
-				<div className="shrink-0 space-y-1 border-t border-border bg-surface-2 p-2">
-					<div className="text-[11px] font-semibold text-text-primary">Draft comments ({draftComments.length})</div>
-					<div className="max-h-32 space-y-1 overflow-y-auto">
+				<div className="flex shrink-0 flex-col border-t border-border bg-surface-2">
+					<ResizeHandle
+						orientation="horizontal"
+						ariaLabel="Resize the draft comments list"
+						onMouseDown={handleDraftsSeparatorMouseDown}
+						showBaseLine={false}
+					/>
+					<div className="shrink-0 px-2 pt-2 pb-1 text-[11px] font-semibold text-text-primary">
+						Draft comments ({draftComments.length})
+					</div>
+					<div className="space-y-1 overflow-y-auto px-2 pb-2" style={{ height: draftsHeight }}>
 						{draftComments.map((draft) => (
 							<div
 								key={draft.id}
@@ -268,8 +335,10 @@ export function ReviewClaudePanel({
 				isRunning={chatStatus === "running"}
 				projectCommands={projectCommands}
 				polishComments={polishComments}
+				textareaHeight={composerHeight}
 				onTogglePolish={onTogglePolish}
 				onClearContext={onClearContext}
+				onTextareaHeightChange={onComposerHeightChange}
 				onSend={onSend}
 			/>
 		</div>

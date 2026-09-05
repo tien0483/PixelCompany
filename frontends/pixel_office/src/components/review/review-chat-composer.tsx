@@ -1,6 +1,8 @@
 import { ArrowUp, Crosshair, X } from "lucide-react";
-import { type ReactElement, useState } from "react";
+import { type MouseEvent as ReactMouseEvent, type ReactElement, useCallback, useState } from "react";
 
+import { ResizeHandle } from "@/resize/resize-handle";
+import { useResizeDrag } from "@/resize/use-resize-drag";
 import type { ReviewProjectCommand } from "@/review/use-review-project-commands";
 
 /**
@@ -94,8 +96,10 @@ export function ReviewChatComposer({
 	isRunning,
 	projectCommands,
 	polishComments,
+	textareaHeight,
 	onTogglePolish,
 	onClearContext,
+	onTextareaHeightChange,
 	onSend,
 }: {
 	/** What the next turn will be able to see. Null when nothing is selected. */
@@ -104,11 +108,18 @@ export function ReviewChatComposer({
 	/** `.claude/commands` of the selected checkout. Empty for a project that ships none. */
 	projectCommands: readonly ReviewProjectCommand[];
 	polishComments: boolean;
+	/**
+	 * Height of the prompt box alone — the chips, the context line and the footer stay
+	 * intrinsic, so the persisted number means what its name says.
+	 */
+	textareaHeight: number;
 	onTogglePolish: (next: boolean) => void;
 	onClearContext: () => void;
+	onTextareaHeightChange: (height: number) => void;
 	onSend: (prompt: string) => void;
 }): ReactElement {
 	const [input, setInput] = useState("");
+	const { startDrag: startComposerResize } = useResizeDrag();
 
 	const submit = (): void => {
 		const prompt = input.trim();
@@ -119,8 +130,31 @@ export function ReviewChatComposer({
 		setInput("");
 	};
 
+	const handleComposerSeparatorMouseDown = useCallback(
+		(event: ReactMouseEvent<HTMLDivElement>) => {
+			const startY = event.clientY;
+			const startHeight = textareaHeight;
+			// The handle is on the composer's top edge, so dragging up grows the box.
+			const nextHeight = (pointerY: number): number => startHeight - (pointerY - startY);
+			startComposerResize(event, {
+				axis: "y",
+				cursor: "ns-resize",
+				onMove: (pointerY) => onTextareaHeightChange(nextHeight(pointerY)),
+				onEnd: (pointerY) => onTextareaHeightChange(nextHeight(pointerY)),
+			});
+		},
+		[onTextareaHeightChange, startComposerResize, textareaHeight],
+	);
+
 	return (
 		<div className="shrink-0 border-t border-border p-2">
+			<ResizeHandle
+				orientation="horizontal"
+				ariaLabel="Resize the prompt box"
+				onMouseDown={handleComposerSeparatorMouseDown}
+				showBaseLine={false}
+				className="-mt-2 mb-1"
+			/>
 			<div className="mb-1.5 flex flex-wrap gap-1">
 				{REVIEW_QUICK_PROMPTS.map((prompt) => (
 					<button
@@ -173,7 +207,7 @@ export function ReviewChatComposer({
 				<textarea
 					value={input}
 					onChange={(event) => setInput(event.target.value)}
-					rows={2}
+					style={{ height: textareaHeight }}
 					aria-label="Ask Claude about this merge request"
 					placeholder="Ask about this diff, or type a slash command…"
 					className="w-full resize-none rounded border border-border bg-surface-0 p-2 pr-9 text-xs text-text-primary placeholder:text-text-tertiary focus:border-border-focus focus:outline-none"
