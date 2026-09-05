@@ -15,6 +15,7 @@ import {
 	type ReviewTagSectionId,
 	reviewTagColor,
 } from "@/review/review-tags";
+import { useTagPointerDrag } from "@/review/use-tag-pointer-drag";
 import { LocalStorageKey } from "@/storage/local-storage-store";
 
 /**
@@ -34,8 +35,8 @@ export interface ReviewTagPaletteProps {
 	sections: ReviewTagSection[];
 	/** Opened on mount alongside whatever the reviewer last left expanded. */
 	initialSectionId?: ReviewTagSectionId;
+	/** Fired once a press on a chip has moved far enough to be a drag. */
 	onTagDragStart: (tag: ReviewTag) => void;
-	onTagDragEnd: () => void;
 }
 
 function matchesFilter(tag: ReviewTag, filter: string): boolean {
@@ -51,8 +52,8 @@ export function ReviewTagPalette({
 	sections,
 	initialSectionId,
 	onTagDragStart,
-	onTagDragEnd,
 }: ReviewTagPaletteProps): ReactElement {
+	const { startGesture } = useTagPointerDrag({ onStart: onTagDragStart });
 	const [expanded, setExpanded] = useState<Record<ReviewTagSectionId, boolean>>(() => ({
 		tags: initialSectionId === "tags" || loadBooleanResizePreference(SECTION_PREFERENCES.tags),
 		smells: initialSectionId === "smells" || loadBooleanResizePreference(SECTION_PREFERENCES.smells),
@@ -136,19 +137,15 @@ export function ReviewTagPalette({
 												<ReviewTagTooltip key={`${tag.kind}-${tag.label}`} tag={tag} side="bottom">
 													<button
 														type="button"
-														draggable
-														// The browser builds the drag image out of this element, so the chip's
-														// own color is what the reviewer sees following the cursor.
+														// `touch-none`: a touchscreen or a pen gives a press-and-drag to panning
+														// unless the element opts out, and then the drag never starts at all.
 														className={cn(
-															"cursor-grab rounded border px-2 py-0.5 text-[10px] hover:brightness-125",
+															"cursor-grab touch-none rounded border px-2 py-0.5 text-[10px] hover:brightness-125",
 															reviewTagColor(tag).chip,
 														)}
-														onDragStart={(event) => {
-															event.dataTransfer.effectAllowed = "copy";
-															event.dataTransfer.setData("text/plain", tag.label);
-															onTagDragStart(tag);
-														}}
-														onDragEnd={onTagDragEnd}
+														// A press is only a drag once it travels; `useTagPointerDrag` owns that
+														// threshold, so a plain click still reaches the tooltip and the keyboard.
+														onPointerDown={(event) => startGesture(event, tag)}
 													>
 														{tag.label}
 													</button>

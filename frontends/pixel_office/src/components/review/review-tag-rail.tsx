@@ -26,8 +26,9 @@ export interface ReviewTagRailProps {
 	sections: ReviewTagSection[];
 	/** True while a chip is being dragged, which is when an unpinned flyout gets out of the way. */
 	isDraggingTag: boolean;
+	/** True while a dropped tag's note is being typed — the flyout stays away for it too. */
+	isCommentPending: boolean;
 	onTagDragStart: (tag: ReviewTag) => void;
-	onTagDragEnd: () => void;
 }
 
 /**
@@ -40,23 +41,25 @@ export interface ReviewTagRailProps {
 export function ReviewTagRail({
 	sections,
 	isDraggingTag,
+	isCommentPending,
 	onTagDragStart,
-	onTagDragEnd,
 }: ReviewTagRailProps): ReactElement {
 	const [openSectionId, setOpenSectionId] = useState<ReviewTagSectionId | null>(null);
 	const [isPinned, setIsPinned] = useState(() => loadBooleanResizePreference(PIN_PREFERENCE));
 
-	// A flyout wide enough to hold 66 chips covers the rows the chip has to land on, so
-	// unless it is pinned it stands aside for the drag and the rail brings it back.
+	// A flyout wide enough to hold 66 chips covers the rows the chip has to land on — and
+	// then covers the note box that opens on the row it landed on. So unless it is pinned
+	// it leaves for both, and comes back once the note is saved or abandoned.
 	//
-	// It stands aside by going invisible, never by unmounting: the chip being dragged is
-	// itself inside this flyout, and `onDragStart` flips `isDraggingTag` synchronously
-	// while `dragstart` is still dispatching — so removing the subtree would take the
-	// drag source out of the document before the browser had begun the drag session,
-	// which cancels the drag outright. `pointer-events-none` is what the unmount was
-	// really buying: it lets `dragover`/`drop` through to the rows underneath.
-	const isFlyoutMounted = openSectionId !== null;
-	const isFlyoutStoodAside = isFlyoutMounted && !isPinned && isDraggingTag;
+	// It really unmounts. Under the old HTML5 drag it could not: the chip in flight was
+	// itself inside this subtree, and a browser cancels a drag whose source element leaves
+	// the document, so the best it could do was go transparent — which then blanked the
+	// drag image. A pointer drag lives on window listeners and has no such tie.
+	//
+	// `openSectionId` is deliberately left alone while it is away: that untouched state is
+	// what reopens the palette on the section the chip came from.
+	const isFlyoutStoodAside = !isPinned && (isDraggingTag || isCommentPending);
+	const isFlyoutMounted = openSectionId !== null && !isFlyoutStoodAside;
 
 	return (
 		<>
@@ -90,13 +93,9 @@ export function ReviewTagRail({
 			{isFlyoutMounted && openSectionId !== null ? (
 				<div
 					data-testid="review-tag-flyout"
-					aria-hidden={isFlyoutStoodAside}
-					className={cn(
-						// `left-8`: flush against the rail, so the chips read as belonging to the icon
-						// that opened them. Above the rows but below the comment composer's own layer.
-						"absolute top-0 bottom-0 left-8 z-20 flex w-[360px] flex-col border-r border-border bg-surface-1 shadow-lg",
-						isFlyoutStoodAside && "pointer-events-none opacity-0",
-					)}
+					// `left-8`: flush against the rail, so the chips read as belonging to the icon
+					// that opened them. Above the rows but below the comment composer's own layer.
+					className="absolute top-0 bottom-0 left-8 z-20 flex w-[360px] flex-col border-r border-border bg-surface-1 shadow-lg"
 				>
 					<div className="flex shrink-0 items-center justify-between border-b border-border px-2 py-1 text-[10px] text-text-secondary">
 						<span>Tags</span>
@@ -107,8 +106,8 @@ export function ReviewTagRail({
 								aria-pressed={isPinned}
 								title={
 									isPinned
-										? "Pinned: the palette stays open while a chip is dragged."
-										: "Pin the palette so it stays open while a chip is dragged."
+										? "Pinned: the palette stays open while a chip is dragged and a note is typed."
+										: "Pin the palette so it stays open while a chip is dragged and a note is typed."
 								}
 								className="cursor-pointer text-text-tertiary hover:text-text-primary"
 								onClick={() => setIsPinned(persistBooleanResizePreference(PIN_PREFERENCE, !isPinned))}
@@ -134,7 +133,6 @@ export function ReviewTagRail({
 							sections={sections}
 							initialSectionId={openSectionId}
 							onTagDragStart={onTagDragStart}
-							onTagDragEnd={onTagDragEnd}
 						/>
 					</div>
 				</div>

@@ -1,4 +1,4 @@
-import { act } from "react";
+import { act, type ReactElement, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -125,26 +125,96 @@ function mouseEvent(type: string): MouseEvent {
 }
 
 /**
- * jsdom has no `DataTransfer`, so a real `DragEvent` arrives with `dataTransfer: null`
- * and the strip's handler would throw on it. The stub is the whole surface the handler
- * touches.
+ * jsdom implements no `PointerEvent`, and the drag reads only `target`, `button` and the
+ * client coordinates — all of which a `MouseEvent` carries. Dispatching one under a
+ * pointer type name is enough for both React's `onPointerDown` and the window listeners.
+ *
+ * `clientY` defaults well inside the viewport: jsdom lays nothing out, so a 0 would put
+ * the autoscroll ramp hard against an edge and scroll on every single move.
  */
-function dragStartEvent(): Event {
-	const event = new Event("dragstart", { bubbles: true, cancelable: true });
-	Object.defineProperty(event, "dataTransfer", {
-		value: { effectAllowed: "none", setData: () => {} },
+function pointerEvent(
+	type: "pointerdown" | "pointermove" | "pointerup" | "pointercancel",
+	position: { clientX?: number; clientY?: number } = {},
+): MouseEvent {
+	return new MouseEvent(type, {
+		bubbles: true,
+		cancelable: true,
+		button: 0,
+		clientX: position.clientX ?? 40,
+		clientY: position.clientY ?? 200,
 	});
-	return event;
 }
 
-/** The same stub for the receiving half of a drag: `dropEffect` is all the rows set. */
-function tagDragEvent(type: "dragenter" | "dragover" | "drop"): Event {
-	const event = new Event(type, { bubbles: true, cancelable: true });
-	Object.defineProperty(event, "dataTransfer", { value: { dropEffect: "none", getData: () => "" } });
-	// The scroll container measures itself on dragover; jsdom lays nothing out, so the
-	// autoscroll ramp would read every edge as 0 away and scroll on every event.
-	Object.defineProperty(event, "clientY", { value: 200 });
-	return event;
+interface PaneOverrides {
+	file?: RuntimeGitlabDiffFile;
+	onAddDraft?: (draft: ReviewCommentDraftInput) => void;
+	onNavigate?: (direction: ReviewNavDirection) => void;
+	navTargets?: { previous: boolean; next: boolean };
+	onFetchFullFile?: () => Promise<FullFileFetchResult>;
+	lineFocus?: ReviewLineFocus | null;
+	onTagDragStart?: (tag: ReviewTag) => void;
+	/** A chip already in flight, for tests that start from the middle of a drag. */
+	draggedTag?: ReviewTag;
+	onAddAnnotation?: (input: {
+		oldLine: number | null;
+		newLine: number | null;
+		lineRange?: { startOldLine: number | null; startNewLine: number | null };
+	}) => void;
+	/** Omitted entirely by default, which is how the standalone pane renders. */
+	withTags?: boolean;
+}
+
+/**
+ * The dragged tag is host state in the real app (`review-workspace-view.tsx`), and the
+ * pane clears it through `onDragEnd` once a drop is resolved. Modelling it as state here
+ * rather than as a fixed prop is what lets a test watch the palette come back after the
+ * note is saved.
+ *
+ * Declared at module scope so its type identity is stable: several tests re-render with
+ * changed props to observe an effect, and a component defined inside `renderPane` would
+ * be a new type each time, remounting the pane and losing exactly what they are watching.
+ */
+function PaneHarness({ overrides }: { overrides: PaneOverrides }): ReactElement {
+	const [draggedTag, setDraggedTag] = useState<ReviewTag | null>(overrides.draggedTag ?? null);
+	const tagAnnotations = overrides.withTags
+		? {
+				annotations: [],
+				sections: SECTIONS,
+				draggedTag,
+				currentHeadSha: null,
+				onDragStart: (tag: ReviewTag) => {
+					overrides.onTagDragStart?.(tag);
+					setDraggedTag(tag);
+				},
+				onDragEnd: () => setDraggedTag(null),
+				onAdd: overrides.onAddAnnotation ?? (() => {}),
+				onRemove: () => {},
+			}
+		: undefined;
+	return (
+		<ReviewDiffPane
+			file={overrides.file ?? FILE}
+			mode="unified"
+			isReviewed={false}
+			hasNewCommentsSinceReview={false}
+			draftComments={[]}
+			discussions={[]}
+			pendingCitations={[]}
+			deltaBanner={null}
+			onModeChange={() => {}}
+			onToggleReviewed={() => {}}
+			onAddDraft={overrides.onAddDraft ?? (() => {})}
+			onRemoveDraft={() => {}}
+			onComposerOpenChange={() => {}}
+			onClearCitations={() => {}}
+			onRemoveCitation={() => {}}
+			lineFocus={overrides.lineFocus ?? null}
+			{...(overrides.onNavigate ? { onNavigate: overrides.onNavigate } : {})}
+			{...(overrides.navTargets ? { navTargets: overrides.navTargets } : {})}
+			{...(overrides.onFetchFullFile ? { onFetchFullFile: overrides.onFetchFullFile } : {})}
+			{...(tagAnnotations ? { tagAnnotations } : {})}
+		/>
+	);
 }
 
 describe("ReviewDiffPane", () => {
@@ -181,65 +251,13 @@ describe("ReviewDiffPane", () => {
 		}
 	});
 
-	async function renderPane(
-		overrides: {
-			file?: RuntimeGitlabDiffFile;
-			onAddDraft?: (draft: ReviewCommentDraftInput) => void;
-			onNavigate?: (direction: ReviewNavDirection) => void;
-			navTargets?: { previous: boolean; next: boolean };
-			onFetchFullFile?: () => Promise<FullFileFetchResult>;
-			lineFocus?: ReviewLineFocus | null;
-			onTagDragStart?: (tag: ReviewTag) => void;
-			/** A chip already in flight, which is what the drop handlers are gated on. */
-			draggedTag?: ReviewTag;
-			onAddAnnotation?: (input: {
-				oldLine: number | null;
-				newLine: number | null;
-				lineRange?: { startOldLine: number | null; startNewLine: number | null };
-			}) => void;
-			/** Omitted entirely by default, which is how the standalone pane renders. */
-			withTags?: boolean;
-		} = {},
-	): Promise<void> {
-		const tagAnnotations = overrides.withTags
-			? {
-					annotations: [],
-					sections: SECTIONS,
-					draggedTag: overrides.draggedTag ?? null,
-					currentHeadSha: null,
-					onDragStart: overrides.onTagDragStart ?? (() => {}),
-					onDragEnd: () => {},
-					onAdd: overrides.onAddAnnotation ?? (() => {}),
-					onRemove: () => {},
-				}
-			: undefined;
+	async function renderPane(overrides: PaneOverrides = {}): Promise<void> {
 		await act(async () => {
 			root.render(
 				// The app mounts one provider per entry (main.tsx / main-review.tsx); a bare
 				// render of the pane has to supply it for the chips' hover descriptions.
 				<TooltipProvider>
-				<ReviewDiffPane
-					file={overrides.file ?? FILE}
-					mode="unified"
-					isReviewed={false}
-					hasNewCommentsSinceReview={false}
-					draftComments={[]}
-					discussions={[]}
-					pendingCitations={[]}
-					deltaBanner={null}
-					onModeChange={() => {}}
-					onToggleReviewed={() => {}}
-					onAddDraft={overrides.onAddDraft ?? (() => {})}
-					onRemoveDraft={() => {}}
-					onComposerOpenChange={() => {}}
-					onClearCitations={() => {}}
-					onRemoveCitation={() => {}}
-					lineFocus={overrides.lineFocus ?? null}
-					{...(overrides.onNavigate ? { onNavigate: overrides.onNavigate } : {})}
-					{...(overrides.navTargets ? { navTargets: overrides.navTargets } : {})}
-					{...(overrides.onFetchFullFile ? { onFetchFullFile: overrides.onFetchFullFile } : {})}
-					{...(tagAnnotations ? { tagAnnotations } : {})}
-				/>
+					<PaneHarness overrides={overrides} />
 				</TooltipProvider>,
 			);
 		});
@@ -357,12 +375,23 @@ describe("ReviewDiffPane", () => {
 		});
 	}
 
-	function tagChip(label: string): HTMLButtonElement {
-		const chip = Array.from(container.querySelectorAll("button")).find(
-			(candidate) => candidate.draggable && candidate.textContent === label,
+	/**
+	 * A chip is a flyout button that is neither a section toggle (`aria-expanded`) nor one
+	 * of the header's icon buttons (`aria-label`). It used to be identified by `draggable`,
+	 * which a pointer drag does not set.
+	 */
+	function tagChips(): HTMLButtonElement[] {
+		return Array.from(
+			container.querySelectorAll<HTMLButtonElement>(
+				'[data-testid="review-tag-flyout"] button:not([aria-expanded]):not([aria-label])',
+			),
 		);
+	}
+
+	function tagChip(label: string): HTMLButtonElement {
+		const chip = tagChips().find((candidate) => candidate.textContent === label);
 		if (!chip) {
-			throw new Error(`No draggable chip for ${label}.`);
+			throw new Error(`No chip for ${label}.`);
 		}
 		return chip;
 	}
@@ -388,12 +417,37 @@ describe("ReviewDiffPane", () => {
 		});
 	}
 
+	/** Presses a chip and moves far enough for the press to become a drag. */
+	async function startChipDrag(label: string): Promise<void> {
+		const chip = tagChip(label);
+		await act(async () => {
+			chip.dispatchEvent(pointerEvent("pointerdown", { clientX: 40, clientY: 200 }));
+		});
+		await act(async () => {
+			window.dispatchEvent(pointerEvent("pointermove", { clientX: 90, clientY: 200 }));
+		});
+		// The move that *starts* the drag is over before the ghost exists to hear it, so the
+		// chip only takes up its position on the next one. A real pointer always sends more.
+		await act(async () => {
+			window.dispatchEvent(pointerEvent("pointermove", { clientX: 96, clientY: 200 }));
+		});
+	}
+
+	/** The pending-annotation note box, which is an input with a placeholder, not text. */
+	function noteInput(): HTMLInputElement | null {
+		return (
+			Array.from(container.querySelectorAll("input")).find((candidate) =>
+				candidate.placeholder.startsWith("Optional note"),
+			) ?? null
+		);
+	}
+
 	it("renders no tag rail when the pane is given no annotation wiring", async () => {
 		await renderPane();
 
 		expect(container.querySelector('[data-testid="review-tag-rail-tags"]')).toBeNull();
 		expect(container.querySelector("button[aria-expanded]")).toBeNull();
-		expect(Array.from(container.querySelectorAll("button")).some((button) => button.draggable)).toBe(false);
+		expect(tagChips()).toHaveLength(0);
 	});
 
 	it("keeps the palette off the diff until the rail is asked for", async () => {
@@ -433,38 +487,61 @@ describe("ReviewDiffPane", () => {
 		expect(container.textContent).toContain("Couplers");
 	});
 
-	it("stands aside without unmounting, so the chip drag survives", async () => {
+	it("leaves the diff entirely while a chip is in flight", async () => {
+		// A flyout wide enough for the catalog covers the rows the chip has to land on. It
+		// can unmount now: a pointer drag lives on window listeners, so the chip's own node
+		// going away no longer cancels anything — which native drag-and-drop would have.
 		await renderPane({ withTags: true });
 		await openTagRail("tags");
 		expect(container.querySelector('[data-testid="review-tag-flyout"]')).not.toBeNull();
 
-		// A flyout wide enough for the catalog covers the rows the chip has to land on.
-		await renderPane({ withTags: true, draggedTag: { kind: "builtin", label: "Security" } });
+		await startChipDrag("Security");
 
-		const flyout = container.querySelector('[data-testid="review-tag-flyout"]');
-		if (!(flyout instanceof HTMLElement)) {
-			throw new Error("The flyout must stay mounted while a chip is in flight.");
-		}
-		expect(flyout.className).toContain("pointer-events-none");
-		expect(flyout.className).toContain("opacity-0");
+		expect(container.querySelector('[data-testid="review-tag-flyout"]')).toBeNull();
+		// The rail itself stays: it is 32px, and it is how the palette is asked for again.
 		expect(container.querySelector('[data-testid="review-tag-rail-tags"]')).not.toBeNull();
 	});
 
-	it("keeps the dragged chip in the document once the drag has been reported", async () => {
-		// The browser cancels a drag whose source element leaves the document, and the chip
-		// lives inside the flyout that gets out of the way — so the node standing aside
-		// takes with it is the very thing the drop depends on. jsdom starts no real drag,
-		// but it can hold the pane to the one property that made the feature work at all.
+	it("paints a ghost chip that follows the cursor", async () => {
 		await renderPane({ withTags: true });
 		await openTagRail("tags");
-		const chip = tagChip("Security");
+		expect(document.querySelector('[data-testid="review-tag-drag-ghost"]')).toBeNull();
 
-		await act(async () => {
-			chip.dispatchEvent(dragStartEvent());
-		});
-		await renderPane({ withTags: true, draggedTag: { kind: "builtin", label: "Security" } });
+		await startChipDrag("Security");
 
-		expect(document.contains(chip)).toBe(true);
+		const ghost = document.querySelector('[data-testid="review-tag-drag-ghost"]');
+		if (!(ghost instanceof HTMLElement)) {
+			throw new Error("A drag with no visible chip reads as a drag that never started.");
+		}
+		expect(ghost.textContent).toBe("Security");
+		// The pane hit-tests rows through the pointermove target, so a hittable ghost would
+		// be the only thing ever under the cursor.
+		expect(ghost.className).toContain("pointer-events-none");
+	});
+
+	it("locks text selection for as long as the chip is in flight", async () => {
+		// The lock cannot live with the chip: the drag unmounts the palette, so a cleanup
+		// there would release it one frame in and the chip would smear a selection across
+		// every line it crossed. It survives here because the pane outlives the drag.
+		await renderPane({ withTags: true });
+		await openTagRail("tags");
+
+		await startChipDrag("Security");
+		expect(document.body.classList.contains("kb-tag-dragging")).toBe(true);
+
+		await dragTagAcross([row("n-3", "right")]);
+
+		expect(document.body.classList.contains("kb-tag-dragging")).toBe(false);
+	});
+
+	it("keeps a pinned palette open through a drag", async () => {
+		window.localStorage.setItem(LocalStorageKey.ReviewTagFlyoutPinned, "true");
+		await renderPane({ withTags: true });
+		await openTagRail("tags");
+
+		await startChipDrag("Security");
+
+		expect(container.querySelector('[data-testid="review-tag-flyout"]')).not.toBeNull();
 	});
 
 	it("gives each chip its own color so a dragged tag is recognisable", async () => {
@@ -480,11 +557,28 @@ describe("ReviewDiffPane", () => {
 		await renderPane({ withTags: true, onTagDragStart: (tag) => started.push(tag) });
 		await openTagRail("tags");
 
-		await act(async () => {
-			tagChip("Security").dispatchEvent(dragStartEvent());
-		});
+		await startChipDrag("Security");
 
 		expect(started).toEqual([{ kind: "builtin", label: "Security" }]);
+	});
+
+	it("treats a press that never travels as a click, not a drag", async () => {
+		const started: ReviewTag[] = [];
+		await renderPane({ withTags: true, onTagDragStart: (tag) => started.push(tag) });
+		await openTagRail("tags");
+
+		// Two pixels of hand tremor between press and release. Reporting that as a drag
+		// would put the palette away every time a reviewer merely touched a chip.
+		await act(async () => {
+			tagChip("Security").dispatchEvent(pointerEvent("pointerdown", { clientX: 40, clientY: 200 }));
+		});
+		await act(async () => {
+			window.dispatchEvent(pointerEvent("pointermove", { clientX: 42, clientY: 200 }));
+			window.dispatchEvent(pointerEvent("pointerup", { clientX: 42, clientY: 200 }));
+		});
+
+		expect(started).toEqual([]);
+		expect(container.querySelector('[data-testid="review-tag-flyout"]')).not.toBeNull();
 	});
 
 	it("drags a code smell once its section is open, and remembers the section", async () => {
@@ -498,9 +592,7 @@ describe("ReviewDiffPane", () => {
 		expect(window.localStorage.getItem(LocalStorageKey.ReviewSmellSectionExpanded)).toBe("true");
 		expect(container.textContent).toContain("Couplers");
 
-		await act(async () => {
-			tagChip("Feature Envy").dispatchEvent(dragStartEvent());
-		});
+		await startChipDrag("Feature Envy");
 
 		expect(started).toEqual([{ kind: "smell", label: "Feature Envy" }]);
 	});
@@ -529,21 +621,24 @@ describe("ReviewDiffPane", () => {
 			tagStripToggle("Tags").dispatchEvent(mouseEvent("click"));
 		});
 
-		expect(Array.from(container.querySelectorAll("button")).some((button) => button.draggable)).toBe(false);
+		expect(tagChips()).toHaveLength(0);
 		expect(tagStripToggle("Tags").getAttribute("aria-expanded")).toBe("false");
 		expect(window.localStorage.getItem(LocalStorageKey.ReviewTagStripExpanded)).toBe("false");
 	});
 
 	/**
-	 * Drags a chip across the given rows and releases on the last one. `dragenter` and
-	 * `dragover` both fire per row, as a browser does, so the head-reassert path is
-	 * exercised too.
+	 * Drags a chip across the given rows and releases on the last one.
+	 *
+	 * The events go to the row elements and bubble to the window listeners, which is how a
+	 * browser delivers them: with no pointer capture, a `pointermove`'s target is whatever
+	 * is under the cursor. Two moves per row, since a real pointer crosses a row in more
+	 * than one frame and the run must not walk on a repeat.
 	 */
 	async function dragTagAcross(rows: HTMLElement[]): Promise<void> {
 		await act(async () => {
 			for (const element of rows) {
-				element.dispatchEvent(tagDragEvent("dragenter"));
-				element.dispatchEvent(tagDragEvent("dragover"));
+				element.dispatchEvent(pointerEvent("pointermove"));
+				element.dispatchEvent(pointerEvent("pointermove"));
 			}
 		});
 		const last = rows[rows.length - 1];
@@ -551,14 +646,12 @@ describe("ReviewDiffPane", () => {
 			throw new Error("A tag drag needs at least one row.");
 		}
 		await act(async () => {
-			last.dispatchEvent(tagDragEvent("drop"));
+			last.dispatchEvent(pointerEvent("pointerup"));
 		});
 	}
 
 	async function saveTagNote(note: string): Promise<void> {
-		const input = Array.from(container.querySelectorAll("input")).find((candidate) =>
-			candidate.placeholder.startsWith("Optional note"),
-		);
+		const input = noteInput();
 		if (!input) {
 			throw new Error("No pending-annotation note input.");
 		}
@@ -599,7 +692,7 @@ describe("ReviewDiffPane", () => {
 
 		await act(async () => {
 			for (const element of [row("n-2", "right"), row("n-3", "right"), row("o-2", "left")]) {
-				element.dispatchEvent(tagDragEvent("dragenter"));
+				element.dispatchEvent(pointerEvent("pointermove"));
 			}
 		});
 
@@ -627,16 +720,73 @@ describe("ReviewDiffPane", () => {
 		await renderPane({ withTags: true, draggedTag: SMELL });
 
 		await act(async () => {
-			row("n-2", "right").dispatchEvent(tagDragEvent("dragenter"));
-			row("n-3", "right").dispatchEvent(tagDragEvent("dragenter"));
+			row("n-2", "right").dispatchEvent(pointerEvent("pointermove"));
+			row("n-3", "right").dispatchEvent(pointerEvent("pointermove"));
 		});
 		expect(container.querySelectorAll(".kb-diff-row-drop-target")).toHaveLength(2);
 
+		// Anywhere that is not a row: releasing over the sidebar must not tag whatever
+		// happened to be under the pointer two seconds ago.
 		await act(async () => {
-			scrollContainer().dispatchEvent(new Event("dragleave", { bubbles: true }));
+			document.body.dispatchEvent(pointerEvent("pointermove"));
 		});
 
 		expect(container.querySelectorAll(".kb-diff-row-drop-target")).toHaveLength(0);
+	});
+
+	it("adds nothing when the chip is released off the rows", async () => {
+		const added: Array<{ newLine: number | null }> = [];
+		await renderPane({ withTags: true, draggedTag: SMELL, onAddAnnotation: (input) => added.push(input) });
+
+		await act(async () => {
+			row("n-3", "right").dispatchEvent(pointerEvent("pointermove"));
+		});
+		await act(async () => {
+			document.body.dispatchEvent(pointerEvent("pointerup"));
+		});
+
+		expect(added).toHaveLength(0);
+		expect(noteInput()).toBeNull();
+	});
+
+	it("keeps the palette away until the note is saved, then reopens it on its section", async () => {
+		// The flyout is as much in the way of the note box as it was of the target rows, so
+		// the drop is not what brings it back — saving the note is. And it comes back on the
+		// section the chip was taken from, which is the whole point of leaving rather than
+		// closing.
+		await renderPane({ withTags: true });
+		await openTagRail("smells");
+		expect(container.textContent).toContain("Couplers");
+
+		await startChipDrag("Feature Envy");
+		await dragTagAcross([row("n-3", "right")]);
+
+		expect(container.querySelector('[data-testid="review-tag-flyout"]')).toBeNull();
+		expect(noteInput()).not.toBeNull();
+
+		await saveTagNote("Envies the other object.");
+
+		expect(container.querySelector('[data-testid="review-tag-flyout"]')).not.toBeNull();
+		expect(container.textContent).toContain("Couplers");
+	});
+
+	it("brings the palette back when the note is abandoned", async () => {
+		await renderPane({ withTags: true });
+		await openTagRail("tags");
+
+		await startChipDrag("Security");
+		await dragTagAcross([row("n-3", "right")]);
+		expect(container.querySelector('[data-testid="review-tag-flyout"]')).toBeNull();
+
+		const input = noteInput();
+		if (!input) {
+			throw new Error("No pending-annotation note input.");
+		}
+		await act(async () => {
+			input.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+		});
+
+		expect(container.querySelector('[data-testid="review-tag-flyout"]')).not.toBeNull();
 	});
 
 	it("opens the composer for the run a drag covers", async () => {
