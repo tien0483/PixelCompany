@@ -35,6 +35,8 @@ export function ReviewClaudePanel({
 	draftComments,
 	isAuditing,
 	model,
+	terseAnswers,
+	onTerseAnswersChange,
 	onModelChange,
 	onSend,
 	onCancel,
@@ -70,6 +72,12 @@ export function ReviewClaudePanel({
 	isAuditing: boolean;
 	/** Model every review pass runs on — chat, audit and rules extraction alike. */
 	model: ReviewAgentModelId;
+	/**
+	 * Compressed answers: verdict first, no narration of the assistant revising itself.
+	 * Chat only — published comment text is never compressed.
+	 */
+	terseAnswers: boolean;
+	onTerseAnswersChange: (next: boolean) => void;
 	onModelChange: (model: ReviewAgentModelId) => void;
 	/**
 	 * `expectSuggestions` is an override for the inline prompt buttons, whose text has
@@ -114,6 +122,28 @@ export function ReviewClaudePanel({
 							</option>
 						))}
 					</select>
+					{/* Locked mid-run for the same reason the model picker is: the style is a
+					    launch flag on the turn already in flight, so flipping it now would
+					    claim a change it cannot make. */}
+					<button
+						type="button"
+						aria-label="Terse answers"
+						aria-pressed={terseAnswers}
+						title={
+							terseAnswers
+								? "Terse answers: verdict first, no prose. Published comment text is unaffected."
+								: "Full-prose answers"
+						}
+						disabled={chatStatus === "running" || isAuditing}
+						onClick={() => onTerseAnswersChange(!terseAnswers)}
+						className={`cursor-pointer rounded border px-1.5 py-0.5 text-[10px] disabled:cursor-not-allowed disabled:opacity-40 ${
+							terseAnswers
+								? "border-accent bg-surface-2 text-accent"
+								: "border-border bg-surface-2 text-text-tertiary hover:text-text-primary"
+						}`}
+					>
+						Terse
+					</button>
 					{messages.length > 0 && chatStatus !== "running" ? (
 						<button
 							type="button"

@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { RuntimeReviewAnnotation, RuntimeReviewRule } from "../../../src/core/api-contract";
+import { buildReviewChatSystemPrompt } from "../../../src/review/review-answer-style";
 import {
 	ANNOTATIONS_PROMPT_BUDGET,
 	buildAuditPrompt,
 	buildChatPrompt,
 	formatAnnotationsForPrompt,
+	REVIEW_CHAT_SYSTEM_PROMPT,
 } from "../../../src/review/review-prompts";
 
 function ann(overrides: Partial<RuntimeReviewAnnotation> = {}): RuntimeReviewAnnotation {
@@ -171,6 +173,51 @@ describe("buildChatPrompt — annotations section", () => {
 	it("does not include annotations section when array is empty", () => {
 		const prompt = buildChatPrompt({ ...base, annotations: [] });
 		expect(prompt).not.toContain("Reviewer-flagged spots");
+	});
+});
+
+describe("buildChatPrompt — symbol locator section", () => {
+	const base = {
+		prompt: "is `x` a Path?",
+		title: "Fix crash",
+		sourceBranch: "fix/crash",
+		targetBranch: "main",
+		changedPaths: ["a.ts"],
+	};
+
+	it("rides in the context block on a first turn", () => {
+		const prompt = buildChatPrompt({ ...base, isFirstTurn: true, graphSymbols: "## Symbols\n\n- `a.ts`" });
+		expect(prompt).toContain("## Symbols");
+	});
+
+	it("is still sent on a resumed turn, unlike the impact brief", () => {
+		// "Where is X defined" is a mid-conversation question, and the session's copy
+		// answers whichever symbols the first message happened to name.
+		const prompt = buildChatPrompt({ ...base, isFirstTurn: false, graphSymbols: "## Symbols\n\n- `a.ts`" });
+		expect(prompt).toContain("## Symbols");
+		expect(prompt).not.toContain("Merge request under review");
+	});
+
+	it("adds nothing to a resumed turn that named no symbol", () => {
+		const prompt = buildChatPrompt({ ...base, isFirstTurn: false });
+		expect(prompt).toBe(base.prompt);
+	});
+});
+
+describe("buildReviewChatSystemPrompt", () => {
+	it("appends the style block only when the reviewer asked for terse", () => {
+		const terse = buildReviewChatSystemPrompt({ terse: true });
+		expect(terse).toContain(REVIEW_CHAT_SYSTEM_PROMPT);
+		expect(terse).toContain("Verdict first line");
+		expect(buildReviewChatSystemPrompt({ terse: false })).toBe(REVIEW_CHAT_SYSTEM_PROMPT);
+	});
+
+	it("carves out the text that gets published to other people", () => {
+		// The `suggestions` fence becomes a review comment on someone else's merge
+		// request, so compressing it would put caveman prose in front of the author.
+		const terse = buildReviewChatSystemPrompt({ terse: true });
+		expect(terse).toContain("`message` and `reasoning`");
+		expect(terse).toContain("Security findings");
 	});
 });
 

@@ -52,6 +52,7 @@ import {
 	shouldSuggestReviewedAllMark,
 	sumDiffStats,
 } from "@/review/review-target";
+import { readStoredTerseAnswers, writeStoredTerseAnswers } from "@/review/review-answer-style";
 import { readStoredPolishComments, writeStoredPolishComments } from "@/review/review-comment-polish";
 import type { FullFileFetchResult } from "@/review/use-full-file-content";
 import { useReviewChat } from "@/review/use-review-chat";
@@ -145,6 +146,7 @@ export function ReviewWorkspaceView({
 	/** The line the last jump asked the diff pane to scroll to. */
 	const [lineFocus, setLineFocus] = useState<ReviewLineFocus | null>(null);
 	const [polishComments, setPolishComments] = useState<boolean>(() => readStoredPolishComments());
+	const [terseAnswers, setTerseAnswers] = useState<boolean>(() => readStoredTerseAnswers());
 
 	const audit = useHtmlAgentStream<RuntimeReviewAuditRequest>("/api/review/audit");
 	const rulesExtract = useHtmlAgentStream<RuntimeReviewRulesExtractRequest>("/api/review/rules-extract");
@@ -725,7 +727,14 @@ export function ReviewWorkspaceView({
 					projectKey: target.projectKey,
 					model: agentModel,
 					managerAccountId: effectiveAccountId,
+					// `repoPath` (not `localRepoPath`) since the repo-lock landed: it resolves to
+					// `repoLock.lockedPath ?? localRepoPath ?? undefined`, so it already subsumes
+					// what this branch was passing.
 					cwd: repoPath,
+					// Per turn rather than per session: the runtime appends the style block to
+					// the system prompt of whichever turn asks for it, so toggling this mid-
+					// conversation takes effect on the next answer without a new CLI session.
+					...(terseAnswers ? { terse: true } : {}),
 				},
 			});
 		},
@@ -741,6 +750,7 @@ export function ReviewWorkspaceView({
 			session.activePath,
 			session.files,
 			target,
+			terseAnswers,
 			visibleRange,
 		],
 	);
@@ -842,6 +852,11 @@ export function ReviewWorkspaceView({
 	const changePolishComments = useCallback((next: boolean) => {
 		setPolishComments(next);
 		writeStoredPolishComments(next);
+	}, []);
+
+	const changeTerseAnswers = useCallback((next: boolean) => {
+		setTerseAnswers(next);
+		writeStoredTerseAnswers(next);
 	}, []);
 
 	const changeAgentModel = useCallback((model: ReviewAgentModelId) => {
@@ -1448,6 +1463,8 @@ export function ReviewWorkspaceView({
 						draftComments={draftComments}
 						isAuditing={audit.status === "running"}
 						model={agentModel}
+						terseAnswers={terseAnswers}
+						onTerseAnswersChange={changeTerseAnswers}
 						onModelChange={changeAgentModel}
 						onSend={sendChat}
 						onCancel={chat.cancel}

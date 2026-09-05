@@ -81,15 +81,15 @@ import {
 	REVIEW_SUGGEST_ALLOWED_TOOLS,
 	resolveReviewAgentCwd,
 } from "../review/review-agent-args";
+import { buildReviewChatSystemPrompt } from "../review/review-answer-style";
 import { reviewCommandNeedsGraphImpact, reviewCommandNeedsRules } from "../review/review-command-expansion";
-import { buildReviewGraphPromptSection } from "../review/review-graph-brief";
+import { buildReviewGraphPromptSection, buildReviewGraphSymbolSection } from "../review/review-graph-brief";
 import { reviewGraphRebuildService } from "../review/review-graph-rebuild-service";
 import {
 	buildAuditPrompt,
 	buildChatPrompt,
 	buildRulesExtractPrompt,
 	buildSuggestionRewritePrompt,
-	REVIEW_CHAT_SYSTEM_PROMPT,
 } from "../review/review-prompts";
 import { persistExtractedRules, readReviewRulesBundle } from "../review/review-rules";
 import { handleAgentStreamRoute } from "../review/review-stream-route";
@@ -1740,6 +1740,14 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 										baseBranch: mergeRequest?.targetBranch ?? "unknown",
 									})
 								: undefined;
+						// Every turn, unlike the brief above: "where is X defined" is asked
+						// mid-conversation, and it costs nothing when the prompt names no symbol —
+						// the extractor runs before the graph is loaded and returns early.
+						const graphSymbols = await buildReviewGraphSymbolSection({
+							projectPath: cwd,
+							prompt: input.prompt,
+							changedPaths: input.changedPaths,
+						});
 						// Only the whole-merge-request review asks for these. A missing bundle is
 						// not an error: the expansion says "no house style to check against"
 						// instead, which is the honest instruction.
@@ -1763,6 +1771,7 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 								isFirstTurn,
 								expectSuggestions: input.expectSuggestions,
 								...(graphImpact === undefined ? {} : { graphImpact }),
+								...(graphSymbols === undefined ? {} : { graphSymbols }),
 								...(rules === undefined ? {} : { rules }),
 								...(input.annotations === undefined ? {} : { annotations: input.annotations }),
 							}),
@@ -1770,7 +1779,7 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 							model: input.model,
 							allowedTools: REVIEW_CHAT_ALLOWED_TOOLS,
 							managerAccountId: input.managerAccountId,
-							appendSystemPrompt: REVIEW_CHAT_SYSTEM_PROMPT,
+							appendSystemPrompt: buildReviewChatSystemPrompt({ terse: input.terse ?? false }),
 							resumeSessionId: input.resumeSessionId,
 						};
 					},
