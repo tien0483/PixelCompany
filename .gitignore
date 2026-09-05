@@ -83,6 +83,15 @@ backends/openmaic/.openmaic/
 backends/openmaic/.env*
 !backends/openmaic/.env.example
 
+# DeepSeek Harness (backends/dsh) — the Custom Agent's CLI, installed by
+# scripts/install-dsh.mjs rather than vendored.
+#
+# The whole directory is machine state: npm writes its package.json, lockfile and tree there,
+# and nothing in it is authored here. Ignoring it wholesale is also what lets
+# syncIgnoredPathsIntoWorktree symlink one install into every task worktree instead of each
+# card resolving a ~100-package harness of its own.
+backends/dsh/
+
 # Stack-provided skills, symlinked into agent skill directories by
 # scripts/link-stack-skills.mjs. They are machine-local links, so they cannot be
 # committed — and being ignored is what makes the runtime mirror them into every

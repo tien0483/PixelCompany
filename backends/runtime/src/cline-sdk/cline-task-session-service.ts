@@ -204,7 +204,11 @@ function formatStartWarnings(warnings: readonly string[] | undefined): string | 
 	return `${normalized[0]} (+${normalized.length - 1} more warning${normalized.length === 2 ? "" : "s"})`;
 }
 
-function buildClineStartPrompt(prompt: string, startInPlanMode?: boolean): string {
+/**
+ * Plan-mode preface. Exported because `kanban cline-agent` (the PTY harness) has to build the
+ * exact same first turn as the in-process SDK path — a second copy would drift silently.
+ */
+export function buildClineStartPrompt(prompt: string, startInPlanMode?: boolean): string {
 	if (!startInPlanMode) {
 		return prompt;
 	}

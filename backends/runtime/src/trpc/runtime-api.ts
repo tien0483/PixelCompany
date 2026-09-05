@@ -131,6 +131,21 @@ export interface CreateRuntimeApiDependencies {
 	flowiseClient?: FlowiseClient | null;
 }
 
+export type ClineExecutionMode = "cli" | "sdk";
+
+/**
+ * Which Cline runtime a card gets.
+ *
+ * `cli` is the default: Cline runs as a PTY through `kanban cline-agent`, like every other agent
+ * on this board. `sdk` restores the in-process `ClineTaskSessionService` path and its chat panel —
+ * kept because it is the only way back for a persisted chat session, and because a bad harness
+ * turn must be one environment variable away from recovery, not a redeploy.
+ */
+export function resolveClineExecutionMode(env: NodeJS.ProcessEnv = process.env): ClineExecutionMode {
+	const requested = (env.PIXTIEL_CLINE_MODE ?? env.PIXELOFFICE_CLINE_MODE)?.trim().toLowerCase();
+	return requested === "sdk" ? "sdk" : "cli";
+}
+
 /**
  * Card-level Cline pins in the shape `resolveLaunchConfig` expects. Shared by every launch
  * path — start, home-chat reload, and home-chat send — because a pin that only the start
@@ -341,9 +356,12 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 					? (terminalManager.getSummary(body.taskId)?.agentId ?? null)
 					: null;
 				const effectiveAgentId = previousTerminalAgentId ?? body.agentId ?? scopedRuntimeConfig.selectedAgentId;
-				let useClinePath = effectiveAgentId === "cline";
+				// In `cli` mode Cline is a PTY agent like any other, so it falls through to the
+				// terminal path below and this stays false for every card.
+				const clineExecutionMode = resolveClineExecutionMode();
+				let useClinePath = clineExecutionMode === "sdk" && effectiveAgentId === "cline";
 				const shouldProbePersistedClineSession =
-					body.resumeFromTrash && !useClinePath && previousTerminalAgentId === null;
+					clineExecutionMode === "sdk" && body.resumeFromTrash && !useClinePath && previousTerminalAgentId === null;
 				if (shouldProbePersistedClineSession) {
 					// If the terminal summary already has a concrete non-Cline agentId,
 					// skip Cline persisted-session probing. That probe can cold-start the
@@ -476,6 +494,11 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 						rows: body.rows,
 						workspaceId: workspaceScope.workspaceId,
 						taskLaunchSettings: launchSettings,
+						// Only `clineAdapter` reads these — they become `--provider/--model/
+						// --reasoning-effort` on the harness argv. Before the CLI harness existed
+						// this field never left the SDK branch, so a card's model pick was
+						// unreachable from a PTY launch.
+						...(body.clineSettings !== undefined ? { clineSettings: body.clineSettings } : {}),
 						autoResumeOnUsageLimit: body.autoResumeOnUsageLimit ?? false,
 						autoFailoverOnUsageLimit: body.autoFailoverOnUsageLimit ?? false,
 						...(isFableClaudeLaunch ? { postStartInput: FABLE_SEAT_MODEL_POST_START_INPUT } : {}),

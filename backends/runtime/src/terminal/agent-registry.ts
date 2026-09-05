@@ -15,6 +15,9 @@ import { resolveDshBinary } from "../orchestrator/dsh-binary";
 import { resolveOrchestratorPatchPath } from "../orchestrator/dsh-endpoint";
 import { isBinaryAvailableOnPath } from "./command-discovery";
 
+/** What the UI shows for Cline; the real argv is built by `clineAdapter`. */
+const CLINE_HARNESS_DISPLAY_COMMAND = "kanban cline-agent";
+
 export interface ResolvedAgentCommand {
 	agentId: RuntimeAgentId;
 	label: string;
@@ -76,7 +79,9 @@ function getCuratedDefinitions(runtimeConfig: RuntimeConfigState, detected: stri
 	return getRuntimeLaunchSupportedAgentCatalog().map((entry) => {
 		const defaultArgs = getDefaultArgs(entry.id);
 		const binary =
-			getRuntimeAgentBinaryCandidates(entry.id).find((candidate) => detectedSet.has(candidate)) ?? entry.binary;
+			entry.id === "cline"
+				? CLINE_HARNESS_DISPLAY_COMMAND
+				: (getRuntimeAgentBinaryCandidates(entry.id).find((candidate) => detectedSet.has(candidate)) ?? entry.binary);
 		const command = joinCommand(binary, defaultArgs);
 		const hasDetectedBinary = getRuntimeAgentBinaryCandidates(entry.id).some((candidate) =>
 			detectedSet.has(candidate),
@@ -103,6 +108,18 @@ export function resolveAgentCommand(runtimeConfig: RuntimeConfigState): Resolved
 		return null;
 	}
 	const defaultArgs = getDefaultArgs(selected.id);
+	if (selected.id === "cline") {
+		// Cline's harness is this runtime's own `kanban cline-agent` subcommand, so there is
+		// nothing on PATH to probe — the catalog's `binary: "cline"` is a display name only, and
+		// `clineAdapter` replaces it with the resolved node + entrypoint pair at launch.
+		return {
+			agentId: selected.id,
+			label: selected.label,
+			command: joinCommand(CLINE_HARNESS_DISPLAY_COMMAND, defaultArgs),
+			binary: CLINE_HARNESS_DISPLAY_COMMAND,
+			args: defaultArgs,
+		};
+	}
 	const binary = getRuntimeAgentBinaryCandidates(selected.id).find((candidate) => isBinaryAvailableOnPath(candidate));
 	if (binary) {
 		const command = joinCommand(binary, defaultArgs);
