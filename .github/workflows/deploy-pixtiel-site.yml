@@ -1,0 +1,64 @@
+name: Deploy PIXTiel site
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "frontends/pixtiel-site/**"
+      - ".github/workflows/deploy-pixtiel-site.yml"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "package.json"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages-pixtiel-site
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.18.0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install site dependencies
+        run: pnpm install --filter pixtiel-site...
+
+      - name: Build site for GitHub project Pages
+        env:
+          PIXTIEL_SITE_URL: https://tien0483.github.io/PixelCompany
+          PIXTIEL_SITE_BASE: /PixelCompany/
+        run: pnpm --filter pixtiel-site build
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: frontends/pixtiel-site/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
