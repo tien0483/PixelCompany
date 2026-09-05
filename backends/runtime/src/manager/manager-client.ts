@@ -31,6 +31,8 @@ import type {
 const DEFAULT_BASE_URL = "http://127.0.0.1:8321";
 const REQUEST_TIMEOUT_MS = 4000;
 const LONG_REQUEST_TIMEOUT_MS = 30000;
+/** Tokscale CLI may cold-start via npx (Manager timeout 60s). */
+const USAGE_OVERVIEW_TIMEOUT_MS = 90000;
 const WS_RECONNECT_DELAY_MS = 5000;
 
 /**
@@ -1234,7 +1236,7 @@ export function createManagerClient(deps: CreateManagerClientDependencies): Mana
 			const raw = await request(
 				`/api/analytics/usage-overview?days=${String(days)}`,
 				undefined,
-				LONG_REQUEST_TIMEOUT_MS,
+				USAGE_OVERVIEW_TIMEOUT_MS,
 			);
 			if (raw === null) {
 				return {
@@ -1247,12 +1249,21 @@ export function createManagerClient(deps: CreateManagerClientDependencies): Mana
 					flagCount: 0,
 					ready: false,
 					error: "Manager is not reachable.",
+					source: "none" as const,
+					byProvider: [],
+					byClient: [],
 				};
 			}
 			if (!isRecord(raw)) {
 				return null;
 			}
-			if (typeof raw.error === "string") {
+			const overview = isRecord(raw.overview) ? raw.overview : raw;
+			const flags = Array.isArray(raw.flags) ? raw.flags : [];
+			const sourceRaw = typeof raw.source === "string" ? raw.source : null;
+			const source = sourceRaw === "tokscale" ? ("tokscale" as const) : ("none" as const);
+			const tokscaleError = typeof raw.error === "string" ? raw.error : null;
+			// Legacy 503 body: `{ error: { message, code } }` or bare string with no overview.
+			if (tokscaleError && !isRecord(raw.overview) && !Array.isArray(raw.flags) && sourceRaw === null) {
 				return {
 					days,
 					totalTokens: null,
@@ -1262,11 +1273,53 @@ export function createManagerClient(deps: CreateManagerClientDependencies): Mana
 					messageCount: null,
 					flagCount: 0,
 					ready: false,
-					error: raw.error,
+					error: tokscaleError,
+					source: "none" as const,
+					byProvider: [],
+					byClient: [],
 				};
 			}
-			const overview = isRecord(raw.overview) ? raw.overview : raw;
-			const flags = Array.isArray(raw.flags) ? raw.flags : [];
+			const byProviderRaw = Array.isArray(overview.by_provider) ? overview.by_provider : [];
+			const byClientRaw = Array.isArray(overview.by_client) ? overview.by_client : [];
+			const byProvider: RuntimeManagerUsageOverview["byProvider"] = [];
+			for (const entry of byProviderRaw) {
+				if (!isRecord(entry)) {
+					continue;
+				}
+				const provider = readString(entry, "provider");
+				const totalTokens = readNumber(entry, "total_tokens");
+				const totalCostUsd = readNumber(entry, "total_cost_usd");
+				if (provider === null || totalTokens === null || totalCostUsd === null) {
+					continue;
+				}
+				byProvider.push({
+					provider,
+					totalTokens,
+					totalCostUsd,
+					cacheHitRatio: readNumber(entry, "cache_hit_ratio"),
+				});
+			}
+			const byClient: RuntimeManagerUsageOverview["byClient"] = [];
+			for (const entry of byClientRaw) {
+				if (!isRecord(entry)) {
+					continue;
+				}
+				const client = readString(entry, "client");
+				const provider = readString(entry, "provider");
+				const totalTokens = readNumber(entry, "total_tokens");
+				const totalCostUsd = readNumber(entry, "total_cost_usd");
+				if (client === null || provider === null || totalTokens === null || totalCostUsd === null) {
+					continue;
+				}
+				byClient.push({
+					client,
+					provider,
+					totalTokens,
+					totalCostUsd,
+					cacheHitRatio: readNumber(entry, "cache_hit_ratio"),
+				});
+			}
+			const ready = source === "tokscale";
 			return {
 				days,
 				totalTokens: readNumber(overview, "total_tokens"),
@@ -1275,8 +1328,11 @@ export function createManagerClient(deps: CreateManagerClientDependencies): Mana
 				sessionCount: readNumber(overview, "session_count"),
 				messageCount: readNumber(overview, "message_count"),
 				flagCount: flags.length,
-				ready: true,
-				error: null,
+				ready,
+				error: tokscaleError,
+				source,
+				byProvider,
+				byClient,
 			};
 		},
 		fetchSwapLog: async (limit = 10) => {
