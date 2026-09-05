@@ -63,23 +63,30 @@ export function resolveSitePort(configured?: number): number {
 	return DEFAULT_SITE_PORT;
 }
 
+/** Public Next.js docs/marketing host (v0 / Vercel). Docs tab frames this by default. */
+export const DEFAULT_PUBLIC_SITE_URL = "https://pixtiel.vercel.app";
+
 /**
  * Resolution order: an explicit `configured` URL, then `PIXTIEL_WEBSITE_URL` verbatim,
- * then `http://127.0.0.1:<resolveSitePort()>`.
- *
- * The browser loads this directly. The site is served **root-mounted on its own port**
- * rather than under a path on :3484 for one concrete reason: Astro emits absolute
- * internal URLs (`/docs/…`, `/_astro/…`), so a path mount would need every link in the
- * site rewritten through `import.meta.env.BASE_URL` — including the ones inside MDX
- * content, which are plain strings. A port keeps the published site and the embedded one
- * byte-identical.
+ * then the public Vercel host. Set `PIXTIEL_WEBSITE_URL=http://127.0.0.1:3030` to frame a
+ * local `next start` instead.
  */
 export function resolveSiteBaseUrl(configured?: string): string {
 	const fromUrl = configured ?? readBrandEnv("WEBSITE_URL")?.trim();
 	if (fromUrl) {
 		return fromUrl.replace(/\/$/, "");
 	}
-	return `http://${DEFAULT_SITE_HOST}:${resolveSitePort()}`;
+	return DEFAULT_PUBLIC_SITE_URL;
+}
+
+/** True when Docs should treat the site as the hosted Vercel/v0 deploy (no local dist). */
+export function isHostedSiteUrl(url: string): boolean {
+	try {
+		const host = new URL(url).hostname;
+		return host !== "127.0.0.1" && host !== "localhost";
+	} catch {
+		return false;
+	}
 }
 
 /**

@@ -1,5 +1,4 @@
-@import "tailwindcss/theme";
-@import "tailwindcss/utilities";
+@import "tailwindcss";
 
 @theme {
 	/* Surface hierarchy */

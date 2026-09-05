@@ -1,13 +1,13 @@
----
-import { withBase } from "../lib/base";
-import BaseLayout from "../layouts/BaseLayout.astro";
-import ScreenshotFrame from "../components/ScreenshotFrame.astro";
+import Link from "next/link";
+import type { Metadata } from "next";
+import { ScreenshotFrame } from "@/components/screenshot-frame";
 
-/**
- * One entry per surface the product actually ships. Ports and feature ids match
- * `scripts/install/features.mjs` and the runtime supervisors, so this page can be
- * checked against the code rather than trusted.
- */
+export const metadata: Metadata = {
+	title: "Products",
+	description:
+		"Every surface PIXTiel ships: the board, plan editor, review, agent studio, learning room, seats and the agent stack — plus two packages that ship on their own.",
+};
+
 const surfaces = [
 	{
 		id: "board",
@@ -37,7 +37,7 @@ const surfaces = [
 		],
 		shot: { src: "/screenshots/plan-editor.png", alt: "Plan editor with a rendered plan and template pane" },
 		feature: "plan-editor",
-		port: null,
+		port: null as string | null,
 	},
 	{
 		id: "review",
@@ -52,7 +52,7 @@ const surfaces = [
 		],
 		shot: { src: "/screenshots/review-tab.png", alt: "Review tab showing a branch diff with inline comments" },
 		feature: "review",
-		port: null,
+		port: null as string | null,
 	},
 	{
 		id: "agents",
@@ -81,7 +81,7 @@ const surfaces = [
 			"Degrades to an Open-in-tab button if the build refuses framing",
 		],
 		shot: { src: "/screenshots/learning.png", alt: "Learning room embedded in PIXTiel" },
-		feature: null,
+		feature: null as string | null,
 		port: "3020",
 	},
 	{
@@ -110,7 +110,7 @@ const surfaces = [
 			"Understand-Anything — knowledge graph, dashboard and diff impact",
 			"Switchboard on :8000 with a per-toggle control panel",
 		],
-		shot: null,
+		shot: null as { src: string; alt: string } | null,
 		feature: "agent-stack",
 		port: "8000",
 	},
@@ -125,7 +125,7 @@ const surfaces = [
 			"~50 MB built --slim; a one-time build.sh installs the sidecar's deps on the target",
 			"Versioned plans with undo, redo and history, backed by git objects",
 		],
-		shot: null,
+		shot: null as { src: string; alt: string } | null,
 		feature: "plan-editor-standalone",
 		port: "4173",
 	},
@@ -140,130 +140,133 @@ const surfaces = [
 			"Rules extracted from your own guideline documents, each citation traceable to its heading",
 			"Runs on 4183, clear of the plan editor's 4173, so both packages coexist",
 		],
-		shot: null,
+		shot: null as { src: string; alt: string } | null,
 		feature: "review-standalone",
 		port: "4183",
 	},
 ];
----
 
-<BaseLayout
-	title="Products"
-	description="Every surface PIXTiel ships: the board, plan editor, review, agent studio, learning room, seats and the agent stack — plus two packages that ship on their own."
->
-	<!-- Header -->
-	<section class="border-b border-border">
-		<div class="max-w-6xl mx-auto px-4 sm:px-6 py-16 sm:py-20">
-			<p class="text-xs font-mono uppercase tracking-widest text-accent mb-4">Products</p>
-			<h1 class="text-3xl sm:text-5xl font-bold tracking-tight text-text-primary max-w-3xl">
-				One workspace, seven surfaces — two of them ship on their own.
-			</h1>
-			<p class="mt-5 text-base sm:text-lg text-text-secondary max-w-2xl leading-relaxed">
-				PIXTiel is one local install. The board is the core; everything else is a feature you tick on
-				during setup and can add later. The installer also builds the plan editor and Review as
-				self-contained packages you can hand to someone who does not want the board. Nothing phones
-				home, and every service binds to loopback.
-			</p>
-			<div class="mt-8 flex flex-wrap gap-3">
-				<a
-					href={withBase("/#install")}
-					class="px-5 py-2.5 rounded-lg bg-accent hover:bg-accent-hover text-white text-sm font-semibold transition-colors"
-				>
-					Install PIXTiel
-				</a>
-				<a
-					href={withBase("/docs/getting-started")}
-					class="px-5 py-2.5 rounded-lg border border-border hover:border-border-bright text-text-primary text-sm font-semibold transition-colors"
-				>
-					Read the docs
-				</a>
-			</div>
-		</div>
-	</section>
-
-	<!-- Jump bar -->
-	<section class="products-jump-bar border-b border-border bg-surface-1/95 sticky top-16 z-40 backdrop-blur-md shadow-xs">
-		<div class="max-w-6xl mx-auto px-4 sm:px-6 py-2.5 flex items-center gap-1.5 sm:gap-2 overflow-x-auto text-xs font-medium">
-			{
-				surfaces.map((s) => (
-					<a
-						href={withBase(`#${s.id}`)}
-						class="px-3 py-1.5 rounded-lg border border-border/60 bg-surface-0/60 hover:bg-surface-2 hover:border-border text-text-secondary hover:text-text-primary whitespace-nowrap transition-all inline-flex items-center gap-1.5 font-medium shadow-2xs"
-					>
-						{s.name}
-					</a>
-				))
-			}
-		</div>
-	</section>
-
-	<!-- Surfaces -->
-	<div class="max-w-6xl mx-auto px-4 sm:px-6 divide-y divide-border">
-		{
-			surfaces.map((s, index) => (
-				<section id={s.id} class="py-16 sm:py-20 scroll-mt-32">
-					<div
-						class={`grid gap-10 lg:gap-14 items-center ${s.shot ? "lg:grid-cols-2" : "lg:grid-cols-1 max-w-3xl"}`}
-					>
-						<div class={s.shot && index % 2 === 1 ? "lg:order-2" : ""}>
-							<p class="text-xs font-mono uppercase tracking-widest text-accent mb-3">{s.eyebrow}</p>
-							<h2 class="text-2xl sm:text-3xl font-bold tracking-tight text-text-primary">{s.name}</h2>
-							<p class="mt-3 text-lg text-text-primary/90">{s.tagline}</p>
-							<p class="mt-4 text-sm sm:text-base text-text-secondary leading-relaxed">{s.body}</p>
-							<ul class="mt-6 space-y-2.5">
-								{s.bullets.map((b) => (
-									<li class="flex gap-2.5 text-sm text-text-secondary">
-										<svg
-											class="w-4 h-4 mt-0.5 shrink-0 text-accent"
-											viewBox="0 0 24 24"
-											fill="none"
-											stroke="currentColor"
-											stroke-width="2.5"
-											stroke-linecap="round"
-											stroke-linejoin="round"
-										>
-											<polyline points="20 6 9 17 4 12" />
-										</svg>
-										<span>{b}</span>
-									</li>
-								))}
-							</ul>
-							<div class="mt-6 flex flex-wrap items-center gap-2 text-[11px] font-mono">
-								{s.feature ? (
-									<span class="px-2 py-1 rounded border border-border bg-surface-1 text-text-secondary">
-										feature: {s.feature}
-									</span>
-								) : null}
-								{s.port ? (
-									<span class="px-2 py-1 rounded border border-border bg-surface-1 text-text-secondary">
-										127.0.0.1:{s.port}
-									</span>
-								) : null}
-							</div>
-						</div>
-
-						{s.shot ? (
-							<div class={index % 2 === 1 ? "lg:order-1" : ""}>
-								<ScreenshotFrame src={s.shot.src} alt={s.shot.alt} title={s.name} />
-							</div>
-						) : null}
+export default function ProductsPage() {
+	return (
+		<>
+			<section className="border-b border-border">
+				<div className="max-w-6xl mx-auto px-4 sm:px-6 py-16 sm:py-20">
+					<p className="text-xs font-mono uppercase tracking-widest text-accent mb-4">Products</p>
+					<h1 className="text-3xl sm:text-5xl font-bold tracking-tight text-text-primary max-w-3xl">
+						One workspace, seven surfaces — two of them ship on their own.
+					</h1>
+					<p className="mt-5 text-base sm:text-lg text-text-secondary max-w-2xl leading-relaxed">
+						PIXTiel is one local install. The board is the core; everything else is a feature you tick on
+						during setup and can add later. The installer also builds the plan editor and Review as
+						self-contained packages you can hand to someone who does not want the board. Nothing phones
+						home, and every service binds to loopback.
+					</p>
+					<div className="mt-8 flex flex-wrap gap-3">
+						<a
+							href="/#install"
+							className="px-5 py-2.5 rounded-lg bg-accent hover:bg-accent-hover text-white text-sm font-semibold transition-colors"
+						>
+							Install PIXTiel
+						</a>
+						<Link
+							href="/docs/getting-started"
+							className="px-5 py-2.5 rounded-lg border border-border hover:border-border-bright text-text-primary text-sm font-semibold transition-colors"
+						>
+							Read the docs
+						</Link>
 					</div>
-				</section>
-			))
-		}
-	</div>
+				</div>
+			</section>
 
-	<!-- Close -->
-	<section class="border-t border-border bg-surface-1">
-		<div class="max-w-6xl mx-auto px-4 sm:px-6 py-16 text-center">
-			<h2 class="text-2xl sm:text-3xl font-bold tracking-tight text-text-primary">Pick your surfaces at install time</h2>
-			<p class="mt-4 text-sm sm:text-base text-text-secondary max-w-xl mx-auto">
-				The installer shows a checkbox list and remembers what you chose. A feature that fails to
-				install warns and the rest continue — a partial install is a valid state.
-			</p>
-			<div class="mt-8 inline-block text-left">
-				<pre class="px-4 py-3 rounded-lg border border-border bg-surface-0 text-xs sm:text-sm font-mono text-text-primary overflow-x-auto"><code>curl -fsSL https://raw.githubusercontent.com/tien0483/PixelCompany/main/install.sh | bash</code></pre>
+			<section className="products-jump-bar border-b border-border bg-surface-1/95 sticky top-16 z-40 backdrop-blur-md shadow-xs">
+				<div className="max-w-6xl mx-auto px-4 sm:px-6 py-2.5 flex items-center gap-1.5 sm:gap-2 overflow-x-auto text-xs font-medium">
+					{surfaces.map((s) => (
+						<a
+							key={s.id}
+							href={`#${s.id}`}
+							className="px-3 py-1.5 rounded-lg border border-border/60 bg-surface-0/60 hover:bg-surface-2 hover:border-border text-text-secondary hover:text-text-primary whitespace-nowrap transition-all inline-flex items-center gap-1.5 font-medium shadow-2xs"
+						>
+							{s.name}
+						</a>
+					))}
+				</div>
+			</section>
+
+			<div className="max-w-6xl mx-auto px-4 sm:px-6 divide-y divide-border">
+				{surfaces.map((s, index) => (
+					<section key={s.id} id={s.id} className="py-16 sm:py-20 scroll-mt-32">
+						<div
+							className={`grid gap-10 lg:gap-14 items-center ${s.shot ? "lg:grid-cols-2" : "lg:grid-cols-1 max-w-3xl"}`}
+						>
+							<div className={s.shot && index % 2 === 1 ? "lg:order-2" : ""}>
+								<p className="text-xs font-mono uppercase tracking-widest text-accent mb-3">
+									{s.eyebrow}
+								</p>
+								<h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-text-primary">
+									{s.name}
+								</h2>
+								<p className="mt-3 text-lg text-text-primary/90">{s.tagline}</p>
+								<p className="mt-4 text-sm sm:text-base text-text-secondary leading-relaxed">{s.body}</p>
+								<ul className="mt-6 space-y-2.5">
+									{s.bullets.map((b) => (
+										<li key={b} className="flex gap-2.5 text-sm text-text-secondary">
+											<svg
+												className="w-4 h-4 mt-0.5 shrink-0 text-accent"
+												viewBox="0 0 24 24"
+												fill="none"
+												stroke="currentColor"
+												strokeWidth="2.5"
+												strokeLinecap="round"
+												strokeLinejoin="round"
+											>
+												<polyline points="20 6 9 17 4 12" />
+											</svg>
+											<span>{b}</span>
+										</li>
+									))}
+								</ul>
+								<div className="mt-6 flex flex-wrap items-center gap-2 text-[11px] font-mono">
+									{s.feature ? (
+										<span className="px-2 py-1 rounded border border-border bg-surface-1 text-text-secondary">
+											feature: {s.feature}
+										</span>
+									) : null}
+									{s.port ? (
+										<span className="px-2 py-1 rounded border border-border bg-surface-1 text-text-secondary">
+											127.0.0.1:{s.port}
+										</span>
+									) : null}
+								</div>
+							</div>
+
+							{s.shot ? (
+								<div className={index % 2 === 1 ? "lg:order-1" : ""}>
+									<ScreenshotFrame src={s.shot.src} alt={s.shot.alt} title={s.name} />
+								</div>
+							) : null}
+						</div>
+					</section>
+				))}
 			</div>
-		</div>
-	</section>
-</BaseLayout>
+
+			<section className="border-t border-border bg-surface-1">
+				<div className="max-w-6xl mx-auto px-4 sm:px-6 py-16 text-center">
+					<h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-text-primary">
+						Pick your surfaces at install time
+					</h2>
+					<p className="mt-4 text-sm sm:text-base text-text-secondary max-w-xl mx-auto">
+						The installer shows a checkbox list and remembers what you chose. A feature that fails to
+						install warns and the rest continue — a partial install is a valid state.
+					</p>
+					<div className="mt-8 inline-block text-left">
+						<pre className="px-4 py-3 rounded-lg border border-border bg-surface-0 text-xs sm:text-sm font-mono text-text-primary overflow-x-auto">
+							<code>
+								curl -fsSL https://raw.githubusercontent.com/tien0483/PixelCompany/main/install.sh | bash
+							</code>
+						</pre>
+					</div>
+				</div>
+			</section>
+		</>
+	);
+}

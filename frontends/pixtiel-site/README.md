@@ -1,43 +1,23 @@
-# Astro Starter Kit: Minimal
+# PIXTiel site — Vercel / v0
 
-```sh
-pnpm create astro@latest -- --template minimal
+Next.js App Router site. Production: https://pixtiel.vercel.app
+
+## GitHub auto-rebuild
+
+1. In Vercel (or v0 project settings), import the GitHub repo.
+2. Set **Root Directory** to `frontends/pixtiel-site`.
+3. Framework: Next.js. Install/build use package scripts (`pnpm install` / `pnpm build`).
+4. Production domain: `pixtiel.vercel.app`.
+5. `vercel.json` `ignoreCommand` skips deploys when this directory did not change.
+
+Pushes to `main` that touch `frontends/pixtiel-site/**` rebuild the live site. No GitHub Pages workflow.
+
+## Local
+
+```bash
+pnpm --filter pixtiel-site dev
+pnpm --filter pixtiel-site build
+pnpm --filter pixtiel-site start
 ```
 
-> 🧑‍🚀 **Seasoned astronaut?** Delete this file. Have fun!
-
-## 🚀 Project Structure
-
-Inside of your Astro project, you'll see the following folders and files:
-
-```text
-/
-├── public/
-├── src/
-│   └── pages/
-│       └── index.astro
-└── package.json
-```
-
-Astro looks for `.astro` or `.md` files in the `src/pages/` directory. Each page is exposed as a route based on its file name.
-
-There's nothing special about `src/components/`, but that's where we like to put any Astro/React/Vue/Svelte/Preact components.
-
-Any static assets, like images, can be placed in the `public/` directory.
-
-## 🧞 Commands
-
-All commands are run from the root of the project, from a terminal:
-
-| Command                   | Action                                           |
-| :------------------------ | :----------------------------------------------- |
-| `pnpm install`             | Installs dependencies                            |
-| `pnpm dev`             | Starts local dev server at `localhost:4321`      |
-| `pnpm build`           | Build your production site to `./dist/`          |
-| `pnpm preview`         | Preview your build locally, before deploying     |
-| `pnpm astro ...`       | Run CLI commands like `astro add`, `astro check` |
-| `pnpm astro -- --help` | Get help using the Astro CLI                     |
-
-## 👀 Want to learn more?
-
-Feel free to check [our documentation](https://docs.astro.build) or jump into our [Discord server](https://astro.build/chat).
+Frame a local build from PixelOffice Docs with `PIXTIEL_WEBSITE_URL=http://127.0.0.1:3030`.

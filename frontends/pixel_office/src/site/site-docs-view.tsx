@@ -19,14 +19,11 @@ export interface SiteDocsViewProps {
 const POLL_INTERVAL_MS = 5_000;
 
 /**
- * Frames the product website — the same Astro build that ships to the public site — in the
+ * Frames the product website — the same Next.js build hosted at pixtiel.vercel.app — in the
  * center pane, opened at its documentation section.
  *
- * Served root-mounted on its own loopback port by `site-server.ts` rather than under a path
- * on :3484, because Astro emits absolute internal URLs (`/docs/…`, `/_astro/…`): a path
- * mount would need every link in the site rewritten through `import.meta.env.BASE_URL`,
- * including the ones inside MDX content, which are plain strings. A port keeps the
- * published site and the embedded one byte-identical.
+ * Default base URL is the public Vercel deploy. Override with `PIXTIEL_WEBSITE_URL` to frame
+ * a local `next start` on :3030 instead.
  *
  * The frame is cross-origin for the same reason the Agents and Learning frames are: the
  * `/api/*-proxy/` handlers buffer to text and the WS-upgrade allowlist drops every path but
