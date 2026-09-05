@@ -21,8 +21,9 @@ import {
 } from "react";
 
 import { ReviewCommentComposer } from "@/components/review/review-comment-composer";
+import { ReviewDiffMinimap } from "@/components/review/review-diff-minimap";
 import { ReviewTagChip } from "@/components/review/review-tag-chip";
-import { ReviewTagStrip } from "@/components/review/review-tag-strip";
+import { ReviewTagRail } from "@/components/review/review-tag-rail";
 import {
 	buildDisplayItems,
 	CollapsedBlockControls,
@@ -434,6 +435,16 @@ export function ReviewDiffPane({
 				? rows.map((row) => ({ type: "row", row }))
 				: buildDisplayItems(rows, expandedBlocks),
 		[expandedBlocks, fullFileRows, rows, showFullFile],
+	);
+
+	/**
+	 * What the minimap watches to know its measurements are stale. It has to be a value
+	 * that only changes when the rendered rows do — a fresh object every render would put
+	 * the measure pass into a loop with its own state.
+	 */
+	const minimapRevision = useMemo(
+		() => ({ displayItems, mode, showFullFile }),
+		[displayItems, mode, showFullFile],
 	);
 
 	/** Patch order by row key — a drag has to be orderable regardless of its direction. */
@@ -944,6 +955,24 @@ export function ReviewDiffPane({
 						}
 						data-row-key={row.key}
 						data-diff-side={side}
+						// Read by the overview ruler, which measures rows rather than re-deriving
+						// them: a class name would tie its colours to Tailwind's output, and the
+						// annotation lookup here is already done.
+						data-diff-variant={row.variant}
+						data-annotation-kind={
+							rowThreads.length > 0
+								? "thread"
+								: rowDrafts.length > 0
+									? "draft"
+									: rowTags.length > 0
+										? "tag"
+										: undefined
+						}
+						data-annotation-color={
+							rowThreads.length === 0 && rowDrafts.length === 0 && rowTags[0]
+								? reviewTagColor(rowTags[0].tag).cssVar
+								: undefined
+						}
 						// Press-drag-release is one gesture: a press and release on the same row
 						// resolves to a one-row range, which is the old click-to-comment.
 						onMouseDown={commentable ? () => startDrag(side, row.key) : undefined}
@@ -1376,14 +1405,19 @@ export function ReviewDiffPane({
 				</div>
 			</div>
 
+			{/* `relative`: the tag flyout is positioned against this row, and it has to be able
+			    to cover the diff without being clipped into the scroller. */}
+			<div className="relative flex min-h-0 min-w-0 flex-1">
 			{tagAnnotations ? (
-				<ReviewTagStrip
+				<ReviewTagRail
 					sections={tagAnnotations.sections}
+					isDraggingTag={(tagAnnotations.draggedTag ?? null) !== null}
 					onTagDragStart={tagAnnotations.onDragStart}
 					onTagDragEnd={tagAnnotations.onDragEnd}
 				/>
 			) : null}
 
+			<div className="flex min-h-0 min-w-0 flex-1 flex-col">
 			{mode === "split" ? (
 				<div className="grid shrink-0 grid-cols-2 divide-x divide-border border-b border-border bg-surface-0 px-0 font-mono text-[11px] text-text-tertiary">
 					<div className="px-3 py-1">Base — {file.oldPath}</div>
@@ -1477,6 +1511,10 @@ export function ReviewDiffPane({
 						)}
 					</div>
 				)}
+			</div>
+			</div>
+
+			<ReviewDiffMinimap scrollRef={scrollRef} revision={minimapRevision} />
 			</div>
 		</div>
 	);

@@ -1041,6 +1041,82 @@ body.kb-dependency-link-mode {
 	grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
 }
 
+/*
+ * The diff's overview ruler. Marks are absolutely positioned in ruler pixels by
+ * `review-minimap.ts`; everything here is only paint, so a change to the projection
+ * never has to be mirrored in CSS.
+ */
+.kb-review-minimap-mark {
+	position: absolute;
+	left: 0;
+	right: 0;
+	pointer-events: none;
+}
+
+.kb-review-minimap-added {
+	background: rgba(63, 185, 80, 0.75);
+}
+
+.kb-review-minimap-removed {
+	background: rgba(248, 81, 73, 0.75);
+}
+
+/*
+ * Annotations sit in the right half so they never hide the change band underneath —
+ * a tagged addition has to still read as an addition.
+ */
+.kb-review-minimap-annotation {
+	position: absolute;
+	right: 0;
+	width: 5px;
+	border-radius: 1px;
+	pointer-events: none;
+	background: var(--color-accent);
+}
+
+.kb-review-minimap-thread {
+	background: var(--color-accent);
+}
+
+.kb-review-minimap-draft {
+	background: var(--color-status-orange);
+}
+
+/* The viewport box. Outline rather than a fill: the marks under it have to stay legible. */
+.kb-review-minimap-thumb {
+	position: absolute;
+	left: 0;
+	right: 0;
+	pointer-events: none;
+	border-top: 1px solid var(--color-border-focus, var(--color-accent));
+	border-bottom: 1px solid var(--color-border-focus, var(--color-accent));
+	background: rgba(255, 255, 255, 0.08);
+}
+
+/* One band per file in the merge request, sized by how much of the change it holds. */
+.kb-review-file-band {
+	min-height: 3px;
+	border-bottom: 1px solid var(--color-surface-0);
+	background: var(--color-surface-3);
+}
+
+.kb-review-file-band:hover {
+	background: var(--color-text-tertiary);
+}
+
+.kb-review-file-band-reviewed {
+	background: color-mix(in srgb, var(--color-status-green) 45%, transparent);
+}
+
+.kb-review-file-band-attention {
+	background: var(--color-status-orange);
+}
+
+.kb-review-file-band-active {
+	background: var(--color-accent);
+	box-shadow: inset 0 0 0 1px var(--color-text-primary);
+}
+
 .kb-diff-split-cell {
 	min-width: 0;
 	min-height: 100%;

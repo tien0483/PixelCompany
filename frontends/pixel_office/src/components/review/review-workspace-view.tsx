@@ -1,4 +1,19 @@
-import { ArrowLeft, CheckCheck, ExternalLink, MessageSquare, Network, Send, Sparkles, X } from "lucide-react";
+import {
+	ArrowLeft,
+	BookOpen,
+	Bot,
+	CheckCheck,
+	ChevronLeft,
+	ChevronRight,
+	ExternalLink,
+	FileText,
+	MessageSquare,
+	Network,
+	Send,
+	Sparkles,
+	Tag,
+	X,
+} from "lucide-react";
 import {
 	type MouseEvent as ReactMouseEvent,
 	type ReactElement,
@@ -16,6 +31,7 @@ import { isMergeRequestScopedPrompt, isReviewCommandPrompt } from "@/components/
 import { ReviewClaudePanel } from "@/components/review/review-claude-panel";
 import { ReviewDescriptionPanel } from "@/components/review/review-description-panel";
 import { ReviewDiffPane, type ReviewCommentDraftInput } from "@/components/review/review-diff-pane";
+import { ReviewFileRail } from "@/components/review/review-file-rail";
 import { ReviewFilesPanel } from "@/components/review/review-files-panel";
 import { ReviewImpactPanel } from "@/components/review/review-impact-panel";
 import { ReviewRepoLockChip } from "@/components/review/review-repo-lock-chip";
@@ -50,6 +66,8 @@ import {
 	parseVerdictsFromStream,
 	type ReviewAnnotationVerdictResult,
 } from "@/review/review-findings-parse";
+import { useReviewPaneCollapse } from "@/resize/use-review-workspace-layout";
+import { buildFileBands } from "@/review/review-file-bands";
 import { isTypingTarget, resolveNavKey } from "@/review/review-nav-keys";
 import { buildTagSections, type ReviewTag } from "@/review/review-tags";
 import {
@@ -138,6 +156,7 @@ export function ReviewWorkspaceView({
 		(session.mergeRequest?.description ?? "").trim().length > 0,
 	);
 	const [leftTab, setLeftTab] = useState<LeftTab>("files");
+	const collapse = useReviewPaneCollapse();
 	const [diffMode, setDiffMode] = useState<ReviewDiffMode>("split");
 	const [pendingCitations, setPendingCitations] = useState<string[]>([]);
 	const [isComposerOpen, setIsComposerOpen] = useState(false);
@@ -405,6 +424,18 @@ export function ReviewWorkspaceView({
 		[draftComments, session.activePath],
 	);
 
+	const fileBands = useMemo(
+		() =>
+			buildFileBands({
+				files: session.files,
+				activePath: session.activePath,
+				reviewedPaths,
+				draftCountByPath,
+				newCommentPaths: new Set(session.newComments.byPath.keys()),
+			}),
+		[draftCountByPath, reviewedPaths, session.activePath, session.files, session.newComments.byPath],
+	);
+
 	const annotations = session.session?.annotations ?? [];
 	const currentHeadSha = session.versions[0]?.headSha ?? session.diffRefs?.headSha ?? null;
 	const staleAnnotationIds = useMemo(
@@ -419,6 +450,69 @@ export function ReviewWorkspaceView({
 	/** Flagged spots no pass has answered yet — the count the tab label leads with. */
 	const openAnnotationCount = annotations.filter((a) => a.verdict === null).length;
 	const tagSections = useMemo(() => buildTagSections(session.rules), [session.rules]);
+
+	const openLeftTab = useCallback(
+		(tab: LeftTab) => {
+			setLeftTab(tab);
+			collapse.setLeftCollapsed(false);
+		},
+		[collapse],
+	);
+
+	/** The collapsed left aside: the same five tabs, as icons that expand it again. */
+	const leftRailItems = useMemo<ReviewSideRailItem[]>(
+		() => [
+			{
+				id: "files",
+				icon: FileText,
+				label: `Files (${session.files.length})`,
+				count: session.files.length,
+				onSelect: () => openLeftTab("files"),
+			},
+			{
+				id: "impact",
+				icon: Network,
+				label: "Impact",
+				count: graph.impact?.affected?.length ?? null,
+				// The only place a stale graph shows without opening the tab, and a stale
+				// graph silently degrades every agent prompt — so it survives collapsing.
+				showAlert: graph.impact?.freshness?.isStale === true,
+				onSelect: () => openLeftTab("impact"),
+			},
+			{
+				id: "threads",
+				icon: MessageSquare,
+				label: `Threads (${session.discussions.length})`,
+				count: session.discussions.length,
+				onSelect: () => openLeftTab("threads"),
+			},
+			{
+				id: "rules",
+				icon: BookOpen,
+				label: `Rules (${session.rules.length})`,
+				count: session.rules.length,
+				onSelect: () => openLeftTab("rules"),
+			},
+			{
+				id: "annotations",
+				icon: Tag,
+				label: `Annotations (${annotations.length})`,
+				count: annotations.length,
+				showAlert: openAnnotationCount > 0,
+				onSelect: () => openLeftTab("annotations"),
+			},
+		],
+		[
+			annotations.length,
+			graph.impact?.affected?.length,
+			graph.impact?.freshness?.isStale,
+			openAnnotationCount,
+			openLeftTab,
+			session.discussions.length,
+			session.files.length,
+			session.rules.length,
+		],
+	);
 	const jumpToAnnotation = useCallback(
 		(annotation: RuntimeReviewAnnotation) => {
 			session.setActivePath(annotation.newPath);
@@ -1104,6 +1198,8 @@ export function ReviewWorkspaceView({
 		workspaceHeight: workspaceRect.height,
 		hasFindings: pendingFindings.length > 0,
 		hasDrafts: draftComments.length > 0,
+		isSidebarCollapsed: collapse.isLeftCollapsed,
+		isClaudePanelCollapsed: collapse.isRightCollapsed,
 	});
 
 	const { startDrag: startSidebarResize } = useResizeDrag();
@@ -1385,11 +1481,19 @@ export function ReviewWorkspaceView({
 			) : null}
 
 			<div ref={columnsMeasureRef} className="flex min-h-0 flex-1 overflow-hidden">
+				{collapse.isLeftCollapsed ? (
+					<ReviewSideRail
+						side="left"
+						ariaLabel="Expand the review panels"
+						items={leftRailItems}
+						onExpand={() => collapse.setLeftCollapsed(false)}
+					/>
+				) : (
 				<aside
 					className="flex shrink-0 flex-col border-r border-border bg-surface-1"
 					style={{ width: displaySidebarWidth }}
 				>
-					<div className="flex shrink-0 border-b border-border text-[11px]">
+					<div className="flex shrink-0 items-center border-b border-border text-[11px]">
 						<LeftTabButton
 							label={`Files (${session.files.length})`}
 							active={leftTab === "files"}
@@ -1426,6 +1530,15 @@ export function ReviewWorkspaceView({
 							active={leftTab === "annotations"}
 							onSelect={() => setLeftTab("annotations")}
 						/>
+						<button
+							type="button"
+							aria-label="Collapse the review panels"
+							title="Collapse to a rail"
+							className="shrink-0 cursor-pointer px-1.5 py-2 text-text-tertiary hover:text-text-primary"
+							onClick={() => collapse.setLeftCollapsed(true)}
+						>
+							<ChevronLeft size={12} />
+						</button>
 					</div>
 
 					{leftTab === "impact" ? (
@@ -1485,13 +1598,17 @@ export function ReviewWorkspaceView({
 						/>
 					)}
 				</aside>
+				)}
 
-				<ResizeHandle
-					orientation="vertical"
-					ariaLabel="Resize the review file list"
-					onMouseDown={handleSidebarSeparatorMouseDown}
-					className="z-10"
-				/>
+				{/* A collapsed column is a fixed rail, so there is nothing to drag. */}
+				{collapse.isLeftCollapsed ? null : (
+					<ResizeHandle
+						orientation="vertical"
+						ariaLabel="Resize the review file list"
+						onMouseDown={handleSidebarSeparatorMouseDown}
+						className="z-10"
+					/>
+				)}
 
 				{session.isLoading ? (
 					<div className="flex min-h-0 flex-1 items-center justify-center">
@@ -1538,6 +1655,25 @@ export function ReviewWorkspaceView({
 					/>
 				)}
 
+				<ReviewFileRail bands={fileBands} onSelectPath={session.setActivePath} />
+
+				{collapse.isRightCollapsed ? (
+					<ReviewSideRail
+						side="right"
+						ariaLabel="Expand the Claude panel"
+						items={[
+							{
+								id: "claude",
+								icon: Bot,
+								label: "Claude",
+								count: pendingFindings.length,
+								onSelect: () => collapse.setRightCollapsed(false),
+							},
+						]}
+						onExpand={() => collapse.setRightCollapsed(false)}
+					/>
+				) : (
+					<>
 				<ResizeHandle
 					orientation="vertical"
 					ariaLabel="Resize the Claude panel"
@@ -1550,6 +1686,17 @@ export function ReviewWorkspaceView({
 					className="flex shrink-0 flex-col border-l border-border"
 					style={{ width: displayClaudePanelWidth }}
 				>
+					<div className="flex shrink-0 justify-end border-b border-border">
+						<button
+							type="button"
+							aria-label="Collapse the Claude panel"
+							title="Collapse to a rail"
+							className="cursor-pointer px-1.5 py-1 text-text-tertiary hover:text-text-primary"
+							onClick={() => collapse.setRightCollapsed(true)}
+						>
+							<ChevronRight size={12} />
+						</button>
+					</div>
 					<ReviewClaudePanel
 						messages={chat.messages}
 						streamingText={chat.streamingText}
@@ -1590,6 +1737,8 @@ export function ReviewWorkspaceView({
 						onJumpToDraft={jumpToDraft}
 					/>
 				</aside>
+				</>
+				)}
 			</div>
 
 			<ReviewSubmitDialog
@@ -1601,6 +1750,79 @@ export function ReviewWorkspaceView({
 				onOpenChange={setIsSubmitOpen}
 				onSubmit={(outcome) => void submitReview(outcome)}
 			/>
+		</div>
+	);
+}
+
+interface ReviewSideRailItem {
+	id: string;
+	icon: typeof FileText;
+	label: string;
+	/** Shown under the icon; null when the panel has nothing to count. */
+	count?: number | null;
+	showAlert?: boolean;
+	onSelect: () => void;
+}
+
+/**
+ * A collapsed aside, as a rail of its own tabs.
+ *
+ * Collapsing to nothing would be cheaper, but the panels behind these icons — the file
+ * list above all — are navigated constantly, and hiding them entirely trades a wide
+ * pane for a hunt for the toggle. An icon click both expands the aside and picks the
+ * tab that was asked for.
+ */
+function ReviewSideRail({
+	side,
+	ariaLabel,
+	items,
+	onExpand,
+}: {
+	side: "left" | "right";
+	ariaLabel: string;
+	items: ReviewSideRailItem[];
+	onExpand: () => void;
+}): ReactElement {
+	return (
+		<div
+			data-testid={`review-side-rail-${side}`}
+			className={cn(
+				"flex w-8 shrink-0 flex-col items-center gap-1 bg-surface-1 py-1",
+				side === "left" ? "border-r border-border" : "border-l border-border",
+			)}
+		>
+			<button
+				type="button"
+				aria-label={ariaLabel}
+				title={ariaLabel}
+				className="cursor-pointer p-1 text-text-tertiary hover:text-text-primary"
+				onClick={onExpand}
+			>
+				{side === "left" ? <ChevronRight size={12} /> : <ChevronLeft size={12} />}
+			</button>
+			{items.map((item) => {
+				const Icon = item.icon;
+				return (
+					<button
+						key={item.id}
+						type="button"
+						aria-label={item.label}
+						title={item.label}
+						data-testid={`review-side-rail-${side}-${item.id}`}
+						className="relative flex w-7 cursor-pointer flex-col items-center gap-0.5 rounded py-1 text-[9px] text-text-tertiary hover:bg-surface-2 hover:text-text-primary"
+						onClick={item.onSelect}
+					>
+						<Icon size={14} />
+						{item.count === null || item.count === undefined ? null : item.count}
+						{item.showAlert ? (
+							<span
+								aria-hidden
+								className="absolute top-0.5 right-0.5 size-1.5 rounded-full bg-status-orange"
+							/>
+						) : null}
+					</button>
+				);
+			})}
 		</div>
 	);
 }

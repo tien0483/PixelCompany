@@ -19,8 +19,7 @@ import { LocalStorageKey } from "@/storage/local-storage-store";
 
 /**
  * The curated tags open as they always have. The two catalog sections do not: together
- * they are ~90 chips, which is not what should sit between the file toolbar and the
- * first line of the diff.
+ * they are ~90 chips, which is not what should fill the flyout the moment it opens.
  */
 const SECTION_PREFERENCES: Record<ReviewTagSectionId, ResizeBooleanPreference> = {
 	tags: { key: LocalStorageKey.ReviewTagStripExpanded, defaultValue: true },
@@ -28,11 +27,13 @@ const SECTION_PREFERENCES: Record<ReviewTagSectionId, ResizeBooleanPreference> =
 	refactorings: { key: LocalStorageKey.ReviewRefactoringSectionExpanded, defaultValue: false },
 };
 
-const DRAG_HINT =
+export const TAG_DRAG_HINT =
 	"Drag a tag onto a diff line to mark a suspect spot, or across several lines — including a hunk's deletions and additions together — to mark the whole run.";
 
-export interface ReviewTagStripProps {
+export interface ReviewTagPaletteProps {
 	sections: ReviewTagSection[];
+	/** Opened on mount alongside whatever the reviewer last left expanded. */
+	initialSectionId?: ReviewTagSectionId;
 	onTagDragStart: (tag: ReviewTag) => void;
 	onTagDragEnd: () => void;
 }
@@ -42,15 +43,21 @@ function matchesFilter(tag: ReviewTag, filter: string): boolean {
 }
 
 /**
- * The drag source for line tags, kept beside the rows it drops onto rather than
- * inside a sidebar tab — the sidebar shows one tab at a time, so a palette there
- * costs a switch away from the file list and back for every single tag.
+ * The drag source for line tags. Lives in a flyout off the diff's own left rail rather
+ * than in a sidebar tab — the sidebar shows one tab at a time, so a palette there costs
+ * a switch away from the file list and back for every single tag.
  */
-export function ReviewTagStrip({ sections, onTagDragStart, onTagDragEnd }: ReviewTagStripProps): ReactElement {
+export function ReviewTagPalette({
+	sections,
+	initialSectionId,
+	onTagDragStart,
+	onTagDragEnd,
+}: ReviewTagPaletteProps): ReactElement {
 	const [expanded, setExpanded] = useState<Record<ReviewTagSectionId, boolean>>(() => ({
-		tags: loadBooleanResizePreference(SECTION_PREFERENCES.tags),
-		smells: loadBooleanResizePreference(SECTION_PREFERENCES.smells),
-		refactorings: loadBooleanResizePreference(SECTION_PREFERENCES.refactorings),
+		tags: initialSectionId === "tags" || loadBooleanResizePreference(SECTION_PREFERENCES.tags),
+		smells: initialSectionId === "smells" || loadBooleanResizePreference(SECTION_PREFERENCES.smells),
+		refactorings:
+			initialSectionId === "refactorings" || loadBooleanResizePreference(SECTION_PREFERENCES.refactorings),
 	}));
 	const [filter, setFilter] = useState("");
 
@@ -67,7 +74,7 @@ export function ReviewTagStrip({ sections, onTagDragStart, onTagDragEnd }: Revie
 	const normalizedFilter = isFilterable ? filter.trim().toLowerCase() : "";
 
 	return (
-		<div className="flex shrink-0 flex-col gap-1 border-b border-border bg-surface-1 px-3 py-1.5">
+		<div className="flex min-h-0 flex-col gap-1 px-3 py-1.5">
 			{isFilterable ? (
 				<div className="flex items-center gap-1">
 					<input
@@ -101,12 +108,12 @@ export function ReviewTagStrip({ sections, onTagDragStart, onTagDragEnd }: Revie
 				const totalCount = countTags(section);
 
 				return (
-					<div key={section.id} className="flex items-start gap-2">
+					<div key={section.id} className="flex flex-col gap-1">
 						<button
 							type="button"
 							aria-expanded={isExpanded}
-							title={DRAG_HINT}
-							className="flex w-28 shrink-0 cursor-pointer items-center gap-1 py-0.5 text-[10px] text-text-secondary hover:text-text-primary"
+							title={TAG_DRAG_HINT}
+							className="flex shrink-0 cursor-pointer items-center gap-1 py-0.5 text-[10px] text-text-secondary hover:text-text-primary"
 							onClick={() => toggle(section.id)}
 						>
 							{isExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
@@ -114,7 +121,7 @@ export function ReviewTagStrip({ sections, onTagDragStart, onTagDragEnd }: Revie
 							{isExpanded && normalizedFilter !== "" ? `${shownCount}/${totalCount}` : totalCount})
 						</button>
 						{isExpanded ? (
-							<div className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
+							<div className="flex min-w-0 flex-wrap items-center gap-1">
 								{groups.length === 0 ? (
 									<span className="py-0.5 text-[10px] text-text-tertiary">No match</span>
 								) : (

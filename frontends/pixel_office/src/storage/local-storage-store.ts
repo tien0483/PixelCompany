@@ -18,6 +18,12 @@ export enum LocalStorageKey {
 	ReviewSmellSectionExpanded = "kanban.review-smell-section-expanded",
 	/** Whether the tag strip's refactoring-technique section is expanded. Defaults to closed — 66 chips. */
 	ReviewRefactoringSectionExpanded = "kanban.review-refactoring-section-expanded",
+	/** Whether the tag rail's flyout stays open across a chip drag instead of getting out of the way. */
+	ReviewTagFlyoutPinned = "kanban.review-tag-flyout-pinned",
+	/** Whether the review workspace's left column is collapsed to its rail. */
+	ReviewLeftPanelCollapsed = "kanban.review-left-panel-collapsed",
+	/** Whether the Claude panel is collapsed to its rail. */
+	ReviewRightPanelCollapsed = "kanban.review-right-panel-collapsed",
 	/** Width of the review workspace's left column (files, impact, threads, rules, annotations). */
 	ReviewSidebarWidth = "kanban.review-sidebar-width",
 	/** Width of the review workspace's right column, the Claude panel. */
@@ -84,6 +90,8 @@ export const LAYOUT_CUSTOMIZATION_LOCAL_STORAGE_KEYS = [
 	LocalStorageKey.GitHistoryRefsPanelWidth,
 	LocalStorageKey.GitHistoryCommitsPanelWidth,
 	LocalStorageKey.GitDiffFileTreePanelRatio,
+	LocalStorageKey.ReviewLeftPanelCollapsed,
+	LocalStorageKey.ReviewRightPanelCollapsed,
 	LocalStorageKey.HomeRightColumnWidth,
 	LocalStorageKey.HomeRightSplitRatio,
 	LocalStorageKey.PlanEditorRawPaneRatio,

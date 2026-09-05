@@ -377,15 +377,38 @@ describe("ReviewDiffPane", () => {
 		return toggle;
 	}
 
-	it("renders no tag strip when the pane is given no annotation wiring", async () => {
+	/** Opens the palette flyout off the diff's tag rail, on the section asked for. */
+	async function openTagRail(sectionId: "tags" | "smells" | "refactorings"): Promise<void> {
+		const button = container.querySelector(`[data-testid="review-tag-rail-${sectionId}"]`);
+		if (!(button instanceof HTMLElement)) {
+			throw new Error(`No tag rail button for ${sectionId}.`);
+		}
+		await act(async () => {
+			button.dispatchEvent(mouseEvent("click"));
+		});
+	}
+
+	it("renders no tag rail when the pane is given no annotation wiring", async () => {
 		await renderPane();
 
+		expect(container.querySelector('[data-testid="review-tag-rail-tags"]')).toBeNull();
 		expect(container.querySelector("button[aria-expanded]")).toBeNull();
 		expect(Array.from(container.querySelectorAll("button")).some((button) => button.draggable)).toBe(false);
 	});
 
-	it("renders every tag as a draggable chip above the diff", async () => {
+	it("keeps the palette off the diff until the rail is asked for", async () => {
 		await renderPane({ withTags: true });
+
+		// The rail is the whole cost of the palette until it is wanted: no flyout over the
+		// rows, no chips, and nothing between the file toolbar and the first line.
+		expect(container.querySelector('[data-testid="review-tag-rail-tags"]')).not.toBeNull();
+		expect(container.querySelector('[data-testid="review-tag-flyout"]')).toBeNull();
+		expect(() => tagChip("Security")).toThrow();
+	});
+
+	it("renders every tag as a draggable chip in the rail's flyout", async () => {
+		await renderPane({ withTags: true });
+		await openTagRail("tags");
 
 		expect(tagChip("Security")).toBeTruthy();
 		expect(tagChip("Naming")).toBeTruthy();
@@ -394,15 +417,37 @@ describe("ReviewDiffPane", () => {
 
 	it("keeps the catalog sections closed until they are asked for", async () => {
 		await renderPane({ withTags: true });
+		await openTagRail("tags");
 
-		// ~90 chips must not be the first thing between the toolbar and the diff.
+		// ~90 chips must not be what opening the curated tags puts over the diff.
 		expect(tagStripToggle("Smells").getAttribute("aria-expanded")).toBe("false");
 		expect(tagStripToggle("Refactorings").getAttribute("aria-expanded")).toBe("false");
 		expect(() => tagChip("Feature Envy")).toThrow();
 	});
 
+	it("opens the catalog section the rail icon names", async () => {
+		await renderPane({ withTags: true });
+		await openTagRail("smells");
+
+		expect(tagChip("Feature Envy")).toBeTruthy();
+		expect(container.textContent).toContain("Couplers");
+	});
+
+	it("stands aside while a chip is in flight, so the drop rows are reachable", async () => {
+		await renderPane({ withTags: true });
+		await openTagRail("tags");
+		expect(container.querySelector('[data-testid="review-tag-flyout"]')).not.toBeNull();
+
+		// A flyout wide enough for the catalog covers the rows the chip has to land on.
+		await renderPane({ withTags: true, draggedTag: { kind: "builtin", label: "Security" } });
+
+		expect(container.querySelector('[data-testid="review-tag-flyout"]')).toBeNull();
+		expect(container.querySelector('[data-testid="review-tag-rail-tags"]')).not.toBeNull();
+	});
+
 	it("gives each chip its own color so a dragged tag is recognisable", async () => {
 		await renderPane({ withTags: true });
+		await openTagRail("tags");
 
 		expect(tagChip("Security").className).toContain("status-red");
 		expect(tagChip("Naming").className).not.toBe(tagChip("Security").className);
@@ -411,6 +456,7 @@ describe("ReviewDiffPane", () => {
 	it("reports the tag a chip drag started on", async () => {
 		const started: ReviewTag[] = [];
 		await renderPane({ withTags: true, onTagDragStart: (tag) => started.push(tag) });
+		await openTagRail("tags");
 
 		await act(async () => {
 			tagChip("Security").dispatchEvent(dragStartEvent());
@@ -422,6 +468,7 @@ describe("ReviewDiffPane", () => {
 	it("drags a code smell once its section is open, and remembers the section", async () => {
 		const started: ReviewTag[] = [];
 		await renderPane({ withTags: true, onTagDragStart: (tag) => started.push(tag) });
+		await openTagRail("tags");
 
 		await act(async () => {
 			tagStripToggle("Smells").dispatchEvent(mouseEvent("click"));
@@ -438,10 +485,7 @@ describe("ReviewDiffPane", () => {
 
 	it("filters the open catalog sections", async () => {
 		await renderPane({ withTags: true });
-
-		await act(async () => {
-			tagStripToggle("Smells").dispatchEvent(mouseEvent("click"));
-		});
+		await openTagRail("smells");
 
 		const filter = container.querySelector('input[aria-label="Filter tags"]');
 		if (!(filter instanceof HTMLInputElement)) {
@@ -455,8 +499,9 @@ describe("ReviewDiffPane", () => {
 		expect(() => tagChip("Security")).toThrow();
 	});
 
-	it("collapses the tag strip and remembers it", async () => {
+	it("collapses a palette section and remembers it", async () => {
 		await renderPane({ withTags: true });
+		await openTagRail("tags");
 
 		await act(async () => {
 			tagStripToggle("Tags").dispatchEvent(mouseEvent("click"));

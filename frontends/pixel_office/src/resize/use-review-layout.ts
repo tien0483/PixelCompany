@@ -8,6 +8,7 @@ import {
 	persistResizePreference,
 	type ResizeNumberPreference,
 } from "@/resize/resize-preferences";
+import { REVIEW_SIDE_RAIL_WIDTH } from "@/resize/use-review-workspace-layout";
 import { LocalStorageKey } from "@/storage/local-storage-store";
 
 /**
@@ -204,6 +205,8 @@ export function useReviewLayout({
 	workspaceHeight,
 	hasFindings,
 	hasDrafts,
+	isSidebarCollapsed = false,
+	isClaudePanelCollapsed = false,
 }: {
 	/** Width of the three-column row. Null or 0 until it has been laid out. */
 	containerWidth: number | null;
@@ -214,6 +217,13 @@ export function useReviewLayout({
 	hasFindings: boolean;
 	/** Whether the drafts row is currently mounted. */
 	hasDrafts: boolean;
+	/**
+	 * Collapsed columns are on screen as 32px rails, so that — not their stored width —
+	 * is what the opposite column has to reserve. Without this, collapsing one aside
+	 * would free space the other still refuses to grow into.
+	 */
+	isSidebarCollapsed?: boolean;
+	isClaudePanelCollapsed?: boolean;
 }): ReviewLayout {
 	const [sidebarWidth, setSidebarWidthState] = useState(() => loadResizePreference(SIDEBAR_WIDTH_PREFERENCE));
 	const [claudePanelWidth, setClaudePanelWidthState] = useState(() =>
@@ -257,12 +267,20 @@ export function useReviewLayout({
 	// The Claude column is clamped first because the sidebar's clamp reserves it, which
 	// is the same order `useGitHistoryLayout` resolves its two widths in.
 	const { displaySidebarWidth, displayClaudePanelWidth } = useMemo(() => {
-		const clampedClaudePanelWidth = clampReviewClaudePanelWidth(claudePanelWidth, containerWidth, sidebarWidth);
+		const clampedClaudePanelWidth = clampReviewClaudePanelWidth(
+			claudePanelWidth,
+			containerWidth,
+			isSidebarCollapsed ? REVIEW_SIDE_RAIL_WIDTH : sidebarWidth,
+		);
 		return {
 			displayClaudePanelWidth: clampedClaudePanelWidth,
-			displaySidebarWidth: clampReviewSidebarWidth(sidebarWidth, containerWidth, clampedClaudePanelWidth),
+			displaySidebarWidth: clampReviewSidebarWidth(
+				sidebarWidth,
+				containerWidth,
+				isClaudePanelCollapsed ? REVIEW_SIDE_RAIL_WIDTH : clampedClaudePanelWidth,
+			),
 		};
-	}, [claudePanelWidth, containerWidth, sidebarWidth]);
+	}, [claudePanelWidth, containerWidth, isClaudePanelCollapsed, isSidebarCollapsed, sidebarWidth]);
 
 	const stackHeights = useMemo(() => {
 		// Each row is clamped against the two others *as rendered*, so an unmounted row
